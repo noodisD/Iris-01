@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: iris_postgres_test
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-iris_db}
+      POSTGRES_USER: ${POSTGRES_USER:-iris_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5
+    container_name: iris_neo4j_test
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD is not set}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 2G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      target: runtime
+    container_name: iris_agent
+    depends_on:
+      - postgres
+      - neo4j
+    env_file:
+      - .env
+    volumes:
+      - iris_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  iris_data:

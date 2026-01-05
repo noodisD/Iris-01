@@ -1,0 +1,444 @@
+"""
+Persistence Engine - Tracks What Keeps Coming Back
+
+This module detects semantic repetition in journal entries and conversations.
+It answers: "What ideas or themes keep coming back?"
+
+The engine does not judge. It simply surfaces persistence.
+- Semantic: detects meaning, not keywords
+- Time-aware: tracks when themes recur
+- Evidence-backed: links to actual entries
+- Neutral: no analysis, no advice, just observation
+"""
+
+import logging
+from datetime import datetime
+from typing import Optional, List, Any
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# Import database and constants
+from .database import db
+from .confidence import ConfidenceEngine
+from .evidence import EvidenceEngine
+from .constants import (
+    PERSISTENCE_SIMILARITY_THRESHOLD,
+    PERSISTENCE_MIN_CLUSTER_SIZE
+)
+
+logger = logging.getLogger(__name__)
+
+# Try to import hdbscan, with fallback
+try:
+    from hdbscan import HDBSCAN
+    HAS_HDBSCAN = True
+except ImportError:
+    HAS_HDBSCAN = False
+    logger.warning("hdbscan not installed. Theme discovery will not work.")
+
+
+class PersistenceEngine:
+    """
+    Tracks what keeps coming back by finding semantic themes in journal entries.
+
+    Core principle: An entry is assigned if it appears in theme_occurrences.
+    One entry matches at most one theme (first match wins).
+    """
+
+    def __init__(self, user_id: int):
+        """Initialize the persistence engine for a user."""
+        self.user_id = user_id
+        self.similarity_threshold = PERSISTENCE_SIMILARITY_THRESHOLD
+        self.min_cluster_size = PERSISTENCE_MIN_CLUSTER_SIZE
+        self.conf_engine = ConfidenceEngine()
+        self.ev_engine = EvidenceEngine()
+        self._evidence = []
+
+    def emit_evidence(self, ev_type: str, key: str, value: Any):
+        """Buffers evidence for later persistence."""
+        self._evidence.append({"type": ev_type, "key": key, "value": value})
+
+    # === Real-time Detection ===
+
+    def check_persistence(self, embedding: list, source_type: str,
+                         source_id: int, content: str, occurred_at: datetime) -> Optional[int]:
+        """
+        Called by pipeline for each new entry.
+        Checks if this content matches any existing theme.
+        First match above threshold wins (one entry → one theme max).
+
+        Args:
+            embedding: The embedding vector (1536-dim)
+            source_type: 'journal_entry' or 'message'
+            source_id: ID of the source entry
+            content: The text content
+            occurred_at: When this occurred
+
+        Returns:
+            The matched theme_id if found, else None
+        """
+        themes = self._get_user_themes()
+        if not themes:
+            return None
+
+        embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
+
+        for theme in themes:
+            centroid = np.array(theme["centroid_embedding"], dtype=np.float32).reshape(1, -1)
+            similarity = cosine_similarity(embedding_array, centroid)[0][0]
+
+            if similarity >= self.similarity_threshold:
+                # Record occurrence and update stats
+                snippet = self._extract_snippet(content)
+                db.add_theme_occurrence(
+                    theme_id=theme["id"],
+                    source_type=source_type,
+                    source_id=source_id,
+                    snippet=snippet,
+                    similarity_score=float(similarity),
+                    occurred_at=occurred_at.isoformat()
+                )
+                db.update_theme_stats(theme["id"], occurred_at.isoformat())
+                logger.info(f"Matched entry {source_id} to theme {theme['id']} "
+                           f"(similarity: {similarity:.3f})")
+                return theme["id"]  # First match wins
+
+        return None
+
+    # === Theme Discovery ===
+
+    def discover_themes(self) -> List[dict]:
+        """
+        Clusters unassigned entries to find new themes.
+        Run periodically or on-demand.
+
+        Returns:
+            List of newly created themes
+        """
+        if not HAS_HDBSCAN:
+            logger.error("hdbscan not installed. Cannot discover themes.")
+            return []
+
+        # 1. Get entries not yet assigned to any theme
+        unassigned = db.get_unassigned_embeddings(self.user_id)
+        if len(unassigned) < self.min_cluster_size:
+            logger.info(f"Not enough unassigned entries ({len(unassigned)}) "
+                       f"for theme discovery (min: {self.min_cluster_size})")
+            return []
+
+        logger.info(f"Discovering themes from {len(unassigned)} unassigned entries")
+
+        # 2. Extract embeddings and metadata
+        vectors = []
+        entries = []
+        for item in unassigned:
+            vectors.append(item["vector"])
+            entries.append({
+                "source_type": item["source_type"],
+                "source_id": item["source_id"],
+                "created_at": item["created_at"]
+            })
+
+        vectors_array = np.array(vectors, dtype=np.float32)
+
+        # 3. Cluster using HDBSCAN
+        # Normalize vectors and use euclidean (mathematically equivalent to cosine for clustering)
+        # This is more robust than using the 'cosine' metric directly in many HDBSCAN versions
+        try:
+            norms = np.linalg.norm(vectors_array, axis=1, keepdims=True)
+            normalized_vectors = vectors_array / (norms + 1e-10)
+            
+            clusterer = HDBSCAN(
+                min_cluster_size=self.min_cluster_size,
+                min_samples=1,
+                metric='euclidean',
+                cluster_selection_method='leaf',
+                allow_single_cluster=True
+            )
+            cluster_labels = clusterer.fit_predict(normalized_vectors)
+            logger.info(f"HDBSCAN clustering found labels: {set(cluster_labels)}")
+        except Exception as e:
+            logger.error(f"HDBSCAN clustering failed: {e}")
+            return []
+
+        # 4. Create themes from clusters
+        new_themes = []
+        unique_labels = set(cluster_labels)
+        for label in unique_labels:
+            if label == -1:  # Skip noise points
+                continue
+
+            cluster_indices = np.where(cluster_labels == label)[0]
+            cluster_vectors = vectors_array[cluster_indices]
+            cluster_entries = [entries[i] for i in cluster_indices]
+
+            theme = self._create_theme_from_cluster(cluster_vectors, cluster_entries)
+            if theme:
+                new_themes.append(theme)
+
+        logger.info(f"Discovered {len(new_themes)} new themes")
+        return new_themes
+
+    def _create_theme_from_cluster(self, vectors: np.ndarray,
+                                  entries: List[dict]) -> Optional[dict]:
+        """
+        Creates a theme from a cluster of vectors.
+
+        Args:
+            vectors: Cluster vectors (N x 1536)
+            entries: Entry metadata corresponding to each vector
+
+        Returns:
+            Created theme dict or None on error
+        """
+        # Compute centroid
+        centroid = np.mean(vectors, axis=0)
+
+        # Get earliest and latest timestamps (handle both datetime and string)
+        timestamps = []
+        for e in entries:
+            created_at = e["created_at"]
+            if isinstance(created_at, datetime):
+                timestamps.append(created_at)
+            else:
+                timestamps.append(datetime.fromisoformat(str(created_at)))
+        first_seen = min(timestamps)
+        last_seen = max(timestamps)
+
+        # Generate theme summary (use LLM to create neutral summary)
+        try:
+            summary = self._generate_theme_summary(entries)
+        except Exception as e:
+            logger.error(f"Failed to generate theme summary: {e}")
+            summary = f"Theme from {len(entries)} related entries"
+
+        # Create theme in database
+        try:
+            theme_id = db.create_theme(
+                user_id=self.user_id,
+                centroid_embedding=centroid.tolist(),
+                summary=summary,
+                first_seen_at=first_seen.isoformat(),
+                last_seen_at=last_seen.isoformat()
+            )
+
+            # Record initial occurrences
+            for i, entry in enumerate(entries):
+                snippet = self._get_entry_snippet(entry["source_id"])
+                similarity = cosine_similarity(
+                    centroid.reshape(1, -1),
+                    vectors[i].reshape(1, -1)
+                )[0][0]
+
+                db.add_theme_occurrence(
+                    theme_id=theme_id,
+                    source_type=entry["source_type"],
+                    source_id=entry["source_id"],
+                    snippet=snippet,
+                    similarity_score=float(similarity),
+                    occurred_at=entry["created_at"]
+                )
+
+            logger.info(f"Created theme {theme_id} with {len(entries)} initial occurrences")
+            return {
+                "id": theme_id,
+                "summary": summary,
+                "occurrence_count": len(entries)
+            }
+        except Exception as e:
+            logger.error(f"Failed to create theme: {e}")
+            return None
+
+    def _generate_theme_summary(self, entries: List[dict]) -> str:
+        """
+        Generate a brief, neutral summary of what a theme is about.
+        Uses the LLM once per theme creation.
+
+        Args:
+            entries: List of entry metadata
+
+        Returns:
+            A short summary (5-10 words)
+        """
+        # Get actual text snippets
+        snippets = []
+        for entry in entries[:3]:  # Use first 3 entries for context
+            text = db.get_journal_entry_content(entry["source_id"])
+            if text:
+                # Truncate to first 150 chars
+                snippets.append(text[:150])
+
+        if not snippets:
+            return "Recurring theme"
+
+        # Use LLM to summarize
+        from .intelligence import Intelligence
+        intelligence = Intelligence(model="gpt-4o-mini")
+
+        prompt = f"""These journal excerpts share a common semantic theme.
+Create a neutral, observational summary of the theme in 5-10 words.
+Do NOT interpret, judge, or offer advice.
+Just name what keeps coming back.
+
+Excerpts:
+{chr(10).join(f'- "{s}"' for s in snippets)}
+
+Theme summary:"""
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            summary = intelligence.chat(
+                messages=messages,
+                system_prompt="You are a neutral observer. Describe patterns without judgment.",
+                temperature=0.5,
+                max_tokens=20
+            )
+            return summary.strip()
+        except Exception as e:
+            logger.error(f"LLM summary generation failed: {e}")
+            return "Recurring theme"
+
+    # === Querying ===
+
+    def get_persistent_themes(self, min_occurrences: int = 2) -> List[dict]:
+        """
+        Returns themes that have recurred, sorted by occurrence count.
+        Also computes and caches confidence for each theme.
+        """
+        all_themes = self._get_user_themes()
+        persistent = [t for t in all_themes if t["occurrence_count"] >= min_occurrences]
+        
+        for t in persistent:
+            # 1. Check cache first
+            conf = db.get_confidence('theme', t['id'])
+            if not conf or conf.get('last_computed_at') is None:
+                # 2. Compute if stale/missing
+                self._evidence = [] # Clear buffer
+                occs = self.get_theme_evidence(t['id'])
+                timestamps = []
+                for o in occs:
+                    dt = o['occurred_at']
+                    if not isinstance(dt, datetime):
+                        dt = datetime.fromisoformat(str(dt))
+                    timestamps.append(dt)
+                
+                conf = self.conf_engine.compute_confidence('theme', t['id'], timestamps)
+                
+                # Emit raw components as evidence
+                self.emit_evidence('count', 'occurrence_count', conf['data_points_count'])
+                self.emit_evidence('window', 'time_coverage_days', conf['time_coverage_days'])
+                self.emit_evidence('rate', 'recency_score', conf['recency_score'])
+                
+                # 3. Store in central registry
+                db.create_or_update_confidence(
+                    'theme', t['id'],
+                    conf['confidence_level'], conf['confidence_score'],
+                    conf['data_points_count'], conf['time_coverage_days'],
+                    conf['consistency_score'], conf['recency_score']
+                )
+                
+                # 4. Record evidence bundle
+                self.ev_engine.record_evidence('persistence', 'theme', t['id'], self._evidence)
+            
+            t['confidence'] = conf['confidence_level']
+            t['confidence_score'] = conf['confidence_score']
+            
+        return persistent
+
+    def get_theme_evidence(self, theme_id: int) -> List[dict]:
+        """
+        Returns all occurrences of a theme with chronological timeline.
+
+        Args:
+            theme_id: The theme to get evidence for
+
+        Returns:
+            List of occurrences with source information
+        """
+        return db.get_theme_occurrences(theme_id)
+
+    def get_theme_timeline(self, theme_id: int) -> str:
+        """
+        Returns formatted chronological timeline of when theme appeared.
+
+        Args:
+            theme_id: The theme to get timeline for
+
+        Returns:
+            Formatted timeline string
+        """
+        occurrences = self.get_theme_evidence(theme_id)
+        if not occurrences:
+            return "No occurrences recorded."
+
+        lines = []
+        for occ in occurrences:
+            # Handle both datetime objects and strings
+            occurred_at = occ["occurred_at"]
+            if isinstance(occurred_at, datetime):
+                date_str = occurred_at.strftime("%Y-%m-%d")
+            else:
+                date_str = str(occurred_at).split("T")[0]
+
+            snippet = occ["snippet"][:80] if occ["snippet"] else "(no text)"
+            score = f"{occ['similarity_score']:.2f}"
+            lines.append(f"  {date_str}  \"{snippet}\" (confidence: {score})")
+
+        return "TIMELINE:\n\n" + "\n\n".join(lines)
+
+    # === Context for LLM ===
+
+    def format_for_context(self, max_themes: int = 5) -> str:
+        """
+        Formats recurring themes for injection into LLM context.
+
+        Args:
+            max_themes: Maximum themes to include
+
+        Returns:
+            Formatted string for system prompt injection, or empty if no themes
+        """
+        themes = self.get_persistent_themes(min_occurrences=2)
+        if not themes:
+            return ""
+
+        themes = themes[:max_themes]
+
+        lines = ["# What Keeps Coming Back:"]
+        for theme in themes:
+            count = theme["occurrence_count"]
+            summary = theme["summary"]
+
+            # Handle both datetime objects and strings
+            first_seen = theme["first_seen_at"]
+            if isinstance(first_seen, datetime):
+                first = first_seen.strftime("%Y-%m-%d")
+            else:
+                first = str(first_seen).split("T")[0]
+
+            last_seen = theme["last_seen_at"]
+            if isinstance(last_seen, datetime):
+                last = last_seen.strftime("%Y-%m-%d")
+            else:
+                last = str(last_seen).split("T")[0]
+
+            lines.append(f'- "{summary}" ({count} times, last: {last})')
+
+        return "\n".join(lines)
+
+    # === Private Helpers ===
+
+    def _get_user_themes(self) -> List[dict]:
+        """Retrieve all themes for this user."""
+        return db.get_themes(self.user_id)
+
+    def _extract_snippet(self, text: str, max_length: int = 200) -> str:
+        """Extract a snippet from text."""
+        if not text:
+            return ""
+        return text[:max_length]
+
+    def _get_entry_snippet(self, entry_id: int, max_length: int = 200) -> str:
+        """Get snippet from a journal entry."""
+        text = db.get_journal_entry_content(entry_id)
+        return self._extract_snippet(text, max_length) if text else ""
