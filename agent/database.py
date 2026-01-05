@@ -1,0 +1,1601 @@
+"""
+Database Layer - PostgreSQL Source of Truth
+
+This module is the only part of the application that should interact directly with PostgreSQL.
+It enforces the single source of truth principle. All data, including embeddings,
+is stored here canonically.
+"""
+
+import os
+import logging
+import hashlib
+import psycopg2
+from typing import Any
+from psycopg2.extras import Json
+from .config import settings
+
+# Use pgvector extension
+from pgvector.psycopg2 import register_vector
+
+logger = logging.getLogger(__name__)
+
+def hash_password(password: str) -> str:
+    """Hashes a password for secure storage."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+class Database:
+    """Manages the PostgreSQL database connection and all data persistence."""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Database, cls).__new__(cls)
+            cls._instance.conn = None
+            cls._instance._connect()
+        return cls._instance
+
+    def _connect(self):
+        """Establish a connection to the PostgreSQL database."""
+        if self.conn is not None and not self.conn.closed:
+            return
+
+        logger.info(f"Connecting to PostgreSQL at {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}...")
+        try:
+            self.conn = psycopg2.connect(
+                dbname=settings.POSTGRES_DB,
+                user=settings.POSTGRES_USER,
+                password=settings.POSTGRES_PASSWORD,
+                host=settings.POSTGRES_HOST,
+                port=settings.POSTGRES_PORT
+            )
+            logger.info("Successfully connected to PostgreSQL.")
+        except psycopg2.OperationalError as e:
+            logger.error(f"Failed to connect to PostgreSQL: {e}")
+            self.conn = None
+            # In a real app, you might want to retry or handle this more gracefully
+            raise
+
+    def get_connection(self):
+        """Returns the current database connection, ensuring it's active."""
+        if self.conn is None or self.conn.closed:
+            self._connect()
+        return self.conn
+
+    def close_connection(self):
+        """Closes the database connection."""
+        if self.conn and not self.conn.closed:
+            self.conn.close()
+            logger.info("PostgreSQL connection closed.")
+
+    def create_schema(self):
+        """
+        Creates the necessary tables and extensions in the database.
+        This method is idempotent and safe to run multiple times.
+        """
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # Enable pgvector extension
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                register_vector(conn) # Register vector type for psycopg2
+                logger.info("Ensured vector extension is enabled and registered.")
+
+                # Users table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        password_hash VARCHAR(256) NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured users table exists.")
+
+                # Journal entries table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS journal_entries (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        raw_text TEXT NOT NULL,
+                        wellbeing_data JSONB,
+                        processing_status VARCHAR(20) DEFAULT 'pending', -- pending, processing, complete, failed
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured journal_entries table exists.")
+
+                # Conversation messages table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS conversation_messages (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        session_id VARCHAR(50) NOT NULL,
+                        role VARCHAR(20) NOT NULL, -- user, assistant
+                        content TEXT NOT NULL,
+                        processing_status VARCHAR(20) DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured conversation_messages table exists.")
+
+                # Embeddings table (canonical store)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        source_type VARCHAR(50) NOT NULL, -- e.g., 'journal_entry', 'message'
+                        source_id INTEGER NOT NULL,
+                        model_name VARCHAR(100) NOT NULL,
+                        vector VECTOR(1536) NOT NULL, -- Assuming OpenAI's ada-002 dimension
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(source_type, source_id, model_name)
+                    );
+                """)
+                logger.info("Ensured embeddings table exists.")
+
+                # Themes table (discovered semantic themes)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS themes (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        centroid_embedding VECTOR(1536) NOT NULL,
+                        summary TEXT,
+                        first_seen_at TIMESTAMPTZ NOT NULL,
+                        last_seen_at TIMESTAMPTZ NOT NULL,
+                        occurrence_count INTEGER DEFAULT 1,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured themes table exists.")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_themes_user ON themes(user_id);")
+
+                # Theme occurrences table (evidence)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS theme_occurrences (
+                        id SERIAL PRIMARY KEY,
+                        theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+                        source_type VARCHAR(50) NOT NULL,
+                        source_id INTEGER NOT NULL,
+                        snippet TEXT,
+                        similarity_score FLOAT NOT NULL,
+                        occurred_at TIMESTAMPTZ NOT NULL,
+                        UNIQUE(theme_id, source_type, source_id)
+                    );
+                """)
+                logger.info("Ensured theme_occurrences table exists.")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_occurrences_theme ON theme_occurrences(theme_id, occurred_at DESC);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_occurrences_source ON theme_occurrences(source_type, source_id);")
+
+                # Theme trajectories table (cache for computed trends)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS theme_trajectories (
+                        theme_id INTEGER PRIMARY KEY REFERENCES themes(id) ON DELETE CASCADE,
+                        trajectory_label VARCHAR(50),  -- 'emerging', 'increasing', 'stable', 'fading'
+                        trend_score FLOAT,             -- signed slope
+                        recent_count INTEGER,
+                        past_count INTEGER,
+                        confidence_level VARCHAR(20),  -- 'low', 'medium', 'high'
+                        data_points_count INTEGER,     -- number of occurrences used in calculation
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured theme_trajectories table exists.")
+
+                # Theme tensions table (cache for computed tensions between theme pairs)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS theme_tensions (
+                        id SERIAL PRIMARY KEY,
+                        theme_a_id INTEGER REFERENCES themes(id) ON DELETE CASCADE,
+                        theme_b_id INTEGER REFERENCES themes(id) ON DELETE CASCADE,
+
+                        cooccurrence_count INTEGER,
+                        recent_cooccurrence_count INTEGER,
+                        past_cooccurrence_count INTEGER,
+
+                        divergence_score FLOAT,          -- difference in trajectory or frequency
+                        stability_score FLOAT,           -- how consistently this pair appears
+                        tension_label VARCHAR(50),       -- 'persistent', 'emerging', 'fading', 'intermittent'
+                        confidence_level VARCHAR(20),    -- 'low', 'medium', 'high'
+
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+                        UNIQUE(theme_a_id, theme_b_id)
+                    );
+                """)
+                logger.info("Ensured theme_tensions table exists.")
+
+                # Pattern resolutions table (cache for resolution status)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pattern_resolutions (
+                        id SERIAL PRIMARY KEY,
+                        pattern_type VARCHAR(20) NOT NULL,   -- 'theme' | 'tension'
+                        pattern_id INTEGER NOT NULL,
+
+                        resolution_label VARCHAR(50),        -- 'dissipated' | 'stabilized' | 'persisting' | 'reappearing'
+                        attenuation_score FLOAT,             -- 1.0 = dissipated, 0.0 = stable
+                        confidence_level VARCHAR(20),        -- 'low' | 'medium' | 'high'
+
+                        recent_count INTEGER,
+                        past_count INTEGER,
+
+                        -- Cache Invariant: NULL means invalid/stale. NOT NULL means valid snapshot.
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+                        UNIQUE(pattern_type, pattern_id)
+                    );
+                """)
+                logger.info("Ensured pattern_resolutions table exists.")
+
+                # Pattern leverage table (cache for influence relationships)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pattern_leverage (
+                        id SERIAL PRIMARY KEY,
+                        source_type VARCHAR(20) NOT NULL,   -- 'theme' | 'tension'
+                        source_id INTEGER NOT NULL,
+                        target_type VARCHAR(20) NOT NULL,
+                        target_id INTEGER NOT NULL,
+
+                        influence_score FLOAT,              -- normalized 0–1
+                        directional_lift FLOAT,             -- asymmetry metric (-1 to 1)
+                        cooccurrence_count INTEGER,
+                        confidence_level VARCHAR(20),        -- 'low' | 'medium' | 'high'
+
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+                        UNIQUE(source_type, source_id, target_type, target_id)
+                    );
+                """)
+                logger.info("Ensured pattern_leverage table exists.")
+
+                # Decision impacts table (cache for post-hoc sequence analysis)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS decision_impacts (
+                        id SERIAL PRIMARY KEY,
+
+                        anchor_type VARCHAR(20) NOT NULL,     -- 'theme' | 'tension'
+                        anchor_id INTEGER NOT NULL,
+
+                        target_type VARCHAR(20) NOT NULL,     -- 'theme' | 'tension'
+                        target_id INTEGER NOT NULL,
+
+                        effect_direction VARCHAR(20),         -- 'increase' | 'decrease' | 'emergence' | 'fade'
+                        delta_score FLOAT,                    -- signed relative change
+                        anchor_count INTEGER,                 -- number of anchor events analyzed
+                        target_count INTEGER,                 -- total target observations
+
+                        confidence_level VARCHAR(20),         -- 'low' | 'medium' | 'high'
+
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+                        UNIQUE(anchor_type, anchor_id, target_type, target_id)
+                    );
+                """)
+                logger.info("Ensured decision_impacts table exists.")
+
+                # Pattern confidence table (central registry for reliability audit)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pattern_confidence (
+                        id SERIAL PRIMARY KEY,
+
+                        pattern_type VARCHAR(30) NOT NULL,   -- 'theme', 'trajectory', 'tension', 'leverage', 'impact'
+                        pattern_id INTEGER NOT NULL,
+
+                        confidence_level VARCHAR(20),        -- 'low', 'medium', 'high'
+                        confidence_score FLOAT,              -- 0.0–1.0 (weighted aggregate)
+                        
+                        data_points_count INTEGER,
+                        time_coverage_days INTEGER,
+                        consistency_score FLOAT,
+                        recency_score FLOAT,
+
+                        last_computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+                        UNIQUE(pattern_type, pattern_id)
+                    );
+                """)
+                logger.info("Ensured pattern_confidence table exists.")
+
+                # Pattern evidence table (immutable audit trail)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pattern_evidence (
+                        id SERIAL PRIMARY KEY,
+                        computation_id UUID NOT NULL,        -- Groups evidence from a single run
+                        pattern_type VARCHAR(30) NOT NULL,   -- 'theme', 'trajectory', etc.
+                        pattern_id INTEGER NOT NULL,
+                        engine_name VARCHAR(50) NOT NULL,    -- 'resolution', 'leverage', etc.
+                        
+                        evidence_type VARCHAR(50) NOT NULL,  -- 'count', 'rate', 'delta', 'window'
+                        evidence_key VARCHAR(100) NOT NULL,  -- machine label
+                        evidence_value JSONB NOT NULL,       -- raw data
+                        
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_evidence_pattern ON pattern_evidence(pattern_type, pattern_id, created_at DESC);")
+                logger.info("Ensured pattern_evidence table exists.")
+
+                # Insight priorities table (cache for ranking audit)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS insight_priorities (
+                        id SERIAL PRIMARY KEY,
+                        insight_id TEXT NOT NULL,        -- engine:type:id
+                        engine_name VARCHAR(50),
+                        pattern_type VARCHAR(20),
+                        pattern_id INTEGER,
+
+                        priority_score FLOAT,
+                        rank INTEGER,
+
+                        computed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(insight_id)
+                    );
+                """)
+                logger.info("Ensured insight_priorities table exists.")
+
+                # User preferences table (gates and thresholds)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_preferences (
+                        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                        min_confidence VARCHAR(20) DEFAULT 'medium' 
+                            CHECK (min_confidence IN ('low', 'medium', 'high')),
+                        max_items INTEGER DEFAULT 5,
+                        enabled_engines JSONB, -- NULL means all enabled
+                        show_suppressed BOOLEAN DEFAULT FALSE,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured user_preferences table exists.")
+
+                # Preference audit table (traceability)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS preference_audit (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        setting_key VARCHAR(50) NOT NULL,
+                        old_value TEXT,
+                        new_value TEXT,
+                        changed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured preference_audit table exists.")
+
+                conn.commit()
+                logger.info("Database schema is up to date.")
+            except psycopg2.Error as e:
+                logger.error(f"Error creating schema: {e}")
+                conn.rollback()
+                raise
+
+    # ============================================================================
+    # User Methods
+    # ============================================================================
+
+    def create_user(self, username: str, password: str) -> int:
+        """Creates a new user and returns the user ID."""
+        password_hash = hash_password(password)
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id;",
+                    (username, password_hash)
+                )
+                user_id = cur.fetchone()[0]
+                conn.commit()
+                logger.info(f"Created new user '{username}' with ID {user_id}.")
+                return user_id
+            except psycopg2.IntegrityError:
+                conn.rollback()
+                logger.warning(f"Attempted to create a user that already exists: {username}")
+                raise ValueError("Username already exists.")
+
+    def get_user(self, username: str) -> dict:
+        """Retrieves a user by username."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s;", (username,))
+            user_data = cur.fetchone()
+            if user_data:
+                return {"id": user_data[0], "username": user_data[1], "password_hash": user_data[2]}
+            return None
+
+    def verify_user(self, username: str, password: str) -> dict:
+        """Verifies a user's password and returns user data if valid."""
+        user = self.get_user(username)
+        if user and user["password_hash"] == hash_password(password):
+            logger.info(f"Successfully verified user '{username}'.")
+            return user
+        logger.warning(f"Failed verification attempt for user '{username}'.")
+        return None
+
+    # ============================================================================
+    # Journal Entry Methods
+    # ============================================================================
+
+    def create_journal_entry(self, user_id: int, raw_text: str, wellbeing_data: dict) -> int:
+        """Creates a new journal entry and returns its ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO journal_entries (user_id, raw_text, wellbeing_data)
+                VALUES (%s, %s, %s) RETURNING id;
+                """,
+                (user_id, raw_text, Json(wellbeing_data))
+            )
+            entry_id = cur.fetchone()[0]
+            conn.commit()
+            return entry_id
+
+    # ============================================================================
+    # Conversation Message Methods
+    # ============================================================================
+
+    def create_conversation_message(self, user_id: int, session_id: str, role: str, content: str) -> int:
+        """Creates a new conversation message and returns its ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO conversation_messages (user_id, session_id, role, content)
+                VALUES (%s, %s, %s, %s) RETURNING id;
+                """,
+                (user_id, session_id, role, content)
+            )
+            message_id = cur.fetchone()[0]
+            conn.commit()
+            return message_id
+
+    # ============================================================================
+    # Embedding Methods
+    # ============================================================================
+
+    def add_embedding(self, source_type: str, source_id: int, model_name: str, vector: list):
+        """Stores a vector embedding for a source item."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO embeddings (source_type, source_id, model_name, vector)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (source_type, source_id, model_name) DO UPDATE
+                    SET vector = EXCLUDED.vector;
+                    """,
+                    (source_type, source_id, model_name, vector)
+                )
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to add embedding for {source_type} ID {source_id}: {e}")
+                raise
+
+    # ============================================================================
+    # Processing Status Methods
+    # ============================================================================
+
+    def update_processing_status(self, source_type: str, source_id: int, status: str):
+        """Updates the processing status of an item (e.g., a journal entry)."""
+        table_map = {
+            'journal_entry': 'journal_entries',
+            'message': 'conversation_messages'
+        }
+        if source_type not in table_map:
+            raise ValueError(f"Invalid source_type: {source_type}")
+        
+        table_name = table_map[source_type]
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE {table_name} SET processing_status = %s WHERE id = %s;",
+                (status, source_id)
+            )
+            conn.commit()
+
+    def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10) -> list:
+        """Retrieves items that are pending processing, including necessary metadata."""
+        table_map = {
+            'journal_entry': 'journal_entries',
+            'message': 'conversation_messages'
+        }
+        if source_type not in table_map:
+            raise ValueError(f"Invalid source_type: {source_type}")
+
+        table_name = table_map[source_type]
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            if source_type == 'journal_entry':
+                cur.execute(
+                    f"SELECT id, user_id, raw_text as content, created_at FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    (status, limit)
+                )
+                items = cur.fetchall()
+                return [{"id": row[0], "user_id": row[1], "content": row[2], "created_at": row[3]} for row in items]
+            elif source_type == 'message':
+                cur.execute(
+                    f"SELECT id, user_id, content FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    (status, limit)
+                )
+                items = cur.fetchall()
+                return [{"id": row[0], "user_id": row[1], "content": row[2]} for row in items]
+
+    # ============================================================================
+    # Theme Methods (Persistence Engine)
+    # ============================================================================
+
+    def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
+                    first_seen_at: str, last_seen_at: str) -> int:
+        """Creates a new theme and returns its ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at, last_seen_at)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                    """,
+                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at)
+                )
+                theme_id = cur.fetchone()[0]
+                conn.commit()
+                logger.info(f"Created theme ID {theme_id} for user {user_id}")
+                return theme_id
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create theme: {e}")
+                raise
+
+    def get_themes(self, user_id: int) -> list:
+        """Retrieves all themes for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
+                       occurrence_count FROM themes WHERE user_id = %s ORDER BY occurrence_count DESC;
+                """,
+                (user_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "centroid_embedding": row[1],
+                    "summary": row[2],
+                    "first_seen_at": row[3],
+                    "last_seen_at": row[4],
+                    "occurrence_count": row[5]
+                }
+                for row in rows
+            ]
+
+    def get_theme_by_id(self, theme_id: int) -> dict:
+        """Retrieves a specific theme by ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
+                       occurrence_count, user_id FROM themes WHERE id = %s;
+                """,
+                (theme_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                return {
+                    "id": row[0],
+                    "centroid_embedding": row[1],
+                    "summary": row[2],
+                    "first_seen_at": row[3],
+                    "last_seen_at": row[4],
+                    "occurrence_count": row[5],
+                    "user_id": row[6]
+                }
+            return None
+
+    def update_theme_stats(self, theme_id: int, last_seen_at: str):
+        """Updates theme's last_seen_at and increments occurrence_count."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE themes SET last_seen_at = %s, occurrence_count = occurrence_count + 1
+                    WHERE id = %s;
+                    """,
+                    (last_seen_at, theme_id)
+                )
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to update theme stats: {e}")
+                raise
+
+    def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
+                            snippet: str, similarity_score: float, occurred_at: str):
+        """Records that a theme occurred at a specific entry."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO theme_occurrences
+                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (theme_id, source_type, source_id) DO UPDATE
+                    SET snippet = EXCLUDED.snippet, similarity_score = EXCLUDED.similarity_score;
+                    """,
+                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
+                )
+                
+                # Invalidate caches
+                cur.execute("UPDATE pattern_resolutions SET last_computed_at = NULL WHERE pattern_type = 'theme' AND pattern_id = %s;", (theme_id,))
+                cur.execute("UPDATE theme_tensions SET last_computed_at = NULL WHERE theme_a_id = %s OR theme_b_id = %s;", (theme_id, theme_id))
+                self.invalidate_leverage_for_source('theme', theme_id)
+                self.invalidate_decision_impacts('theme', theme_id)
+                self.invalidate_pattern_confidence('theme', theme_id)
+                
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to add theme occurrence: {e}")
+                raise
+
+    def get_theme_occurrences(self, theme_id: int) -> list:
+        """Retrieves all occurrences of a theme."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT source_type, source_id, snippet, similarity_score, occurred_at
+                FROM theme_occurrences WHERE theme_id = %s ORDER BY occurred_at DESC;
+                """,
+                (theme_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "source_type": row[0],
+                    "source_id": row[1],
+                    "snippet": row[2],
+                    "similarity_score": row[3],
+                    "occurred_at": row[4]
+                }
+                for row in rows
+            ]
+
+    def get_unassigned_embeddings(self, user_id: int) -> list:
+        """
+        Retrieves embeddings that haven't been assigned to any theme.
+        An embedding is assigned if it appears in theme_occurrences.
+        """
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.id, e.source_type, e.source_id, e.vector, e.created_at
+                FROM embeddings e
+                WHERE e.source_type = 'journal_entry'
+                AND NOT EXISTS (
+                    SELECT 1 FROM theme_occurrences occ
+                    WHERE occ.source_type = e.source_type AND occ.source_id = e.source_id
+                )
+                AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)
+                ORDER BY e.created_at DESC;
+                """,
+                (user_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "embedding_id": row[0],
+                    "source_type": row[1],
+                    "source_id": row[2],
+                    "vector": row[3],
+                    "created_at": row[4]
+                }
+                for row in rows
+            ]
+
+    def get_entry_count(self, user_id: int) -> int:
+        """Returns the number of journal entries for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM journal_entries WHERE user_id = %s;", (user_id,))
+            return cur.fetchone()[0]
+
+    def get_journal_entry_content(self, entry_id: int) -> str:
+        """Retrieves the raw text of a journal entry."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (entry_id,))
+            result = cur.fetchone()
+            return result[0] if result else None
+
+    # ============================================================================
+    # Trajectory Methods (Trajectory Engine)
+    # ============================================================================
+
+    def create_theme_trajectory(self, theme_id: int, trajectory_label: str,
+                               trend_score: float, recent_count: int, past_count: int,
+                               confidence_level: str, data_points_count: int) -> None:
+        """Creates or updates a theme trajectory record."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO theme_trajectories
+                    (theme_id, trajectory_label, trend_score, recent_count, past_count,
+                     confidence_level, data_points_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (theme_id) DO UPDATE
+                    SET trajectory_label = EXCLUDED.trajectory_label,
+                        trend_score = EXCLUDED.trend_score,
+                        recent_count = EXCLUDED.recent_count,
+                        past_count = EXCLUDED.past_count,
+                        confidence_level = EXCLUDED.confidence_level,
+                        data_points_count = EXCLUDED.data_points_count,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (theme_id, trajectory_label, trend_score, recent_count, past_count,
+                      confidence_level, data_points_count))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update theme trajectory: {e}")
+                raise
+
+    def get_theme_trajectory(self, theme_id: int) -> dict:
+        """Retrieves trajectory information for a specific theme."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT trajectory_label, trend_score, recent_count, past_count,
+                       confidence_level, data_points_count, last_computed_at
+                FROM theme_trajectories WHERE theme_id = %s;
+            """, (theme_id,))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "trajectory_label": row[0],
+                    "trend_score": row[1],
+                    "recent_count": row[2],
+                    "past_count": row[3],
+                    "confidence_level": row[4],
+                    "data_points_count": row[5],
+                    "last_computed_at": row[6]
+                }
+            return None
+
+    def update_theme_trajectory(self, theme_id: int, trajectory_label: str,
+                               trend_score: float, recent_count: int, past_count: int,
+                               confidence_level: str, data_points_count: int) -> None:
+        """Updates a theme trajectory record."""
+        self.create_theme_trajectory(theme_id, trajectory_label, trend_score,
+                                   recent_count, past_count, confidence_level, data_points_count)
+
+    def get_all_theme_trajectories(self, user_id: int) -> list:
+        """Retrieves all theme trajectories for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tt.theme_id, tt.trajectory_label, tt.trend_score, tt.recent_count,
+                       tt.past_count, tt.confidence_level, tt.data_points_count,
+                       tt.last_computed_at, t.summary
+                FROM theme_trajectories tt
+                JOIN themes t ON tt.theme_id = t.id
+                WHERE t.user_id = %s
+                ORDER BY ABS(tt.trend_score) DESC;
+            """, (user_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "theme_id": row[0],
+                    "trajectory_label": row[1],
+                    "trend_score": row[2],
+                    "recent_count": row[3],
+                    "past_count": row[4],
+                    "confidence_level": row[5],
+                    "data_points_count": row[6],
+                    "last_computed_at": row[7],
+                    "theme_summary": row[8]
+                }
+                for row in rows
+            ]
+
+    # ============================================================================
+    # Tension Methods (Tension Engine)
+    # ============================================================================
+
+    def get_theme_pairs(self, user_id: int) -> list:
+        """Retrieves all theme pairs for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT t1.id, t1.summary, t2.id, t2.summary
+                FROM themes t1
+                JOIN themes t2 ON t1.id < t2.id
+                WHERE t1.user_id = %s AND t2.user_id = %s
+                ORDER BY t1.id, t2.id;
+            """, (user_id, user_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "theme_a_id": row[0],
+                    "theme_a_summary": row[1],
+                    "theme_b_id": row[2],
+                    "theme_b_summary": row[3]
+                }
+                for row in rows
+            ]
+
+    def get_theme_pair_occurrences(self, theme_a_id: int, theme_b_id: int) -> list:
+        """Retrieves occurrences where both themes appear together."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            # Get occurrences of theme A
+            cur.execute("""
+                SELECT occurred_at, source_type, source_id
+                FROM theme_occurrences
+                WHERE theme_id = %s
+            """, (theme_a_id,))
+            theme_a_occurrences = cur.fetchall()
+
+            # Get occurrences of theme B
+            cur.execute("""
+                SELECT occurred_at, source_type, source_id
+                FROM theme_occurrences
+                WHERE theme_id = %s
+            """, (theme_b_id,))
+            theme_b_occurrences = cur.fetchall()
+
+            # Find co-occurrences (same source_id and close in time)
+            cooccurrences = []
+            for a_occ in theme_a_occurrences:
+                for b_occ in theme_b_occurrences:
+                    if a_occ[1] == b_occ[1] and a_occ[2] == b_occ[2]:  # Same source_type and source_id
+                        # Same entry, so they co-occur
+                        cooccurrences.append({
+                            "occurred_at": a_occ[0],
+                            "source_type": a_occ[1],
+                            "source_id": a_occ[2]
+                        })
+
+            return cooccurrences
+
+    def create_or_update_tension(self, theme_a_id: int, theme_b_id: int, cooccurrence_count: int,
+                                recent_cooccurrence_count: int, past_cooccurrence_count: int,
+                                divergence_score: float, stability_score: float,
+                                tension_label: str, confidence_level: str) -> None:
+        """Creates or updates a tension record between two themes."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # Ensure theme_a_id < theme_b_id for consistent ordering
+                if theme_a_id > theme_b_id:
+                    theme_a_id, theme_b_id = theme_b_id, theme_a_id
+
+                cur.execute("""
+                    INSERT INTO theme_tensions
+                    (theme_a_id, theme_b_id, cooccurrence_count, recent_cooccurrence_count,
+                     past_cooccurrence_count, divergence_score, stability_score,
+                     tension_label, confidence_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (theme_a_id, theme_b_id) DO UPDATE
+                    SET cooccurrence_count = EXCLUDED.cooccurrence_count,
+                        recent_cooccurrence_count = EXCLUDED.recent_cooccurrence_count,
+                        past_cooccurrence_count = EXCLUDED.past_cooccurrence_count,
+                        divergence_score = EXCLUDED.divergence_score,
+                        stability_score = EXCLUDED.stability_score,
+                        tension_label = EXCLUDED.tension_label,
+                        confidence_level = EXCLUDED.confidence_level,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (theme_a_id, theme_b_id, cooccurrence_count, recent_cooccurrence_count,
+                      past_cooccurrence_count, divergence_score, stability_score,
+                      tension_label, confidence_level))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update theme tension: {e}")
+                raise
+
+    def get_all_tensions(self, user_id: int) -> list:
+        """Retrieves all tensions for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tt.id, tt.theme_a_id, t1.summary as theme_a_summary,
+                       tt.theme_b_id, t2.summary as theme_b_summary,
+                       tt.cooccurrence_count, tt.recent_cooccurrence_count,
+                       tt.past_cooccurrence_count, tt.divergence_score,
+                       tt.stability_score, tt.tension_label, tt.confidence_level,
+                       tt.last_computed_at
+                FROM theme_tensions tt
+                JOIN themes t1 ON tt.theme_a_id = t1.id
+                JOIN themes t2 ON tt.theme_b_id = t2.id
+                WHERE t1.user_id = %s OR t2.user_id = %s
+                ORDER BY tt.stability_score DESC, tt.cooccurrence_count DESC;
+            """, (user_id, user_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "theme_a_id": row[1],
+                    "theme_a_summary": row[2],
+                    "theme_b_id": row[3],
+                    "theme_b_summary": row[4],
+                    "cooccurrence_count": row[5],
+                    "recent_cooccurrence_count": row[6],
+                    "past_cooccurrence_count": row[7],
+                    "divergence_score": row[8],
+                    "stability_score": row[9],
+                    "tension_label": row[10],
+                    "confidence_level": row[11],
+                    "last_computed_at": row[12]
+                }
+                for row in rows
+            ]
+
+    def get_significant_tensions(self, user_id: int) -> list:
+        """Retrieves significant tensions (high confidence) for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tt.id, tt.theme_a_id, t1.summary as theme_a_summary,
+                       tt.theme_b_id, t2.summary as theme_b_summary,
+                       tt.cooccurrence_count, tt.recent_cooccurrence_count,
+                       tt.past_cooccurrence_count, tt.divergence_score,
+                       tt.stability_score, tt.tension_label, tt.confidence_level,
+                       tt.last_computed_at
+                FROM theme_tensions tt
+                JOIN themes t1 ON tt.theme_a_id = t1.id
+                JOIN themes t2 ON tt.theme_b_id = t2.id
+                WHERE (t1.user_id = %s OR t2.user_id = %s)
+                  AND tt.confidence_level = 'high'
+                ORDER BY tt.stability_score DESC, tt.cooccurrence_count DESC;
+            """, (user_id, user_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "theme_a_id": row[1],
+                    "theme_a_summary": row[2],
+                    "theme_b_id": row[3],
+                    "theme_b_summary": row[4],
+                    "cooccurrence_count": row[5],
+                    "recent_cooccurrence_count": row[6],
+                    "past_cooccurrence_count": row[7],
+                    "divergence_score": row[8],
+                    "stability_score": row[9],
+                    "tension_label": row[10],
+                    "confidence_level": row[11],
+                    "last_computed_at": row[12]
+                }
+                for row in rows
+            ]
+
+    def invalidate_tension(self, theme_id: int) -> None:
+        """Mark all tensions involving this theme as stale (set last_computed_at = NULL)."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    UPDATE theme_tensions
+                    SET last_computed_at = NULL
+                    WHERE theme_a_id = %s OR theme_b_id = %s;
+                """, (theme_id, theme_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to invalidate tensions for theme {theme_id}: {e}")
+                raise
+
+    # ============================================================================
+    # Resolution Methods (Resolution Engine)
+    # ============================================================================
+
+    def create_or_update_resolution(self, pattern_type: str, pattern_id: int,
+                                  resolution_label: str, attenuation_score: float,
+                                  confidence_level: str, recent_count: int,
+                                  past_count: int) -> None:
+        """Creates or updates a resolution record."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO pattern_resolutions
+                    (pattern_type, pattern_id, resolution_label, attenuation_score,
+                     confidence_level, recent_count, past_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (pattern_type, pattern_id) DO UPDATE
+                    SET resolution_label = EXCLUDED.resolution_label,
+                        attenuation_score = EXCLUDED.attenuation_score,
+                        confidence_level = EXCLUDED.confidence_level,
+                        recent_count = EXCLUDED.recent_count,
+                        past_count = EXCLUDED.past_count,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (pattern_type, pattern_id, resolution_label, attenuation_score,
+                      confidence_level, recent_count, past_count))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update resolution: {e}")
+                raise
+
+    def get_resolution(self, pattern_type: str, pattern_id: int) -> dict:
+        """Retrieves resolution info for a specific pattern."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT resolution_label, attenuation_score, confidence_level,
+                       recent_count, past_count, last_computed_at
+                FROM pattern_resolutions
+                WHERE pattern_type = %s AND pattern_id = %s;
+            """, (pattern_type, pattern_id))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "resolution_label": row[0],
+                    "attenuation_score": row[1],
+                    "confidence_level": row[2],
+                    "recent_count": row[3],
+                    "past_count": row[4],
+                    "last_computed_at": row[5]
+                }
+            return None
+
+    def get_all_resolutions(self, user_id: int) -> list:
+        """Retrieves all resolutions for a user's themes."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            # Join with themes to get summary and filter by user
+            cur.execute("""
+                SELECT pr.pattern_type, pr.pattern_id, pr.resolution_label,
+                       pr.attenuation_score, pr.confidence_level,
+                       pr.recent_count, pr.past_count, pr.last_computed_at,
+                       t.summary
+                FROM pattern_resolutions pr
+                JOIN themes t ON pr.pattern_id = t.id
+                WHERE pr.pattern_type = 'theme' AND t.user_id = %s
+                ORDER BY pr.attenuation_score DESC;
+            """, (user_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "pattern_type": row[0],
+                    "pattern_id": row[1],
+                    "resolution_label": row[2],
+                    "attenuation_score": row[3],
+                    "confidence_level": row[4],
+                    "recent_count": row[5],
+                    "past_count": row[6],
+                    "last_computed_at": row[7],
+                    "summary": row[8]
+                }
+                for row in rows
+            ]
+
+    def invalidate_resolution(self, pattern_type: str, pattern_id: int) -> None:
+        """Mark resolution as stale (last_computed_at = NULL)."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    UPDATE pattern_resolutions
+                    SET last_computed_at = NULL
+                    WHERE pattern_type = %s AND pattern_id = %s;
+                """, (pattern_type, pattern_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to invalidate resolution: {e}")
+                raise
+
+    # ============================================================================
+    # Leverage Methods (Leverage Engine)
+    # ============================================================================
+
+    def create_or_update_leverage_pair(self, source_type: str, source_id: int,
+                                    target_type: str, target_id: int,
+                                    influence_score: float, directional_lift: float,
+                                    cooccurrence_count: int, confidence_level: str) -> None:
+        """Creates or updates a leverage relationship between two patterns."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO pattern_leverage
+                    (source_type, source_id, target_type, target_id,
+                     influence_score, directional_lift, cooccurrence_count, confidence_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (source_type, source_id, target_type, target_id) DO UPDATE
+                    SET influence_score = EXCLUDED.influence_score,
+                        directional_lift = EXCLUDED.directional_lift,
+                        cooccurrence_count = EXCLUDED.cooccurrence_count,
+                        confidence_level = EXCLUDED.confidence_level,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (source_type, source_id, target_type, target_id,
+                      influence_score, directional_lift, cooccurrence_count, confidence_level))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update leverage pair: {e}")
+                raise
+
+    def get_leverage_targets(self, source_type: str, source_id: int) -> list:
+        """Retrieves all patterns influenced by a specific source."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            # We assume themes for target for now
+            cur.execute("""
+                SELECT pl.target_type, pl.target_id, pl.influence_score, 
+                       pl.directional_lift, pl.cooccurrence_count, t.summary
+                FROM pattern_leverage pl
+                JOIN themes t ON pl.target_id = t.id
+                WHERE pl.source_type = %s AND pl.source_id = %s
+                  AND pl.target_type = 'theme'
+                  AND pl.last_computed_at IS NOT NULL
+                ORDER BY pl.influence_score DESC;
+            """, (source_type, source_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "target_type": row[0],
+                    "target_id": row[1],
+                    "influence_score": row[2],
+                    "directional_lift": row[3],
+                    "cooccurrence_count": row[4],
+                    "summary": row[5]
+                }
+                for row in rows
+            ]
+
+    def get_high_leverage_sources(self, user_id: int, min_confidence: str = 'medium') -> list:
+        """
+        Retrieves top influential patterns for a user.
+        Groups by source to see which patterns have the most collective outbound influence.
+        """
+        conf_map = {'low': 0, 'medium': 1, 'high': 2}
+        min_val = conf_map.get(min_confidence, 1)
+
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            # We aggregate influence across targets
+            cur.execute("""
+                SELECT pl.source_type, pl.source_id, AVG(pl.influence_score) as avg_influence,
+                       COUNT(pl.target_id) as targets_count, t.summary
+                FROM pattern_leverage pl
+                JOIN themes t ON pl.source_id = t.id
+                WHERE pl.source_type = 'theme' AND t.user_id = %s
+                  AND pl.last_computed_at IS NOT NULL
+                  AND (CASE WHEN pl.confidence_level = 'high' THEN 2 
+                            WHEN pl.confidence_level = 'medium' THEN 1 
+                            ELSE 0 END) >= %s
+                GROUP BY pl.source_type, pl.source_id, t.summary
+                HAVING AVG(pl.influence_score) > 0.1
+                ORDER BY avg_influence DESC, targets_count DESC;
+            """, (user_id, min_val))
+            rows = cur.fetchall()
+            return [
+                {
+                    "source_type": row[0],
+                    "source_id": row[1],
+                    "avg_influence": row[2],
+                    "targets_count": row[3],
+                    "summary": row[4]
+                }
+                for row in rows
+            ]
+
+    def invalidate_leverage_for_source(self, source_type: str, source_id: int) -> None:
+        """Mark leverage records as stale (last_computed_at = NULL)."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # Invalidate where it is source OR target
+                cur.execute("""
+                    UPDATE pattern_leverage
+                    SET last_computed_at = NULL
+                    WHERE (source_type = %s AND source_id = %s)
+                       OR (target_type = %s AND target_id = %s);
+                """, (source_type, source_id, source_type, source_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to invalidate leverage: {e}")
+                raise
+
+    # ============================================================================
+    # Decision Impact Methods (Decision Impact Engine)
+    # ============================================================================
+
+    def create_or_update_decision_impact(self, anchor_type: str, anchor_id: int,
+                                       target_type: str, target_id: int,
+                                       effect_direction: str, delta_score: float,
+                                       anchor_count: int, target_count: int,
+                                       confidence_level: str) -> None:
+        """Creates or updates a decision impact record."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO decision_impacts
+                    (anchor_type, anchor_id, target_type, target_id,
+                     effect_direction, delta_score, anchor_count, target_count, confidence_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (anchor_type, anchor_id, target_type, target_id) DO UPDATE
+                    SET effect_direction = EXCLUDED.effect_direction,
+                        delta_score = EXCLUDED.delta_score,
+                        anchor_count = EXCLUDED.anchor_count,
+                        target_count = EXCLUDED.target_count,
+                        confidence_level = EXCLUDED.confidence_level,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (anchor_type, anchor_id, target_type, target_id,
+                      effect_direction, delta_score, anchor_count, target_count, confidence_level))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update decision impact: {e}")
+                raise
+
+    def get_decision_impacts_for_anchor(self, anchor_type: str, anchor_id: int) -> list:
+        """Retrieves all significant impacts for a specific anchor."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT di.target_type, di.target_id, di.effect_direction,
+                       di.delta_score, di.anchor_count, di.target_count,
+                       di.confidence_level, t.summary as target_summary
+                FROM decision_impacts di
+                JOIN themes t ON di.target_id = t.id
+                WHERE di.anchor_type = %s AND di.anchor_id = %s
+                  AND di.target_type = 'theme'
+                  AND di.last_computed_at IS NOT NULL
+                ORDER BY ABS(di.delta_score) DESC;
+            """, (anchor_type, anchor_id))
+            rows = cur.fetchall()
+            return [
+                {
+                    "target_type": row[0],
+                    "target_id": row[1],
+                    "effect_direction": row[2],
+                    "delta_score": row[3],
+                    "anchor_count": row[4],
+                    "target_count": row[5],
+                    "confidence_level": row[6],
+                    "target_summary": row[7]
+                }
+                for row in rows
+            ]
+
+    def get_significant_decision_impacts(self, user_id: int, min_confidence: str = 'medium') -> list:
+        """Retrieves top significant decision impacts for a user."""
+        conf_map = {'low': 0, 'medium': 1, 'high': 2}
+        min_val = conf_map.get(min_confidence, 1)
+
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT di.anchor_type, di.anchor_id, t1.summary as anchor_summary,
+                       di.target_type, di.target_id, t2.summary as target_summary,
+                       di.effect_direction, di.delta_score, di.confidence_level
+                FROM decision_impacts di
+                JOIN themes t1 ON di.anchor_id = t1.id
+                JOIN themes t2 ON di.target_id = t2.id
+                WHERE t1.user_id = %s AND di.last_computed_at IS NOT NULL
+                  AND (CASE WHEN di.confidence_level = 'high' THEN 2 
+                            WHEN di.confidence_level = 'medium' THEN 1 
+                            ELSE 0 END) >= %s
+                ORDER BY ABS(di.delta_score) DESC;
+            """, (user_id, min_val))
+            rows = cur.fetchall()
+            return [
+                {
+                    "anchor_type": row[0],
+                    "anchor_id": row[1],
+                    "anchor_summary": row[2],
+                    "target_type": row[3],
+                    "target_id": row[4],
+                    "target_summary": row[5],
+                    "effect_direction": row[6],
+                    "delta_score": row[7],
+                    "confidence_level": row[8]
+                }
+                for row in rows
+            ]
+
+    def invalidate_decision_impacts(self, pattern_type: str, pattern_id: int) -> None:
+        """Mark decision impact records as stale (last_computed_at = NULL)."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # Invalidate where it is anchor OR target
+                cur.execute("""
+                    UPDATE decision_impacts
+                    SET last_computed_at = NULL
+                    WHERE (anchor_type = %s AND anchor_id = %s)
+                       OR (target_type = %s AND target_id = %s);
+                """, (pattern_type, pattern_id, pattern_type, pattern_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to invalidate decision impact: {e}")
+                raise
+
+    # ============================================================================
+    # Confidence Methods (Confidence Engine)
+    # ============================================================================
+
+    def create_or_update_confidence(self, pattern_type: str, pattern_id: int,
+                                  confidence_level: str, confidence_score: float,
+                                  data_points_count: int, time_coverage_days: int,
+                                  consistency_score: float, recency_score: float) -> None:
+        """Stores a standard confidence assessment for any pattern."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO pattern_confidence
+                    (pattern_type, pattern_id, confidence_level, confidence_score,
+                     data_points_count, time_coverage_days, consistency_score, recency_score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (pattern_type, pattern_id) DO UPDATE
+                    SET confidence_level = EXCLUDED.confidence_level,
+                        confidence_score = EXCLUDED.confidence_score,
+                        data_points_count = EXCLUDED.data_points_count,
+                        time_coverage_days = EXCLUDED.time_coverage_days,
+                        consistency_score = EXCLUDED.consistency_score,
+                        recency_score = EXCLUDED.recency_score,
+                        last_computed_at = CURRENT_TIMESTAMP;
+                """, (pattern_type, pattern_id, confidence_level, confidence_score,
+                      data_points_count, time_coverage_days, consistency_score, recency_score))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update pattern confidence: {e}")
+                raise
+
+    def get_confidence(self, pattern_type: str, pattern_id: int) -> dict:
+        """Retrieves the central confidence assessment for a pattern."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT confidence_level, confidence_score, data_points_count,
+                       time_coverage_days, consistency_score, recency_score,
+                       last_computed_at
+                FROM pattern_confidence
+                WHERE pattern_type = %s AND pattern_id = %s;
+            """, (pattern_type, pattern_id))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "confidence_level": row[0],
+                    "confidence_score": row[1],
+                    "data_points_count": row[2],
+                    "time_coverage_days": row[3],
+                    "consistency_score": row[4],
+                    "recency_score": row[5],
+                    "last_computed_at": row[6]
+                }
+            return None
+
+    def invalidate_pattern_confidence(self, pattern_type: str, pattern_id: int) -> None:
+        """Mark central confidence record as stale."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    UPDATE pattern_confidence
+                    SET last_computed_at = NULL
+                    WHERE pattern_type = %s AND pattern_id = %s;
+                """, (pattern_type, pattern_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to invalidate pattern confidence: {e}")
+                raise
+
+    # ============================================================================
+    # Evidence Methods (Evidence Engine)
+    # ============================================================================
+
+    def add_evidence_records(self, records: list) -> None:
+        """
+        Batch inserts evidence records.
+        Each record should be a tuple/dict containing:
+        (computation_id, pattern_type, pattern_id, engine_name, evidence_type, evidence_key, evidence_value)
+        """
+        if not records:
+            return
+
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # evidence_value is stored as JSONB
+                from psycopg2.extras import execute_values
+                execute_values(cur, """
+                    INSERT INTO pattern_evidence 
+                    (computation_id, pattern_type, pattern_id, engine_name, evidence_type, evidence_key, evidence_value)
+                    VALUES %s
+                """, records)
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to batch insert evidence: {e}")
+                raise
+
+    def get_latest_evidence_bundle(self, pattern_type: str, pattern_id: int, engine_name: str = None) -> list:
+        """
+        Retrieves evidence records for a pattern.
+        If engine_name is provided, gets the latest snapshot for THAT engine.
+        If NO engine_name provided, gets the latest snapshots for ALL engines 
+        associated with this pattern.
+        """
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            if engine_name:
+                # 1. Find latest computation for specific engine
+                cur.execute("""
+                    SELECT computation_id FROM pattern_evidence 
+                    WHERE pattern_type = %s AND pattern_id = %s AND engine_name = %s
+                    ORDER BY created_at DESC LIMIT 1
+                """, (pattern_type, pattern_id, engine_name))
+                row = cur.fetchone()
+                if not row: return []
+                comp_ids = [row[0]]
+            else:
+                # 2. Find the latest computation_id for EACH engine associated with this pattern
+                cur.execute("""
+                    SELECT DISTINCT ON (engine_name) computation_id
+                    FROM pattern_evidence
+                    WHERE pattern_type = %s AND pattern_id = %s
+                    ORDER BY engine_name, created_at DESC
+                """, (pattern_type, pattern_id))
+                rows = cur.fetchall()
+                if not rows: return []
+                comp_ids = [r[0] for r in rows]
+
+            # 3. Fetch all records for these computation IDs
+            from psycopg2.extras import execute_values
+            cur.execute("""
+                SELECT engine_name, evidence_type, evidence_key, evidence_value, created_at
+                FROM pattern_evidence
+                WHERE computation_id IN %s
+                ORDER BY created_at DESC, engine_name, evidence_type, evidence_key
+            """, (tuple(comp_ids),))
+            
+            rows = cur.fetchall()
+            return [
+                {
+                    "engine_name": r[0],
+                    "evidence_type": r[1],
+                    "evidence_key": r[2],
+                    "evidence_value": r[3],
+                    "created_at": r[4]
+                }
+                for r in rows
+            ]
+
+    # ============================================================================
+    # Prioritization Methods (Prioritization Engine)
+    # ============================================================================
+
+    def create_or_update_insight_priority(self, insight_id: str, engine_name: str,
+                                        pattern_type: str, pattern_id: int,
+                                        priority_score: float, rank: int) -> None:
+        """Stores or updates the priority score and rank for an insight."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO insight_priorities 
+                    (insight_id, engine_name, pattern_type, pattern_id, priority_score, rank)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (insight_id) DO UPDATE
+                    SET priority_score = EXCLUDED.priority_score,
+                        rank = EXCLUDED.rank,
+                        computed_at = CURRENT_TIMESTAMP;
+                """, (insight_id, engine_name, pattern_type, pattern_id, priority_score, rank))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create/update insight priority: {e}")
+                raise
+
+    def get_insight_priority(self, engine_name: str, pattern_type: str, pattern_id: int) -> dict:
+        """Retrieves the priority assessment for a specific insight."""
+        insight_id = f"{engine_name}:{pattern_type}:{pattern_id}"
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT priority_score, rank, computed_at
+                FROM insight_priorities
+                WHERE insight_id = %s;
+            """, (insight_id,))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "priority_score": row[0],
+                    "rank": row[1],
+                    "computed_at": row[2]
+                }
+            return None
+
+    # ============================================================================
+    # User Preferences Methods (Control & Transparency)
+    # ============================================================================
+
+    def get_preferences(self, user_id: int) -> dict:
+        """Retrieves user preferences or returns default structure if not found."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT min_confidence, max_items, enabled_engines, show_suppressed
+                FROM user_preferences WHERE user_id = %s;
+            """, (user_id,))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "min_confidence": row[0],
+                    "max_items": row[1],
+                    "enabled_engines": row[2], # list or None
+                    "show_suppressed": row[3]
+                }
+            return None
+
+    def update_preference(self, user_id: int, key: str, value: Any) -> None:
+        """
+        Updates a specific user preference and logs the change.
+        Note: value must be JSON serializable if updating enabled_engines.
+        """
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                # 1. Fetch old value for audit
+                cur.execute(f"SELECT {key} FROM user_preferences WHERE user_id = %s;", (user_id,))
+                row = cur.fetchone()
+                old_val = str(row[0]) if row else None
+
+                # 2. Upsert preference
+                cur.execute(f"""
+                    INSERT INTO user_preferences (user_id, {key}, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET {key} = EXCLUDED.{key}, updated_at = CURRENT_TIMESTAMP;
+                """, (user_id, value if not isinstance(value, list) else Json(value)))
+
+                # 3. Log audit
+                cur.execute("""
+                    INSERT INTO preference_audit (user_id, setting_key, old_value, new_value)
+                    VALUES (%s, %s, %s, %s);
+                """, (user_id, key, old_val, str(value)))
+                
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to update preference '{key}': {e}")
+                raise
+
+    def reset_preferences(self, user_id: int) -> None:
+        """Deletes user preference row to restore system defaults."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM user_preferences WHERE user_id = %s;", (user_id,))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to reset preferences: {e}")
+                raise
+
+
+
+
+
+
+
+
+
+# Create a global instance for easy access throughout the application
+db = Database()

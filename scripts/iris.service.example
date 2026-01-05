@@ -1,0 +1,23 @@
+[Unit]
+Description=IRIS Minimal Companion Service
+After=network.target postgresql.service neo4j.service
+
+[Service]
+Type=simple
+User=noodis
+Group=noodis
+WorkingDirectory=/home/noodis/Myself/apps/personal_ai_agent_minimal
+EnvironmentFile=/home/noodis/Myself/apps/personal_ai_agent_minimal/.env
+# Use the virtual environment python
+ExecStart=/home/noodis/Myself/apps/personal_ai_agent_minimal/.venv/bin/python companion.py
+
+# Restart policy for robustness
+Restart=always
+RestartSec=5
+
+# Standard logging to journalctl
+StandardOutput=append:/var/log/iris/stdout.log
+StandardError=append:/var/log/iris/stderr.log
+
+[Install]
+WantedBy=multi-user.target
