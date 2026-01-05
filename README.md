@@ -1,103 +1,89 @@
-# IRIS Minimal Companion - v2.0
+# IRIS Companion v2.1: The Epistemic Mirror
 
-**A multi-user, local-first AI companion with a robust, layered data architecture.**
+**A local-first, multi-user AI companion built on a deterministic analytical spine.**
 
-This version of the IRIS Minimal Companion has been re-architected from the ground up to support multiple users and provide a powerful foundation for long-term memory and insight extraction. It leverages a modern, multi-database architecture designed for resilience and flexibility.
+IRIS is not a standard "chat-first" assistant. It is a system designed to detect, verify, and prioritize long-term behavioral patterns using a multi-layered data processing pipeline. It operates under a strict **non-interpretive contract**: the system observes and reports evidence but never assumes causality or offers unsolicited advice.
 
-## Core Architectural Principles
+---
 
-1.  **Single Source of Truth**: **PostgreSQL** is the system's memory. All raw data and even generated embeddings are stored here canonically. This ensures data integrity and allows the entire system to be rebuilt from a single source.
-2.  **Disposable Lenses**: **ChromaDB** (vector store) and **Neo4j** (graph database) act as disposable, query-optimized "lenses" for exploring the data. They can be cleared and fully rebuilt from PostgreSQL at any time.
-3.  **Local-First & Self-Hostable**: The entire stack is designed to run locally using Docker, making it perfect for self-hosting on a personal server or a Raspberry Pi.
-4.  **Decoupled Processing**: A dedicated pipeline layer handles expensive processing (like generating embeddings and extracting graph relationships) asynchronously, so it doesn't block the main application.
+## 🧠 Cognitive Architecture
 
-## System Architecture
+IRIS follows a structured inference pipeline that moves from raw data to prioritized signals:
 
-```
-┌───────────────────┐       ┌────────────────────────┐
-│   CLI Interface   │───────►│  Python Agent Service  │
-│  (companion.py)   │       │      (agent/*)         │
-└───────────────────┘       └──────────┬─────────────┘
-                                       │
-     ┌─────────────────────────────────┴─────────────────────────────────┐
-     │                                                                   │
-┌────▼────┐       ┌─────────────────────┐      ┌──────────────────┐      ┌──────────┐
-│ Pipeline│       │    PostgreSQL       │      │     ChromaDB     │      │   Neo4j    │
-│  Layer  ├───────►│ (Source of Truth)   ├──────►│ (Vector "Lens")  ├──────►│  (Graph  │
-└─────────┘       │ - Raw Text          │      └──────────────────┘      │  "Lens") │
-                  │ - Embeddings        │                              └──────────┘
-                  └─────────────────────┘
-```
+1.  **Ingestion & Persistence**: Raw journal entries are stored in **PostgreSQL** (Source of Truth). Semantic themes are discovered via **HDBSCAN clustering**.
+2.  **Analytical Stack**:
+    *   **Trajectory**: Linear regression on theme frequency.
+    *   **Tension**: Co-occurrence detection between conflicting patterns.
+    *   **Resolution**: Identification of dissipated or reappearing patterns.
+    *   **Leverage**: Temporal asymmetry detection (directional influence).
+    *   **Decision Impact**: Post-hoc sequence analysis (what follows what).
+3.  **Meta-Control Layer**:
+    *   **Confidence Engine**: Evidence-based reliability scoring (Sufficiency, Recency, Consistency).
+    *   **Conflict Suppression**: Deterministic silencing of logically incompatible insights.
+    *   **Prioritization**: Weighted ranking (Confidence, Magnitude, Novelty) to select the most critical 5 signals.
+4.  **Narrative Firewall**: A regex-guarded formatter that renders facts into neutral language, blocking causal or prescriptive verbs.
 
-## Quick Start
+---
 
-### 1. Prerequisites
+## 🛠 Tech Stack
 
--   Docker and Docker Compose
--   Python 3.10+
--   Poetry
+*   **Runtime**: Python 3.11 (optimized slim multi-stage Docker build)
+*   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store)
+*   **Graph DB**: Neo4j (Relationship Lens)
+*   **Vector DB**: ChromaDB (Semantic Retrieval Lens)
+*   **ML**: Scikit-learn, HDBSCAN
+*   **Validation**: Pydantic Settings
 
-### 2. Installation & Setup
+---
 
-1.  **Clone the repository** (if you haven't already).
+## 🚀 Quick Start
 
-2.  **Configure Environment Variables:**
-    ```bash
-    # Copy the example .env file
-    cp .env.example .env
-    ```
-    Now, open the `.env` file and fill in the following:
-    -   `OPENAI_API_KEY`: Your API key from OpenAI.
-    -   `POSTGRES_PASSWORD`: A secure password for the PostgreSQL database.
-    -   `NEO4J_PASSWORD`: A secure password for the Neo4j database.
-
-3.  **Install Python Dependencies:**
-    ```bash
-    poetry install
-    ```
-
-4.  **Build and Start the Services:**
-    ```bash
-    docker-compose up --build
-    ```
-    This command will build the Python agent's Docker image and start the `postgres`, `neo4j`, and `agent` containers.
-
-### 3. Usage
-
-Once the services are running, you can interact with the companion through the CLI:
-
+### 1. Configure Environment
 ```bash
-# Run the companion CLI
-poetry run companion
+cp .env.example .env
+# Fill in your OPENAI_API_KEY and secure passwords
 ```
 
-You will be prompted to either **Login** or **Create a User**. After authenticating, you can start chatting or use the available commands.
-
-#### CLI Commands
-
--   `/journal`: Create a new journal entry.
--   `/rebuild-vector`: Rebuild the ChromaDB search index from PostgreSQL.
--   `/rebuild-graph`: Rebuild the Neo4j knowledge graph from PostgreSQL.
--   `/help`: Show the list of commands.
--   `/exit`: Log out and exit the application.
-
-## Project Structure (v2.0)
-
+### 2. Deploy via Docker
+```bash
+docker-compose up --build -d
 ```
-personal_ai_agent_minimal/
-├── agent/
-│   ├── core.py             # Main orchestrator
-│   ├── database.py         # Source of Truth (PostgreSQL)
-│   ├── graph_db.py         # Graph Lens (Neo4j)
-│   ├── intelligence.py     # LLM wrapper
-│   ├── journal_entry.py    # Journaling service
-│   ├── memory.py           # Conversation memory service
-│   ├── pipeline.py         # Data processing orchestrator
-│   └── vector_store.py     # Vector Lens (ChromaDB)
-├── data/                   # Persistent data for databases
-├── prompts/
-├── companion.py            # CLI interface
-├── docker-compose.yml      # Docker services definition
-├── pyproject.toml          # Dependencies
-└── README.md               # This file
+
+### 3. Launch CLI
+```bash
+python companion.py
 ```
+
+---
+
+## ⌨️ Command Registry
+
+### **Core Commands**
+*   `/journal` - Create a new journal entry.
+*   `/themes` - View recurring themes.
+*   `/discover` - Manually trigger semantic theme discovery.
+
+### **Diagnostic & Meta-Control**
+*   `/priority` - View the current leaderboard of ranked insights.
+*   `/why <type> <id>` - Audit why an insight was surfaced (Score/Confidence breakdown).
+*   `/hidden` - View insights suppressed in the last run (Conflict/Confidence).
+*   `/explain <type> <id>` - View the raw evidence backing an observation.
+*   `/confidence <type> <id>` - Inspect the reliability metrics for a pattern.
+
+### **Management**
+*   `/settings` - View/Change analytical gates (Confidence floor, max items, engine allowlist).
+*   `/rebuild-vector` - Reconstruct the ChromaDB lens from PostgreSQL.
+*   `/rebuild-graph` - Reconstruct the Neo4j lens from PostgreSQL.
+
+---
+
+## 🛡 Safety & Epistemic Integrity
+
+IRIS is designed to be a "Mirror," not a "Coach." 
+*   **Zero-Trust Phrasing**: The system is physically blocked from using words like "caused," "should," or "means."
+*   **Evidence-Only**: Every chat response is grounded in specific, timestamped database records.
+*   **User Sovereignty**: Users control the sensitivity of the analytical gates through the `/settings` layer.
+
+---
+
+**IRIS: Seeing patterns before they become narratives.**
