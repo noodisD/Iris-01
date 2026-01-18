@@ -1,0 +1,1759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRIS - Your AI Companion</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #ecf0f1;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           LANDING PAGE
+           ============================================================ */
+        #landing-page {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .iris-title {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #FFD700, #FFC107);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: bold;
+            letter-spacing: 3px;
+        }
+
+        .iris-description {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            color: #bdc3c7;
+            max-width: 600px;
+        }
+
+        .auth-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.8rem 2rem;
+            font-size: 1rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #FFD700, #FFC107);
+            color: #1a1a2e;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 2px solid #FFD700;
+            color: #FFD700;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 215, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        /* ============================================================
+           AUTH PAGE (Sign Up / Log In)
+           ============================================================ */
+        #auth-page {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .auth-container {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            border-radius: 10px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .auth-container h2 {
+            margin-bottom: 1.5rem;
+            font-size: 1.8rem;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: #bdc3c7;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ecf0f1;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #FFD700;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+        }
+
+        .auth-buttons-container {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .auth-buttons-container .btn {
+            flex: 1;
+        }
+
+        .form-error {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+            display: none;
+        }
+
+        .toggle-auth {
+            text-align: center;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #bdc3c7;
+        }
+
+        .toggle-auth button {
+            background: none;
+            border: none;
+            color: #FFD700;
+            cursor: pointer;
+            text-decoration: underline;
+            font-weight: bold;
+        }
+
+        /* ============================================================
+           CHAT PAGE
+           ============================================================ */
+        #chat-page {
+            display: none;
+            flex-direction: column;
+            height: 100vh;
+            background: radial-gradient(ellipse at center, rgba(0, 212, 255, 0.05) 0%, transparent 70%);
+        }
+
+        .chat-header {
+            text-align: center;
+            padding: 2rem 1rem;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+        }
+
+        .chat-header h1 {
+            font-size: 2rem;
+            background: linear-gradient(45deg, #FFD700, #FFC107);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 600px;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 193, 7, 0.3));
+            align-self: flex-end;
+            border-left: 3px solid #FFD700;
+        }
+
+        .message.iris {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 193, 7, 0.1));
+            align-self: flex-start;
+            border-left: 3px solid #FFD700;
+        }
+
+        .chat-input-area {
+            padding: 2rem;
+            border-top: 1px solid rgba(255, 215, 0, 0.2);
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: flex-end;
+        }
+
+        .input-container {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .input-container input {
+            flex: 1;
+            padding: 0.8rem;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ecf0f1;
+            font-size: 1rem;
+        }
+
+        .input-container input:focus {
+            outline: none;
+            border-color: #FFD700;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+        }
+
+        .btn-send {
+            padding: 0.8rem 1.5rem;
+            background: linear-gradient(45deg, #FFD700, #FFC107);
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(255, 215, 0, 0.3);
+        }
+
+        .btn-logout {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 1px solid #e74c3c;
+            color: #e74c3c;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .btn-logout:hover {
+            background: rgba(231, 76, 60, 0.1);
+        }
+
+        .greeting-message {
+            text-align: center;
+            color: #bdc3c7;
+            margin-bottom: 2rem;
+        }
+
+        /* Scrollbar styling */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 215, 0, 0.3);
+            border-radius: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 215, 0, 0.5);
+        }
+
+        /* Tab Navigation */
+        .tab-navigation {
+            display: flex;
+            gap: 0;
+            justify-content: center;
+            margin-top: 1rem;
+            border-bottom: 2px solid rgba(255, 215, 0, 0.1);
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 0.8rem 1.5rem;
+            background: none;
+            border: none;
+            color: #bdc3c7;
+            cursor: pointer;
+            font-size: 1rem;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+
+        .tab-btn:hover {
+            color: #FFD700;
+        }
+
+        .tab-btn.active {
+            color: #FFD700;
+            border-bottom-color: #FFD700;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            width: 100%;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Habits/Reflections Containers */
+        .habits-container, .reflections-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .habits-header, .reflections-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .habit-form, .reflection-form {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            margin-bottom: 1rem;
+        }
+
+        .habit-form .form-group, .reflection-form .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .habit-form input, .habit-form select, .reflection-form input, .reflection-form textarea, .reflection-form select {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ecf0f1;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .form-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .form-buttons .btn {
+            flex: 1;
+        }
+
+        .habits-list, .reflections-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .habit-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 3px solid #FFD700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .habit-info {
+            flex: 1;
+        }
+
+        .habit-name {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 0.3rem;
+        }
+
+        .habit-streak {
+            font-size: 0.9rem;
+            color: #bdc3c7;
+        }
+
+        .habit-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .habit-actions button {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        .reflection-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 3px solid #FFD700;
+        }
+
+        .reflection-date {
+            font-size: 0.85rem;
+            color: #bdc3c7;
+            margin-bottom: 0.3rem;
+        }
+
+        .reflection-content {
+            font-size: 1rem;
+            line-height: 1.5;
+            margin-bottom: 0.5rem;
+        }
+
+        .reflection-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.85rem;
+            color: #bdc3c7;
+            flex-wrap: wrap;
+        }
+
+        .reflection-mood, .reflection-energy {
+            background: rgba(255, 215, 0, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+        }
+
+        .weekly-summary, .mood-trend {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 215, 0, 0.2);
+        }
+
+        .weekly-summary h3, .mood-trend h3 {
+            margin-bottom: 1rem;
+            color: #FFD700;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-item {
+            background: rgba(255, 215, 0, 0.05);
+            padding: 1rem;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #FFD700;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #bdc3c7;
+            margin-top: 0.5rem;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-top: 0.8rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #FFD700, #FFC107);
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 0.75rem;
+            color: #bdc3c7;
+            margin-top: 0.3rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .loading {
+            text-align: center;
+            color: #bdc3c7;
+            padding: 2rem;
+        }
+
+        /* Chip Selection Styles */
+        .chip-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .chip {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.2);
+            color: #bdc3c7;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .chip:hover {
+            border-color: rgba(255, 215, 0, 0.5);
+            background: rgba(255, 215, 0, 0.05);
+        }
+
+        .chip.active {
+            background: linear-gradient(45deg, #FFD700, #FFC107);
+            color: #1a1a2e;
+            border-color: #FFD700;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(255, 215, 0, 0.2);
+        }
+
+        /* Toast Notifications */
+        #toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toast {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            color: #ecf0f1;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            min-width: 300px;
+            animation: slideIn 0.3s ease forwards;
+            border-left: 4px solid #FFD700;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .toast.fade-out {
+            animation: fadeOut 0.5s ease forwards;
+        }
+
+        @keyframes fadeOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: rgba(25, 25, 46, 0.95);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 12px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            animation: modalScale 0.3s ease;
+        }
+
+        @keyframes modalScale {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            color: #FFD700;
+            margin-bottom: 1rem;
+            font-weight: bold;
+        }
+
+        .modal-body {
+            margin-bottom: 1.5rem;
+            color: #ecf0f1;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .modal-content textarea {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #ecf0f1;
+            font-size: 1rem;
+            font-family: inherit;
+            margin-top: 0.5rem;
+            resize: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="toast-container"></div>
+    
+    <!-- Skip Habit Modal -->
+    <div id="skip-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title">Skipping Habit</div>
+            <div class="modal-body">
+                <p>It's okay to take a break. Would you like to note why you're skipping this today?</p>
+                <textarea id="skip-reason" rows="3" placeholder="e.g., Not feeling well, busy day... (optional)"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSkipModal()">Cancel</button>
+                <button class="btn btn-primary" id="confirm-skip-btn">Confirm Skip</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Progress Modal -->
+    <div id="log-value-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-title" id="log-value-title">Log Progress</div>
+            <div class="modal-body">
+                <p id="log-value-prompt">How much would you like to log?</p>
+                <div id="log-metric-selection" style="margin-bottom: 1rem; display: none;">
+                    <label style="font-size: 0.8rem; color: #bdc3c7;">Log in:</label>
+                    <div id="log-metric-chips" class="chip-container">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+                <input type="number" id="log-value-input" step="0.1" value="0" style="width: 100%; padding: 0.8rem; border: 1px solid rgba(255, 215, 0, 0.3); border-radius: 5px; background: rgba(255, 255, 255, 0.05); color: #ecf0f1; font-size: 1rem; margin-top: 0.5rem;">
+                <input type="hidden" id="log-active-metric" value="">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeLogValueModal()">Cancel</button>
+                <button class="btn btn-primary" id="confirm-log-value-btn">Save Progress</button>
+            </div>
+        </div>
+    </div>
+    <!-- ============================================================
+         LANDING PAGE
+         ============================================================ -->
+    <div id="landing-page">
+        <h1 class="iris-title">IRIS</h1>
+        <p class="iris-description">
+            Your personal AI companion that learns from your patterns,
+            understands your conflicts, and guides you with narrative insight.
+            A system that grows with you, adapts to you, and helps you understand yourself.
+        </p>
+        <div class="auth-buttons">
+            <button class="btn btn-primary" onclick="goToAuth('signup')">Sign Up</button>
+            <button class="btn btn-secondary" onclick="goToAuth('login')">Log In</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         AUTH PAGE (Sign Up / Log In)
+         ============================================================ -->
+    <div id="auth-page">
+        <div class="auth-container">
+            <h2 id="auth-title">Sign Up</h2>
+            
+            <form id="auth-form" onsubmit="handleAuth(event)">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required>
+                </div>
+
+                <div class="form-error" id="auth-error"></div>
+
+                <div class="auth-buttons-container">
+                    <button type="submit" class="btn btn-primary" id="auth-submit-btn">Sign Up</button>
+                    <button type="button" class="btn btn-secondary" onclick="goToLanding()">Back</button>
+                </div>
+            </form>
+
+            <div class="toggle-auth">
+                <p>
+                    <span id="toggle-text">Already have an account?</span>
+                    <button onclick="toggleAuth()">Click here</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         CHAT PAGE
+         ============================================================ -->
+    <div id="chat-page">
+        <button class="btn-logout" onclick="logout()">Logout</button>
+
+        <div class="chat-header">
+            <h1>IRIS</h1>
+            <p id="user-greeting"></p>
+            <div class="tab-navigation">
+                <button class="tab-btn active" onclick="switchTab('chat')">Chat</button>
+                <button class="tab-btn" onclick="switchTab('habits')">Habits</button>
+                <button class="tab-btn" onclick="switchTab('reflections')">Reflections</button>
+            </div>
+        </div>
+
+        <!-- Chat Tab -->
+        <div id="chat-tab" class="tab-content active">
+            <div class="chat-container" id="chat-container">
+                <div class="greeting-message">
+                    <p id="iris-greeting"></p>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="input-container">
+                    <input
+                        type="text"
+                        id="message-input"
+                        placeholder="Type your message..."
+                        onkeypress="if(event.key === 'Enter') sendMessage()"
+                    >
+                    <button class="btn-send" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Habits Tab -->
+        <div id="habits-tab" class="tab-content">
+            <div class="habits-container">
+                <div class="habits-header">
+                    <h2>Today's Habits</h2>
+                    <button class="btn btn-primary" onclick="showHabitForm()">+ New Habit</button>
+                </div>
+
+                <div id="habit-form" class="habit-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="habit-name">Habit Name</label>
+                        <input type="text" id="habit-name" placeholder="e.g., Morning Meditation">
+                    </div>
+                    <div class="form-group">
+                        <label for="habit-description">Description</label>
+                        <input type="text" id="habit-description" placeholder="Optional description">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Habit Type</label>
+                        <div id="habit-type-chips" class="chip-container">
+                            <div class="chip active" data-value="completion">Checkmark ✅</div>
+                            <div class="chip" data-value="duration">Duration ⏳</div>
+                            <div class="chip" data-value="count">Count 🔢</div>
+                        </div>
+                    </div>
+
+                    <div id="target-config" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label id="target-label">Weekly Target</label>
+                                <input type="number" id="habit-weekly-target" value="0" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Metric</label>
+                                <div id="habit-metric-chips" class="chip-container">
+                                    <!-- Options will be populated dynamically -->
+                                </div>
+                                <input type="hidden" id="habit-metric" value="">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Category</label>
+                        <div id="habit-category-chips" class="chip-container">
+                            <div class="chip active" data-value="general">General</div>
+                            <div class="chip" data-value="health">Health & Fitness</div>
+                            <div class="chip" data-value="mindfulness">Mindfulness</div>
+                            <div class="chip" data-value="productivity">Productivity</div>
+                            <div class="chip" data-value="learning">Learning</div>
+                            <div class="chip" data-value="social">Social</div>
+                            <div class="chip" data-value="hobby">Hobby</div>
+                        </div>
+                    </div>
+                    <div class="form-buttons">
+                        <button type="button" class="btn btn-primary" onclick="createHabit()">Create</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideHabitForm()">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="today-habits" class="habits-list">
+                    <p class="loading">Loading habits...</p>
+                </div>
+
+                <div class="weekly-summary" id="weekly-summary" style="display: none;">
+                    <h3>Weekly Summary</h3>
+                    <div id="weekly-stats"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reflections Tab -->
+        <div id="reflections-tab" class="tab-content">
+            <div class="reflections-container">
+                <div class="reflections-header">
+                    <h2>Reflections</h2>
+                    <button class="btn btn-primary" onclick="showReflectionForm()">+ New Reflection</button>
+                </div>
+
+                <div id="reflection-form" class="reflection-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="reflection-content">What's on your mind?</label>
+                        <textarea id="reflection-content" placeholder="Share your thoughts, feelings, and insights..." rows="4"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>How are you feeling?</label>
+                        <div id="reflection-mood-chips" class="chip-container">
+                            <div class="chip" data-value="great">Great ✨</div>
+                            <div class="chip" data-value="good">Good 🙂</div>
+                            <div class="chip" data-value="okay">Okay 😐</div>
+                            <div class="chip" data-value="bad">Bad 😕</div>
+                            <div class="chip" data-value="terrible">Terrible 😫</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Energy Level</label>
+                        <div id="reflection-energy-chips" class="chip-container">
+                            <div class="chip" data-value="1">1 - Very Low</div>
+                            <div class="chip" data-value="2">2 - Low</div>
+                            <div class="chip" data-value="3">3 - Medium</div>
+                            <div class="chip" data-value="4">4 - High</div>
+                            <div class="chip" data-value="5">5 - Very High</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Focus Tags (Select multiple)</label>
+                        <div id="reflection-tag-chips" class="chip-container">
+                            <div class="chip" data-value="productive">Productive</div>
+                            <div class="chip" data-value="grateful">Grateful</div>
+                            <div class="chip" data-value="tired">Tired</div>
+                            <div class="chip" data-value="anxious">Anxious</div>
+                            <div class="chip" data-value="inspired">Inspired</div>
+                            <div class="chip" data-value="distracted">Distracted</div>
+                            <div class="chip" data-value="calm">Calm</div>
+                            <div class="chip" data-value="stressed">Stressed</div>
+                            <div class="chip" data-value="creative">Creative</div>
+                            <div class="chip" data-value="pensive">Pensive</div>
+                        </div>
+                    </div>
+                    <div class="form-buttons">
+                        <button type="button" class="btn btn-primary" onclick="createReflection()">Save Reflection</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideReflectionForm()">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="recent-reflections" class="reflections-list">
+                    <p class="loading">Loading reflections...</p>
+                </div>
+
+                <div class="mood-trend" id="mood-trend" style="display: none;">
+                    <h3>30-Day Mood Trend</h3>
+                    <div id="mood-stats"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // CONFIG
+        // ============================================================
+        const API_URL = 'http://localhost:8000'
+        let currentAuthMode = 'signup'
+        let currentUser = null
+        let currentToken = null
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            
+            let emoji = '✨';
+            if (type === 'error') emoji = '☁️';
+            if (type === 'info') emoji = '💡';
+            
+            toast.innerHTML = `
+                <div style="display: flex; flex-direction: column;">
+                    <small style="color: #FFD700; font-weight: bold; margin-bottom: 2px;">IRIS</small>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span>${emoji}</span>
+                        <span>${message}</span>
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(toast);
+            
+            // Remove after 4 seconds
+            setTimeout(() => {
+                toast.classList.add('fade-out');
+                setTimeout(() => toast.remove(), 500);
+            }, 4000);
+        }
+
+        async function triggerProactiveResponse(actionType, details) {
+            try {
+                const response = await fetch(`${API_URL}/chat/proactive`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: currentToken,
+                        action_type: actionType,
+                        details: details
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.message && data.message !== '...') {
+                    // Show a special toast indicating IRIS has a thought
+                    showToast('IRIS has a thought to share in the chat.', 'info');
+                    
+                    // If we're already in chat, add it immediately
+                    if (document.getElementById('chat-tab').classList.contains('active')) {
+                        addMessageToUI(data.message, 'iris');
+                    }
+                }
+            } catch (e) {
+                console.error('Proactive trigger failed', e);
+            }
+        }
+
+        // ============================================================
+        // PAGE NAVIGATION
+        // ============================================================
+        function showPage(pageId) {
+            document.getElementById('landing-page').style.display = 'none'
+            document.getElementById('auth-page').style.display = 'none'
+            document.getElementById('chat-page').style.display = 'none'
+
+            document.getElementById(pageId).style.display = pageId === 'chat-page' ? 'flex' : 'flex'
+        }
+
+        function goToLanding() {
+            showPage('landing-page')
+        }
+
+        function goToAuth(mode) {
+            currentAuthMode = mode
+            const title = mode === 'signup' ? 'Sign Up' : 'Log In'
+            const submitText = mode === 'signup' ? 'Sign Up' : 'Log In'
+            const toggleText = mode === 'signup' ? 'Already have an account?' : 'Need an account?'
+
+            document.getElementById('auth-title').textContent = title
+            document.getElementById('auth-submit-btn').textContent = submitText
+            document.getElementById('toggle-text').textContent = toggleText
+
+            document.getElementById('auth-error').style.display = 'none'
+            document.getElementById('username').value = ''
+            document.getElementById('password').value = ''
+
+            showPage('auth-page')
+        }
+
+        function toggleAuth() {
+            currentAuthMode = currentAuthMode === 'signup' ? 'login' : 'signup'
+            goToAuth(currentAuthMode)
+        }
+
+        // ============================================================
+        // AUTHENTICATION
+        // ============================================================
+        async function handleAuth(event) {
+            event.preventDefault()
+
+            const username = document.getElementById('username').value
+            const password = document.getElementById('password').value
+            const endpoint = currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login'
+
+            try {
+                const response = await fetch(API_URL + endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                })
+
+                const data = await response.json()
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Authentication failed')
+                }
+
+                // Store token and username
+                currentToken = data.access_token
+                currentUser = data.username
+                localStorage.setItem('access_token', currentToken)
+                localStorage.setItem('username', currentUser)
+
+                // Go to chat
+                initializeChat()
+                showPage('chat-page')
+
+            } catch (error) {
+                console.error('Auth error:', error)
+                document.getElementById('auth-error').textContent = error.message
+                document.getElementById('auth-error').style.display = 'block'
+            }
+        }
+
+        function logout() {
+            currentToken = null
+            currentUser = null
+            localStorage.removeItem('access_token')
+            localStorage.removeItem('username')
+            goToLanding()
+        }
+
+        // ============================================================
+        // CHAT
+        // ============================================================
+        function initializeChat() {
+            const chatContainer = document.getElementById('chat-container')
+            chatContainer.innerHTML = `
+                <div class="greeting-message">
+                    <p id="iris-greeting"></p>
+                </div>
+            `
+            
+            document.getElementById('user-greeting').textContent = `Welcome back, ${currentUser}`
+            document.getElementById('iris-greeting').textContent = `Hello ${currentUser}. I'm IRIS, your personal AI companion. Tell me what's on your mind.`
+            
+            loadChatHistory()
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById('message-input')
+            const message = messageInput.value.trim()
+
+            if (!message) return
+
+            // Add user message to UI
+            addMessageToUI(message, 'user')
+            messageInput.value = ''
+
+            try {
+                // Send to API
+                const response = await fetch(API_URL + '/chat/message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        token: currentToken
+                    })
+                })
+
+                const data = await response.json()
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to send message')
+                }
+
+                // Add IRIS response to UI
+                addMessageToUI(data.message, 'iris')
+
+            } catch (error) {
+                console.error('Chat error:', error)
+                addMessageToUI(`Error: ${error.message}`, 'iris')
+            }
+        }
+
+        function addMessageToUI(message, sender) {
+            const chatContainer = document.getElementById('chat-container')
+            const messageDiv = document.createElement('div')
+            messageDiv.className = `message ${sender}`
+            messageDiv.textContent = message
+
+            chatContainer.appendChild(messageDiv)
+            chatContainer.scrollTop = chatContainer.scrollHeight
+        }
+
+        async function loadChatHistory() {
+            try {
+                const response = await fetch(API_URL + '/chat/history', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        token: currentToken
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to load history');
+
+                const chatContainer = document.getElementById('chat-container');
+                // Preserve the initial greeting if it's there
+                const greeting = chatContainer.querySelector('.greeting-message');
+                chatContainer.innerHTML = '';
+                if (greeting) chatContainer.appendChild(greeting);
+
+                data.messages.forEach(msg => {
+                    if (msg.user_message && !msg.user_message.startsWith('[IRIS noticed:')) {
+                        addMessageToUI(msg.user_message, 'user');
+                    }
+                    if (msg.companion_response) {
+                        addMessageToUI(msg.companion_response, 'iris');
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        // ============================================================
+        // INITIALIZATION
+        // ============================================================
+        // ============================================================
+        // TAB SWITCHING
+        // ============================================================
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.getElementById('chat-tab').classList.remove('active')
+            document.getElementById('habits-tab').classList.remove('active')
+            document.getElementById('reflections-tab').classList.remove('active')
+
+            // Remove active class from all buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active')
+            })
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active')
+
+            // Mark button as active
+            event.target.classList.add('active')
+
+            // Load data for the tab
+            if (tabName === 'chat') {
+                loadChatHistory()
+            } else if (tabName === 'habits') {
+                loadTodayHabits()
+                loadWeeklySummary()
+            } else if (tabName === 'reflections') {
+                loadReflections()
+                loadMoodTrend()
+            }
+        }
+
+        // ============================================================
+        // CHIP SELECTION LOGIC
+        // ============================================================
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('chip')) {
+                const container = e.target.parentElement;
+                
+                // If it's the reflection tags, allow multiple selection
+                if (container.id === 'reflection-tag-chips') {
+                    e.target.classList.toggle('active');
+                } 
+                // Single selection for others (Category, Mood, Energy, Type, Metric)
+                else if (container.id === 'habit-category-chips' || 
+                         container.id === 'reflection-mood-chips' || 
+                         container.id === 'reflection-energy-chips' ||
+                         container.id === 'habit-type-chips' ||
+                         container.id === 'habit-metric-chips' ||
+                         container.id === 'log-metric-chips') {
+                    container.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    // Special logic for log metric chips
+                    if (container.id === 'log-metric-chips') {
+                        document.getElementById('log-active-metric').value = e.target.getAttribute('data-value');
+                    }
+
+                    // Special logic for habit type
+                    if (container.id === 'habit-type-chips') {
+                        const type = e.target.getAttribute('data-value');
+                        const targetConfig = document.getElementById('target-config');
+                        const targetLabel = document.getElementById('target-label');
+                        const metricContainer = document.getElementById('habit-metric-chips');
+                        const metricInput = document.getElementById('habit-metric');
+
+                        if (type === 'completion') {
+                            targetConfig.style.display = 'none';
+                        } else {
+                            targetConfig.style.display = 'block';
+                            targetLabel.textContent = type === 'duration' ? 'Weekly Target' : 'Weekly Target';
+                            
+                            // Populate metric chips
+                            if (type === 'duration') {
+                                metricContainer.innerHTML = `
+                                    <div class="chip active" data-value="minutes">Minutes</div>
+                                    <div class="chip" data-value="hours">Hours</div>
+                                `;
+                                metricInput.value = 'minutes';
+                            } else {
+                                metricContainer.innerHTML = `
+                                    <div class="chip active" data-value="times">Times</div>
+                                    <div class="chip" data-value="pages">Pages</div>
+                                    <div class="chip" data-value="sessions">Sessions</div>
+                                `;
+                                metricInput.value = 'times';
+                            }
+                        }
+                    }
+
+                    // Special logic for metric chips
+                    if (container.id === 'habit-metric-chips') {
+                        document.getElementById('habit-metric').value = e.target.getAttribute('data-value');
+                    }
+                }
+            }
+        });
+
+        // ============================================================
+        // HABITS
+        // ============================================================
+        function showHabitForm() {
+            document.getElementById('habit-form').style.display = 'block'
+        }
+
+        function hideHabitForm() {
+            document.getElementById('habit-form').style.display = 'none'
+            document.getElementById('habit-name').value = ''
+            document.getElementById('habit-description').value = ''
+            document.getElementById('habit-weekly-target').value = '0'
+            document.getElementById('habit-metric').value = ''
+            document.getElementById('target-config').style.display = 'none'
+            
+            document.querySelectorAll('#habit-type-chips .chip').forEach(c => c.classList.remove('active'));
+            document.querySelector('#habit-type-chips .chip[data-value="completion"]').classList.add('active');
+            
+            document.querySelectorAll('#habit-category-chips .chip').forEach(c => c.classList.remove('active'));
+            document.querySelector('#habit-category-chips .chip[data-value="general"]').classList.add('active');
+        }
+
+        async function createHabit() {
+            const name = document.getElementById('habit-name').value.trim()
+            const description = document.getElementById('habit-description').value.trim()
+            
+            const activeTypeChip = document.querySelector('#habit-type-chips .chip.active');
+            const habitType = activeTypeChip ? activeTypeChip.getAttribute('data-value') : 'completion';
+            
+            let weeklyTarget = parseFloat(document.getElementById('habit-weekly-target').value) || 0;
+            const metric = document.getElementById('habit-metric').value || 'completion';
+
+            // Convert hours to minutes for internal storage consistency if desired, 
+            // but for now we'll just store the value and label as the user chose.
+            // If the metric is 'hours', the target 1.5 means 1.5 hours.
+
+            const activeChip = document.querySelector('#habit-category-chips .chip.active');
+            const category = activeChip ? activeChip.getAttribute('data-value') : 'general';
+
+            if (!name) {
+                showToast('Please give your habit a name so we can track it together.', 'info')
+                return
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/habits?token=${currentToken}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        description: description || null,
+                        frequency_type: 'daily',
+                        habit_type: habitType,
+                        weekly_target: weeklyTarget,
+                        tracking_metric: metric,
+                        category: category
+                    })
+                })
+
+                if (!response.ok) throw new Error('Failed to create habit')
+
+                hideHabitForm()
+                loadTodayHabits()
+                showToast(`A new journey begins! I've added "${name}" to our daily checklist.`);
+
+            } catch (error) {
+                console.error('Error creating habit:', error)
+                showToast('I had a little trouble creating that habit. Could you try again for me?', 'error')
+            }
+        }
+
+        async function loadTodayHabits() {
+            try {
+                const response = await fetch(`${API_URL}/habits/today?token=${currentToken}`)
+                const data = await response.json()
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load habits')
+                }
+
+                data_habits_cache = data.habits;
+                const habitsContainer = document.getElementById('today-habits')
+                if (data.habits.length === 0) {
+                    habitsContainer.innerHTML = '<p class="loading">No habits yet. Create one to get started!</p>'
+                    return
+                }
+
+                habitsContainer.innerHTML = data.habits.map(habit => {
+                    let progressHtml = '';
+                    if (habit.weekly_target > 0) {
+                        const prog = habit.weekly_progress;
+                        progressHtml = `
+                            <div class="progress-container">
+                                <div class="progress-bar" style="width: ${prog.percent}%"></div>
+                            </div>
+                            <div class="progress-text">
+                                <span>Weekly Goal: ${prog.current} / ${prog.target} ${prog.metric}</span>
+                                <span>${prog.percent}%</span>
+                            </div>
+                        `;
+                    }
+
+                    const actionBtn = habit.habit_type === 'completion' 
+                        ? `<button class="btn btn-primary" onclick="logCompletion(${habit.id})">✓ Done</button>`
+                        : `<button class="btn btn-primary" onclick="logValue(${habit.id}, '${habit.habit_type}', '${habit.tracking_metric}')">+ Log</button>`;
+
+                    return `
+                        <div class="habit-item" data-id="${habit.id}">
+                            <div style="flex: 1;">
+                                <div class="habit-info">
+                                    <div class="habit-name">${habit.name}</div>
+                                    <div class="habit-streak">
+                                        🔥 Streak: ${habit.current_streak} | Type: ${habit.habit_type}
+                                    </div>
+                                </div>
+                                ${progressHtml}
+                            </div>
+                            <div class="habit-actions" style="margin-left: 1rem;">
+                                ${actionBtn}
+                                <button class="btn btn-secondary" onclick="logSkip(${habit.id})">Skip</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('')
+
+            } catch (error) {
+                console.error('Error loading habits:', error)
+                document.getElementById('today-habits').innerHTML = `<p class="loading">Error: ${error.message}</p>`
+            }
+        }
+
+        async function loadWeeklySummary() {
+            try {
+                const response = await fetch(`${API_URL}/habits/weekly?token=${currentToken}`)
+                const data = await response.json()
+
+                if (!response.ok) {
+                    throw new Error('Failed to load weekly summary')
+                }
+
+                const summaryContainer = document.getElementById('weekly-summary')
+                const statsContainer = document.getElementById('weekly-stats')
+
+                if (data.habits.length === 0) {
+                    summaryContainer.style.display = 'none'
+                    return
+                }
+
+                summaryContainer.style.display = 'block'
+                statsContainer.innerHTML = '<div class="stats-grid">' + data.habits.map(habit => `
+                    <div class="stat-item">
+                        <div class="stat-value">${habit.completed}/${habit.total_days}</div>
+                        <div class="stat-label">${habit.name}</div>
+                    </div>
+                `).join('') + '</div>'
+
+            } catch (error) {
+                console.error('Error loading weekly summary:', error)
+                document.getElementById('weekly-summary').style.display = 'none'
+            }
+        }
+
+        let currentLoggingHabitId = null;
+        let data_habits_cache = [];
+
+        async function logValue(habitId, type, metric) {
+            currentLoggingHabitId = habitId;
+            const logMetricSelection = document.getElementById('log-metric-selection');
+            const logMetricChips = document.getElementById('log-metric-chips');
+            const logActiveMetric = document.getElementById('log-active-metric');
+            const promptMsg = type === 'duration' ? `How long did you complete?` : `How many ${metric} did you complete?`;
+            
+            document.getElementById('log-value-prompt').textContent = promptMsg;
+            document.getElementById('log-value-input').value = '0';
+            
+            if (type === 'duration') {
+                logMetricSelection.style.display = 'block';
+                logMetricChips.innerHTML = `
+                    <div class="chip active" data-value="minutes">Minutes</div>
+                    <div class="chip" data-value="hours">Hours</div>
+                `;
+                logActiveMetric.value = 'minutes';
+            } else {
+                logMetricSelection.style.display = 'none';
+                logActiveMetric.value = metric;
+            }
+            
+            document.getElementById('log-value-modal').style.display = 'flex';
+            
+            const confirmBtn = document.getElementById('confirm-log-value-btn');
+            confirmBtn.onclick = async () => {
+                let val = parseFloat(document.getElementById('log-value-input').value);
+                const selectedMetric = logActiveMetric.value;
+                
+                if (!isNaN(val) && val > 0) {
+                    const habit = data_habits_cache.find(h => h.id === habitId);
+                    if (habit && habit.tracking_metric === 'minutes' && selectedMetric === 'hours') {
+                        val = val * 60;
+                    } else if (habit && habit.tracking_metric === 'hours' && selectedMetric === 'minutes') {
+                        val = val / 60;
+                    }
+                    
+                    await performLog(currentLoggingHabitId, val);
+                }
+                closeLogValueModal();
+            };
+        }
+
+        function closeLogValueModal() {
+            document.getElementById('log-value-modal').style.display = 'none';
+            currentLoggingHabitId = null;
+        }
+
+        async function logCompletion(habitId) {
+            await performLog(habitId, 1.0);
+        }
+
+        async function performLog(habitId, value) {
+            try {
+                const response = await fetch(`${API_URL}/habits/complete?token=${currentToken}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        habit_id: habitId,
+                        value: value
+                    })
+                })
+
+                if (!response.ok) throw new Error('Failed to log completion')
+
+                loadTodayHabits()
+                showToast('Excellent! I\'ve marked that as done. Keep up the great momentum.')
+
+                // Trigger IRIS to respond proactively
+                const habitItem = document.querySelector(`.habit-item[data-id="${habitId}"]`);
+                const habitName = habitItem ? habitItem.querySelector('.habit-name').textContent : 'Unknown habit';
+                triggerProactiveResponse('habit_complete', { 
+                    habit_id: habitId,
+                    habit_name: habitName,
+                    value: value
+                });
+
+            } catch (error) {
+                showToast('I couldn\'t log that for you. Let\'s try once more.', 'error')
+            }
+        }
+
+        let currentSkippingHabitId = null;
+
+        function logSkip(habitId) {
+            currentSkippingHabitId = habitId;
+            document.getElementById('skip-reason').value = '';
+            document.getElementById('skip-modal').style.display = 'flex';
+            
+            // Set up the confirm button for this specific habit
+            const confirmBtn = document.getElementById('confirm-skip-btn');
+            confirmBtn.onclick = async () => {
+                const reason = document.getElementById('skip-reason').value.trim();
+                await performSkip(currentSkippingHabitId, reason);
+                closeSkipModal();
+            };
+        }
+
+        function closeSkipModal() {
+            document.getElementById('skip-modal').style.display = 'none';
+            currentSkippingHabitId = null;
+        }
+
+        async function performSkip(habitId, reason) {
+            try {
+                const response = await fetch(`${API_URL}/habits/skip?token=${currentToken}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ habit_id: habitId, reason: reason })
+                })
+
+                if (!response.ok) throw new Error('Failed to log skip')
+
+                loadTodayHabits()
+                showToast('It\'s okay to skip sometimes. Consistency is a marathon, not a sprint.', 'info')
+
+                // Trigger IRIS to respond proactively
+                const habit = document.querySelector(`.habit-item[data-id="${habitId}"]`);
+                const habitName = habit ? habit.querySelector('.habit-name').textContent : 'Unknown habit';
+                triggerProactiveResponse('habit_skip', { 
+                    habit_id: habitId,
+                    habit_name: habitName,
+                    reason: reason 
+                });
+
+            } catch (error) {
+                showToast('I couldn\'t log that skip. Let\'s try once more.', 'error')
+            }
+        }
+
+        // ============================================================
+        // REFLECTIONS
+        // ============================================================
+        function showReflectionForm() {
+            document.getElementById('reflection-form').style.display = 'block'
+        }
+
+        function hideReflectionForm() {
+            document.getElementById('reflection-form').style.display = 'none'
+            document.getElementById('reflection-content').value = ''
+            document.querySelectorAll('#reflection-mood-chips .chip').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('#reflection-energy-chips .chip').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('#reflection-tag-chips .chip').forEach(c => c.classList.remove('active'));
+        }
+
+        async function createReflection() {
+            const content = document.getElementById('reflection-content').value.trim()
+            
+            const activeMood = document.querySelector('#reflection-mood-chips .chip.active');
+            const mood = activeMood ? activeMood.getAttribute('data-value') : null;
+            
+            const activeEnergy = document.querySelector('#reflection-energy-chips .chip.active');
+            const energy = activeEnergy ? parseInt(activeEnergy.getAttribute('data-value')) : null;
+            
+            const activeChips = document.querySelectorAll('#reflection-tag-chips .chip.active');
+            const tags = Array.from(activeChips).map(c => c.getAttribute('data-value'));
+
+            if (!content) {
+                showToast('Feel free to write whatever is on your mind.', 'info')
+                return
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/reflections?token=${currentToken}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: content,
+                        mood: mood,
+                        energy_level: energy ? parseInt(energy) : null,
+                        tags: tags
+                    })
+                })
+
+                if (!response.ok) throw new Error('Failed to create reflection')
+
+                hideReflectionForm()
+                loadReflections()
+                showToast('I\'ve noted your thoughts down. It\'s always good to reflect and process.')
+                
+                // Trigger IRIS to respond proactively
+                triggerProactiveResponse('reflection', { 
+                    content: content, 
+                    mood: mood, 
+                    energy_level: energy 
+                });
+
+            } catch (error) {
+                showToast('I couldn\'t save your reflection just now. Shall we try again?', 'error')
+            }
+        }
+
+        async function loadReflections() {
+            try {
+                const response = await fetch(`${API_URL}/reflections?token=${currentToken}&limit=10`)
+                const data = await response.json()
+
+                if (!response.ok) throw new Error('Failed to load reflections')
+
+                const container = document.getElementById('recent-reflections')
+                if (data.reflections.length === 0) {
+                    container.innerHTML = '<p class="loading">No reflections yet. Start reflecting!</p>'
+                    return
+                }
+
+                container.innerHTML = data.reflections.map(r => `
+                    <div class="reflection-item">
+                        <div class="reflection-date">${new Date(r.reflection_date).toLocaleDateString()}</div>
+                        <div class="reflection-content">${r.content.substring(0, 200)}${r.content.length > 200 ? '...' : ''}</div>
+                        <div class="reflection-meta">
+                            ${r.mood ? `<span class="reflection-mood">Mood: ${r.mood}</span>` : ''}
+                            ${r.energy_level ? `<span class="reflection-energy">Energy: ${r.energy_level}/5</span>` : ''}
+                        </div>
+                    </div>
+                `).join('')
+
+            } catch (error) {
+                console.error('Error loading reflections:', error)
+                document.getElementById('recent-reflections').innerHTML = `<p class="loading">Error: ${error.message}</p>`
+            }
+        }
+
+        async function loadMoodTrend() {
+            try {
+                const response = await fetch(`${API_URL}/reflections/moods?token=${currentToken}&days=30`)
+                const data = await response.json()
+
+                if (!response.ok) throw new Error('Failed to load mood trend')
+
+                const container = document.getElementById('mood-trend')
+                const statsContainer = document.getElementById('mood-stats')
+
+                container.style.display = 'block'
+                statsContainer.innerHTML = '<div class="stats-grid">' +
+                    Object.entries(data.mood_distribution).map(([mood, count]) => `
+                        <div class="stat-item">
+                            <div class="stat-value">${count}</div>
+                            <div class="stat-label">${mood}</div>
+                        </div>
+                    `).join('') +
+                    `<div class="stat-item">
+                        <div class="stat-value">${data.average_energy_level || '-'}</div>
+                        <div class="stat-label">Avg Energy</div>
+                    </div>` +
+                    '</div>'
+
+            } catch (error) {
+                console.error('Error loading mood trend:', error)
+                document.getElementById('mood-trend').style.display = 'none'
+            }
+        }
+
+        window.addEventListener('load', function() {
+            // Check if user is already logged in
+            const token = localStorage.getItem('access_token')
+            const username = localStorage.getItem('username')
+
+            if (token && username) {
+                currentToken = token
+                currentUser = username
+                initializeChat()
+                showPage('chat-page')
+            } else {
+                showPage('landing-page')
+            }
+        })
+    </script>
+</body>
+</html>

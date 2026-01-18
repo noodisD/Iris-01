@@ -10,7 +10,7 @@ IRIS is not a standard "chat-first" assistant. It is a system designed to detect
 
 IRIS follows a structured inference pipeline that moves from raw data to prioritized signals:
 
-1.  **Ingestion & Persistence**: Raw journal entries are stored in **PostgreSQL** (Source of Truth). Semantic themes are discovered via **HDBSCAN clustering**.
+1.  **Ingestion & Persistence**: Raw journal entries are stored in **PostgreSQL** (Source of Truth). Semantic themes are discovered via **clustering algorithms** (HDBSCAN with DBSCAN fallback).
 2.  **Analytical Stack**:
     *   **Trajectory**: Linear regression on theme frequency.
     *   **Tension**: Co-occurrence detection between conflicting patterns.

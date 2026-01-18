@@ -14,7 +14,16 @@ The engine does not judge. It simply surfaces persistence.
 import logging
 from datetime import datetime
 from typing import Optional, List, Any
-from sklearn.metrics.pairwise import cosine_similarity
+import math
+
+# Attempt to import sklearn, but handle gracefully if unavailable
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    cosine_similarity = None
+    SKLEARN_AVAILABLE = False
+
 import numpy as np
 
 # Import database and constants
@@ -26,15 +35,50 @@ from .constants import (
     PERSISTENCE_MIN_CLUSTER_SIZE
 )
 
+def cosine_similarity_manual(vec1, vec2):
+    """
+    Calculate cosine similarity manually without sklearn.
+    This function computes the cosine similarity between two vectors.
+    """
+    # Convert to numpy arrays if they aren't already
+    v1 = np.array(vec1).flatten()
+    v2 = np.array(vec2).flatten()
+
+    # Calculate dot product
+    dot_product = np.dot(v1, v2)
+
+    # Calculate magnitudes
+    magnitude_v1 = np.sqrt(np.sum(v1 ** 2))
+    magnitude_v2 = np.sqrt(np.sum(v2 ** 2))
+
+    # Handle zero magnitude cases
+    if magnitude_v1 == 0 or magnitude_v2 == 0:
+        return 0.0
+
+    # Calculate cosine similarity
+    similarity = dot_product / (magnitude_v1 * magnitude_v2)
+    return similarity
+
 logger = logging.getLogger(__name__)
 
-# Try to import hdbscan, with fallback
+# Try to import hdbscan, with fallback to scikit-learn alternatives
 try:
     from hdbscan import HDBSCAN
     HAS_HDBSCAN = True
+    CLUSTERING_BACKEND = "hdbscan"
 except ImportError:
     HAS_HDBSCAN = False
-    logger.warning("hdbscan not installed. Theme discovery will not work.")
+    logger.info("hdbscan not installed. Will use scikit-learn clustering as fallback.")
+
+    # Try to use scikit-learn clustering algorithms as fallback
+    try:
+        from sklearn.cluster import DBSCAN
+        HAS_DBSCAN = True
+        CLUSTERING_BACKEND = "dbscan"
+    except ImportError:
+        HAS_DBSCAN = False
+        logger.warning("Neither hdbscan nor DBSCAN available. Theme discovery will be limited.")
+        CLUSTERING_BACKEND = "none"
 
 
 class PersistenceEngine:
@@ -85,7 +129,12 @@ class PersistenceEngine:
 
         for theme in themes:
             centroid = np.array(theme["centroid_embedding"], dtype=np.float32).reshape(1, -1)
-            similarity = cosine_similarity(embedding_array, centroid)[0][0]
+
+            if SKLEARN_AVAILABLE:
+                similarity = cosine_similarity(embedding_array, centroid)[0][0]
+            else:
+                # Use manual cosine similarity calculation
+                similarity = cosine_similarity_manual(embedding_array[0], centroid[0])
 
             if similarity >= self.similarity_threshold:
                 # Record occurrence and update stats
@@ -115,8 +164,8 @@ class PersistenceEngine:
         Returns:
             List of newly created themes
         """
-        if not HAS_HDBSCAN:
-            logger.error("hdbscan not installed. Cannot discover themes.")
+        if not HAS_HDBSCAN and not HAS_DBSCAN:
+            logger.error("Neither hdbscan nor dbscan available. Cannot discover themes.")
             return []
 
         # 1. Get entries not yet assigned to any theme
@@ -141,24 +190,51 @@ class PersistenceEngine:
 
         vectors_array = np.array(vectors, dtype=np.float32)
 
-        # 3. Cluster using HDBSCAN
+        # 3. Cluster using available algorithm
         # Normalize vectors and use euclidean (mathematically equivalent to cosine for clustering)
-        # This is more robust than using the 'cosine' metric directly in many HDBSCAN versions
+        # This is more robust than using the 'cosine' metric directly
         try:
             norms = np.linalg.norm(vectors_array, axis=1, keepdims=True)
             normalized_vectors = vectors_array / (norms + 1e-10)
-            
-            clusterer = HDBSCAN(
-                min_cluster_size=self.min_cluster_size,
-                min_samples=1,
-                metric='euclidean',
-                cluster_selection_method='leaf',
-                allow_single_cluster=True
-            )
-            cluster_labels = clusterer.fit_predict(normalized_vectors)
-            logger.info(f"HDBSCAN clustering found labels: {set(cluster_labels)}")
+
+            if CLUSTERING_BACKEND == "hdbscan":
+                clusterer = HDBSCAN(
+                    min_cluster_size=self.min_cluster_size,
+                    min_samples=1,
+                    metric='euclidean',
+                    cluster_selection_method='leaf',
+                    allow_single_cluster=True
+                )
+                cluster_labels = clusterer.fit_predict(normalized_vectors)
+                logger.info(f"HDBSCAN clustering found labels: {set(cluster_labels)}")
+            elif CLUSTERING_BACKEND == "dbscan":
+                # Use DBSCAN as fallback - similar to HDBSCAN but with eps parameter
+                from sklearn.neighbors import NearestNeighbors
+
+                # Estimate eps based on min_cluster_size
+                # Find distance to k-th nearest neighbor where k=min_cluster_size
+                k = min(self.min_cluster_size, len(normalized_vectors) - 1)
+                if k > 0:
+                    neighbors = NearestNeighbors(n_neighbors=k).fit(normalized_vectors)
+                    distances, indices = neighbors.kneighbors(normalized_vectors)
+                    # Use the average distance to k-th neighbor as eps
+                    avg_kth_distance = np.mean(distances[:, -1])
+                    eps = max(avg_kth_distance, 0.1)  # Ensure minimum eps
+                else:
+                    eps = 0.5  # Default value if not enough samples
+
+                clusterer = DBSCAN(
+                    eps=eps,
+                    min_samples=max(1, self.min_cluster_size // 2),  # At least 1, but scale with min_cluster_size
+                    metric='euclidean'
+                )
+                cluster_labels = clusterer.fit_predict(normalized_vectors)
+                logger.info(f"DBSCAN clustering found labels: {set(cluster_labels)}")
+            else:
+                logger.error("No clustering algorithm available.")
+                return []
         except Exception as e:
-            logger.error(f"HDBSCAN clustering failed: {e}")
+            logger.error(f"Clustering failed: {e}")
             return []
 
         # 4. Create themes from clusters
@@ -225,10 +301,15 @@ class PersistenceEngine:
             # Record initial occurrences
             for i, entry in enumerate(entries):
                 snippet = self._get_entry_snippet(entry["source_id"])
-                similarity = cosine_similarity(
-                    centroid.reshape(1, -1),
-                    vectors[i].reshape(1, -1)
-                )[0][0]
+
+                if SKLEARN_AVAILABLE:
+                    similarity = cosine_similarity(
+                        centroid.reshape(1, -1),
+                        vectors[i].reshape(1, -1)
+                    )[0][0]
+                else:
+                    # Use manual cosine similarity calculation
+                    similarity = cosine_similarity_manual(centroid, vectors[i])
 
                 db.add_theme_occurrence(
                     theme_id=theme_id,
