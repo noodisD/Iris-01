@@ -1,0 +1,437 @@
+ Journal Protocol Upgrade Plan (API-First)                                                                                                  │
+     │                                                                                                                                            │
+     │ Overview                                                                                                                                   │
+     │                                                                                                                                            │
+     │ Upgrade IRIS's journal system with a focus on FastAPI endpoints for frontend consumption. Priority features: Habit tracking and Reflection │
+     │ entries.                                                                                                                                   │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Architecture Approach                                                                                                                      │
+     │                                                                                                                                            │
+     │ Frontend (HTML/JS/CSS → later React)                                                                                                       │
+     │          │                                                                                                                                 │
+     │          ▼                                                                                                                                 │
+     │ FastAPI Layer (iris_api.py)                                                                                                                │
+     │   - /journal/* endpoints                                                                                                                   │
+     │   - /habits/* endpoints                                                                                                                    │
+     │          │                                                                                                                                 │
+     │          ▼                                                                                                                                 │
+     │ Service Layer (agent/trackers/)                                                                                                            │
+     │   - HabitTracker                                                                                                                           │
+     │   - ReflectionService                                                                                                                      │
+     │          │                                                                                                                                 │
+     │          ▼                                                                                                                                 │
+     │ Database Layer (agent/database.py)                                                                                                         │
+     │   - PostgreSQL tables                                                                                                                      │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Phase 1: Database Schema                                                                                                                   │
+     │                                                                                                                                            │
+     │ New Tables in agent/database.py                                                                                                            │
+     │                                                                                                                                            │
+     │ Habits Table                                                                                                                               │
+     │                                                                                                                                            │
+     │ CREATE TABLE IF NOT EXISTS habits (                                                                                                        │
+     │     id SERIAL PRIMARY KEY,                                                                                                                 │
+     │     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,                                                                       │
+     │     name VARCHAR(255) NOT NULL,                                                                                                            │
+     │     description TEXT,                                                                                                                      │
+     │     frequency_type VARCHAR(20) NOT NULL DEFAULT 'daily'                                                                                    │
+     │         CHECK (frequency_type IN ('daily', 'weekly', 'specific_days')),                                                                    │
+     │     frequency_target INTEGER DEFAULT 1,                                                                                                    │
+     │     specific_days SMALLINT[],  -- [0,1,2,3,4,5,6] for Mon-Sun                                                                              │
+     │     category VARCHAR(50) DEFAULT 'general',                                                                                                │
+     │     is_active BOOLEAN DEFAULT TRUE,                                                                                                        │
+     │     current_streak INTEGER DEFAULT 0,                                                                                                      │
+     │     longest_streak INTEGER DEFAULT 0,                                                                                                      │
+     │     total_completions INTEGER DEFAULT 0,                                                                                                   │
+     │     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                                                                                      │
+     │     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP                                                                                       │
+     │ );                                                                                                                                         │
+     │                                                                                                                                            │
+     │ CREATE INDEX idx_habits_user_active ON habits(user_id, is_active);                                                                         │
+     │                                                                                                                                            │
+     │ Habit Completions Table                                                                                                                    │
+     │                                                                                                                                            │
+     │ CREATE TABLE IF NOT EXISTS habit_completions (                                                                                             │
+     │     id SERIAL PRIMARY KEY,                                                                                                                 │
+     │     habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,                                                                     │
+     │     completion_date DATE NOT NULL,                                                                                                         │
+     │     is_completed BOOLEAN DEFAULT TRUE,                                                                                                     │
+     │     is_skipped BOOLEAN DEFAULT FALSE,                                                                                                      │
+     │     skip_reason TEXT,                                                                                                                      │
+     │     notes TEXT,                                                                                                                            │
+     │     completed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                                                                                    │
+     │     UNIQUE(habit_id, completion_date)                                                                                                      │
+     │ );                                                                                                                                         │
+     │                                                                                                                                            │
+     │ CREATE INDEX idx_completions_habit_date ON habit_completions(habit_id, completion_date DESC);                                              │
+     │                                                                                                                                            │
+     │ Reflections Table (Simplified)                                                                                                             │
+     │                                                                                                                                            │
+     │ CREATE TABLE IF NOT EXISTS reflections (                                                                                                   │
+     │     id SERIAL PRIMARY KEY,                                                                                                                 │
+     │     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,                                                                       │
+     │     reflection_date DATE NOT NULL,                                                                                                         │
+     │     content TEXT NOT NULL,                                                                                                                 │
+     │     mood VARCHAR(20),  -- 'great', 'good', 'okay', 'bad', 'terrible'                                                                       │
+     │     energy_level SMALLINT CHECK (energy_level BETWEEN 1 AND 5),                                                                            │
+     │     tags JSONB,  -- ["productive", "tired", "grateful"]                                                                                    │
+     │     processing_status VARCHAR(20) DEFAULT 'pending',                                                                                       │
+     │     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                                                                                      │
+     │     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP                                                                                       │
+     │ );                                                                                                                                         │
+     │                                                                                                                                            │
+     │ CREATE INDEX idx_reflections_user_date ON reflections(user_id, reflection_date DESC);                                                      │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Phase 2: Service Layer                                                                                                                     │
+     │                                                                                                                                            │
+     │ Create agent/trackers/habits.py                                                                                                            │
+     │                                                                                                                                            │
+     │ class HabitTracker:                                                                                                                        │
+     │     def __init__(self, user_id: int):                                                                                                      │
+     │         self.user_id = user_id                                                                                                             │
+     │                                                                                                                                            │
+     │     # CRUD                                                                                                                                 │
+     │     def create_habit(self, name, description, frequency_type, category) -> int                                                             │
+     │     def get_habits(self, active_only=True) -> List[Dict]                                                                                   │
+     │     def get_habit(self, habit_id) -> Dict                                                                                                  │
+     │     def update_habit(self, habit_id, **updates) -> bool                                                                                    │
+     │     def delete_habit(self, habit_id) -> bool                                                                                               │
+     │                                                                                                                                            │
+     │     # Completions                                                                                                                          │
+     │     def log_completion(self, habit_id, date, notes=None) -> int                                                                            │
+     │     def log_skip(self, habit_id, date, reason=None) -> int                                                                                 │
+     │     def get_today_status(self) -> List[Dict]  # habits with today's completion status                                                      │
+     │                                                                                                                                            │
+     │     # Streaks                                                                                                                              │
+     │     def update_streaks(self, habit_id) -> Dict                                                                                             │
+     │     def get_streak_info(self, habit_id) -> Dict                                                                                            │
+     │                                                                                                                                            │
+     │     # Stats                                                                                                                                │
+     │     def get_weekly_summary(self) -> Dict                                                                                                   │
+     │     def get_calendar(self, habit_id, start_date, end_date) -> List[Dict]                                                                   │
+     │                                                                                                                                            │
+     │ Create agent/trackers/reflections.py                                                                                                       │
+     │                                                                                                                                            │
+     │ class ReflectionService:                                                                                                                   │
+     │     def __init__(self, user_id: int):                                                                                                      │
+     │         self.user_id = user_id                                                                                                             │
+     │                                                                                                                                            │
+     │     def create_reflection(self, content, mood=None, energy_level=None, tags=None) -> int                                                   │
+     │     def get_reflections(self, start_date=None, end_date=None, limit=30) -> List[Dict]                                                      │
+     │     def get_reflection(self, reflection_id) -> Dict                                                                                        │
+     │     def update_reflection(self, reflection_id, **updates) -> bool                                                                          │
+     │     def delete_reflection(self, reflection_id) -> bool                                                                                     │
+     │                                                                                                                                            │
+     │     def get_recent_moods(self, days=7) -> List[Dict]                                                                                       │
+     │     def get_mood_trend(self, days=30) -> Dict                                                                                              │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Phase 3: FastAPI Endpoints                                                                                                                 │
+     │                                                                                                                                            │
+     │ Add to iris_api.py                                                                                                                         │
+     │                                                                                                                                            │
+     │ Pydantic Models                                                                                                                            │
+     │                                                                                                                                            │
+     │ # Habits                                                                                                                                   │
+     │ class HabitCreate(BaseModel):                                                                                                              │
+     │     name: str                                                                                                                              │
+     │     description: Optional[str] = None                                                                                                      │
+     │     frequency_type: str = "daily"  # daily, weekly, specific_days                                                                          │
+     │     specific_days: Optional[List[int]] = None                                                                                              │
+     │     category: Optional[str] = "general"                                                                                                    │
+     │                                                                                                                                            │
+     │ class HabitUpdate(BaseModel):                                                                                                              │
+     │     name: Optional[str] = None                                                                                                             │
+     │     description: Optional[str] = None                                                                                                      │
+     │     is_active: Optional[bool] = None                                                                                                       │
+     │                                                                                                                                            │
+     │ class HabitCompletion(BaseModel):                                                                                                          │
+     │     habit_id: int                                                                                                                          │
+     │     date: Optional[str] = None  # ISO date, defaults to today                                                                              │
+     │     notes: Optional[str] = None                                                                                                            │
+     │                                                                                                                                            │
+     │ class HabitSkip(BaseModel):                                                                                                                │
+     │     habit_id: int                                                                                                                          │
+     │     date: Optional[str] = None                                                                                                             │
+     │     reason: Optional[str] = None                                                                                                           │
+     │                                                                                                                                            │
+     │ # Reflections                                                                                                                              │
+     │ class ReflectionCreate(BaseModel):                                                                                                         │
+     │     content: str                                                                                                                           │
+     │     mood: Optional[str] = None  # great, good, okay, bad, terrible                                                                         │
+     │     energy_level: Optional[int] = None  # 1-5                                                                                              │
+     │     tags: Optional[List[str]] = None                                                                                                       │
+     │                                                                                                                                            │
+     │ class ReflectionUpdate(BaseModel):                                                                                                         │
+     │     content: Optional[str] = None                                                                                                          │
+     │     mood: Optional[str] = None                                                                                                             │
+     │     energy_level: Optional[int] = None                                                                                                     │
+     │     tags: Optional[List[str]] = None                                                                                                       │
+     │                                                                                                                                            │
+     │ Habit Endpoints                                                                                                                            │
+     │                                                                                                                                            │
+     │ # GET /habits - List all habits                                                                                                            │
+     │ @app.get("/habits")                                                                                                                        │
+     │ async def list_habits(token: str):                                                                                                         │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     return {"habits": tracker.get_habits()}                                                                                                │
+     │                                                                                                                                            │
+     │ # POST /habits - Create a habit                                                                                                            │
+     │ @app.post("/habits")                                                                                                                       │
+     │ async def create_habit(habit: HabitCreate, token: str):                                                                                    │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     habit_id = tracker.create_habit(**habit.dict())                                                                                        │
+     │     return {"habit_id": habit_id, "message": "Habit created"}                                                                              │
+     │                                                                                                                                            │
+     │ # GET /habits/{id} - Get habit details with stats                                                                                          │
+     │ @app.get("/habits/{habit_id}")                                                                                                             │
+     │ async def get_habit(habit_id: int, token: str):                                                                                            │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     return tracker.get_habit(habit_id)                                                                                                     │
+     │                                                                                                                                            │
+     │ # PUT /habits/{id} - Update a habit                                                                                                        │
+     │ @app.put("/habits/{habit_id}")                                                                                                             │
+     │ async def update_habit(habit_id: int, updates: HabitUpdate, token: str):                                                                   │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     tracker.update_habit(habit_id, **updates.dict(exclude_none=True))                                                                      │
+     │     return {"message": "Habit updated"}                                                                                                    │
+     │                                                                                                                                            │
+     │ # DELETE /habits/{id} - Delete a habit                                                                                                     │
+     │ @app.delete("/habits/{habit_id}")                                                                                                          │
+     │ async def delete_habit(habit_id: int, token: str):                                                                                         │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     tracker.delete_habit(habit_id)                                                                                                         │
+     │     return {"message": "Habit deleted"}                                                                                                    │
+     │                                                                                                                                            │
+     │ # POST /habits/complete - Log completion                                                                                                   │
+     │ @app.post("/habits/complete")                                                                                                              │
+     │ async def complete_habit(completion: HabitCompletion, token: str):                                                                         │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     tracker.log_completion(completion.habit_id, completion.date, completion.notes)                                                         │
+     │     return {"message": "Completion logged", "streaks": tracker.get_streak_info(completion.habit_id)}                                       │
+     │                                                                                                                                            │
+     │ # POST /habits/skip - Log skip                                                                                                             │
+     │ @app.post("/habits/skip")                                                                                                                  │
+     │ async def skip_habit(skip: HabitSkip, token: str):                                                                                         │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     tracker.log_skip(skip.habit_id, skip.date, skip.reason)                                                                                │
+     │     return {"message": "Skip logged"}                                                                                                      │
+     │                                                                                                                                            │
+     │ # GET /habits/today - Get today's checklist                                                                                                │
+     │ @app.get("/habits/today")                                                                                                                  │
+     │ async def get_today_habits(token: str):                                                                                                    │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     return {"habits": tracker.get_today_status()}                                                                                          │
+     │                                                                                                                                            │
+     │ # GET /habits/weekly - Weekly summary                                                                                                      │
+     │ @app.get("/habits/weekly")                                                                                                                 │
+     │ async def get_weekly_summary(token: str):                                                                                                  │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     return tracker.get_weekly_summary()                                                                                                    │
+     │                                                                                                                                            │
+     │ # GET /habits/{id}/calendar - Calendar view                                                                                                │
+     │ @app.get("/habits/{habit_id}/calendar")                                                                                                    │
+     │ async def get_habit_calendar(habit_id: int, start: str, end: str, token: str):                                                             │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     tracker = HabitTracker(user_id)                                                                                                        │
+     │     return {"calendar": tracker.get_calendar(habit_id, start, end)}                                                                        │
+     │                                                                                                                                            │
+     │ Reflection Endpoints                                                                                                                       │
+     │                                                                                                                                            │
+     │ # GET /reflections - List reflections                                                                                                      │
+     │ @app.get("/reflections")                                                                                                                   │
+     │ async def list_reflections(token: str, limit: int = 30):                                                                                   │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     return {"reflections": service.get_reflections(limit=limit)}                                                                           │
+     │                                                                                                                                            │
+     │ # POST /reflections - Create reflection                                                                                                    │
+     │ @app.post("/reflections")                                                                                                                  │
+     │ async def create_reflection(reflection: ReflectionCreate, token: str):                                                                     │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     reflection_id = service.create_reflection(**reflection.dict())                                                                         │
+     │     return {"reflection_id": reflection_id, "message": "Reflection saved"}                                                                 │
+     │                                                                                                                                            │
+     │ # GET /reflections/{id} - Get single reflection                                                                                            │
+     │ @app.get("/reflections/{reflection_id}")                                                                                                   │
+     │ async def get_reflection(reflection_id: int, token: str):                                                                                  │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     return service.get_reflection(reflection_id)                                                                                           │
+     │                                                                                                                                            │
+     │ # PUT /reflections/{id} - Update reflection                                                                                                │
+     │ @app.put("/reflections/{reflection_id}")                                                                                                   │
+     │ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token: str):                                                    │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     service.update_reflection(reflection_id, **updates.dict(exclude_none=True))                                                            │
+     │     return {"message": "Reflection updated"}                                                                                               │
+     │                                                                                                                                            │
+     │ # DELETE /reflections/{id} - Delete reflection                                                                                             │
+     │ @app.delete("/reflections/{reflection_id}")                                                                                                │
+     │ async def delete_reflection(reflection_id: int, token: str):                                                                               │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     service.delete_reflection(reflection_id)                                                                                               │
+     │     return {"message": "Reflection deleted"}                                                                                               │
+     │                                                                                                                                            │
+     │ # GET /reflections/moods - Recent mood data                                                                                                │
+     │ @app.get("/reflections/moods")                                                                                                             │
+     │ async def get_mood_trend(token: str, days: int = 30):                                                                                      │
+     │     user_id = get_user_id_from_token(token)                                                                                                │
+     │     service = ReflectionService(user_id)                                                                                                   │
+     │     return service.get_mood_trend(days)                                                                                                    │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Phase 4: Pipeline Integration                                                                                                              │
+     │                                                                                                                                            │
+     │ Update agent/pipeline.py                                                                                                                   │
+     │                                                                                                                                            │
+     │ Add reflection processing to generate embeddings for pattern detection:                                                                    │
+     │                                                                                                                                            │
+     │ def run_processing_pipeline(source_type: str, source_id: int):                                                                             │
+     │     # Existing logic...                                                                                                                    │
+     │                                                                                                                                            │
+     │     # Add support for 'reflection' source type                                                                                             │
+     │     if source_type == 'reflection':                                                                                                        │
+     │         content = db.get_reflection_content(source_id)                                                                                     │
+     │         # Generate embedding                                                                                                               │
+     │         # Store in embeddings table                                                                                                        │
+     │         # Run persistence check                                                                                                            │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Files to Modify                                                                                                                            │
+     │                                                                                                                                            │
+     │ ┌───────────────────────────────┬──────────────────────────────────────────────────────────────────────────────┐                           │
+     │ │             File              │                                   Changes                                    │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ agent/database.py             │ Add DDL for habits, habit_completions, reflections tables. Add CRUD methods. │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ agent/trackers/__init__.py    │ Create new package, export HabitTracker, ReflectionService                   │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ agent/trackers/habits.py      │ New file - HabitTracker class                                                │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ agent/trackers/reflections.py │ New file - ReflectionService class                                           │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ iris_api.py                   │ Add Pydantic models and all new endpoints                                    │                           │
+     │ ├───────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┤                           │
+     │ │ agent/pipeline.py             │ Add reflection processing support                                            │                           │
+     │ └───────────────────────────────┴──────────────────────────────────────────────────────────────────────────────┘                           │
+     │ ---                                                                                                                                        │
+     │ Implementation Sequence                                                                                                                    │
+     │                                                                                                                                            │
+     │ Step 1: Database Layer                                                                                                                     │
+     │                                                                                                                                            │
+     │ 1. Add table DDL to database.py::create_schema()                                                                                           │
+     │ 2. Add CRUD methods for habits and completions                                                                                             │
+     │ 3. Add CRUD methods for reflections                                                                                                        │
+     │ 4. Test with psql or Python REPL                                                                                                           │
+     │                                                                                                                                            │
+     │ Step 2: Service Layer                                                                                                                      │
+     │                                                                                                                                            │
+     │ 1. Create agent/trackers/ directory                                                                                                        │
+     │ 2. Implement HabitTracker class                                                                                                            │
+     │ 3. Implement ReflectionService class                                                                                                       │
+     │ 4. Unit test services                                                                                                                      │
+     │                                                                                                                                            │
+     │ Step 3: API Layer                                                                                                                          │
+     │                                                                                                                                            │
+     │ 1. Add Pydantic models to iris_api.py                                                                                                      │
+     │ 2. Add habit endpoints                                                                                                                     │
+     │ 3. Add reflection endpoints                                                                                                                │
+     │ 4. Test with curl/Postman                                                                                                                  │
+     │                                                                                                                                            │
+     │ Step 4: Frontend Integration                                                                                                               │
+     │                                                                                                                                            │
+     │ 1. Test endpoints from HTML/JS frontend                                                                                                    │
+     │ 2. Add basic UI components                                                                                                                 │
+     │ 3. Connect completion/skip actions                                                                                                         │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ API Response Examples                                                                                                                      │
+     │                                                                                                                                            │
+     │ GET /habits/today                                                                                                                          │
+     │                                                                                                                                            │
+     │ {                                                                                                                                          │
+     │   "habits": [                                                                                                                              │
+     │     {                                                                                                                                      │
+     │       "id": 1,                                                                                                                             │
+     │       "name": "Morning meditation",                                                                                                        │
+     │       "category": "mindfulness",                                                                                                           │
+     │       "completed_today": false,                                                                                                            │
+     │       "current_streak": 5,                                                                                                                 │
+     │       "frequency_type": "daily"                                                                                                            │
+     │     },                                                                                                                                     │
+     │     {                                                                                                                                      │
+     │       "id": 2,                                                                                                                             │
+     │       "name": "Exercise",                                                                                                                  │
+     │       "category": "health",                                                                                                                │
+     │       "completed_today": true,                                                                                                             │
+     │       "completed_at": "2026-01-17T08:30:00Z",                                                                                              │
+     │       "current_streak": 12,                                                                                                                │
+     │       "frequency_type": "daily"                                                                                                            │
+     │     }                                                                                                                                      │
+     │   ]                                                                                                                                        │
+     │ }                                                                                                                                          │
+     │                                                                                                                                            │
+     │ POST /habits/complete Response                                                                                                             │
+     │                                                                                                                                            │
+     │ {                                                                                                                                          │
+     │   "message": "Completion logged",                                                                                                          │
+     │   "streaks": {                                                                                                                             │
+     │     "current_streak": 6,                                                                                                                   │
+     │     "longest_streak": 15,                                                                                                                  │
+     │     "total_completions": 45                                                                                                                │
+     │   }                                                                                                                                        │
+     │ }                                                                                                                                          │
+     │                                                                                                                                            │
+     │ GET /reflections Response                                                                                                                  │
+     │                                                                                                                                            │
+     │ {                                                                                                                                          │
+     │   "reflections": [                                                                                                                         │
+     │     {                                                                                                                                      │
+     │       "id": 1,                                                                                                                             │
+     │       "reflection_date": "2026-01-17",                                                                                                     │
+     │       "content": "Today was productive. Finished the API design...",                                                                       │
+     │       "mood": "good",                                                                                                                      │
+     │       "energy_level": 4,                                                                                                                   │
+     │       "tags": ["productive", "coding"],                                                                                                    │
+     │       "created_at": "2026-01-17T22:00:00Z"                                                                                                 │
+     │     }                                                                                                                                      │
+     │   ]                                                                                                                                        │
+     │ }                                                                                                                                          │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Verification Plan                                                                                                                          │
+     │                                                                                                                                            │
+     │ 1. Database: Run create_schema(), verify tables exist                                                                                      │
+     │ 2. Service Tests: Unit tests for HabitTracker and ReflectionService                                                                        │
+     │ 3. API Tests:                                                                                                                              │
+     │   - curl -X POST /habits - create habit                                                                                                    │
+     │   - curl -X POST /habits/complete - log completion                                                                                         │
+     │   - curl -X GET /habits/today - verify status                                                                                              │
+     │   - curl -X POST /reflections - create reflection                                                                                          │
+     │   - curl -X GET /reflections - list reflections                                                                                            │
+     │ 4. Frontend: Basic JS fetch calls to verify CORS and responses                                                                             │
+     │                                                                                                                                            │
+     │ ---                                                                                                                                        │
+     │ Future Enhancements (Post-MVP)                                                                                                             │
+     │                                                                                                                                            │
+     │ - Goal tracking system                                                                                                                     │
+     │ - Well-being metrics (detailed mood, sleep, stress tracking)                                                                               │
+     │ - Pattern detection integration (habits → themes correlation)                                                                              │
+     │ - Streak notifications                                                                                                                     │
+     │ - Weekly digest generation  

@@ -23,7 +23,7 @@ Data flows through a series of deterministic engines, each answering a specific 
 
 | Engine | Question Answered | Metric Used |
 | :--- | :--- | :--- |
-| **Persistence** | What keeps appearing? | Semantic Clustering (HDBSCAN) |
+| **Persistence** | What keeps appearing? | Semantic Clustering (HDBSCAN/DBSCAN) |
 | **Trajectory** | What is changing over time? | Linear Regression (Slope) |
 | **Tension** | What co-exists uneasily? | Co-occurrence Asymmetry |
 | **Resolution** | What has settled or reappeared? | Temporal Window Deltas |

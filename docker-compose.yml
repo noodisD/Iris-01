@@ -10,6 +10,15 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-iris_user} -d ${POSTGRES_DB:-iris_db}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   neo4j:
@@ -26,6 +35,21 @@ services:
     ports:
       - "7475:7474"
       - "7688:7687"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "cypher-shell",
+          "-u",
+          "${NEO4J_USER:-neo4j}",
+          "-p",
+          "${NEO4J_PASSWORD:-password}",
+          "RETURN 1;",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   agent:
@@ -34,13 +58,17 @@ services:
       target: runtime
     container_name: iris_agent
     depends_on:
-      - postgres
-      - neo4j
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
     env_file:
       - .env
-    volumes:
-      - iris_data:/data
-    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      NEO4J_URI: bolt://neo4j:7687
+      restart: unless-stopped
 
 volumes:
   postgres_data:

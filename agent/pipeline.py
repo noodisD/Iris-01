@@ -83,12 +83,22 @@ def run_processing_pipeline(source_type: str, source_id: int):
             for idea in entities.get("ideas", []):
                 graph_db.add_idea_node(idea)
                 graph_db.link_journal_to_idea(source_id, idea)
+        elif source_type == 'reflection':
+            user_id = item[0]['user_id']
+            created_at = item[0]['created_at']
+
+            entities = extract_entities(content)
+
+            graph_db.add_journal_entry_node(source_id, user_id, created_at)
+            for idea in entities.get("ideas", []):
+                graph_db.add_idea_node(idea)
+                graph_db.link_journal_to_idea(source_id, idea)
         elif source_type == 'message':
             # Potentially extract entities and link messages in the graph here
             pass
 
         # 7. Check for persistence (what keeps coming back)
-        if source_type == 'journal_entry':
+        if source_type == 'journal_entry' or source_type == 'reflection':
             try:
                 user_id = item[0]['user_id']
                 created_at = item[0]['created_at']
@@ -102,7 +112,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
                     occurred_at=created_at
                 )
                 if matched_theme_id:
-                    logger.info(f"Entry {source_id} matched theme {matched_theme_id}")
+                    logger.info(f"{source_type.capitalize()} {source_id} matched theme {matched_theme_id}")
             except Exception as e:
                 logger.error(f"Persistence check failed for {source_type} ID {source_id}: {e}")
                 # Non-blocking: don't fail the pipeline if persistence fails

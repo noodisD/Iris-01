@@ -361,6 +361,75 @@ class Database:
                 """)
                 logger.info("Ensured preference_audit table exists.")
 
+                # Habits table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS habits (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        description TEXT,
+                        frequency_type VARCHAR(20) NOT NULL DEFAULT 'daily'
+                            CHECK (frequency_type IN ('daily', 'weekly', 'specific_days')),
+                        habit_type VARCHAR(20) NOT NULL DEFAULT 'completion'
+                            CHECK (habit_type IN ('completion', 'duration', 'count')),
+                        weekly_target FLOAT DEFAULT 0,
+                        tracking_metric VARCHAR(50) DEFAULT 'completion',
+                        frequency_target INTEGER DEFAULT 1,
+                        specific_days SMALLINT[],
+                        category VARCHAR(50) DEFAULT 'general',
+                        is_active BOOLEAN DEFAULT TRUE,
+                        current_streak INTEGER DEFAULT 0,
+                        longest_streak INTEGER DEFAULT 0,
+                        total_completions INTEGER DEFAULT 0,
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                # Migrations for existing habits table
+                cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS habit_type VARCHAR(20) DEFAULT 'completion';")
+                cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS weekly_target FLOAT DEFAULT 0;")
+                cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS tracking_metric VARCHAR(50) DEFAULT 'completion';")
+                
+                logger.info("Ensured habits table exists.")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_active ON habits(user_id, is_active);")
+
+                # Habit completions table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS habit_completions (
+                        id SERIAL PRIMARY KEY,
+                        habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+                        completion_date DATE NOT NULL,
+                        is_completed BOOLEAN DEFAULT TRUE,
+                        is_skipped BOOLEAN DEFAULT FALSE,
+                        skip_reason TEXT,
+                        value FLOAT DEFAULT 1.0,
+                        notes TEXT,
+                        completed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(habit_id, completion_date)
+                    );
+                """)
+                cur.execute("ALTER TABLE habit_completions ADD COLUMN IF NOT EXISTS value FLOAT DEFAULT 1.0;")
+                logger.info("Ensured habit_completions table exists.")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_completions_habit_date ON habit_completions(habit_id, completion_date DESC);")
+
+                # Reflections table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS reflections (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        reflection_date DATE NOT NULL,
+                        content TEXT NOT NULL,
+                        mood VARCHAR(20),
+                        energy_level SMALLINT CHECK (energy_level BETWEEN 1 AND 5),
+                        tags JSONB,
+                        processing_status VARCHAR(20) DEFAULT 'pending',
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured reflections table exists.")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON reflections(user_id, reflection_date DESC);")
+
                 conn.commit()
                 logger.info("Database schema is up to date.")
             except psycopg2.Error as e:
@@ -395,11 +464,16 @@ class Database:
         """Retrieves a user by username."""
         conn = self.get_connection()
         with conn.cursor() as cur:
-            cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s;", (username,))
-            user_data = cur.fetchone()
-            if user_data:
-                return {"id": user_data[0], "username": user_data[1], "password_hash": user_data[2]}
-            return None
+            try:
+                cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s;", (username,))
+                user_data = cur.fetchone()
+                if user_data:
+                    return {"id": user_data[0], "username": user_data[1], "password_hash": user_data[2]}
+                return None
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get user {username}: {e}")
+                raise
 
     def verify_user(self, username: str, password: str) -> dict:
         """Verifies a user's password and returns user data if valid."""
@@ -418,16 +492,21 @@ class Database:
         """Creates a new journal entry and returns its ID."""
         conn = self.get_connection()
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO journal_entries (user_id, raw_text, wellbeing_data)
-                VALUES (%s, %s, %s) RETURNING id;
-                """,
-                (user_id, raw_text, Json(wellbeing_data))
-            )
-            entry_id = cur.fetchone()[0]
-            conn.commit()
-            return entry_id
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO journal_entries (user_id, raw_text, wellbeing_data)
+                    VALUES (%s, %s, %s) RETURNING id;
+                    """,
+                    (user_id, raw_text, Json(wellbeing_data))
+                )
+                entry_id = cur.fetchone()[0]
+                conn.commit()
+                return entry_id
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to create journal entry for user {user_id}: {e}")
+                raise
 
     # ============================================================================
     # Conversation Message Methods
@@ -437,16 +516,21 @@ class Database:
         """Creates a new conversation message and returns its ID."""
         conn = self.get_connection()
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO conversation_messages (user_id, session_id, role, content)
-                VALUES (%s, %s, %s, %s) RETURNING id;
-                """,
-                (user_id, session_id, role, content)
-            )
-            message_id = cur.fetchone()[0]
-            conn.commit()
-            return message_id
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO conversation_messages (user_id, session_id, role, content)
+                    VALUES (%s, %s, %s, %s) RETURNING id;
+                    """,
+                    (user_id, session_id, role, content)
+                )
+                message_id = cur.fetchone()[0]
+                conn.commit()
+                return message_id
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to create conversation message for user {user_id}: {e}")
+                raise
 
     # ============================================================================
     # Embedding Methods
@@ -488,11 +572,16 @@ class Database:
         table_name = table_map[source_type]
         conn = self.get_connection()
         with conn.cursor() as cur:
-            cur.execute(
-                f"UPDATE {table_name} SET processing_status = %s WHERE id = %s;",
-                (status, source_id)
-            )
-            conn.commit()
+            try:
+                cur.execute(
+                    f"UPDATE {table_name} SET processing_status = %s WHERE id = %s;",
+                    (status, source_id)
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to update processing status for {source_type} ID {source_id}: {e}")
+                raise
 
     def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10) -> list:
         """Retrieves items that are pending processing, including necessary metadata."""
@@ -1530,19 +1619,24 @@ class Database:
         """Retrieves user preferences or returns default structure if not found."""
         conn = self.get_connection()
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT min_confidence, max_items, enabled_engines, show_suppressed
-                FROM user_preferences WHERE user_id = %s;
-            """, (user_id,))
-            row = cur.fetchone()
-            if row:
-                return {
-                    "min_confidence": row[0],
-                    "max_items": row[1],
-                    "enabled_engines": row[2], # list or None
-                    "show_suppressed": row[3]
-                }
-            return None
+            try:
+                cur.execute("""
+                    SELECT min_confidence, max_items, enabled_engines, show_suppressed
+                    FROM user_preferences WHERE user_id = %s;
+                """, (user_id,))
+                row = cur.fetchone()
+                if row:
+                    return {
+                        "min_confidence": row[0],
+                        "max_items": row[1],
+                        "enabled_engines": row[2], # list or None
+                        "show_suppressed": row[3]
+                    }
+                return None
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get preferences for user {user_id}: {e}")
+                raise
 
     def update_preference(self, user_id: int, key: str, value: Any) -> None:
         """
@@ -1587,6 +1681,381 @@ class Database:
             except psycopg2.Error as e:
                 conn.rollback()
                 logger.error(f"Failed to reset preferences: {e}")
+                raise
+
+    # ============================================================================
+    # Habits Methods
+    # ============================================================================
+
+    def create_habit(self, user_id: int, name: str, description: str = None,
+                    frequency_type: str = 'daily', habit_type: str = 'completion',
+                    weekly_target: float = 0, tracking_metric: str = 'completion',
+                    category: str = 'general') -> int:
+        """Creates a new habit and returns its ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO habits (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                    """,
+                    (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category)
+                )
+                habit_id = cur.fetchone()[0]
+                conn.commit()
+                logger.info(f"Created habit ID {habit_id} for user {user_id}")
+                return habit_id
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create habit: {e}")
+                raise
+
+    def get_habits(self, user_id: int, active_only: bool = True) -> list:
+        """Retrieves habits for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                if active_only:
+                    cur.execute(
+                        """
+                        SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
+                               current_streak, longest_streak, total_completions, created_at
+                        FROM habits WHERE user_id = %s AND is_active = TRUE
+                        ORDER BY created_at DESC;
+                        """,
+                        (user_id,)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
+                               current_streak, longest_streak, total_completions, created_at
+                        FROM habits WHERE user_id = %s
+                        ORDER BY created_at DESC;
+                        """,
+                        (user_id,)
+                    )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "description": row[2],
+                        "frequency_type": row[3],
+                        "habit_type": row[4],
+                        "weekly_target": row[5],
+                        "tracking_metric": row[6],
+                        "category": row[7],
+                        "is_active": row[8],
+                        "current_streak": row[9],
+                        "longest_streak": row[10],
+                        "total_completions": row[11],
+                        "created_at": row[12]
+                    }
+                    for row in rows
+                ]
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get habits for user {user_id}: {e}")
+                raise
+
+    def get_habit(self, habit_id: int) -> dict:
+        """Retrieves a specific habit by ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
+                           current_streak, longest_streak, total_completions, created_at, updated_at
+                    FROM habits WHERE id = %s;
+                    """,
+                    (habit_id,)
+                )
+                row = cur.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "user_id": row[1],
+                        "name": row[2],
+                        "description": row[3],
+                        "frequency_type": row[4],
+                        "habit_type": row[5],
+                        "weekly_target": row[6],
+                        "tracking_metric": row[7],
+                        "category": row[8],
+                        "is_active": row[9],
+                        "current_streak": row[10],
+                        "longest_streak": row[11],
+                        "total_completions": row[12],
+                        "created_at": row[13],
+                        "updated_at": row[14]
+                    }
+                return None
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get habit {habit_id}: {e}")
+                raise
+
+    def update_habit(self, habit_id: int, **updates) -> bool:
+        """Updates a habit's fields."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                allowed_fields = {'name', 'description', 'is_active', 'current_streak', 'longest_streak', 'total_completions', 'habit_type', 'weekly_target', 'tracking_metric'}
+                update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
+
+                if not update_pairs:
+                    return True
+
+                set_clause = ", ".join([f"{k} = %s" for k, v in update_pairs])
+                values = [v for k, v in update_pairs] + [habit_id]
+
+                cur.execute(
+                    f"UPDATE habits SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = %s;",
+                    values
+                )
+                conn.commit()
+                return True
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to update habit {habit_id}: {e}")
+                raise
+
+    def delete_habit(self, habit_id: int) -> bool:
+        """Soft-deletes a habit by marking it as inactive."""
+        return self.update_habit(habit_id, is_active=False)
+
+    def log_habit_completion(self, habit_id: int, completion_date, value: float = 1.0, notes: str = None) -> int:
+        """Logs a habit completion."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO habit_completions (habit_id, completion_date, is_completed, value, notes)
+                    VALUES (%s, %s, TRUE, %s, %s)
+                    ON CONFLICT (habit_id, completion_date) DO UPDATE
+                    SET is_completed = TRUE, is_skipped = FALSE, value = EXCLUDED.value, notes = EXCLUDED.notes
+                    RETURNING id;
+                    """,
+                    (habit_id, completion_date, value, notes)
+                )
+                completion_id = cur.fetchone()[0]
+                conn.commit()
+                return completion_id
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to log habit completion: {e}")
+                raise
+
+    def log_habit_skip(self, habit_id: int, skip_date, reason: str = None) -> int:
+        """Logs a habit skip."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO habit_completions (habit_id, completion_date, is_skipped, skip_reason)
+                    VALUES (%s, %s, TRUE, %s)
+                    ON CONFLICT (habit_id, completion_date) DO UPDATE
+                    SET is_skipped = TRUE, is_completed = FALSE, skip_reason = EXCLUDED.skip_reason
+                    RETURNING id;
+                    """,
+                    (habit_id, skip_date, reason)
+                )
+                skip_id = cur.fetchone()[0]
+                conn.commit()
+                return skip_id
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to log habit skip: {e}")
+                raise
+
+    def get_habit_completions(self, habit_id: int, start_date = None, end_date = None) -> list:
+        """Retrieves completions for a habit in a date range."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                if start_date and end_date:
+                    cur.execute(
+                        """
+                        SELECT id, completion_date, is_completed, is_skipped, skip_reason, value, notes, completed_at
+                        FROM habit_completions
+                        WHERE habit_id = %s AND completion_date BETWEEN %s AND %s
+                        ORDER BY completion_date DESC;
+                        """,
+                        (habit_id, start_date, end_date)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, completion_date, is_completed, is_skipped, skip_reason, value, notes, completed_at
+                        FROM habit_completions
+                        WHERE habit_id = %s
+                        ORDER BY completion_date DESC LIMIT 30;
+                        """,
+                        (habit_id,)
+                    )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "completion_date": row[1],
+                        "is_completed": row[2],
+                        "is_skipped": row[3],
+                        "skip_reason": row[4],
+                        "value": row[5],
+                        "notes": row[6],
+                        "completed_at": row[7]
+                    }
+                    for row in rows
+                ]
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get habit completions for habit {habit_id}: {e}")
+                raise
+
+    # ============================================================================
+    # Reflections Methods
+    # ============================================================================
+
+    def create_reflection(self, user_id: int, content: str, reflection_date = None,
+                         mood: str = None, energy_level: int = None, tags: list = None) -> int:
+        """Creates a new reflection and returns its ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                from datetime import date
+                if reflection_date is None:
+                    reflection_date = date.today()
+
+                cur.execute(
+                    """
+                    INSERT INTO reflections (user_id, reflection_date, content, mood, energy_level, tags)
+                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+                    """,
+                    (user_id, reflection_date, content, mood, energy_level, Json(tags) if tags else None)
+                )
+                reflection_id = cur.fetchone()[0]
+                conn.commit()
+                logger.info(f"Created reflection ID {reflection_id} for user {user_id}")
+                return reflection_id
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to create reflection: {e}")
+                raise
+
+    def get_reflections(self, user_id: int, limit: int = 30) -> list:
+        """Retrieves recent reflections for a user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, reflection_date, content, mood, energy_level, tags, created_at, updated_at
+                    FROM reflections
+                    WHERE user_id = %s
+                    ORDER BY reflection_date DESC
+                    LIMIT %s;
+                    """,
+                    (user_id, limit)
+                )
+                rows = cur.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "reflection_date": row[1],
+                        "content": row[2],
+                        "mood": row[3],
+                        "energy_level": row[4],
+                        "tags": row[5],
+                        "created_at": row[6],
+                        "updated_at": row[7]
+                    }
+                    for row in rows
+                ]
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get reflections for user {user_id}: {e}")
+                raise
+
+    def get_reflection(self, reflection_id: int) -> dict:
+        """Retrieves a specific reflection by ID."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT id, user_id, reflection_date, content, mood, energy_level, tags,
+                           processing_status, created_at, updated_at
+                    FROM reflections WHERE id = %s;
+                    """,
+                    (reflection_id,)
+                )
+                row = cur.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "user_id": row[1],
+                        "reflection_date": row[2],
+                        "content": row[3],
+                        "mood": row[4],
+                        "energy_level": row[5],
+                        "tags": row[6],
+                        "processing_status": row[7],
+                        "created_at": row[8],
+                        "updated_at": row[9]
+                    }
+                return None
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get reflection {reflection_id}: {e}")
+                raise
+
+    def update_reflection(self, reflection_id: int, **updates) -> bool:
+        """Updates a reflection's fields."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                allowed_fields = {'content', 'mood', 'energy_level', 'tags'}
+                update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
+
+                if not update_pairs:
+                    return True
+
+                set_clause = ", ".join([f"{k} = %s" for k, v in update_pairs])
+                values = []
+                for k, v in update_pairs:
+                    if k == 'tags':
+                        values.append(Json(v) if v else None)
+                    else:
+                        values.append(v)
+                values.append(reflection_id)
+
+                cur.execute(
+                    f"UPDATE reflections SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = %s;",
+                    values
+                )
+                conn.commit()
+                return True
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to update reflection {reflection_id}: {e}")
+                raise
+
+    def delete_reflection(self, reflection_id: int) -> bool:
+        """Deletes a reflection."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM reflections WHERE id = %s;", (reflection_id,))
+                conn.commit()
+                return True
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to delete reflection {reflection_id}: {e}")
                 raise
 
 

@@ -25,14 +25,18 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = Field(default="gpt-4o-mini")
     
     # PostgreSQL
+    # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)
+    # When connecting directly to container, use 5432
     POSTGRES_DB: str = Field(default="iris_db")
     POSTGRES_USER: str = Field(default="iris_user")
     POSTGRES_PASSWORD: str = Field(default="testpassword")
     POSTGRES_HOST: str = Field(default="localhost")
-    POSTGRES_PORT: int = Field(default=5432)
-    
+    POSTGRES_PORT: int = Field(default=5433)
+
     # Neo4j
-    NEO4J_URI: str = Field(default="bolt://localhost:7687")
+    # When using docker-compose, NEO4J_URI should use port 7688 (host port that maps to container's 7687)
+    # When connecting directly to container, use port 7687
+    NEO4J_URI: str = Field(default="bolt://localhost:7688")
     NEO4J_USER: str = Field(default="neo4j")
     NEO4J_PASSWORD: str = Field(default="testpassword")
     
@@ -43,6 +47,7 @@ class Settings(BaseSettings):
     # Feature Flags
     CONFLICT_SUPPRESSION_ENABLED: bool = Field(default=True)
     NARRATIVE_FAIL_MODE: str = Field(default="raise")
+    CHROMADB_TELEMETRY: bool = Field(default=False)
 
     # Configuration for .env loading
     model_config = SettingsConfigDict(
