@@ -122,8 +122,12 @@ class PersonalAICompanion:
         
         # 1. Fetch relevant memories (vector search)
         memories = self._get_relevant_context(user_message)
+
+        # 2. Fetch Habits and Reflections context
+        habits_context = self._get_habits_context()
+        reflections_context = self._get_reflections_context()
         
-        # 2. Fetch raw analytical insights
+        # 3. Fetch raw analytical insights
         raw_insights = []
         try:
             # Persistence
@@ -207,7 +211,38 @@ class PersonalAICompanion:
         bulleted_narratives = [f"- {n}" for n in narratives]
         body = "\n".join(bulleted_narratives) if narratives else "No significant patterns observed recently."
         
-        return f"# Relevant Long-Term Memory & Journal Entries:\n{memories}\n\n{header}\n{body}"
+        return f"# Relevant Long-Term Memory & Journal Entries:\n{memories}\n\n# Recent Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
+
+    def _get_habits_context(self) -> str:
+        """Retrieves habit data for context."""
+        try:
+            habits = db.get_habits(self.user_id, active_only=True)
+            if not habits:
+                return "No active habits tracked yet."
+            
+            parts = []
+            for h in habits:
+                parts.append(f"- {h['name']}: {h['current_streak']} day streak ({h['total_completions']} total completions)")
+            return "\n".join(parts)
+        except Exception as e:
+            logger.error(f"Error fetching habits context: {e}")
+            return "Could not retrieve habits context."
+
+    def _get_reflections_context(self) -> str:
+        """Retrieves recent reflections for context."""
+        try:
+            reflections = db.get_reflections(self.user_id, limit=5)
+            if not reflections:
+                return "No recent reflections found."
+            
+            parts = []
+            for r in reflections:
+                date_str = r['reflection_date'].strftime("%Y-%m-%d") if hasattr(r['reflection_date'], 'strftime') else str(r['reflection_date'])
+                parts.append(f"- [{date_str}] Mood: {r['mood'] or 'N/A'}, Energy: {r['energy_level'] or 'N/A'}\n  Content: {r['content']}")
+            return "\n".join(parts)
+        except Exception as e:
+            logger.error(f"Error fetching reflections context: {e}")
+            return "Could not retrieve reflections context."
 
     def _record_suppression(self, insight: Dict, reason: str):
         """Buffers a suppressed insight for transparency audit."""
@@ -234,10 +269,23 @@ class PersonalAICompanion:
             query_embedding = generate_embedding(text)
             journal_results = vector_store.query(vector=query_embedding, n_results=n_results, source_type='journal_entry')
             context_parts = []
-            if journal_results and journal_results.get('ids'):
+            
+            if not journal_results:
+                return "No specific long-term memories found."
+
+            # Handle dict results (ChromaDB)
+            if isinstance(journal_results, dict) and journal_results.get('ids'):
                 context_parts.append("Similar thoughts from your journal:")
                 for j_id in journal_results['ids'][0]:
                     context_parts.append(f"- (Journal Entry ID: {j_id})")
+            
+            # Handle list results (FAISS / Fallback)
+            elif isinstance(journal_results, list):
+                context_parts.append("Similar thoughts from your journal:")
+                for res in journal_results:
+                    j_id = res.get('id') if isinstance(res, dict) else res
+                    context_parts.append(f"- (Journal Entry ID: {j_id})")
+            
             return "\n".join(context_parts) if context_parts else "No specific long-term memories found."
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")
@@ -246,3 +294,36 @@ class PersonalAICompanion:
     def get_conversation_history(self) -> List[Dict[str, str]]:
         """Gets the full in-memory history for the current session."""
         return self.memory.get_full_history()
+
+    def generate_proactive_comment(self, action_type: str, details: Dict) -> str:
+        """
+        Generates a proactive comment based on a user action.
+        Does not require a user message to trigger.
+        """
+        if action_type == "reflection":
+            prompt_hint = f"The user just shared a reflection: \"{details.get('content')}\". It's marked with mood '{details.get('mood')}' and energy {details.get('energy_level')}. Start a conversation by offering a brief, empathetic observation or a gentle follow-up question."
+        elif action_type == "habit_skip":
+            prompt_hint = f"The user just skipped their habit '{details.get('habit_name')}' with reason: \"{details.get('reason') or 'No reason provided'}\". Offer a supportive, non-judgmental comment to help them stay encouraged."
+        elif action_type == "habit_complete":
+            prompt_hint = f"The user just completed their habit '{details.get('habit_name')}'. Give a quick, warm word of encouragement or acknowledge their consistency."
+        else:
+            prompt_hint = "The user is checking in. Greet them and offer a brief insight based on their recent patterns."
+
+        # Build context
+        aggregated_context = self._get_aggregated_context(prompt_hint)
+        
+        system_prompt = f"{SYSTEM_PROMPT}\n\n{aggregated_context}\n\nIMPORTANT: You are initiating this thought yourself based on what you just noticed. Keep it short (1-3 sentences) and very human."
+        
+        # We use a hidden system prompt to guide the "start" of the conversation
+        messages = [{"role": "user", "content": f"[SYSTEM TRIGGER: {prompt_hint}]"}]
+        
+        response_text = self.intelligence.chat(
+            messages=messages,
+            system_prompt=system_prompt,
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=DEFAULT_MAX_TOKENS
+        )
+
+        # Record IRIS's comment in memory so the conversation can continue
+        self.memory.add_message("assistant", response_text)
+        return response_text

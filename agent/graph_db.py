@@ -7,6 +7,7 @@ the PostgreSQL source of truth.
 """
 
 import logging
+import atexit
 from neo4j import GraphDatabase
 from .config import settings
 
@@ -22,6 +23,8 @@ class GraphDB:
             cls._instance = super(GraphDB, cls).__new__(cls)
             cls._instance.driver = None
             cls._instance._connect()
+            # Register cleanup function to run at program exit
+            atexit.register(cls._instance._cleanup)
         return cls._instance
 
     def _connect(self):
@@ -32,7 +35,7 @@ class GraphDB:
         logger.info(f"Connecting to Neo4j at {settings.NEO4J_URI}...")
         try:
             self.driver = GraphDatabase.driver(
-                settings.NEO4J_URI, 
+                settings.NEO4J_URI,
                 auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
             )
             self.driver.verify_connectivity()
@@ -42,11 +45,19 @@ class GraphDB:
             self.driver = None
             raise
 
+    def _cleanup(self):
+        """Internal method to safely close the Neo4j driver connection."""
+        if hasattr(self, 'driver') and self.driver is not None:
+            try:
+                self.driver.close()
+                logger.info("Neo4j connection closed safely.")
+            except Exception as e:
+                # During shutdown, some errors are expected and can be ignored
+                logger.debug(f"Error during Neo4j cleanup: {e}")
+
     def close(self):
         """Closes the Neo4j driver connection."""
-        if self.driver is not None:
-            self.driver.close()
-            logger.info("Neo4j connection closed.")
+        self._cleanup()
 
     def run_query(self, query, parameters=None):
         """A generic method to run a Cypher query."""
