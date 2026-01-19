@@ -26,20 +26,17 @@ const WeeklySummary = () => {
   }
 
   return (
-    <div className="glass-container p-6">
-      <h3 className="text-xl gradient-text mb-4">Weekly Summary</h3>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div className="glass-container" style={{ padding: '1.5rem' }}>
+      <h3 className="gradient-text" style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
+        Weekly Summary
+      </h3>
+      <div className="stats-grid">
         {summary.habits.map((habit) => (
-          <div
-            key={habit.name}
-            className="bg-primary-gold/5 p-4 rounded-lg text-center"
-          >
-            <div className="text-2xl font-bold text-primary-gold">
+          <div key={habit.name} className="stat-box">
+            <div className="stat-value">
               {habit.completed}/{habit.total_days}
             </div>
-            <div className="text-xs text-text-secondary mt-2">
-              {habit.name}
-            </div>
+            <div className="stat-label">{habit.name}</div>
           </div>
         ))}
       </div>

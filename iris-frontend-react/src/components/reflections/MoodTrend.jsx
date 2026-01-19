@@ -26,27 +26,24 @@ const MoodTrend = () => {
   }
 
   return (
-    <div className="glass-container p-6">
-      <h3 className="text-xl gradient-text mb-4">30-Day Mood Trend</h3>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div className="glass-container" style={{ padding: '1.5rem' }}>
+      <h3 className="gradient-text" style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
+        30-Day Mood Trend
+      </h3>
+      <div className="stats-grid">
         {Object.entries(trend.mood_distribution).map(([mood, count]) => (
-          <div
-            key={mood}
-            className="bg-primary-gold/5 p-4 rounded-lg text-center"
-          >
-            <div className="text-2xl font-bold text-primary-gold">{count}</div>
-            <div className="text-xs text-text-secondary mt-2 capitalize">
-              {mood}
-            </div>
+          <div key={mood} className="stat-box">
+            <div className="stat-value">{count}</div>
+            <div className="stat-label">{mood}</div>
           </div>
         ))}
-        <div className="bg-primary-gold/5 p-4 rounded-lg text-center">
-          <div className="text-2xl font-bold text-primary-gold">
+        <div className="stat-box">
+          <div className="stat-value">
             {trend.average_energy_level
               ? trend.average_energy_level.toFixed(1)
               : '-'}
           </div>
-          <div className="text-xs text-text-secondary mt-2">Avg Energy</div>
+          <div className="stat-label">Avg Energy</div>
         </div>
       </div>
     </div>

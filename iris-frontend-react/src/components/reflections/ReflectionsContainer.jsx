@@ -54,7 +54,7 @@ const ReflectionsContainer = () => {
 
   return (
     <div className="flex-1 overflow-y-auto p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="container-wide space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <h2 className="text-2xl gradient-text">Reflections</h2>

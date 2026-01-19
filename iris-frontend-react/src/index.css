@@ -205,6 +205,49 @@ body {
   transition: width 0.3s ease;
 }
 
+/* Stat boxes for mood trends and weekly summaries */
+.stat-box {
+  background: rgba(255, 215, 0, 0.05);
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  min-width: 120px;
+}
+
+.stat-box .stat-value {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--color-primary-gold);
+  line-height: 1.2;
+  margin-bottom: 0.5rem;
+}
+
+.stat-box .stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+  margin-top: 0.5rem;
+}
+
+/* Grid layouts for stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+}
+
+/* Container max-widths */
+.container-wide {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.container-medium {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
 /* Animations */
 .animate-slide-in {
   animation: slideIn 0.3s ease forwards;
