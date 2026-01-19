@@ -3,6 +3,9 @@ import api from '../services/api';
 
 const AuthContext = createContext(null);
 
+// Demo mode flag - Set to true to bypass authentication
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -10,6 +13,17 @@ export const AuthProvider = ({ children }) => {
 
   // Check for existing session on mount
   useEffect(() => {
+    // Enable demo mode if environment variable is set or "demo" is in localStorage
+    const demoEnabled = DEMO_MODE || localStorage.getItem('demo_mode') === 'true';
+
+    if (demoEnabled) {
+      // Auto-login with demo credentials
+      setToken('demo-token-12345');
+      setUser('Demo User');
+      setLoading(false);
+      return;
+    }
+
     const savedToken = localStorage.getItem('access_token');
     const savedUsername = localStorage.getItem('username');
 
@@ -21,6 +35,14 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (username, password) => {
+    // Enable demo mode with special username
+    if (username.toLowerCase() === 'demo' || username.toLowerCase() === 'demo user') {
+      setToken('demo-token-12345');
+      setUser('Demo User');
+      localStorage.setItem('demo_mode', 'true');
+      return { success: true };
+    }
+
     try {
       const data = await api.login(username, password);
 
@@ -37,6 +59,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signup = async (username, password) => {
+    // Enable demo mode with special username
+    if (username.toLowerCase() === 'demo' || username.toLowerCase() === 'demo user') {
+      setToken('demo-token-12345');
+      setUser('Demo User');
+      localStorage.setItem('demo_mode', 'true');
+      return { success: true };
+    }
+
     try {
       const data = await api.signup(username, password);
 
