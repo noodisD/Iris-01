@@ -5,9 +5,18 @@ DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1000
 
 # Persistence Engine Configuration
-PERSISTENCE_SIMILARITY_THRESHOLD = 0.82  # Cosine similarity threshold for matching entries to themes
-PERSISTENCE_MIN_CLUSTER_SIZE = 2         # Minimum entries required to form a theme
-PERSISTENCE_DORMANT_MONTHS = 3           # Themes inactive for this long go dormant (future feature)
+PERSISTENCE_MATCH_THRESHOLD = 0.70    # Loose threshold for matching new entries to EXISTING themes
+PERSISTENCE_CLUSTER_THRESHOLD = 0.78  # Strict threshold for creating NEW themes
+PERSISTENCE_MIN_CLUSTER_SIZE = 5      # Minimum entries required to form a theme (Proto-Theme boundary)
+PERSISTENCE_DORMANT_MONTHS = 3        # Themes inactive for this long go dormant (future feature)
+
+# Evidence Weights (Source Reliability)
+EVIDENCE_WEIGHTS = {
+    "reflection": 1.0,
+    "journal_entry": 0.9,
+    "habit_completion": 0.5,          # Default tick
+    "habit_completion_with_notes": 0.8 # Tick with context
+}
 
 # Trajectory Engine Configuration
 TRAJECTORY_RECENT_DAYS = 14

@@ -83,6 +83,34 @@ class GraphDB:
         """
         self.run_query(query, {"entry_id": entry_id, "user_id": user_id, "created_at": created_at})
 
+    def add_habit_node(self, habit_id: int, user_id: int, name: str, created_at):
+        """Adds or updates a habit node."""
+        query = """
+        MERGE (h:Habit {id: $habit_id})
+        SET h.name = $name, h.created_at = $created_at
+        MERGE (u:User {id: $user_id})
+        MERGE (u)-[:TRACKS]->(h)
+        """
+        self.run_query(query, {"habit_id": habit_id, "user_id": user_id, "name": name, "created_at": created_at})
+
+    def add_habit_completion_node(self, completion_id: int, habit_id: int, user_id: int, completed_at, notes: str = None):
+        """Adds a habit completion event."""
+        query = """
+        MERGE (hc:HabitCompletion {id: $completion_id})
+        SET hc.completed_at = $completed_at, hc.notes = $notes
+        MERGE (h:Habit {id: $habit_id})
+        MERGE (u:User {id: $user_id})
+        MERGE (u)-[:COMPLETED]->(hc)
+        MERGE (hc)-[:OF_HABIT]->(h)
+        """
+        self.run_query(query, {
+            "completion_id": completion_id, 
+            "habit_id": habit_id, 
+            "user_id": user_id, 
+            "completed_at": completed_at,
+            "notes": notes
+        })
+
     def add_idea_node(self, idea_text: str):
         """Adds an idea node. Ideas are unique by their text."""
         query = "MERGE (i:Idea {text: $text})"
@@ -96,6 +124,39 @@ class GraphDB:
         MERGE (j)-[:CONTAINS_IDEA]->(i)
         """
         self.run_query(query, {"entry_id": entry_id, "idea_text": idea_text})
+
+    def link_same_day_events(self, source_id: int, source_type: str, date_obj):
+        """
+        Links events (Reflections, HabitCompletions) that occurred on the same day.
+        Creates a [:CO_OCCURRED_ON] relationship.
+        """
+        if not date_obj:
+            return
+
+        # Map source_type to Neo4j Label
+        label_map = {
+            'journal_entry': 'JournalEntry',
+            'reflection': 'JournalEntry', # Reflections share JournalEntry label currently
+            'habit_completion': 'HabitCompletion'
+        }
+        source_label = label_map.get(source_type)
+        if not source_label:
+            return
+
+        date_str = date_obj.strftime("%Y-%m-%d") if hasattr(date_obj, "strftime") else str(date_obj)[:10]
+
+        query = f"""
+        MATCH (source:{source_label} {{id: $source_id}})
+        MATCH (target)
+        WHERE target <> source 
+          AND (target:HabitCompletion OR target:JournalEntry)
+          AND (
+            (target.created_at IS NOT NULL AND toString(target.created_at) STARTS WITH $date_str) OR 
+            (target.completed_at IS NOT NULL AND toString(target.completed_at) STARTS WITH $date_str)
+          )
+        MERGE (source)-[:CO_OCCURRED_ON {{date: $date_str}}]->(target)
+        """
+        self.run_query(query, {"source_id": source_id, "date_str": date_str})
 
     def rebuild_from_postgres(self):
         """

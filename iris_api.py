@@ -4,8 +4,10 @@ This is the HTTP layer that wraps your CLI companion logic.
 It handles authentication, routing requests to the right companion instance, and returning responses.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, date, UTC
 from typing import Optional, Dict, List
@@ -13,6 +15,7 @@ import os
 from dotenv import load_dotenv
 from jose import JWTError, jwt
 import hashlib
+from contextlib import asynccontextmanager
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +26,7 @@ try:
     from agent.database import db
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
+    from agent.pipeline import run_processing_pipeline
 
     COMPANION_AVAILABLE = True
     print("✓ PersonalAICompanion and db imported successfully")
@@ -38,12 +42,12 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Initialize FastAPI app
-app = FastAPI(title="IRIS Companion API", version="0.1.0")
+# Path to the frontend files
+FRONTEND_PATH = os.getcwd()
 
-@app.on_event("startup")
-async def startup_event():
-    """Run on API startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler for app startup/shutdown"""
     if COMPANION_AVAILABLE:
         print("Initializing database schema...")
         try:
@@ -51,18 +55,34 @@ async def startup_event():
             print("✓ Database schema initialized")
         except Exception as e:
             print(f"✗ Failed to initialize database: {e}")
+    yield
 
-# Add CORS middleware to allow frontend to communicate with API
+# Initialize FastAPI app
+app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (for development only!)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ============================================================================
-# DATA MODELS (Pydantic models define what requests/responses look like)
+# ROOT ENDPOINT
+# ============================================================================
+
+@app.get("/")
+async def root():
+    """Serve the vanilla JS frontend"""
+    if os.path.exists("iris_frontend.html"):
+        return FileResponse("iris_frontend.html")
+    return {"message": "IRIS API Online. Frontend file not found."}
+
+
+# ============================================================================
+# DATA MODELS
 # ============================================================================
 
 
@@ -161,16 +181,16 @@ class HabitResponse(BaseModel):
 class ReflectionCreate(BaseModel):
     """Create a new reflection"""
     content: str
-    mood: Optional[str] = None  # great, good, okay, bad, terrible
-    energy_level: Optional[int] = None  # 1-5
+    energy_level: Optional[int] = None  # 1-10
+    clarity_level: Optional[int] = None # 1-10
     tags: Optional[List[str]] = None
     reflection_date: Optional[str] = None  # ISO date string
 
 class ReflectionUpdate(BaseModel):
     """Update reflection fields"""
     content: Optional[str] = None
-    mood: Optional[str] = None
     energy_level: Optional[int] = None
+    clarity_level: Optional[int] = None
     tags: Optional[List[str]] = None
 
 class ReflectionResponse(BaseModel):
@@ -180,6 +200,7 @@ class ReflectionResponse(BaseModel):
     content: str
     mood: Optional[str]
     energy_level: Optional[int]
+    clarity_level: Optional[int]
     tags: Optional[List[str]]
     created_at: str
     updated_at: str
@@ -242,10 +263,21 @@ def get_user_id_from_token(token: str) -> int:
 
 
 # ============================================================================
-# HEALTH CHECK ENDPOINT
+# ROOT & STATIC ENDPOINTS
 # ============================================================================
 
+# Mount static assets
+if os.path.exists(os.path.join(FRONTEND_PATH, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_PATH, "assets")), name="assets")
 
+@app.get("/")
+async def root():
+    """Serve the vanilla JS frontend"""
+    if os.path.exists(os.path.join(FRONTEND_PATH, "iris_frontend.html")):
+        return FileResponse(os.path.join(FRONTEND_PATH, "iris_frontend.html"))
+    return {"message": "IRIS API Online. Frontend file not found."}
+
+# Health check
 @app.get("/health")
 async def health_check():
     """Simple endpoint to check if the API is running"""
@@ -257,7 +289,7 @@ async def health_check():
 # ============================================================================
 
 
-@app.post("/auth/signup", response_model=TokenResponse)
+@app.post("/api/auth/signup", response_model=TokenResponse)
 async def signup(user: UserSignup):
     """Create a new user account"""
     try:
@@ -277,7 +309,7 @@ async def signup(user: UserSignup):
     return TokenResponse(access_token=token, token_type="bearer", username=user.username)
 
 
-@app.post("/auth/login", response_model=TokenResponse)
+@app.post("/api/auth/login", response_model=TokenResponse)
 async def login(user: UserLogin):
     """Log in an existing user"""
     # Verify user credentials against the database
@@ -296,7 +328,7 @@ async def login(user: UserLogin):
 # ============================================================================
 
 
-@app.post("/chat/message", response_model=ChatResponse)
+@app.post("/api/chat/message", response_model=ChatResponse)
 async def chat(message_data: ChatMessage):
     """Send a message to the companion"""
     # Verify the token and get the username
@@ -345,7 +377,7 @@ async def chat(message_data: ChatMessage):
     )
 
 
-@app.post("/chat/history")
+@app.post("/api/chat/history")
 async def get_chat_history(request: dict):
     """Get the user's chat history"""
     # Extract token from request
@@ -360,7 +392,28 @@ async def get_chat_history(request: dict):
     return {"username": username, "messages": chat_history_db.get(username, [])}
 
 
-@app.post("/chat/proactive")
+@app.post("/api/chat/greeting")
+async def get_greeting(request: dict):
+    """Get a dynamic greeting for the user"""
+    token = request.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token required")
+
+    username = verify_token(token)
+    user = db.get_user(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        companion = PersonalAICompanion(user_id=user['id'])
+        greeting = companion.generate_initial_greeting()
+        return {"greeting": greeting}
+    except Exception as e:
+        print(f"Greeting error: {e}")
+        return {"greeting": f"Hi {username}, I'm Iris. How are you today?"}
+
+
+@app.post("/api/chat/proactive")
 async def proactive_chat(request: dict):
     """Trigger a proactive comment from IRIS"""
     token = request.get("token")
@@ -399,7 +452,7 @@ async def proactive_chat(request: dict):
 # HABIT ENDPOINTS
 # ============================================================================
 
-@app.get("/habits")
+@app.get("/api/habits")
 async def list_habits(token: str = Query(...)):
     """List all active habits for the user"""
     user_id = get_user_id_from_token(token)
@@ -407,8 +460,8 @@ async def list_habits(token: str = Query(...)):
     habits = tracker.get_habits(active_only=True)
     return {"habits": habits}
 
-@app.post("/habits")
-async def create_habit(habit: HabitCreate, token: str = Query(...)):
+@app.post("/api/habits")
+async def create_habit(habit: HabitCreate, background_tasks: BackgroundTasks, token: str = Query(...)):
     """Create a new habit"""
     user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
@@ -421,9 +474,14 @@ async def create_habit(habit: HabitCreate, token: str = Query(...)):
         tracking_metric=habit.tracking_metric,
         category=habit.category
     )
+    
+    # Trigger pipeline in background
+    if background_tasks:
+        background_tasks.add_task(run_processing_pipeline, 'habit', habit_id)
+        
     return {"habit_id": habit_id, "message": "Habit created successfully"}
 
-@app.get("/habits/today")
+@app.get("/api/habits/today")
 async def get_today_habits(token: str = Query(...)):
     """Get today's habit checklist with completion status"""
     user_id = get_user_id_from_token(token)
@@ -431,7 +489,7 @@ async def get_today_habits(token: str = Query(...)):
     habits = tracker.get_today_status()
     return {"habits": habits}
 
-@app.get("/habits/weekly")
+@app.get("/api/habits/weekly")
 async def get_weekly_summary(token: str = Query(...)):
     """Get weekly habit summary"""
     user_id = get_user_id_from_token(token)
@@ -439,7 +497,7 @@ async def get_weekly_summary(token: str = Query(...)):
     summary = tracker.get_weekly_summary()
     return summary
 
-@app.get("/habits/consistency/{days}")
+@app.get("/api/habits/consistency/{days}")
 async def get_consistency_report(days: int = 30, token: str = Query(...)):
     """Get consistency report across all habits"""
     
@@ -448,7 +506,7 @@ async def get_consistency_report(days: int = 30, token: str = Query(...)):
     report = tracker.get_consistency_report(days)
     return report
 
-@app.get("/habits/{habit_id}")
+@app.get("/api/habits/{habit_id}")
 async def get_habit(habit_id: int, token: str = Query(...)):
     """Get details of a specific habit"""
     user_id = get_user_id_from_token(token)
@@ -458,7 +516,7 @@ async def get_habit(habit_id: int, token: str = Query(...)):
         raise HTTPException(status_code=404, detail="Habit not found")
     return habit
 
-@app.put("/habits/{habit_id}")
+@app.put("/api/habits/{habit_id}")
 async def update_habit(habit_id: int, updates: HabitUpdate, token: str = Query(...)):
     """Update a habit's properties"""
     user_id = get_user_id_from_token(token)
@@ -470,7 +528,7 @@ async def update_habit(habit_id: int, updates: HabitUpdate, token: str = Query(.
     tracker.update_habit(habit_id, **update_dict)
     return {"message": "Habit updated successfully"}
 
-@app.delete("/habits/{habit_id}")
+@app.delete("/api/habits/{habit_id}")
 async def delete_habit(habit_id: int, token: str = Query(...)):
     """Delete a habit (soft-delete)"""
     user_id = get_user_id_from_token(token)
@@ -481,7 +539,7 @@ async def delete_habit(habit_id: int, token: str = Query(...)):
     tracker.delete_habit(habit_id)
     return {"message": "Habit deleted successfully"}
 
-@app.post("/habits/complete")
+@app.post("/api/habits/complete")
 async def log_completion(completion: HabitCompletion, token: str = Query(...)):
     """Log a habit completion"""
     user_id = get_user_id_from_token(token)
@@ -506,7 +564,7 @@ async def log_completion(completion: HabitCompletion, token: str = Query(...)):
         "streaks": streak_info
     }
 
-@app.post("/habits/skip")
+@app.post("/api/habits/skip")
 async def log_skip(skip: HabitSkip, token: str = Query(...)):
     """Log a habit skip"""
     user_id = get_user_id_from_token(token)
@@ -526,7 +584,7 @@ async def log_skip(skip: HabitSkip, token: str = Query(...)):
     tracker.log_skip(skip.habit_id, skip_date, skip.reason)
     return {"message": "Skip logged successfully"}
 
-@app.get("/habits/{habit_id}/calendar")
+@app.get("/api/habits/{habit_id}/calendar")
 async def get_habit_calendar(habit_id: int, start: str, end: str, token: str = Query(...)):
     """Get a calendar view of habit completions in a date range"""
     user_id = get_user_id_from_token(token)
@@ -550,7 +608,7 @@ async def get_habit_calendar(habit_id: int, start: str, end: str, token: str = Q
 # REFLECTION ENDPOINTS
 # ============================================================================
 
-@app.get("/reflections")
+@app.get("/api/reflections")
 async def list_reflections(token: str = Query(...), limit: int = 30):
     """List recent reflections"""
     user_id = get_user_id_from_token(token)
@@ -558,8 +616,8 @@ async def list_reflections(token: str = Query(...), limit: int = 30):
     reflections = service.get_reflections(limit=limit)
     return {"reflections": reflections}
 
-@app.post("/reflections")
-async def create_reflection(reflection: ReflectionCreate, token: str = Query(...)):
+@app.post("/api/reflections")
+async def create_reflection(reflection: ReflectionCreate, background_tasks: BackgroundTasks, token: str = Query(...)):
     """Create a new reflection"""
     user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
@@ -576,15 +634,19 @@ async def create_reflection(reflection: ReflectionCreate, token: str = Query(...
         reflection_id = service.create_reflection(
             content=reflection.content,
             reflection_date=reflection_date,
-            mood=reflection.mood,
             energy_level=reflection.energy_level,
+            clarity_level=reflection.clarity_level,
             tags=reflection.tags
         )
+        # Trigger pipeline in background
+        if background_tasks:
+            background_tasks.add_task(run_processing_pipeline, 'reflection', reflection_id)
+            
         return {"reflection_id": reflection_id, "message": "Reflection saved successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/reflections/moods")
+@app.get("/api/reflections/moods")
 async def get_mood_trend(token: str = Query(...), days: int = 30):
     """Get mood trend data"""
     user_id = get_user_id_from_token(token)
@@ -592,7 +654,7 @@ async def get_mood_trend(token: str = Query(...), days: int = 30):
     trend = service.get_mood_trend(days)
     return trend
 
-@app.get("/reflections/summary")
+@app.get("/api/reflections/summary")
 async def get_reflection_summary(token: str = Query(...), days: int = 30):
     """Get comprehensive reflection summary"""
     user_id = get_user_id_from_token(token)
@@ -600,7 +662,7 @@ async def get_reflection_summary(token: str = Query(...), days: int = 30):
     summary = service.get_reflection_summary(days)
     return summary
 
-@app.get("/reflections/tags")
+@app.get("/api/reflections/tags")
 async def get_tags_summary(token: str = Query(...), days: int = 30):
     """Get tags summary from reflections"""
     user_id = get_user_id_from_token(token)
@@ -608,7 +670,7 @@ async def get_tags_summary(token: str = Query(...), days: int = 30):
     tags = service.get_tag_summary(days)
     return tags
 
-@app.get("/reflections/{reflection_id}")
+@app.get("/api/reflections/{reflection_id}")
 async def get_reflection(reflection_id: int, token: str = Query(...)):
     """Get a specific reflection"""
     user_id = get_user_id_from_token(token)
@@ -620,7 +682,7 @@ async def get_reflection(reflection_id: int, token: str = Query(...)):
     
     return reflection
 
-@app.put("/reflections/{reflection_id}")
+@app.put("/api/reflections/{reflection_id}")
 async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token: str = Query(...)):
     """Update a reflection"""
     user_id = get_user_id_from_token(token)
@@ -636,7 +698,7 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.delete("/reflections/{reflection_id}")
+@app.delete("/api/reflections/{reflection_id}")
 async def delete_reflection(reflection_id: int, token: str = Query(...)):
     """Delete a reflection"""
     user_id = get_user_id_from_token(token)
@@ -647,27 +709,6 @@ async def delete_reflection(reflection_id: int, token: str = Query(...)):
     
     service.delete_reflection(reflection_id)
     return {"message": "Reflection deleted successfully"}
-
-
-# ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-
-@app.get("/")
-async def root():
-    """Welcome message"""
-    return {
-        "message": "Welcome to IRIS API",
-        "version": "0.1.0",
-        "endpoints": {
-            "health": "/health",
-            "signup": "/auth/signup",
-            "login": "/auth/login",
-            "chat": "/chat/message",
-            "history": "/chat/history",
-        },
-    }
 
 
 # ============================================================================

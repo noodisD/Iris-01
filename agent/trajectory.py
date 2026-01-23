@@ -11,6 +11,7 @@ The engine does not judge. It simply observes direction, rate, and recency.
 """
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import numpy as np
@@ -23,7 +24,8 @@ from .constants import (
     TRAJECTORY_RECENT_DAYS,
     TRAJECTORY_BASELINE_DAYS,
     TRAJECTORY_DELTA_THRESHOLD,
-    TRAJECTORY_MIN_DATA_POINTS
+    TRAJECTORY_MIN_DATA_POINTS,
+    EVIDENCE_WEIGHTS
 )
 
 logger = logging.getLogger(__name__)
@@ -121,14 +123,24 @@ class TrajectoryEngine:
         # Calculate confidence using the central engine
         self._evidence = [] # Clear buffer
         timestamps = []
+        source_types = []
         for o in occurrences:
             dt = o['occurred_at']
             if not isinstance(dt, datetime):
                 dt = datetime.fromisoformat(str(dt))
             timestamps.append(dt)
+            
+            # Extract source type for evidence tiering
+            st = o['source_type']
+            snippet = o.get('snippet', '')
+            if st == 'habit_completion' and ("Notes:" in snippet or "Reason:" in snippet):
+                source_types.append('habit_completion_with_notes')
+            else:
+                source_types.append(st)
         
         # We consider the trajectory label itself as the 'direction' for consistency check
-        conf = self.conf_engine.compute_confidence('trajectory', theme_id, timestamps)
+        # Improved: Pass source_types for evidence tiering
+        conf = self.conf_engine.compute_confidence('trajectory', theme_id, timestamps, sources=source_types)
         confidence_level = conf['confidence_level']
         
         # Emit evidence
@@ -239,7 +251,8 @@ class TrajectoryEngine:
 
     def _calculate_trend_slope(self, occurrences: List[dict]) -> float:
         """
-        Calculate the trend slope using linear regression.
+        Calculate the trend slope using weighted linear regression.
+        Weights are determined by Evidence Tiering (reflection > habit).
         
         Args:
             occurrences: List of theme occurrences with timestamps
@@ -252,37 +265,62 @@ class TrajectoryEngine:
         
         # Convert timestamps to days since first occurrence
         timestamps = []
+        weights = []
+        
         for occ in occurrences:
             occurred_at = occ["occurred_at"]
             if isinstance(occurred_at, datetime):
                 timestamps.append(occurred_at)
             else:
                 timestamps.append(datetime.fromisoformat(str(occurred_at)))
+            
+            # Determine weight
+            st = occ['source_type']
+            snippet = occ.get('snippet', '')
+            if st == 'habit_completion' and ("Notes:" in snippet or "Reason:" in snippet):
+                weights.append(EVIDENCE_WEIGHTS.get('habit_completion_with_notes', 0.8))
+            else:
+                weights.append(EVIDENCE_WEIGHTS.get(st, 0.5)) # Default 0.5
         
         if not timestamps:
             return 0.0
         
-        timestamps.sort()
+        # Sort together
+        paired = sorted(zip(timestamps, weights), key=lambda x: x[0])
+        timestamps = [p[0] for p in paired]
+        weights = [p[1] for p in paired]
+        
         first_date = timestamps[0]
         
         # X = days since first occurrence, Y = cumulative count
         x_values = []
         y_values = []
+        w_values = []
         
         for i, timestamp in enumerate(timestamps):
             days_since_first = (timestamp - first_date).days
             x_values.append(days_since_first)
             y_values.append(i + 1)  # cumulative count
+            w_values.append(math.sqrt(weights[i])) # Sqrt for WLS transformation
         
-        # Perform linear regression: y = slope * x + intercept
+        # Perform weighted linear regression
         if len(x_values) > 1:
-            # Use numpy for linear regression
-            A = np.vstack([x_values, np.ones(len(x_values))]).T
+            # Construct Weighted A and y
+            # A = [x, 1]
+            # WA = W * A
+            # Wy = W * y
+            X = np.array(x_values)
+            Y = np.array(y_values)
+            W = np.array(w_values)
+            
+            # Weighted X matrix (column of weighted xs, column of weights)
+            A_w = np.vstack([X * W, W]).T
+            y_w = Y * W
+            
             try:
-                slope, _ = np.linalg.lstsq(A, y_values, rcond=None)[0]
+                slope, _ = np.linalg.lstsq(A_w, y_w, rcond=None)[0]
                 return float(slope)
             except:
-                # If linear regression fails, return 0.0
                 return 0.0
         else:
             return 0.0
