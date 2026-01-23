@@ -7,6 +7,7 @@ Provides business logic for managing habits, completions, and streaks.
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 from ..database import db
+from ..pipeline import run_processing_pipeline
 
 class HabitTracker:
     """Manages habits for a user with streak tracking and completion logging."""
@@ -29,10 +30,15 @@ class HabitTracker:
         category: str = "general"
     ) -> int:
         """Create a new habit. Returns habit ID."""
-        return db.create_habit(
+        habit_id = db.create_habit(
             self.user_id, name, description, frequency_type,
             habit_type, weekly_target, tracking_metric, category
         )
+        try:
+            run_processing_pipeline('habit', habit_id)
+        except Exception as e:
+            print(f"Pipeline error for habit {habit_id}: {e}")
+        return habit_id
 
     def get_habits(self, active_only: bool = True) -> List[Dict]:
         """Get all habits for this user."""
@@ -71,7 +77,14 @@ class HabitTracker:
         """Log a habit completion."""
         if completion_date is None:
             completion_date = date.today()
-        return db.log_habit_completion(habit_id, completion_date, value, notes)
+        completion_id = db.log_habit_completion(habit_id, completion_date, value, notes)
+        
+        try:
+            run_processing_pipeline('habit_completion', completion_id)
+        except Exception as e:
+            print(f"Pipeline error for completion {completion_id}: {e}")
+            
+        return completion_id
 
     def log_skip(
         self,
@@ -82,7 +95,14 @@ class HabitTracker:
         """Log an intentional skip."""
         if skip_date is None:
             skip_date = date.today()
-        return db.log_habit_skip(habit_id, skip_date, reason)
+        skip_id = db.log_habit_skip(habit_id, skip_date, reason)
+        
+        try:
+            run_processing_pipeline('habit_completion', skip_id)
+        except Exception as e:
+            print(f"Pipeline error for skip {skip_id}: {e}")
+            
+        return skip_id
 
     # ========== Streak Management ==========
 
@@ -293,26 +313,34 @@ class HabitTracker:
     def get_consistency_report(self, days: int = 30) -> Dict:
         """Generate a consistency report across all habits."""
         habits = self.get_habits(active_only=True)
-        start_date = date.today() - timedelta(days=days - 1)
-        end_date = date.today()
+        today = date.today()
+        start_period = today - timedelta(days=days - 1)
 
         report = {
             "period_days": days,
-            "start_date": start_date,
-            "end_date": end_date,
+            "start_date": start_period,
+            "end_date": today,
             "habits": []
         }
 
         for habit in habits:
-            completions = db.get_habit_completions(habit["id"], start_date, end_date)
+            # Improved: Calculate relative consistency
+            # Divisor is the MINIMUM of (requested days) and (days since creation)
+            creation_date = habit['created_at'].date() if hasattr(habit['created_at'], 'date') else datetime.fromisoformat(str(habit['created_at'])).date()
+            days_since_creation = (today - creation_date).days + 1
+            effective_days = min(days, days_since_creation)
+
+            completions = db.get_habit_completions(habit["id"], start_period, today)
             completed = sum(1 for c in completions if c["is_completed"])
-            completion_rate = (completed / days * 100) if days > 0 else 0
+            
+            # Prevent division by zero
+            completion_rate = (completed / effective_days * 100) if effective_days > 0 else 0
 
             report["habits"].append({
                 "id": habit["id"],
                 "name": habit["name"],
                 "completed": completed,
-                "total_days": days,
+                "total_days": effective_days,
                 "completion_rate": f"{completion_rate:.1f}%"
             })
 

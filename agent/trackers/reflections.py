@@ -7,6 +7,7 @@ Provides business logic for managing reflections and mood tracking.
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 from ..database import db
+from ..pipeline import run_processing_pipeline
 
 class ReflectionService:
     """Manages reflections and mood tracking for a user."""
@@ -18,32 +19,64 @@ class ReflectionService:
 
     # ========== CRUD Operations ==========
 
+    def _infer_mood(self, tags: List[str]) -> str:
+        """Infers a general mood from emotional tags."""
+        if not tags:
+            return "okay"
+        
+        # Normalize tags
+        tags = [t.lower() for t in tags]
+        
+        positive = {"excited", "inspired", "proud", "content", "calm", "grateful", "hopeful", "great", "good"}
+        negative = {"stressed", "anxious", "frustrated", "tired", "bad", "terrible", "sad"}
+        
+        pos_count = sum(1 for t in tags if t in positive)
+        neg_count = sum(1 for t in tags if t in negative)
+        
+        if pos_count > 0 and neg_count == 0:
+            return "great" if "excited" in tags or "inspired" in tags else "good"
+        if neg_count > 0 and pos_count == 0:
+            return "bad"
+        return "okay"
+
     def create_reflection(
         self,
         content: str,
         reflection_date: Optional[date] = None,
-        mood: Optional[str] = None,
         energy_level: Optional[int] = None,
+        clarity_level: Optional[int] = None,
         tags: Optional[List[str]] = None
     ) -> int:
         """Create a new reflection. Returns reflection ID."""
         if not content or not content.strip():
             raise ValueError("Reflection content cannot be empty")
 
-        if mood and mood not in ["great", "good", "okay", "bad", "terrible"]:
-            raise ValueError("Invalid mood value")
+        if energy_level and not (1 <= energy_level <= 10):
+            raise ValueError("Energy level must be between 1 and 10")
+            
+        if clarity_level and not (1 <= clarity_level <= 10):
+            raise ValueError("Clarity level must be between 1 and 10")
 
-        if energy_level and not (1 <= energy_level <= 5):
-            raise ValueError("Energy level must be between 1 and 5")
+        # Auto-infer mood
+        mood = self._infer_mood(tags or [])
 
-        return db.create_reflection(
+        reflection_id = db.create_reflection(
             self.user_id,
             content,
             reflection_date,
             mood,
             energy_level,
+            clarity_level,
             tags
         )
+
+        # Trigger analytical pipeline
+        try:
+            run_processing_pipeline('reflection', reflection_id)
+        except Exception as e:
+            print(f"Pipeline error for reflection {reflection_id}: {e}")
+
+        return reflection_id
 
     def get_reflections(
         self,
@@ -81,15 +114,15 @@ class ReflectionService:
         if not reflection:
             return False
 
-        # Validate mood if being updated
-        if "mood" in updates and updates["mood"]:
-            if updates["mood"] not in ["great", "good", "okay", "bad", "terrible"]:
-                raise ValueError("Invalid mood value")
-
         # Validate energy_level if being updated
         if "energy_level" in updates and updates["energy_level"]:
-            if not (1 <= updates["energy_level"] <= 5):
-                raise ValueError("Energy level must be between 1 and 5")
+            if not (1 <= updates["energy_level"] <= 10):
+                raise ValueError("Energy level must be between 1 and 10")
+                
+        # Validate clarity_level if being updated
+        if "clarity_level" in updates and updates["clarity_level"]:
+            if not (1 <= updates["clarity_level"] <= 10):
+                raise ValueError("Clarity level must be between 1 and 10")
 
         return db.update_reflection(reflection_id, **updates)
 

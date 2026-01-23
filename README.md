@@ -1,8 +1,8 @@
-# IRIS Companion v2.1: The Epistemic Mirror
+# IRIS: The Epistemic Mirror
 
-**A local-first, multi-user AI companion built on a deterministic analytical spine.**
+**A local-first, multi-user AI companion built on a deterministic analytical spine and a high-performance Vanilla JS interface.**
 
-IRIS is not a standard "chat-first" assistant. It is a system designed to detect, verify, and prioritize long-term behavioral patterns using a multi-layered data processing pipeline. It operates under a strict **non-interpretive contract**: the system observes and reports evidence but never assumes causality or offers unsolicited advice.
+IRIS is not a standard "chat-first" assistant. It is a sophisticated system designed to detect, verify, and prioritize long-term behavioral patterns. It operates under a strict **non-interpretive contract**: the system observes and reports evidence but never assumes causality or offers unsolicited advice.
 
 ---
 
@@ -10,29 +10,27 @@ IRIS is not a standard "chat-first" assistant. It is a system designed to detect
 
 IRIS follows a structured inference pipeline that moves from raw data to prioritized signals:
 
-1.  **Ingestion & Persistence**: Raw journal entries are stored in **PostgreSQL** (Source of Truth). Semantic themes are discovered via **clustering algorithms** (HDBSCAN with DBSCAN fallback).
-2.  **Analytical Stack**:
-    *   **Trajectory**: Linear regression on theme frequency.
+1.  **Ingestion & Anchoring**: Every input (habit completion, reflection, message) is semantically "anchored" with context before being stored in **PostgreSQL**.
+2.  **Asynchronous Analysis**: Heavy analytical tasks (embeddings, graph linking) run in **background tasks**, ensuring sub-500ms UI responsiveness.
+3.  **Analytical Stack**:
+    *   **Persistence**: Clustering related thoughts into proven Themes (Threshold: 5).
+    *   **Trajectory**: Linear regression on theme frequency with **Evidence Tiering**.
     *   **Tension**: Co-occurrence detection between conflicting patterns.
-    *   **Resolution**: Identification of dissipated or reappearing patterns.
-    *   **Leverage**: Temporal asymmetry detection (directional influence).
-    *   **Decision Impact**: Post-hoc sequence analysis (what follows what).
-3.  **Meta-Control Layer**:
-    *   **Confidence Engine**: Evidence-based reliability scoring (Sufficiency, Recency, Consistency).
+    *   **Temporal Density**: Only surfacing themes active in the last 30 days.
+4.  **Meta-Control Layer**:
+    *   **Confidence Engine**: Weighted reliability scoring (Reflections > Habit Ticks).
     *   **Conflict Suppression**: Deterministic silencing of logically incompatible insights.
-    *   **Prioritization**: Weighted ranking (Confidence, Magnitude, Novelty) to select the most critical 5 signals.
-4.  **Narrative Firewall**: A regex-guarded formatter that renders facts into neutral language, blocking causal or prescriptive verbs.
+    *   **Prioritization**: Selecting the top 5 most critical signals for the LLM context.
 
 ---
 
 ## 🛠 Tech Stack
 
-*   **Runtime**: Python 3.11 (optimized slim multi-stage Docker build)
+*   **Frontend**: Vanilla JavaScript + CSS Design Tokens (Optimized for Speed & Zero Dependencies)
+*   **Backend**: FastAPI + Uvicorn (Multi-user HTTP Gateway with Background Tasks)
 *   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store)
 *   **Graph DB**: Neo4j (Relationship Lens)
-*   **Vector DB**: ChromaDB (Semantic Retrieval Lens)
-*   **ML**: Scikit-learn, HDBSCAN
-*   **Validation**: Pydantic Settings
+*   **Vector DB**: ChromaDB / FAISS (Semantic Retrieval Lens)
 
 ---
 
@@ -44,46 +42,28 @@ cp .env.example .env
 # Fill in your OPENAI_API_KEY and secure passwords
 ```
 
-### 2. Deploy via Docker
+### 2. Deploy via Docker (Recommended)
+This will build the Python backend and serve the integrated frontend.
 ```bash
 docker-compose up --build -d
 ```
+Access the app at **http://localhost:8000**
 
-### 3. Launch CLI
+### 3. Local Development
 ```bash
-python companion.py
+# Terminal: Backend (serves frontend automatically)
+.venv/bin/python iris_api.py
 ```
 
 ---
 
-## ⌨️ Command Registry
+## ⌨️ Features & Interface
 
-### **Core Commands**
-*   `/journal` - Create a new journal entry.
-*   `/themes` - View recurring themes.
-*   `/discover` - Manually trigger semantic theme discovery.
+### **Habits & Consistency**
+Track your daily routines with multi-select categories and duration/count logging. IRIS uses **Relative Consistency** math to ensure new habits show 100% progress if completed every day since creation.
 
-### **Diagnostic & Meta-Control**
-*   `/priority` - View the current leaderboard of ranked insights.
-*   `/why <type> <id>` - Audit why an insight was surfaced (Score/Confidence breakdown).
-*   `/hidden` - View insights suppressed in the last run (Conflict/Confidence).
-*   `/explain <type> <id>` - View the raw evidence backing an observation.
-*   `/confidence <type> <id>` - Inspect the reliability metrics for a pattern.
+### **Reflections & Mental Clarity**
+Capture your state using high-resolution **1-10 scales** for Energy and Mental Clarity. Select multiple emotions to have IRIS automatically infer your general mood.
 
-### **Management**
-*   `/settings` - View/Change analytical gates (Confidence floor, max items, engine allowlist).
-*   `/rebuild-vector` - Reconstruct the ChromaDB lens from PostgreSQL.
-*   `/rebuild-graph` - Reconstruct the Neo4j lens from PostgreSQL.
-
----
-
-## 🛡 Safety & Epistemic Integrity
-
-IRIS is designed to be a "Mirror," not a "Coach." 
-*   **Zero-Trust Phrasing**: The system is physically blocked from using words like "caused," "should," or "means."
-*   **Evidence-Only**: Every chat response is grounded in specific, timestamped database records.
-*   **User Sovereignty**: Users control the sensitivity of the analytical gates through the `/settings` layer.
-
----
-
-**IRIS: Seeing patterns before they become narratives.**
+### **Analytical Chat**
+Chat with IRIS to explore your patterns. IRIS uses the **Epistemic Framework** to differentiate between your current input and computed historical facts. Press **Enter** to send.

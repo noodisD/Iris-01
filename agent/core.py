@@ -131,7 +131,7 @@ class PersonalAICompanion:
         raw_insights = []
         try:
             # Persistence
-            pers_ins = PersistenceEngine(self.user_id).get_persistent_themes(min_occurrences=2)
+            pers_ins = PersistenceEngine(self.user_id).get_persistent_themes()
             for i in pers_ins:
                 i['engine_name'] = 'persistence'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['id']
             raw_insights.extend(pers_ins)
@@ -294,6 +294,37 @@ class PersonalAICompanion:
     def get_conversation_history(self) -> List[Dict[str, str]]:
         """Gets the full in-memory history for the current session."""
         return self.memory.get_full_history()
+
+    def generate_initial_greeting(self) -> str:
+        """
+        Generates a dynamic initial greeting when the user starts a session.
+        Distinguishes between first-time welcome and returning greeting.
+        """
+        # 1. Check if user is brand new (no messages in DB)
+        # We check conversation_messages table via db
+        history = db.get_chat_history(self.user_id) # I'll assume this method or similar exists
+        # If history is a list of messages
+        is_new_user = len(history) == 0
+
+        # 2. Fetch recent context
+        aggregated_context = self._get_aggregated_context("Initial session greeting")
+        
+        if is_new_user:
+            prompt_hint = "The user has just signed up and opened the chat for the first time. Generate a warm, welcoming introduction as Iris. Explain briefly that you are a companion who helps notice patterns in their habits and reflections. Keep it very short (2 sentences)."
+        else:
+            prompt_hint = "The user is returning for a new session. Generate a warm, very short (1-2 sentences) greeting. If there are interesting recent patterns or reflections in the context, mention them casually. If not, just a warm welcome back."
+        
+        system_prompt = f"{SYSTEM_PROMPT}\n\n{aggregated_context}\n\nIMPORTANT: You are just saying hello. Keep it extremely natural and brief."
+        messages = [{"role": "user", "content": f"[SYSTEM TRIGGER: {prompt_hint}]"}]
+        
+        response_text = self.intelligence.chat(
+            messages=messages,
+            system_prompt=system_prompt,
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=100
+        )
+        
+        return response_text
 
     def generate_proactive_comment(self, action_type: str, details: Dict) -> str:
         """

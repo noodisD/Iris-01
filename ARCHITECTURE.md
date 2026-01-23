@@ -12,8 +12,12 @@ IRIS follows a strict decoupling of canonical storage and query-optimized projec
 *   **Integrity**: If all other databases are deleted, the entire system state can be reconstructed from Postgres.
 
 ### 1.2 Specialized Lenses
-*   **Vector Lens (ChromaDB)**: Optimized for sub-second semantic retrieval and nearest-neighbor lookups.
+*   **Vector Lens (ChromaDB/FAISS)**: Optimized for sub-second semantic retrieval and nearest-neighbor lookups.
 *   **Graph Lens (Neo4j)**: Optimized for entity-relationship mapping and multi-hop discovery.
+
+### 1.3 Web Infrastructure
+*   **API Layer (FastAPI)**: A multi-user HTTP gateway that orchestrates authentication, companion initialization, and **asynchronous background processing**.
+*   **Web Frontend (Vanilla JS)**: A high-performance, single-file interface using modern CSS tokens and Optimistic UI updates for sub-500ms perceived latency.
 
 ---
 
@@ -21,25 +25,34 @@ IRIS follows a strict decoupling of canonical storage and query-optimized projec
 
 Data flows through a series of deterministic engines, each answering a specific structural question.
 
+### 2.1 Data Enrichment Protocol (Anchoring)
+To ensure high-quality semantic clustering, all data is "anchored" before embedding:
+*   **Habit Anchor**: Combines Name + Category (Multi-select) + Intent + Metric.
+*   **Reflection Anchor**: Combines Mood (Inferred) + Energy (1-10) + Mental Clarity (1-10) + Text.
+*   **Effect**: This forces related but different data types (e.g., a "Yoga" habit completion and a "Focused" reflection) into the same semantic neighborhood.
+
+### 2.2 Processing Engines
 | Engine | Question Answered | Metric Used |
 | :--- | :--- | :--- |
-| **Persistence** | What keeps appearing? | Semantic Clustering (HDBSCAN/DBSCAN) |
-| **Trajectory** | What is changing over time? | Linear Regression (Slope) |
+| **Persistence** | What keeps appearing? | Semantic Clustering (WLS Weighted) |
+| **Trajectory** | What is changing over time? | Weighted Linear Regression (Slope) |
 | **Tension** | What co-exists uneasily? | Co-occurrence Asymmetry |
 | **Resolution** | What has settled or reappeared? | Temporal Window Deltas |
-| **Leverage** | What tends to precede? | Directional Lift (P(B\|A) - P(A\|B)) |
-| **Decision Impact**| What tends to follow? | Post-Hoc Sequence Analysis |
+| **Leverage** | What tends to precede? | Directional Lift |
+| **Decision Impact**| What tends to follow? | Sequence Analysis |
 
 ---
 
 ## 3. Meta-Control Layer (The Gatekeepers)
 
-Before an insight reaches the user, it must pass through the **Meta-Control Spine**. This layer ensures the system remains trustworthy and consistent.
+Before an insight reaches the user, it must pass through the **Meta-Control Spine**.
 
-1.  **Confidence & Reliability Engine**: Calculates an evidence-based score (0.0-1.0) using data sufficiency, recency decay, and signal consistency.
-2.  **Conflict Suppression Engine**: Detects logical contradictions (e.g., a pattern cannot be both "Dissipated" and "Increasing") and silences the weaker signal.
-3.  **Insight Prioritization Engine**: Uses a weighted scorecard to select the top 5 most critical signals, preventing LLM context overload.
-4.  **User Control Layer**: Allows the user to tune the "Sensitivity" of the analytical gates (e.g., "Strict Mode" vs. "Exploratory Mode").
+1.  **Confidence & Reliability Engine**: Uses **Evidence Tiering** (Reflections=1.0, Journal=0.9, Habit Ticks=0.5) to calculate weighted reliability.
+2.  **Conflict Suppression Engine**: Deterministically silences contradictory signals.
+3.  **Background Processing**: Heavy computations (LLM Chat, Persistence Engine) are deferred to FastAPI **BackgroundTasks**, keeping the API response cycle < 100ms.
+4.  **Proto-Theme Gate**: Clusters with fewer than **5 occurrences** are suppressed as "noise" until they prove persistence.
+5.  **Temporal Density Gate**: Only themes with recent activity (>= 3 in last 30 days) are surfaced.
+6.  **Insight Prioritization Engine**: Ranks insights by confidence, magnitude, and novelty.
 
 ---
 

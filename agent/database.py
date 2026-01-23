@@ -50,6 +50,14 @@ class Database:
                 host=settings.POSTGRES_HOST,
                 port=settings.POSTGRES_PORT
             )
+            
+            # Ensure pgvector extension exists before registering type
+            with self.conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                self.conn.commit()
+
+            # Register pgvector type to handle vectors as lists, not strings
+            register_vector(self.conn)
             logger.info("Successfully connected to PostgreSQL.")
         except psycopg2.OperationalError as e:
             logger.error(f"Failed to connect to PostgreSQL: {e}")
@@ -389,9 +397,12 @@ class Database:
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS habit_type VARCHAR(20) DEFAULT 'completion';")
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS weekly_target FLOAT DEFAULT 0;")
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS tracking_metric VARCHAR(50) DEFAULT 'completion';")
+                cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS processing_status VARCHAR(20) DEFAULT 'pending';")
                 
                 logger.info("Ensured habits table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_active ON habits(user_id, is_active);")
+                # Optimization 1: Composite index for pipeline processing
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_status_date ON habits(processing_status, created_at);")
 
                 # Habit completions table
                 cur.execute("""
@@ -404,13 +415,17 @@ class Database:
                         skip_reason TEXT,
                         value FLOAT DEFAULT 1.0,
                         notes TEXT,
+                        processing_status VARCHAR(20) DEFAULT 'pending',
                         completed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(habit_id, completion_date)
                     );
                 """)
                 cur.execute("ALTER TABLE habit_completions ADD COLUMN IF NOT EXISTS value FLOAT DEFAULT 1.0;")
+                cur.execute("ALTER TABLE habit_completions ADD COLUMN IF NOT EXISTS processing_status VARCHAR(20) DEFAULT 'pending';")
                 logger.info("Ensured habit_completions table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_completions_habit_date ON habit_completions(habit_id, completion_date DESC);")
+                # Optimization 1: Composite index for pipeline processing
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_completions_status_date ON habit_completions(processing_status, completed_at);")
 
                 # Reflections table
                 cur.execute("""
@@ -420,7 +435,8 @@ class Database:
                         reflection_date DATE NOT NULL,
                         content TEXT NOT NULL,
                         mood VARCHAR(20),
-                        energy_level SMALLINT CHECK (energy_level BETWEEN 1 AND 5),
+                        energy_level SMALLINT CHECK (energy_level BETWEEN 1 AND 10),
+                        clarity_level SMALLINT CHECK (clarity_level BETWEEN 1 AND 10),
                         tags JSONB,
                         processing_status VARCHAR(20) DEFAULT 'pending',
                         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -429,6 +445,8 @@ class Database:
                 """)
                 logger.info("Ensured reflections table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON reflections(user_id, reflection_date DESC);")
+                # Optimization 1: Composite index for pipeline processing
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_reflections_status_date ON reflections(processing_status, reflection_date);")
 
                 conn.commit()
                 logger.info("Database schema is up to date.")
@@ -532,6 +550,26 @@ class Database:
                 logger.error(f"Failed to create conversation message for user {user_id}: {e}")
                 raise
 
+    def get_chat_history(self, user_id: int, limit: int = 50) -> list:
+        """Retrieves chat history for a specific user."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT role, content, created_at FROM conversation_messages 
+                    WHERE user_id = %s 
+                    ORDER BY created_at ASC 
+                    LIMIT %s;
+                    """,
+                    (user_id, limit)
+                )
+                rows = cur.fetchall()
+                return [{"role": r[0], "content": r[1], "created_at": r[2]} for r in rows]
+            except Exception as e:
+                logger.error(f"Failed to get chat history for user {user_id}: {e}")
+                return []
+
     # ============================================================================
     # Embedding Methods
     # ============================================================================
@@ -564,7 +602,10 @@ class Database:
         """Updates the processing status of an item (e.g., a journal entry)."""
         table_map = {
             'journal_entry': 'journal_entries',
-            'message': 'conversation_messages'
+            'message': 'conversation_messages',
+            'reflection': 'reflections',
+            'habit': 'habits',
+            'habit_completion': 'habit_completions'
         }
         if source_type not in table_map:
             raise ValueError(f"Invalid source_type: {source_type}")
@@ -587,7 +628,10 @@ class Database:
         """Retrieves items that are pending processing, including necessary metadata."""
         table_map = {
             'journal_entry': 'journal_entries',
-            'message': 'conversation_messages'
+            'message': 'conversation_messages',
+            'reflection': 'reflections',
+            'habit': 'habits',
+            'habit_completion': 'habit_completions'
         }
         if source_type not in table_map:
             raise ValueError(f"Invalid source_type: {source_type}")
@@ -601,31 +645,119 @@ class Database:
                     (status, limit)
                 )
                 items = cur.fetchall()
-                return [{"id": row[0], "user_id": row[1], "content": row[2], "created_at": row[3]} for row in items]
+                return [
+                    {
+                        "id": row[0], 
+                        "user_id": row[1], 
+                        "content": row[2], 
+                        "created_at": row[3],
+                        "occurred_at": row[3]
+                    } 
+                    for row in items
+                ]
+            
             elif source_type == 'message':
                 cur.execute(
-                    f"SELECT id, user_id, content FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    f"SELECT id, user_id, content, created_at FROM {table_name} WHERE processing_status = %s LIMIT %s;",
                     (status, limit)
                 )
                 items = cur.fetchall()
-                return [{"id": row[0], "user_id": row[1], "content": row[2]} for row in items]
+                return [
+                    {
+                        "id": row[0], 
+                        "user_id": row[1], 
+                        "content": row[2],
+                        "created_at": row[3],
+                        "occurred_at": row[3]
+                    } 
+                    for row in items
+                ]
+            
+            elif source_type == 'reflection':
+                cur.execute(
+                    f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    (status, limit)
+                )
+                items = cur.fetchall()
+                return [
+                    {
+                        "id": row[0], 
+                        "user_id": row[1], 
+                        "content": f"Anchor: Self-Reflection | Source: Reflection | Mood: {row[4] or 'okay'} (Energy: {row[5] or '?'}/10, Clarity: {row[6] or '?'}/10) | Content: {row[2]}", 
+                        "created_at": row[3],
+                        "occurred_at": row[7]
+                    } 
+                    for row in items
+                ]
+
+            elif source_type == 'habit':
+                cur.execute(
+                    f"SELECT id, user_id, name, description, created_at, category FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    (status, limit)
+                )
+                items = cur.fetchall()
+                return [
+                    {
+                        "id": row[0], 
+                        "user_id": row[1], 
+                        "content": f"Anchor: {row[2]} | Source: Habit Definition | Category: {row[5] or 'General'} | Intent: {row[3] or 'No description'}", 
+                        "created_at": row[4],
+                        "occurred_at": row[4],
+                        "name": row[2]
+                    } 
+                    for row in items
+                ]
+
+            elif source_type == 'habit_completion':
+                # Join with habits to get user_id and habit name
+                query = f"""
+                    SELECT hc.id, h.user_id, h.name, hc.is_completed, hc.is_skipped, hc.skip_reason, hc.notes, hc.completed_at, hc.habit_id, h.description, hc.completion_date
+                    FROM habit_completions hc
+                    JOIN habits h ON hc.habit_id = h.id
+                    WHERE hc.processing_status = %s LIMIT %s;
+                """
+                cur.execute(query, (status, limit))
+                items = cur.fetchall()
+                
+                results = []
+                for row in items:
+                    hc_id, user_id, name, is_completed, is_skipped, skip_reason, notes, completed_at, habit_id, description, completion_date = row
+                    
+                    if is_skipped:
+                        action = "Skipped"
+                        details = f"Reason: {skip_reason}"
+                    else:
+                        action = "Completed"
+                        details = f"Notes: {notes}"
+                    
+                    text = f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
+                    
+                    results.append({
+                        "id": hc_id,
+                        "user_id": user_id,
+                        "content": text,
+                        "created_at": completed_at,
+                        "occurred_at": completion_date,
+                        "habit_id": habit_id
+                    })
+                return results
 
     # ============================================================================
     # Theme Methods (Persistence Engine)
     # ============================================================================
 
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
-                    first_seen_at: str, last_seen_at: str) -> int:
+                    first_seen_at: str, last_seen_at: str, occurrence_count: int = 1) -> int:
         """Creates a new theme and returns its ID."""
         conn = self.get_connection()
         with conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at, last_seen_at)
-                    VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at, last_seen_at, occurrence_count)
+                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
-                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at)
+                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at, occurrence_count)
                 )
                 theme_id = cur.fetchone()[0]
                 conn.commit()
@@ -766,15 +898,19 @@ class Database:
                 """
                 SELECT e.id, e.source_type, e.source_id, e.vector, e.created_at
                 FROM embeddings e
-                WHERE e.source_type = 'journal_entry'
-                AND NOT EXISTS (
+                WHERE NOT EXISTS (
                     SELECT 1 FROM theme_occurrences occ
                     WHERE occ.source_type = e.source_type AND occ.source_id = e.source_id
                 )
-                AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)
+                AND (
+                    (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
+                    (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s)) OR
+                    (e.source_type = 'habit' AND e.source_id IN (SELECT id FROM habits WHERE user_id = %s)) OR
+                    (e.source_type = 'habit_completion' AND e.source_id IN (SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s))
+                )
                 ORDER BY e.created_at DESC;
                 """,
-                (user_id,)
+                (user_id, user_id, user_id, user_id)
             )
             rows = cur.fetchall()
             return [
@@ -802,6 +938,41 @@ class Database:
             cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (entry_id,))
             result = cur.fetchone()
             return result[0] if result else None
+
+    def get_content_for_source(self, source_type: str, source_id: int) -> str:
+        """Retrieves text content for any source type."""
+        conn = self.get_connection()
+        with conn.cursor() as cur:
+            if source_type == 'journal_entry':
+                cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (source_id,))
+                res = cur.fetchone()
+                return res[0] if res else ""
+            elif source_type == 'reflection':
+                cur.execute("SELECT content, mood, energy_level, clarity_level FROM reflections WHERE id = %s;", (source_id,))
+                res = cur.fetchone()
+                if not res: return ""
+                return f"Anchor: Self-Reflection | Source: Reflection | Mood: {res[1] or 'okay'} (Energy: {res[2] or '?'}/10, Clarity: {res[3] or '?'}/10) | Content: {res[0]}"
+            elif source_type == 'habit':
+                cur.execute("SELECT name, description, category FROM habits WHERE id = %s;", (source_id,))
+                res = cur.fetchone()
+                if not res: return ""
+                return f"Anchor: {res[0]} | Source: Habit Definition | Category: {res[2] or 'General'} | Intent: {res[1] or 'No description'}"
+            elif source_type == 'habit_completion':
+                # Join to get habit name and description
+                cur.execute("""
+                    SELECT h.name, hc.notes, hc.skip_reason, hc.is_skipped, h.description 
+                    FROM habit_completions hc 
+                    JOIN habits h ON hc.habit_id = h.id 
+                    WHERE hc.id = %s;
+                """, (source_id,))
+                res = cur.fetchone()
+                if not res: return ""
+                name, notes, reason, skipped, description = res
+                action = "Skipped" if skipped else "Completed"
+                details = f"Reason: {reason}" if skipped else f"Notes: {notes}"
+                return f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
+            
+            return ""
 
     # ============================================================================
     # Trajectory Methods (Trajectory Engine)
@@ -1922,7 +2093,7 @@ class Database:
     # ============================================================================
 
     def create_reflection(self, user_id: int, content: str, reflection_date = None,
-                         mood: str = None, energy_level: int = None, tags: list = None) -> int:
+                         mood: str = None, energy_level: int = None, clarity_level: int = None, tags: list = None) -> int:
         """Creates a new reflection and returns its ID."""
         conn = self.get_connection()
         with conn.cursor() as cur:
@@ -1933,10 +2104,10 @@ class Database:
 
                 cur.execute(
                     """
-                    INSERT INTO reflections (user_id, reflection_date, content, mood, energy_level, tags)
-                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+                    INSERT INTO reflections (user_id, reflection_date, content, mood, energy_level, clarity_level, tags)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
-                    (user_id, reflection_date, content, mood, energy_level, Json(tags) if tags else None)
+                    (user_id, reflection_date, content, mood, energy_level, clarity_level, Json(tags) if tags else None)
                 )
                 reflection_id = cur.fetchone()[0]
                 conn.commit()
@@ -1954,7 +2125,7 @@ class Database:
             try:
                 cur.execute(
                     """
-                    SELECT id, reflection_date, content, mood, energy_level, tags, created_at, updated_at
+                    SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at
                     FROM reflections
                     WHERE user_id = %s
                     ORDER BY reflection_date DESC
@@ -1970,9 +2141,10 @@ class Database:
                         "content": row[2],
                         "mood": row[3],
                         "energy_level": row[4],
-                        "tags": row[5],
-                        "created_at": row[6],
-                        "updated_at": row[7]
+                        "clarity_level": row[5],
+                        "tags": row[6],
+                        "created_at": row[7],
+                        "updated_at": row[8]
                     }
                     for row in rows
                 ]
