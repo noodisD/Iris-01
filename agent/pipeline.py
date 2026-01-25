@@ -13,7 +13,6 @@ from .config import settings
 
 # Import the data layer interfaces
 from .database import db
-from .vector_store import vector_store
 from .graph_db import graph_db
 from .persistence import PersistenceEngine
 
@@ -94,10 +93,6 @@ def run_processing_pipeline(source_type: str, source_id: int):
 
         # 4. Store the canonical embedding in PostgreSQL
         db.add_embedding(source_type, source_id, model_name, embedding)
-
-        # 5. Project the embedding into the ChromaDB lens
-        metadata = {"model_name": model_name}
-        vector_store.add_embedding(source_id, embedding, metadata, source_type)
 
         # 6. Extract entities and project into the Neo4j lens
         if source_type == 'journal_entry':

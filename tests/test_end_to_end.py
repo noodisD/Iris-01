@@ -5,7 +5,6 @@ Tests the full pipeline: PostgreSQL → Embedding → Vector Store → Graph DB
 
 import pytest
 from agent.database import db
-from agent.vector_store import vector_store
 from agent.graph_db import graph_db
 from agent.pipeline import run_processing_pipeline
 from unittest.mock import patch, MagicMock
