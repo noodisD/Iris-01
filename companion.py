@@ -24,7 +24,6 @@ load_dotenv(COMPANION_DIR / ".env")
 
 # New architecture imports
 from agent.database import db
-from agent.vector_store import vector_store
 from agent.graph_db import graph_db
 from agent.core import PersonalAICompanion
 from agent.persistence import PersistenceEngine
@@ -901,9 +900,6 @@ def main_chat_loop(user_id: int):
             elif user_input.lower().startswith("/narrative_check "):
                 text = user_input[17:].strip().strip('"')
                 check_narrative_safety(text)
-            elif user_input.lower() == "/rebuild-vector":
-                print("Rebuilding vector index...")
-                vector_store.rebuild_from_postgres()
             elif user_input.lower() == "/rebuild-graph":
                 print("Rebuilding graph...")
                 graph_db.rebuild_from_postgres()

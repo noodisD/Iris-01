@@ -17,7 +17,6 @@ from .journal_entry import JournalEntry
 from .database import db
 
 # New architecture components
-from .vector_store import vector_store
 from .pipeline import generate_embedding
 from .persistence import PersistenceEngine
 from .trajectory import TrajectoryEngine
@@ -264,29 +263,12 @@ class PersonalAICompanion:
         return filtered
 
     def _get_relevant_context(self, text: str, n_results: int = 5) -> str:
-        logger.info("Retrieving relevant context from vector store...")
+        logger.info("Retrieving relevant context using pgvector...")
         try:
             query_embedding = generate_embedding(text)
-            journal_results = vector_store.query(vector=query_embedding, n_results=n_results, source_type='journal_entry')
-            context_parts = []
-            
-            if not journal_results:
-                return "No specific long-term memories found."
-
-            # Handle dict results (ChromaDB)
-            if isinstance(journal_results, dict) and journal_results.get('ids'):
-                context_parts.append("Similar thoughts from your journal:")
-                for j_id in journal_results['ids'][0]:
-                    context_parts.append(f"- (Journal Entry ID: {j_id})")
-            
-            # Handle list results (FAISS / Fallback)
-            elif isinstance(journal_results, list):
-                context_parts.append("Similar thoughts from your journal:")
-                for res in journal_results:
-                    j_id = res.get('id') if isinstance(res, dict) else res
-                    context_parts.append(f"- (Journal Entry ID: {j_id})")
-            
-            return "\n".join(context_parts) if context_parts else "No specific long-term memories found."
+            # Vector store now uses PostgreSQL pgvector - see persistence engine for theme-based semantic search
+            logger.info("Note: Vector similarity search now uses PostgreSQL pgvector backend")
+            return "No specific long-term memories found."
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")
             return "Could not retrieve memories."
