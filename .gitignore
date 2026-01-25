@@ -14,3 +14,6 @@
    14 *.sqlite3
    15 *.db
    16 .pytest_cache/
+
+# Git Worktrees
+.worktrees/
