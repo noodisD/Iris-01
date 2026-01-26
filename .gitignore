@@ -1,19 +1,27 @@
-    1 # Secrets (DO NOT TRACK)
-    2 .env
-    3
-    4 # Templates (TRACK THESE)
-    5 !.env.example
-    6
-    7 # Python
-    8 __pycache__/
-    9 *.py[cod]
-   10 .venv/
-   11
-   12 # Databases & Local Data
-   13 data/
-   14 *.sqlite3
-   15 *.db
-   16 .pytest_cache/
+# Secrets (DO NOT TRACK)
+# Environment files with sensitive credentials - NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+**/.env
+
+# Templates (TRACK THESE)
+# Only track .env.example with placeholder values, never actual credentials
+!.env.example
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Databases & Local Data
+data/
+*.sqlite3
+*.db
+.pytest_cache/
 
 # Git Worktrees
 .worktrees/
