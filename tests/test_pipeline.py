@@ -35,7 +35,6 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
     mock_generate_embedding = mocker.patch("agent.pipeline.generate_embedding")
     mock_generate_embedding.return_value = [0.2] * 1536
     
-    mock_vector_add = mocker.patch("agent.vector_store.VectorStore.add_embedding")
     mock_graph_add_idea = mocker.patch("agent.graph_db.GraphDB.add_idea_node")
     mock_graph_link_idea = mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
