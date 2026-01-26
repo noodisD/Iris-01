@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 def mock_pipeline_components(monkeypatch):
     # Mock embedding generation
     monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.1] * 1536)
-    # Mock Vector Store add
-    monkeypatch.setattr("agent.pipeline.vector_store.add_embedding", lambda *args, **kwargs: None)
     # Mock Graph DB operations
     monkeypatch.setattr("agent.pipeline.graph_db.add_journal_entry_node", lambda *args: None)
     monkeypatch.setattr("agent.pipeline.graph_db.add_idea_node", lambda *args: None)

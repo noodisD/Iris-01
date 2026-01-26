@@ -30,8 +30,6 @@ def mock_pipeline_components(monkeypatch):
     # Mock embedding generation
     monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.1] * 1536)
     
-    # Mock Vector Store add
-    monkeypatch.setattr("agent.pipeline.vector_store.add_embedding", lambda *args, **kwargs: None)
     
     # Mock Graph DB operations (add a simple mock if needed, but the original code 
     # doesn't call a single 'project_to_graph' function, it calls methods on graph_db)
