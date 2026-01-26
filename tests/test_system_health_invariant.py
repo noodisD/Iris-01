@@ -41,14 +41,14 @@ def test_system_health_invariant():
     text_a = f"This is a specific repetitive thought about A: {uuid.uuid4().hex}"
     refl_a = ReflectionService(id_a)
     for _ in range(4):
-        refl_a.create_reflection(text_a, mood="great")
+        refl_a.create_reflection(text_a, energy_level=8)
     
     # CASE B: 5 items (Visible)
     print("> CASE B: Injecting 5 identical reflections (User B)...")
     text_b = f"This is a specific repetitive thought about B: {uuid.uuid4().hex}"
     refl_b = ReflectionService(id_b)
     for _ in range(5):
-        refl_b.create_reflection(text_b, mood="great")
+        refl_b.create_reflection(text_b, energy_level=8)
 
     # 3. Trigger Discovery
     print("\n> Running Discovery...")
