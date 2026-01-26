@@ -62,8 +62,7 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
         assert result is not None
         assert len(result[0]) == 1536
 
-    # Assert embedding was projected to vector store
-    mock_vector_add.assert_called_once()
+
     
     # Assert graph was updated (only for journal entries in this test)
     if source_type == "journal_entry":

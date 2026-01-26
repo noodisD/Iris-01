@@ -6,17 +6,22 @@ from agent.database import db
 
 def test_create_and_get_user(setup_test_database):
     """Test creating and retrieving a user."""
-    user = db.get_user("testuser")
+    # Create a user first
+    user_id = db.create_user("testuser_unique", "testpassword")
+    assert user_id is not None
+    
+    # Then retrieve it
+    user = db.get_user("testuser_unique")
     assert user is not None
-    assert user["username"] == "testuser"
+    assert user["username"] == "testuser_unique"
 
 def test_verify_user(test_user):
     """Test user password verification."""
-    verified_user = db.verify_user("testuser", "testpassword")
+    verified_user = db.verify_user(test_user["username"], "testpassword")
     assert verified_user is not None
     assert verified_user["id"] == test_user["id"]
     
-    unverified_user = db.verify_user("testuser", "wrongpassword")
+    unverified_user = db.verify_user(test_user["username"], "wrongpassword")
     assert unverified_user is None
 
 def test_create_journal_entry(test_user):

@@ -57,5 +57,8 @@ def test_get_relevant_context(companion, mocker):
     mock_generate_embedding = mocker.patch("agent.core.generate_embedding")
     mock_generate_embedding.return_value = [0.3] * 1536
     
-    context = companion._get_relevant_context("Some text")\n    \n    mock_generate_embedding.assert_called_once_with("Some text")\n    assert "Similar thoughts from your journal" in context
+    context = companion._get_relevant_context("Some text")
+    
+    mock_generate_embedding.assert_called_once_with("Some text")
+    assert "Similar thoughts from your journal" in context
     assert "Journal Entry ID: journal-123" in context
