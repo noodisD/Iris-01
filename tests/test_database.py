@@ -2,18 +2,22 @@
 Tests for the Database layer (Source of Truth).
 """
 
+import uuid
 from agent.database import db
 
 def test_create_and_get_user(setup_test_database):
     """Test creating and retrieving a user."""
+    # Create a unique username to avoid conflicts
+    unique_username = f"testuser_{uuid.uuid4().hex[:8]}"
+    
     # Create a user first
-    user_id = db.create_user("testuser_unique", "testpassword")
+    user_id = db.create_user(unique_username, "testpassword")
     assert user_id is not None
     
     # Then retrieve it
-    user = db.get_user("testuser_unique")
+    user = db.get_user(unique_username)
     assert user is not None
-    assert user["username"] == "testuser_unique"
+    assert user["username"] == unique_username
 
 def test_verify_user(test_user):
     """Test user password verification."""
