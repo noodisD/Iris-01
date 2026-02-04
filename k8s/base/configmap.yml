@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iris-configmap
+  namespace: iris
+data:
+ POSTGRES_DB: iris_db
+ POSTGRES_USER: iris_user
+ POSTGRES_HOST: iris-edge
+ POSTGRES_PORT: "5433"
+ NEO4J_USER: neo4j
+ NEO4J_URI: bolt://iris-edge:7688
+ ALGORITHM: HS256
+ ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+ ENV: prod
+ LOG_LEVEL: INFO
+

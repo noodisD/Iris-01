@@ -11,5 +11,12 @@ tests/
 .git/
 .gitignore
 *.md
+*.log
 Dockerfile
+Dockerfile.api
 docker-compose.yml
+docker-compose.iris-core.yml
+k8s/
+docs/
+scripts/
+reports/

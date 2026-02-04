@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iris-api
+  namespace: iris
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: iris-api
+  template:
+    metadata:
+      labels:
+        app: iris-api
+    spec:
+      containers:
+      - name: iris-api
+        image: noodis/iris-core:v0.1
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: iris-configmap
+        - secretRef:
+            name: iris-secret

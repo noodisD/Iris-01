@@ -70,59 +70,40 @@ app.add_middleware(
 )
 
 # ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-@app.get("/")
-async def root():
-    """Serve the vanilla JS frontend"""
-    if os.path.exists("iris_frontend.html"):
-        return FileResponse("iris_frontend.html")
-    return {"message": "IRIS API Online. Frontend file not found."}
-
-
-# ============================================================================
 # DATA MODELS
 # ============================================================================
 
-
 class UserSignup(BaseModel):
     """What a user sends when creating an account"""
-
     username: str
     password: str
-
 
 class UserLogin(BaseModel):
     """What a user sends when logging in"""
-
     username: str
     password: str
 
-
 class TokenResponse(BaseModel):
     """What the API sends back after successful login"""
-
     access_token: str
     token_type: str
     username: str
 
-
 class ChatMessage(BaseModel):
     """What a user sends when sending a chat message"""
-
     message: str
     token: str
 
+class TokenRequest(BaseModel):
+    """What a user sends when only a token is needed"""
+    token: str
 
 class ChatResponse(BaseModel):
     """What the API sends back as a chat response"""
-
     companion_name: str
     message: str
     timestamp: str
     chat_id: str
-
 
 # ============================================================================
 # HABIT MODELS
@@ -142,6 +123,7 @@ class HabitUpdate(BaseModel):
     """Update habit fields"""
     name: Optional[str] = None
     description: Optional[str] = None
+    frequency_type: Optional[str] = None
     habit_type: Optional[str] = None
     weekly_target: Optional[float] = None
     tracking_metric: Optional[str] = None
@@ -172,7 +154,6 @@ class HabitResponse(BaseModel):
     longest_streak: int
     total_completions: int
     created_at: str
-
 
 # ============================================================================
 # REFLECTION MODELS
@@ -205,7 +186,6 @@ class ReflectionResponse(BaseModel):
     created_at: str
     updated_at: str
 
-
 # ============================================================================
 # IN-MEMORY STORAGE (temporary - will be replaced with real databases later)
 # ============================================================================
@@ -214,13 +194,12 @@ class ReflectionResponse(BaseModel):
 # This is where we'll store the companion object for each user
 companions_db: Dict[str, object] = {}
 
-# Chat history (in memory for now - user_id -> list of messages)
+# Chat history (in memory for now - username -> list of messages)
 chat_history_db: Dict[str, list] = {}
 
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
-
 
 def create_access_token(username: str, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT token for a user"""
@@ -231,7 +210,6 @@ def create_access_token(username: str, expires_delta: Optional[timedelta] = None
     to_encode = {"sub": username, "exp": expire}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
 
 def verify_token(token: str) -> str:
     """Verify a JWT token and return the username"""
@@ -244,23 +222,17 @@ def verify_token(token: str) -> str:
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-
 async def get_current_user(token: str) -> str:
     """Dependency to get the current user from the token in the request header"""
-    # In a real FastAPI app, you'd use:
-    # from fastapi.security import HTTPBearer, HTTPAuthCredentials
-    # But for now, we'll keep it simple
     return verify_token(token)
 
-
 def get_user_id_from_token(token: str) -> int:
-    """Get user_id from username in token"""
+    """Get numeric user_id from token (via username lookup)"""
     username = verify_token(token)
     user = db.get_user(username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user["id"]
-
 
 # ============================================================================
 # ROOT & STATIC ENDPOINTS
@@ -283,31 +255,34 @@ async def health_check():
     """Simple endpoint to check if the API is running"""
     return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
-
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
 # ============================================================================
 
-
 @app.post("/api/auth/signup", response_model=TokenResponse)
 async def signup(user: UserSignup):
     """Create a new user account"""
+    print(f"DEBUG: Received signup request for user: {user.username}")
     try:
         # Store the user (hashed password hashing is handled inside db.create_user)
         db.create_user(user.username, user.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"DEBUG: Exception in create_user: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    # Initialize empty chat history for this user
-    chat_history_db[user.username] = []
+    try:
+        # Initialize empty chat history for this user
+        chat_history_db[user.username] = []
+    except Exception as e:
+        print(f"DEBUG: Exception in chat_history_db: {e}")
+        raise HTTPException(status_code=500, detail="Chat history initialization failed")
 
     # Create and return a token
     token = create_access_token(user.username)
 
     return TokenResponse(access_token=token, token_type="bearer", username=user.username)
-
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(user: UserLogin):
@@ -322,99 +297,82 @@ async def login(user: UserLogin):
 
     return TokenResponse(access_token=token, token_type="bearer", username=user.username)
 
-
 # ============================================================================
 # CHAT ENDPOINTS
 # ============================================================================
 
-
 @app.post("/api/chat/message", response_model=ChatResponse)
 async def chat(message_data: ChatMessage):
     """Send a message to the companion"""
-    # Verify the token and get the username
+    # FIXED: Use get_user_id_from_token to get numeric user_id, not username
+    user_id = get_user_id_from_token(message_data.token)
     username = verify_token(message_data.token)
 
     if not COMPANION_AVAILABLE:
         raise HTTPException(status_code=503, detail="Companion system not available")
 
     try:
-        # Create a fresh companion for this user
-        # 1. Fetch the user object from the database to get the real user_id
-        user = db.get_user(username)
-        if not user:
-             raise HTTPException(status_code=404, detail="User not found")
-        
-        user_id = user['id']
-
-        # The companion will connect to the databases and load the user's data
+        # Create a fresh companion for this user with numeric user_id
         companion = PersonalAICompanion(user_id=user_id)
+        response = companion.chat(message_data.message)
 
-        # Process the message through the companion
-        iris_response = companion.chat(message_data.message)
+        # Store in chat history
+        if username not in chat_history_db:
+            chat_history_db[username] = []
 
+        chat_history_db[username].append({
+            "role": "user",
+            "content": message_data.message,
+            "timestamp": datetime.now(UTC).isoformat()
+        })
+        chat_history_db[username].append({
+            "role": "assistant",
+            "content": response,
+            "timestamp": datetime.now(UTC).isoformat()
+        })
+
+        return ChatResponse(
+            companion_name="IRIS",
+            message=response,
+            timestamp=datetime.now(UTC).isoformat(),
+            chat_id=username
+        )
     except Exception as e:
-        print(f"Error processing message: {e}")
-        iris_response = f"I encountered an error processing your message: {str(e)}"
-
-    # Store in chat history
-    if username not in chat_history_db:
-        chat_history_db[username] = []
-
-    chat_history_db[username].append(
-        {
-            "user_message": message_data.message,
-            "companion_response": iris_response,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-    )
-
-    # Return the response
-    return ChatResponse(
-        companion_name="IRIS",
-        message=iris_response,
-        timestamp=datetime.now(UTC).isoformat(),
-        chat_id=username,
-    )
-
-
-@app.post("/api/chat/history")
-async def get_chat_history(request: dict):
-    """Get the user's chat history"""
-    # Extract token from request
-    token = request.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
-    # Verify the token and get the username
-    username = verify_token(token)
-
-    # Return the chat history for this user
-    return {"username": username, "messages": chat_history_db.get(username, [])}
-
+        print(f"Chat error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 @app.post("/api/chat/greeting")
-async def get_greeting(request: dict):
-    """Get a dynamic greeting for the user"""
-    token = request.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
+async def get_greeting(data: TokenRequest):
+    """Get a greeting from the companion"""
+    token = data.token
+    # FIXED: Use get_user_id_from_token to get numeric user_id, not username
+    user_id = get_user_id_from_token(token)
     username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+
+    if not COMPANION_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Companion system not available")
 
     try:
-        companion = PersonalAICompanion(user_id=user['id'])
-        greeting = companion.generate_initial_greeting()
+        companion = PersonalAICompanion(user_id=user_id)
+        greeting = companion.chat(f"Give me a warm greeting")
         return {"greeting": greeting}
     except Exception as e:
         print(f"Greeting error: {e}")
-        return {"greeting": f"Hi {username}, I'm Iris. How are you today?"}
+        raise HTTPException(status_code=500, detail=f"Error generating greeting: {str(e)}")
 
+@app.post("/api/chat/history")
+async def get_chat_history(data: TokenRequest):
+    """Get chat history for the current user"""
+    token = data.token
+    username = verify_token(token)
+
+    if username not in chat_history_db:
+        return {"messages": []}
+
+    return {"messages": chat_history_db[username]}
 
 @app.post("/api/chat/proactive")
-async def proactive_chat(request: dict):
+async def proactive_chat(request: dict, background_tasks: BackgroundTasks):
     """Trigger a proactive comment from IRIS"""
     token = request.get("token")
     action_type = request.get("action_type")
@@ -423,19 +381,18 @@ async def proactive_chat(request: dict):
     if not token or not action_type:
         raise HTTPException(status_code=400, detail="Token and action_type required")
 
+    # FIXED: Use get_user_id_from_token directly instead of verify_token + db.get_user
+    user_id = get_user_id_from_token(token)
     username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     try:
-        companion = PersonalAICompanion(user_id=user['id'])
-        iris_response = companion.generate_proactive_comment(action_type, details)
-        
+        companion = PersonalAICompanion(user_id=user_id)
+        iris_response = companion.chat(f"Generate proactive comment about {action_type}")
+
         # Store in chat history
         if username not in chat_history_db:
             chat_history_db[username] = []
-        
+
         chat_history_db[username].append({
             "user_message": f"[IRIS noticed: {action_type}]",
             "companion_response": iris_response,
@@ -445,11 +402,10 @@ async def proactive_chat(request: dict):
         return {"message": iris_response}
     except Exception as e:
         print(f"Proactive error: {e}")
-        return {"message": "..."} # Fail silently
-
+        return {"message": "..."}  # Fail silently
 
 # ============================================================================
-# HABIT ENDPOINTS
+# HABITS ENDPOINTS
 # ============================================================================
 
 @app.get("/api/habits")
@@ -474,11 +430,11 @@ async def create_habit(habit: HabitCreate, background_tasks: BackgroundTasks, to
         tracking_metric=habit.tracking_metric,
         category=habit.category
     )
-    
+
     # Trigger pipeline in background
     if background_tasks:
         background_tasks.add_task(run_processing_pipeline, 'habit', habit_id)
-        
+
     return {"habit_id": habit_id, "message": "Habit created successfully"}
 
 @app.get("/api/habits/today")
@@ -500,7 +456,6 @@ async def get_weekly_summary(token: str = Query(...)):
 @app.get("/api/habits/consistency/{days}")
 async def get_consistency_report(days: int = 30, token: str = Query(...)):
     """Get consistency report across all habits"""
-    
     user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     report = tracker.get_consistency_report(days)
@@ -523,7 +478,7 @@ async def update_habit(habit_id: int, updates: HabitUpdate, token: str = Query(.
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     update_dict = updates.dict(exclude_none=True)
     tracker.update_habit(habit_id, **update_dict)
     return {"message": "Habit updated successfully"}
@@ -535,7 +490,7 @@ async def delete_habit(habit_id: int, token: str = Query(...)):
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     tracker.delete_habit(habit_id)
     return {"message": "Habit deleted successfully"}
 
@@ -544,10 +499,10 @@ async def log_completion(completion: HabitCompletion, token: str = Query(...)):
     """Log a habit completion"""
     user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(completion.habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse date if provided
     completion_date = None
     if completion.date:
@@ -555,10 +510,10 @@ async def log_completion(completion: HabitCompletion, token: str = Query(...)):
             completion_date = datetime.fromisoformat(completion.date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     tracker.log_completion(completion.habit_id, completion_date, completion.value, completion.notes)
     streak_info = tracker.update_streaks(completion.habit_id)
-    
+
     return {
         "message": "Completion logged successfully",
         "streaks": streak_info
@@ -569,10 +524,10 @@ async def log_skip(skip: HabitSkip, token: str = Query(...)):
     """Log a habit skip"""
     user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(skip.habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse date if provided
     skip_date = None
     if skip.date:
@@ -580,7 +535,7 @@ async def log_skip(skip: HabitSkip, token: str = Query(...)):
             skip_date = datetime.fromisoformat(skip.date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     tracker.log_skip(skip.habit_id, skip_date, skip.reason)
     return {"message": "Skip logged successfully"}
 
@@ -589,20 +544,19 @@ async def get_habit_calendar(habit_id: int, start: str, end: str, token: str = Q
     """Get a calendar view of habit completions in a date range"""
     user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse dates
     try:
         start_date = datetime.fromisoformat(start).date()
         end_date = datetime.fromisoformat(end).date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     calendar = tracker.get_calendar(habit_id, start_date, end_date)
     return {"calendar": calendar, "habit_id": habit_id}
-
 
 # ============================================================================
 # REFLECTION ENDPOINTS
@@ -621,7 +575,7 @@ async def create_reflection(reflection: ReflectionCreate, background_tasks: Back
     """Create a new reflection"""
     user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
-    
+
     # Parse date if provided
     reflection_date = None
     if reflection.reflection_date:
@@ -629,7 +583,7 @@ async def create_reflection(reflection: ReflectionCreate, background_tasks: Back
             reflection_date = datetime.fromisoformat(reflection.reflection_date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     try:
         reflection_id = service.create_reflection(
             content=reflection.content,
@@ -641,7 +595,7 @@ async def create_reflection(reflection: ReflectionCreate, background_tasks: Back
         # Trigger pipeline in background
         if background_tasks:
             background_tasks.add_task(run_processing_pipeline, 'reflection', reflection_id)
-            
+
         return {"reflection_id": reflection_id, "message": "Reflection saved successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -676,10 +630,10 @@ async def get_reflection(reflection_id: int, token: str = Query(...)):
     user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     reflection = service.get_reflection(reflection_id)
-    
+
     if not reflection:
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     return reflection
 
 @app.put("/api/reflections/{reflection_id}")
@@ -687,10 +641,10 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token
     """Update a reflection"""
     user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
-    
+
     if not service.get_reflection(reflection_id):
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     try:
         update_dict = updates.dict(exclude_none=True)
         service.update_reflection(reflection_id, **update_dict)
@@ -703,13 +657,12 @@ async def delete_reflection(reflection_id: int, token: str = Query(...)):
     """Delete a reflection"""
     user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
-    
+
     if not service.get_reflection(reflection_id):
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     service.delete_reflection(reflection_id)
     return {"message": "Reflection deleted successfully"}
-
 
 # ============================================================================
 # RUN THE APP (for local testing)

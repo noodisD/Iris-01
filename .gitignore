@@ -23,5 +23,11 @@ data/
 *.db
 .pytest_cache/
 
+# Logs
+*.log
+
+# Decrypted secrets (never commit these)
+k8s/secrets/*.decrypted
+
 # Git Worktrees
 .worktrees/
