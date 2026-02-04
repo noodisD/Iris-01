@@ -28,9 +28,9 @@ IRIS follows a structured inference pipeline that moves from raw data to priorit
 
 *   **Frontend**: Vanilla JavaScript + CSS Design Tokens (Optimized for Speed & Zero Dependencies)
 *   **Backend**: FastAPI + Uvicorn (Multi-user HTTP Gateway with Background Tasks)
-*   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store)
+*   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store + Vector Search)
 *   **Graph DB**: Neo4j (Relationship Lens)
-*   **Vector DB**: ChromaDB / FAISS (Semantic Retrieval Lens)
+*   **Containerization**: Docker + Kubernetes (Kustomize overlays for dev/prod)
 
 ---
 
@@ -42,10 +42,10 @@ cp .env.example .env
 # Fill in your OPENAI_API_KEY and secure passwords
 ```
 
-### 2. Deploy via Docker (Recommended)
-This will build the Python backend and serve the integrated frontend.
+### 2. Deploy via Docker (Local All-in-One)
+Runs PostgreSQL, Neo4j, and the API on one machine.
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 Access the app at **http://localhost:8000**
 
@@ -54,6 +54,18 @@ Access the app at **http://localhost:8000**
 # Terminal: Backend (serves frontend automatically)
 .venv/bin/python iris_api.py
 ```
+
+---
+
+## 🏗 Deployment Topologies
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full guides. Three supported setups:
+
+| Mode | What runs where | How to start |
+|:---|:---|:---|
+| **Local dev** | Everything on one machine | `docker compose up --build -d` |
+| **Distributed** | DBs on `iris-edge`, API on `iris-core` | `docker compose -f docker-compose.iris-core.yml up -d` on iris-core |
+| **Kubernetes** | API pods in a K8s cluster, DBs external | `kubectl apply -k k8s/overlays/prod/`
 
 ---
 
