@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# System deps required by psycopg2 and other compiled packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    build-essential \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies via Poetry (stays in sync with pyproject.toml)
+RUN pip install --no-cache-dir poetry
+COPY pyproject.toml poetry.lock ./
+RUN poetry config virtualenvs.create false \
+    && poetry install --only=main --no-interaction --no-ansi --no-root
+
+# Copy application code
+COPY agent/ ./agent/
+COPY prompts/ ./prompts/
+COPY iris_api.py .
+COPY iris_frontend.html .
+
+# Expose port
+EXPOSE 8000
+
+# Run the API
+CMD ["uvicorn", "iris_api:app", "--host", "0.0.0.0", "--port", "8000"]
