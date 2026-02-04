@@ -12,8 +12,8 @@ IRIS follows a strict decoupling of canonical storage and query-optimized projec
 *   **Integrity**: If all other databases are deleted, the entire system state can be reconstructed from Postgres.
 
 ### 1.2 Specialized Lenses
-*   **Vector Lens (ChromaDB/FAISS)**: Optimized for sub-second semantic retrieval and nearest-neighbor lookups.
 *   **Graph Lens (Neo4j)**: Optimized for entity-relationship mapping and multi-hop discovery.
+*   **Note**: Vector search is now integrated into PostgreSQL via the `pgvector` extension, eliminating external vector database dependencies.
 
 ### 1.3 Web Infrastructure
 *   **API Layer (FastAPI)**: A multi-user HTTP gateway that orchestrates authentication, companion initialization, and **asynchronous background processing**.
@@ -68,6 +68,23 @@ To prevent the LLM from generating harmful advice or assuming causality, IRIS em
 
 ## 5. Deployment & Lifecycle
 
-*   **Containerization**: Multi-stage Docker builds separate build-time dependencies (compilers) from the minimal runtime.
-*   **Process Management**: Systemd integration ensures IRIS operates as a resilient background service with auto-restart and graceful shutdown (SIGTERM) handling.
+### Topology: Two-Device Distributed Architecture
+
+The system is designed to split database and application layers:
+
+*   **iris-edge** (192.168.1.24): Database server running PostgreSQL and Neo4j via `docker-compose.yml`
+*   **iris-core**: Application server running the FastAPI backend via `Dockerfile.api`
+*   **K8s-ready**: Full Kubernetes deployment via Kustomize overlays (`k8s/base/` + `k8s/overlays/dev/` and `k8s/overlays/prod/`)
+
+### Containerization & Deployment
+
+*   **Docker**: Multi-stage builds (`Dockerfile` for local dev, `Dockerfile.api` for iris-core API-only deployment).
+*   **Kubernetes**: Kustomize-managed manifests with ConfigMap for non-secrets and encrypted secrets. Image tagging and replicas controlled per environment overlay.
+*   **GitOps**: CI/CD updates image tags in `k8s/overlays/prod/` on every build; deployment script on iris-core polls git and applies changes.
+
+### Process Management & Audit
+
+*   **Systemd integration**: IRIS can operate as a resilient background service with auto-restart and graceful shutdown (SIGTERM) handling.
 *   **Audit Trail**: Every analytical run is logged in an immutable `pattern_evidence` registry for complete historical auditability.
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full setup instructions.

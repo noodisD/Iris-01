@@ -27,7 +27,7 @@ The IRIS AI Agent now uses a distributed architecture with PostgreSQL as the cen
 │                      Application Servers                      │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
 │  │  App Server │  │  App Server │  │  App Server │          │
-│  │    (Flask)  │  │    (Flask)  │  │    (Flask)  │          │
+│  │  (FastAPI)  │  │  (FastAPI)  │  │  (FastAPI)  │          │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘          │
 │         │                 │                 │                 │
 │         └─────────────────┼─────────────────┘                 │
@@ -365,10 +365,10 @@ pool.close_all()
 
 ```bash
 # Development
-python app.py
+python iris_api.py
 
-# Production with gunicorn
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+# Production with uvicorn
+uvicorn iris_api:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 ### Multi-Instance Deployment
@@ -378,18 +378,18 @@ For scaling across multiple application servers:
 ```bash
 # Server 1
 export POSTGRES_HOST=db.example.com
-python app.py --port 5000
+uvicorn iris_api:app --host 0.0.0.0 --port 8000 --workers 4
 
 # Server 2
 export POSTGRES_HOST=db.example.com
-python app.py --port 5000
+uvicorn iris_api:app --host 0.0.0.0 --port 8000 --workers 4
 
 # Server 3
 export POSTGRES_HOST=db.example.com
-python app.py --port 5000
+uvicorn iris_api:app --host 0.0.0.0 --port 8000 --workers 4
 
 # Use load balancer (nginx) to distribute traffic
-# nginx config would route to 5000, 5001, 5002
+# nginx config would route to 8000 on each server
 ```
 
 ---
@@ -398,18 +398,12 @@ python app.py --port 5000
 
 ### psycopg3 Built-in Pooling
 
-The application uses `psycopg` connection pooling by default:
+The application uses `psycopg` connection pooling (configured in `agent/database.py`):
 
 ```python
-# In agent/db_pool.py
-from psycopg_pool import ConnectionPool
-
-pool = ConnectionPool(
-    conninfo=f"postgresql://{user}:{password}@{host}:{port}/{db}",
-    min_size=settings.DB_POOL_MIN_SIZE,
-    max_size=settings.DB_POOL_MAX_SIZE,
-    timeout=settings.DB_QUERY_TIMEOUT
-)
+# Connection pool is managed by the database module
+# psycopg maintains connections based on application needs
+# See agent/database.py for the current implementation
 ```
 
 **Pooling Behavior:**
@@ -597,94 +591,25 @@ Use `CONCURRENTLY` flag to avoid locking table during index creation.
 
 ### Health Check Endpoint
 
-Add to your Flask app:
+IRIS provides a health check endpoint in `iris_api.py`:
 
 ```python
-from flask import Flask, jsonify
-from agent.db_pool import connection_pool
-import time
-
-app = Flask(__name__)
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint - verifies database connectivity"""
-    try:
-        # Get a connection from pool
-        conn = connection_pool.getconn()
-        start = time.time()
-
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            duration = time.time() - start
-
-        connection_pool.putconn(conn)
-
-        return jsonify({
-            'status': 'healthy',
-            'database': 'connected',
-            'latency_ms': round(duration * 1000, 2)
-        }), 200
-
-    except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'error': str(e)
-        }), 503
-
-@app.route('/metrics/db', methods=['GET'])
-def db_metrics():
-    """Database performance metrics"""
-    try:
-        conn = connection_pool.getconn()
-
-        with conn.cursor() as cur:
-            # Connection pool stats
-            cur.execute("""
-                SELECT count(*) as total_connections
-                FROM pg_stat_activity
-                WHERE datname = current_database();
-            """)
-            total_conns = cur.fetchone()[0]
-
-            # Index stats
-            cur.execute("""
-                SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
-                FROM pg_stat_user_indexes
-                WHERE tablename = 'embeddings'
-                ORDER BY idx_scan DESC;
-            """)
-            index_stats = cur.fetchall()
-
-        connection_pool.putconn(conn)
-
-        return jsonify({
-            'connections': total_conns,
-            'indexes': [
-                {
-                    'name': row[2],
-                    'scans': row[3],
-                    'tuples_read': row[4],
-                    'tuples_fetched': row[5]
-                } for row in index_stats
-            ]
-        }), 200
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+@app.get("/health")
+async def health_check():
+    """Simple endpoint to check if the API is running"""
+    return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 ```
 
 **Health Check Usage:**
 
 ```bash
 # Check application health
-curl http://localhost:5000/health
+curl http://localhost:8000/health
 
 # Response:
 # {
-#   "status": "healthy",
-#   "database": "connected",
-#   "latency_ms": 1.23
+#   "status": "ok",
+#   "timestamp": "2026-02-04T14:23:45.123456+00:00"
 # }
 ```
 
