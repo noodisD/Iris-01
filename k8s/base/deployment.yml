@@ -4,7 +4,7 @@ metadata:
   name: iris-api
   namespace: iris
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: iris-api
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: iris-api
-        image: noodis/iris-core:v0.1
+        image: noodis/iris-core:latest
         ports:
         - containerPort: 8000
         envFrom:
@@ -23,3 +23,24 @@ spec:
             name: iris-configmap
         - secretRef:
             name: iris-secret
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
