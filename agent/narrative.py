@@ -79,11 +79,13 @@ class NarrativeFormatter:
     @staticmethod
     def _sanitize_label(ins: Dict) -> str:
         """Extracts and normalizes classification labels."""
-        raw = (ins.get('resolution_label') or 
-               ins.get('trajectory_label') or 
-               ins.get('effect_direction') or 
+        raw = (ins.get('resolution_label') or
+               ins.get('trajectory_label') or
+               ins.get('effect_direction') or
                ins.get('label') or "")
-        
+
+        logger.debug(f"Sanitize label: resolution_label={ins.get('resolution_label')}, trajectory_label={ins.get('trajectory_label')}, raw={raw}")
+
         # Normalize common labels into descriptive fragments
         mappings = {
             "increasing": "increased",
@@ -96,7 +98,9 @@ class NarrativeFormatter:
             "increase": "increased",
             "fade": "decreased"
         }
-        return mappings.get(raw.lower(), raw)
+        result = mappings.get(raw.lower(), raw)
+        logger.debug(f"Sanitize result: {result} (mapped from raw={raw})")
+        return result
 
     @staticmethod
     def _get_time_description(ins: Dict) -> str:

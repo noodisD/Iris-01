@@ -119,11 +119,12 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
         assert cur.fetchone()[0] > 0
 
     logger.info("--- PHASE 4: VERIFYING CONFLICT SUPPRESSION ---")
-    # For Stress theme: 
+    # For Stress theme:
     # Actual: Increasing (Trajectory)
     # Forced: Manually inject a 'dissipated' resolution
-    db.create_or_update_resolution('theme', t_stress, 'dissipated', 1.0, 'high', 0, 20)
-    db.create_or_update_confidence('resolution', t_stress, 'high', 0.9, 20, 100, 1.0, 0.5)
+    from agent.database import resolutions, confidence
+    resolutions.create_or_update('theme', t_stress, 'dissipated', 1.0, 'high', 0, 20)
+    confidence.create_or_update('resolution', t_stress, 'high', 0.9, 20, 100, 1.0, 0.5)
 
     companion = PersonalAICompanion(user_id=user_id)
     companion.intelligence.chat = MagicMock(return_value="OK")

@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Tuple, Any
 import numpy as np
 
 # Import database and constants
-from .database import resolutions, evidence as evidence_repo, confidence as confidence_repo
+from .database import resolutions, themes, evidence as evidence_repo, confidence as confidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (
@@ -59,11 +59,16 @@ class ResolutionEngine:
         if not force_recompute:
             cached = resolutions.get_resolution('theme', theme_id)
             if cached and cached.get('last_computed_at') is not None:
+                logger.debug(f"Resolution cache HIT for theme {theme_id}: label={cached.get('resolution_label')}")
                 # Add theme summary for convenience
                 theme = themes.get_theme(theme_id)
                 cached['summary'] = theme['summary'] if theme else "Unknown"
                 cached['theme_id'] = theme_id
                 return cached
+            elif not cached:
+                logger.debug(f"Resolution cache MISS for theme {theme_id}: no cached entry")
+            else:
+                logger.debug(f"Resolution cache STALE for theme {theme_id}: last_computed_at is None")
 
         # Get all occurrences for this theme
         occurrences = themes.get_occurrences(theme_id)
