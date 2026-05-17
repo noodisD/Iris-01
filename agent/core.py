@@ -22,6 +22,7 @@ from .database import (
 
 # New architecture components
 from .pipeline import generate_embedding
+from .pipeline_orchestrator import AnalysisPipeline, engine_enablement_gate, confidence_gate, budget_gate
 from .persistence import PersistenceEngine
 from .trajectory import TrajectoryEngine
 from .tension import TensionEngine
@@ -32,6 +33,7 @@ from .conflict import ConflictSuppressionEngine
 from .prioritization import InsightPrioritizationEngine
 from .narrative import NarrativeFormatter
 from .preferences import UserPreferencesService
+from .preferences_guard import PreferencesGuard
 from .constants import DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
 
 # Handle both package and direct imports
@@ -60,11 +62,58 @@ class PersonalAICompanion:
         self.journal_entry_service = JournalEntry(user_id=self.user_id)
         self.conflict_engine = ConflictSuppressionEngine()
         self.pref_service = UserPreferencesService(user_id=self.user_id)
+
+        # Initialize preferences guard for validation
+        prefs = self.pref_service.get_prefs()
+        self.prefs_guard = PreferencesGuard(user_id=self.user_id, prefs_dict=prefs)
         
         # Session-scoped cache for transparency
         self.last_suppressed_insights = {}
-        
+
+        # Initialize analysis pipeline
+        self._init_analysis_pipeline()
+
         logger.info(f"PersonalAICompanion initialized for user {self.user_id} and session {self.session_id}")
+
+    def _init_analysis_pipeline(self) -> None:
+        """Initialize and configure the analysis pipeline with all engines."""
+        self.analysis_pipeline = AnalysisPipeline(self.user_id)
+
+        # Register analytical engines
+        self.analysis_pipeline.register_engine(
+            'persistence',
+            lambda: PersistenceEngine(self.user_id).get_persistent_themes()
+        )
+
+        self.analysis_pipeline.register_engine(
+            'trajectory',
+            lambda: TrajectoryEngine(self.user_id).analyze_all_themes()
+        )
+
+        self.analysis_pipeline.register_engine(
+            'tension',
+            lambda: TensionEngine(self.user_id).analyze_all_tensions()
+        )
+
+        self.analysis_pipeline.register_engine(
+            'resolution',
+            lambda: ResolutionEngine(self.user_id).analyze_all_themes()
+        )
+
+        self.analysis_pipeline.register_engine(
+            'leverage',
+            lambda: leverage.get_high_leverage_sources(self.user_id, min_confidence='low')
+        )
+
+        self.analysis_pipeline.register_engine(
+            'decision_impact',
+            lambda: decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
+        )
+
+        # Register gates in order
+        self.analysis_pipeline.register_gate('enablement', engine_enablement_gate, order=1)
+        self.analysis_pipeline.register_gate('confidence', confidence_gate, order=2)
+        self.analysis_pipeline.register_gate('budget', budget_gate, order=3)
 
     def shutdown(self):
         """Gracefully closes all backing service connections."""
@@ -131,85 +180,37 @@ class PersonalAICompanion:
         reflections_context = self._get_reflections_context()
         journal_context = self._get_recent_journal_entries_context()
         
-        # 3. Fetch raw analytical insights
-        raw_insights = []
-        try:
-            # Persistence
-            pers_ins = PersistenceEngine(self.user_id).get_persistent_themes()
-            for i in pers_ins:
-                i['engine_name'] = 'persistence'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['id']
-            raw_insights.extend(pers_ins)
+        # 3. Run analysis pipeline with enablement and confidence gates
+        gated_insights = self.analysis_pipeline.run(prefs=prefs)
 
-            # Trajectory
-            traj_ins = TrajectoryEngine(self.user_id).analyze_all_themes()
-            for i in traj_ins:
-                i['engine_name'] = 'trajectory'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['theme_id']
-            raw_insights.extend(traj_ins)
-            
-            # Tension
-            tens_ins = TensionEngine(self.user_id).analyze_all_tensions()
-            for i in tens_ins:
-                i['engine_name'] = 'tension'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['theme_a_id']
-            raw_insights.extend(tens_ins)
+        # Track suppressions from pipeline
+        suppression_log = self.analysis_pipeline.get_suppression_log()
+        for reason, items in suppression_log.items():
+            for item_str in items:
+                self.last_suppressed_insights[item_str] = reason
 
-            # Resolution
-            res_ins = ResolutionEngine(self.user_id).analyze_all_themes()
-            for i in res_ins:
-                i['engine_name'] = 'resolution'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['theme_id']
-            raw_insights.extend(res_ins)
-            
-            # Leverage & Impact
-            lev_sources = leverage.get_high_leverage_sources(self.user_id, min_confidence='low')
-            for s in lev_sources:
-                s['engine_name'] = 'leverage'; s['pattern_type'] = 'theme'; s['pattern_id'] = s['source_id']; s['label'] = 'high'
-            raw_insights.extend(lev_sources)
-            
-            impacts = decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
-            for i in impacts:
-                i['engine_name'] = 'decision_impact'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['anchor_id']; i['label'] = i['effect_direction']
-            raw_insights.extend(impacts)
-        except Exception as e:
-            logger.error(f"Error fetching raw insights: {e}")
-
-        # GATE 1: Allowlist Gate
-        enabled = prefs.get('enabled_engines')
-        filtered_by_engine = []
-        for i in raw_insights:
-            if enabled is None or i['engine_name'] in enabled:
-                filtered_by_engine.append(i)
-            else:
-                self._record_suppression(i, "engine_disabled")
-
-        # GATE 2: Confidence Gate (User Overridden)
-        reliable_insights = self._filter_by_confidence(filtered_by_engine, min_level=prefs['min_confidence'])
-        
-        # Track Confidence suppressions
-        for i in filtered_by_engine:
-            if i not in reliable_insights:
-                self._record_suppression(i, "low_confidence")
-
-        # GATE 3: Conflict Suppression
-        suppression_result = self.conflict_engine.suppress(reliable_insights)
+        # 4. Conflict Suppression (custom logic)
+        suppression_result = self.conflict_engine.suppress(gated_insights)
         clean_insights = suppression_result['visible']
         for s in suppression_result['suppressed']:
             self._record_suppression(s['insight'], "conflict")
 
-        # GATE 4: Prioritization & Budget Gate
+        # 5. Prioritization & Final Ranking
         priority_engine = InsightPrioritizationEngine(self.user_id)
         ranked_insights = priority_engine.rank_insights(clean_insights)
-        
+
         # Budget slice (User Overridden)
         top_k = min(prefs['max_items'], len(ranked_insights))
         final_insights = ranked_insights[:top_k]
-        
+
         # Track Budget suppressions
         for i in ranked_insights[top_k:]:
             self._record_suppression(i, "priority_cutoff")
 
-        # 5. Narrative Formatting
+        # 6. Narrative Formatting
         narratives = NarrativeFormatter.format_all(final_insights)
-        
-        # 6. Final Assembly
+
+        # 7. Final Assembly
         header = "# Observed Structural Patterns & Observed Temporal Sequences:"
         # Ensure bulleted list
         bulleted_narratives = [f"- {n}" for n in narratives]
@@ -220,12 +221,12 @@ class PersonalAICompanion:
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""
         try:
-            habits = db.get_habits(self.user_id, active_only=True)
-            if not habits:
+            habits_list = habits.get_habits(self.user_id, active_only=True)
+            if not habits_list:
                 return "No active habits tracked yet."
-            
+
             parts = []
-            for h in habits:
+            for h in habits_list:
                 parts.append(f"- {h['name']}: {h['current_streak']} day streak ({h['total_completions']} total completions)")
             return "\n".join(parts)
         except Exception as e:
@@ -235,7 +236,7 @@ class PersonalAICompanion:
     def _get_reflections_context(self) -> str:
         """Retrieves recent reflections for context."""
         try:
-            reflections = db.get_reflections(self.user_id, limit=5)
+            reflections = journals.get_reflections(self.user_id, limit=5)
             if not reflections:
                 return "No recent reflections found."
 
@@ -252,7 +253,7 @@ class PersonalAICompanion:
         """Retrieves the most recent journal entries so meta-queries about 'my journal'
         can surface them even when vector search misses on wording."""
         try:
-            entries = db.get_recent_journal_entries(self.user_id, limit=limit)
+            entries = journals.get_recent_entries(self.user_id, limit=limit)
             if not entries:
                 return "No journal entries yet."
 

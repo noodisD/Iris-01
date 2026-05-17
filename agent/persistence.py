@@ -123,13 +123,13 @@ class PersistenceEngine:
         Returns:
             The matched theme_id if found, else None
         """
-        themes = self._get_user_themes()
-        if not themes:
+        user_themes = self._get_user_themes()
+        if not user_themes:
             return None
 
         embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
 
-        for theme in themes:
+        for theme in user_themes:
             centroid = np.array(theme["centroid_embedding"], dtype=np.float32).reshape(1, -1)
 
             if SKLEARN_AVAILABLE:
@@ -454,7 +454,7 @@ Theme summary:"""
         persistent = []
         for t in candidates:
             # 1. Check cache first
-            conf = db.get_confidence('theme', t['id'])
+            conf = confidence_repo.get_confidence('theme', t['id'])
             
             # 2. Get Evidence (needed for temporal check anyway)
             occs = self.get_theme_evidence(t['id'])
@@ -511,7 +511,7 @@ Theme summary:"""
                 self.emit_evidence('rate', 'recency_score', conf['recency_score'])
                 
                 # 3. Store in central registry
-                db.create_or_update_confidence(
+                confidence_repo.create_or_update(
                     'theme', t['id'],
                     conf['confidence_level'], conf['confidence_score'],
                     conf['data_points_count'], conf['time_coverage_days'],
@@ -537,7 +537,7 @@ Theme summary:"""
         Returns:
             List of occurrences with source information
         """
-        return db.get_theme_occurrences(theme_id)
+        return themes.get_occurrences(theme_id)
 
     def get_theme_timeline(self, theme_id: int) -> str:
         """
@@ -612,7 +612,7 @@ Theme summary:"""
 
     def _get_user_themes(self) -> List[dict]:
         """Retrieve all themes for this user."""
-        return db.get_themes(self.user_id)
+        return themes.get_all_themes(self.user_id)
 
     def _extract_snippet(self, text: str, max_length: int = 200) -> str:
         """Extract a snippet from text."""

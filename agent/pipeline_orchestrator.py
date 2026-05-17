@@ -133,12 +133,27 @@ class AnalysisPipeline:
                 logger.debug(f"Running engine: {engine_name}")
                 insights = engine.callable()
 
-                # Tag each insight with its engine
+                # Tag each insight with its engine and map pattern_id based on engine
                 for insight in insights:
                     if 'engine_name' not in insight:
                         insight['engine_name'] = engine_name
                     if 'pattern_type' not in insight:
                         insight['pattern_type'] = engine.pattern_type
+
+                    # Map pattern_id from engine-specific fields
+                    if 'pattern_id' not in insight:
+                        if engine_name == 'persistence' and 'id' in insight:
+                            insight['pattern_id'] = insight['id']
+                        elif engine_name == 'trajectory' and 'theme_id' in insight:
+                            insight['pattern_id'] = insight['theme_id']
+                        elif engine_name == 'tension' and 'theme_a_id' in insight:
+                            insight['pattern_id'] = insight['theme_a_id']
+                        elif engine_name == 'resolution' and 'theme_id' in insight:
+                            insight['pattern_id'] = insight['theme_id']
+                        elif engine_name == 'leverage' and 'source_id' in insight:
+                            insight['pattern_id'] = insight['source_id']
+                        elif engine_name == 'decision_impact' and 'anchor_id' in insight:
+                            insight['pattern_id'] = insight['anchor_id']
 
                 self._insights.extend(insights)
             except Exception as e:

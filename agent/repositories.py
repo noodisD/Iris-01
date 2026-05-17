@@ -128,10 +128,10 @@ class ThemeRepository(Repository):
     """Manages themes and their metadata."""
 
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
-                    primary_example: str = None, occurrence_count: int = 1,
-                    first_seen_at: str = None, last_seen_at: str = None) -> int:
-        return self.db.create_theme(user_id, centroid_embedding, summary, primary_example,
-                                    occurrence_count, first_seen_at, last_seen_at)
+                    first_seen_at: str = None, last_seen_at: str = None,
+                    occurrence_count: int = 1, primary_example: str = None) -> int:
+        return self.db.create_theme(user_id, centroid_embedding, summary,
+                                    first_seen_at or '', last_seen_at or '', occurrence_count)
 
     def get_all_themes(self, user_id: int) -> list:
         return self.db.get_themes(user_id)
@@ -160,18 +160,12 @@ class ThemeRepository(Repository):
 class TrajectoryRepository(Repository):
     """Manages theme trajectory analysis."""
 
-    def create_or_update(self, theme_id: int, trajectory_label: str, analysis_date: str = None,
-                        slope: float = None, r_squared: float = None, trend_score: float = None,
-                        recent_count: int = None, past_count: int = None,
-                        confidence_level: str = None, data_points_count: int = None,
-                        occurrences_in_window: int = None, metadata: dict = None, **kwargs):
-        # Support both old and new method signatures
-        if slope is not None and r_squared is not None:
-            return self.db.create_theme_trajectory(theme_id, trajectory_label, analysis_date,
-                                                  slope, r_squared, occurrences_in_window, metadata)
-        else:
-            return self.db.create_theme_trajectory(theme_id, trajectory_label, analysis_date,
-                                                  trend_score or 0, 0, data_points_count, metadata)
+    def create_or_update(self, theme_id: int, trajectory_label: str,
+                        trend_score: float, recent_count: int, past_count: int,
+                        confidence_level: str, data_points_count: int):
+        return self.db.create_theme_trajectory(theme_id, trajectory_label,
+                                              trend_score, recent_count, past_count,
+                                              confidence_level, data_points_count)
 
     def get_trajectory(self, theme_id: int) -> dict:
         return self.db.get_theme_trajectory(theme_id)
@@ -199,9 +193,13 @@ class TensionRepository(Repository):
         return self.db.get_theme_pair_occurrences(theme_a_id, theme_b_id)
 
     def create_or_update(self, theme_a_id: int, theme_b_id: int, cooccurrence_count: int,
-                        asymmetry_ratio: float, analysis_date: str = None, metadata: dict = None):
+                        recent_cooccurrence_count: int, past_cooccurrence_count: int,
+                        divergence_score: float, stability_score: float,
+                        tension_label: str, confidence_level: str):
         return self.db.create_or_update_tension(theme_a_id, theme_b_id, cooccurrence_count,
-                                               asymmetry_ratio, analysis_date, metadata)
+                                               recent_cooccurrence_count, past_cooccurrence_count,
+                                               divergence_score, stability_score,
+                                               tension_label, confidence_level)
 
     def get_all_tensions(self, user_id: int) -> list:
         return self.db.get_all_tensions(user_id)
@@ -217,9 +215,11 @@ class ResolutionRepository(Repository):
     """Manages resolution analysis."""
 
     def create_or_update(self, pattern_type: str, pattern_id: int, resolution_label: str,
-                        disappeared_at: str, reappeared_at: str = None, metadata: dict = None):
+                        attenuation_score: float, confidence_level: str,
+                        recent_count: int, past_count: int):
         return self.db.create_or_update_resolution(pattern_type, pattern_id, resolution_label,
-                                                  disappeared_at, reappeared_at, metadata)
+                                                  attenuation_score, confidence_level,
+                                                  recent_count, past_count)
 
     def get_resolution(self, pattern_type: str, pattern_id: int) -> dict:
         return self.db.get_resolution(pattern_type, pattern_id)
@@ -236,10 +236,12 @@ class LeverageRepository(Repository):
 
     def create_or_update_pair(self, source_type: str, source_id: int,
                              target_type: str, target_id: int,
-                             directional_lift: float, confidence: str):
+                             influence_score: float, directional_lift: float,
+                             cooccurrence_count: int, confidence_level: str):
         return self.db.create_or_update_leverage_pair(source_type, source_id,
                                                      target_type, target_id,
-                                                     directional_lift, confidence)
+                                                     influence_score, directional_lift,
+                                                     cooccurrence_count, confidence_level)
 
     def get_targets(self, source_type: str, source_id: int) -> list:
         return self.db.get_leverage_targets(source_type, source_id)
@@ -256,10 +258,14 @@ class DecisionImpactRepository(Repository):
 
     def create_or_update(self, anchor_type: str, anchor_id: int,
                         target_type: str, target_id: int,
-                        sequence_distance: int, confidence: str, metadata: dict = None):
+                        effect_direction: str, delta_score: float,
+                        anchor_count: int, target_count: int,
+                        confidence_level: str):
         return self.db.create_or_update_decision_impact(anchor_type, anchor_id,
                                                        target_type, target_id,
-                                                       sequence_distance, confidence, metadata)
+                                                       effect_direction, delta_score,
+                                                       anchor_count, target_count,
+                                                       confidence_level)
 
     def get_impacts_for_anchor(self, anchor_type: str, anchor_id: int) -> list:
         return self.db.get_decision_impacts_for_anchor(anchor_type, anchor_id)

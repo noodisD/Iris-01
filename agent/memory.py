@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import List, Dict
 
 # Import the new architecture's components
-from .database import db
+from .database import db, journals
 from .pipeline import run_processing_pipeline
 
 logger = logging.getLogger(__name__)

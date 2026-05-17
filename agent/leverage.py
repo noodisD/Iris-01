@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Tuple, Any
 import numpy as np
 
 # Import database and constants
-from .database import db
+from .database import db, leverage as leverage_repo, themes, confidence as confidence_repo, evidence as evidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (

@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 # Import database and evidence
-from .database import db
+from .database import db, confidence as conf_repo
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)

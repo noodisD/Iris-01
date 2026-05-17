@@ -19,7 +19,7 @@ from tenacity import (
 from .config import settings
 
 # Import the data layer interfaces
-from .database import db
+from .database import db, embeddings
 from .graph_db import graph_db
 from .persistence import PersistenceEngine
 

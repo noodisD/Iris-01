@@ -150,18 +150,18 @@ class TrajectoryEngine:
         self.emit_evidence('count', 'total_occurrences', len(occurrences))
         
         # Store in central registry
-        db.create_or_update_confidence(
+        confidence_repo.create_or_update(
             'trajectory', theme_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
             conf['consistency_score'], conf['recency_score']
         )
-        
+
         # Store in evidence registry
         self.ev_engine.record_evidence('trajectory', 'theme', theme_id, self._evidence)
-        
+
         # Store in theme_trajectories cache
-        db.create_theme_trajectory(
+        trajectories.create_or_update(
             theme_id=theme_id,
             trajectory_label=trajectory_label,
             trend_score=trend_slope,
@@ -192,10 +192,10 @@ class TrajectoryEngine:
             List of trajectory analysis for all themes
         """
         # Get all themes for this user
-        themes = db.get_themes(self.user_id)
+        all_themes = themes.get_all_themes(self.user_id)
         results = []
-        
-        for theme in themes:
+
+        for theme in all_themes:
             analysis = self.analyze_theme(theme["id"])
             analysis["theme_summary"] = theme["summary"]
             results.append(analysis)

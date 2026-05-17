@@ -59,4 +59,4 @@ class EvidenceEngine:
         """
         Fetches the evidence for the most recent computation.
         """
-        return db.get_latest_evidence_bundle(pattern_type, pattern_id, engine_name)
+        return evidence_repo.get_latest_bundle(pattern_type, pattern_id, engine_name)

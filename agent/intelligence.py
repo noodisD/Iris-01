@@ -3,9 +3,11 @@ Intelligence layer - Multi-model support (Gemini 2.5 Flash, OpenAI)
 """
 
 import warnings
+import os
 from openai import AsyncOpenAI, OpenAI
 from typing import Optional, List, Dict, Any
 from .config import settings
+from .llm_provider import LLMProvider, OpenAIProvider, GeminiProvider, Message
 
 try:
     # Suppress deprecation warning for google.generativeai (still works, just deprecated)
@@ -27,26 +29,40 @@ class Intelligence:
         self.openai_client = None
         self.model = model or settings.OPENAI_MODEL
 
+        # LLM Provider (abstraction for pluggable model support)
+        self.provider: Optional[LLMProvider] = None
+
         # Initialize OpenAI first (primary)
         openai_key = api_key or settings.OPENAI_API_KEY
-        
+
         if openai_key and openai_key != "your_openai_api_key_here":
             try:
                 self.openai_client = OpenAI(api_key=openai_key)
                 self.async_client = AsyncOpenAI(api_key=openai_key)
+
+                # Initialize OpenAI provider
+                self.provider = OpenAIProvider(api_key=openai_key, model=self.model)
+
                 self.use_gemini = False
             except Exception as e:
                 print(f"⚠️  OpenAI initialization failed: {e}")
 
         # Initialize Gemini as fallback if requested and available
         if use_gemini and GEMINI_AVAILABLE:
-            gemini_key = api_key or os.getenv("GEMINI_API_KEY") # We'll leave this one for now or add to config later
+            gemini_key = api_key or os.getenv("GEMINI_API_KEY")
             if gemini_key and gemini_key != "your_gemini_api_key_here":
                 try:
                     genai.configure(api_key=gemini_key)
                     self.gemini_client = genai.GenerativeModel(
                         model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
                     )
+
+                    # Initialize Gemini provider
+                    self.provider = GeminiProvider(
+                        api_key=gemini_key,
+                        model=os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+                    )
+
                     self.use_gemini = True
                 except Exception as e:
                     print(f"⚠️  Gemini initialization failed: {e}. Using OpenAI instead.")
@@ -68,6 +84,48 @@ class Intelligence:
             model: Model name (e.g., "gpt-4o-mini", "gpt-4o")
         """
         self.model = model
+        # Update provider model if available
+        if self.provider:
+            self.provider.model = model
+
+    def chat_with_provider(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.7,
+    ) -> str:
+        """Chat using the provider interface (model-agnostic).
+
+        This method routes through the LLMProvider abstraction,
+        allowing easy switching between models without code changes.
+
+        Args:
+            messages: Conversation history
+            system_prompt: System prompt
+            tools: Optional tool definitions
+            temperature: Sampling temperature
+
+        Returns:
+            Response text
+        """
+        if not self.provider:
+            return "Error: No LLM provider available"
+
+        try:
+            # Convert messages to provider format
+            provider_messages = [Message(role="system", content=system_prompt)]
+            for msg in messages:
+                provider_messages.append(Message(role=msg["role"], content=msg["content"]))
+
+            # Call through provider
+            return self.provider.chat(
+                messages=provider_messages,
+                tools=tools,
+                temperature=temperature
+            )
+        except Exception as e:
+            return f"Error calling provider: {str(e)}"
 
     def chat(
         self,

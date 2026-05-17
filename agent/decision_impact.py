@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Tuple, Any
 import numpy as np
 
 # Import database and constants
-from .database import db
+from .database import db, decision_impacts, themes, confidence as confidence_repo, evidence as evidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (
@@ -236,9 +236,9 @@ class DecisionImpactEngine:
 
     def _get_candidate_anchors(self) -> List[Dict]:
         """Returns themes with enough data to be anchors."""
-        themes = themes.get_all_themes(self.user_id)
+        all_themes = themes.get_all_themes(self.user_id)
         # 1. Min count filter
-        active = [t for t in themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
+        active = [t for t in all_themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
         
         # 2. Dissipation filter (don't anchor on dead patterns)
         from .resolution import ResolutionEngine
