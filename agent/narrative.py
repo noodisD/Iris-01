@@ -23,9 +23,13 @@ class NarrativeFormatter:
     @staticmethod
     def format_all(insights: List[Dict[str, Any]]) -> List[str]:
         """
-        Renders a prioritized list of insights into narratives while 
+        Renders a prioritized list of insights into narratives while
         strictly preserving list order.
         """
+        logger.debug(f"NarrativeFormatter.format_all received {len(insights)} insights")
+        for i, ins in enumerate(insights):
+            logger.debug(f"  Insight {i}: engine={ins.get('engine_name')}, resolution_label={ins.get('resolution_label')}, trajectory_label={ins.get('trajectory_label')}, theme_id={ins.get('theme_id')}")
+
         narratives = []
         for ins in insights:
             text = NarrativeFormatter.format_insight(ins)
@@ -40,27 +44,30 @@ class NarrativeFormatter:
         """
         engine = insight.get('engine_name')
         template = NARRATIVE_TEMPLATES.get(engine)
-        
+
         if not template:
             logger.error(f"No narrative template found for engine: {engine}")
+            logger.debug(f"  Insight: {insight}")
             return None
 
         try:
             # 1. Prepare data mapping
             data = NarrativeFormatter._prepare_template_data(engine, insight)
-            
+            logger.debug(f"Format_insight: engine={engine}, insight_keys={list(insight.keys())}, data={data}")
+
             # 2. Interpolate
             rendered = template.format(**data)
-            
+
             # 3. Validate safety
             NarrativeFormatter._validate_safety(rendered)
-            
+
+            logger.debug(f"Rendered narrative: {rendered}")
             return rendered
-            
+
         except Exception as e:
             if NARRATIVE_FAIL_MODE == "raise":
                 raise e
-            logger.error(f"Narrative failure for {engine}: {e}")
+            logger.error(f"Narrative failure for {engine}: {e}", exc_info=True)
             return None
 
     @staticmethod
@@ -79,12 +86,14 @@ class NarrativeFormatter:
     @staticmethod
     def _sanitize_label(ins: Dict) -> str:
         """Extracts and normalizes classification labels."""
-        raw = (ins.get('resolution_label') or
-               ins.get('trajectory_label') or
-               ins.get('effect_direction') or
-               ins.get('label') or "")
+        resolution_label = ins.get('resolution_label')
+        trajectory_label = ins.get('trajectory_label')
+        effect_direction = ins.get('effect_direction')
+        generic_label = ins.get('label')
 
-        logger.debug(f"Sanitize label: resolution_label={ins.get('resolution_label')}, trajectory_label={ins.get('trajectory_label')}, raw={raw}")
+        raw = resolution_label or trajectory_label or effect_direction or generic_label or ""
+
+        logger.debug(f"Sanitize label: resolution_label={resolution_label}, trajectory_label={trajectory_label}, effect_direction={effect_direction}, generic_label={generic_label}, selected_raw={raw}")
 
         # Normalize common labels into descriptive fragments
         mappings = {

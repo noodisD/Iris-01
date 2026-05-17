@@ -58,17 +58,24 @@ class ResolutionEngine:
         """
         if not force_recompute:
             cached = resolutions.get_resolution('theme', theme_id)
+            logger.debug(f"Cache lookup for theme {theme_id}: cached={cached is not None}")
+            if cached:
+                logger.debug(f"  Cached data: {cached}")
+                logger.debug(f"  last_computed_at value: {cached.get('last_computed_at')}")
+                logger.debug(f"  last_computed_at is not None: {cached.get('last_computed_at') is not None}")
+
             if cached and cached.get('last_computed_at') is not None:
                 logger.debug(f"Resolution cache HIT for theme {theme_id}: label={cached.get('resolution_label')}")
                 # Add theme summary for convenience
                 theme = themes.get_theme(theme_id)
                 cached['summary'] = theme['summary'] if theme else "Unknown"
                 cached['theme_id'] = theme_id
+                logger.debug(f"  Returning cached with theme_id={cached.get('theme_id')}, label={cached.get('resolution_label')}")
                 return cached
             elif not cached:
                 logger.debug(f"Resolution cache MISS for theme {theme_id}: no cached entry")
             else:
-                logger.debug(f"Resolution cache STALE for theme {theme_id}: last_computed_at is None")
+                logger.debug(f"Resolution cache STALE for theme {theme_id}: last_computed_at is {cached.get('last_computed_at')}")
 
         # Get all occurrences for this theme
         occurrences = themes.get_occurrences(theme_id)
@@ -80,7 +87,8 @@ class ResolutionEngine:
 
         # 1. Metric Calculation
         recent_start, baseline_end, baseline_start = self._get_time_windows()
-        
+        logger.debug(f"Time windows: recent_start={recent_start}, baseline_start={baseline_start}, baseline_end={baseline_end}")
+
         recent_count = 0
         past_count = 0
         timestamps = []
@@ -88,17 +96,19 @@ class ResolutionEngine:
         for occ in occurrences:
             occ_at = occ["occurred_at"]
             dt_occ = occ_at if isinstance(occ_at, datetime) else datetime.fromisoformat(str(occ_at))
-            
+
             # Ensure offset-naive for comparison
             if dt_occ.tzinfo is not None:
                 dt_occ = dt_occ.replace(tzinfo=None)
-            
+
             timestamps.append(dt_occ)
 
             if dt_occ >= recent_start:
                 recent_count += 1
             elif baseline_start <= dt_occ < baseline_end:
                 past_count += 1
+
+        logger.debug(f"Computed counts for theme {theme_id}: recent_count={recent_count}, past_count={past_count}, total_occurrences={len(occurrences)}")
 
         # Calculate rates
         recent_rate = recent_count / RESOLUTION_RECENT_DAYS
@@ -147,7 +157,7 @@ class ResolutionEngine:
             past_count=past_count
         )
         
-        return {
+        result = {
             "theme_id": theme_id,
             "summary": summary,
             "resolution_label": label,
@@ -157,6 +167,8 @@ class ResolutionEngine:
             "past_count": past_count,
             "last_computed_at": datetime.now()
         }
+        logger.debug(f"ResolutionEngine.analyze_theme returning: theme_id={theme_id}, label={label}, result={result}")
+        return result
 
     def analyze_all_themes(self) -> List[dict]:
         """Analyzes all themes for the current user."""

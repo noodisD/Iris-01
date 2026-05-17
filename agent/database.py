@@ -1363,8 +1363,8 @@ class Database:
                 cur.execute("""
                     INSERT INTO pattern_resolutions
                     (pattern_type, pattern_id, resolution_label, attenuation_score,
-                     confidence_level, recent_count, past_count)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                     confidence_level, recent_count, past_count, last_computed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (pattern_type, pattern_id) DO UPDATE
                     SET resolution_label = EXCLUDED.resolution_label,
                         attenuation_score = EXCLUDED.attenuation_score,
@@ -1383,11 +1383,14 @@ class Database:
     def get_resolution(self, pattern_type: str, pattern_id: int) -> dict:
         """Retrieves resolution info for a specific pattern."""
         with self.connection() as conn, conn.cursor() as cur:
+            # Get the most recent resolution, preferring ones with last_computed_at set
             cur.execute("""
                 SELECT resolution_label, attenuation_score, confidence_level,
                        recent_count, past_count, last_computed_at
                 FROM pattern_resolutions
-                WHERE pattern_type = %s AND pattern_id = %s;
+                WHERE pattern_type = %s AND pattern_id = %s
+                ORDER BY (last_computed_at IS NOT NULL) DESC, last_computed_at DESC, id DESC
+                LIMIT 1;
             """, (pattern_type, pattern_id))
             row = cur.fetchone()
             if row:

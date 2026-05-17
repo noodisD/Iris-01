@@ -19,9 +19,25 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
     user_id = test_user['id']
     now = datetime.now()
 
+    # Clean up any stale resolution records for this user from previous test runs
+    conn = db.get_connection()
+    with conn.cursor() as cur:
+        # Delete resolution records for themes that belong to this user
+        cur.execute("""
+            DELETE FROM pattern_resolutions
+            WHERE pattern_type = 'theme' AND pattern_id IN (
+                SELECT id FROM themes WHERE user_id = %s
+            );
+        """, (user_id,))
+        conn.commit()
+    conn.close()
+
     # Create theme and add occurrences (all > 21 days ago)
     theme = db.create_theme(user_id, [0.1]*1536, "Stress Theme",
                            (now-timedelta(days=120)).isoformat(), now.isoformat())
+
+    print(f"\n=== STEP 0: Theme Setup ===")
+    print(f"Theme ID: {theme}")
 
     # Add occurrences 28-60 days ago (13 occurrences)
     for days_ago in [28, 30, 30, 32, 34, 36, 36, 38, 40, 42, 48, 54, 60]:
@@ -48,13 +64,25 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
 
     # Step 2: Manually override (simulate PHASE 4 of test)
     print("\n=== STEP 2: Manual Override ===")
-    resolutions.create_or_update('theme', theme, 'dissipated', 1.0, 'high', 0, 20)
-    confidence.create_or_update('resolution', theme, 'high', 0.9, 20, 100, 1.0, 0.5)
-    print("Manually set resolution to 'dissipated' with high confidence")
+    # First, explicitly delete any existing resolution for this theme to ensure clean state
+    conn = db.get_connection()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM pattern_resolutions WHERE pattern_type='theme' AND pattern_id=%s;", (theme,))
+        conn.commit()
+    conn.close()
+
+    # Use the correct counts from natural analysis
+    actual_recent = natural['recent_count']
+    actual_past = natural['past_count']
+    resolutions.create_or_update('theme', theme, 'dissipated', 1.0, 'high', actual_recent, actual_past)
+    confidence.create_or_update('resolution', theme, 'high', 0.9, actual_past, 100, 1.0, 0.5)
+    print(f"Manually set resolution to 'dissipated' with recent_count={actual_recent}, past_count={actual_past}")
 
     # Verify manual override is in DB
     cached = resolutions.get_resolution('theme', theme)
-    print(f"Cached value after override: {cached['resolution_label']}")
+    print(f"Cached value after override: {cached}")
+    print(f"  resolution_label: {cached['resolution_label']}")
+    print(f"  last_computed_at: {cached.get('last_computed_at')}")
     assert cached['resolution_label'] == 'dissipated'
 
     # Step 3: Re-analyze through cache (should return dissipated from cache)
@@ -65,7 +93,7 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
         f"Cache should return 'dissipated', got '{cached_result['resolution_label']}'"
 
     # Step 4: Full pipeline through companion.chat()
-    print("\n=== STEP 4: Full Pipeline ===")
+    print("\n=== STEP 4: Full Pipeline via companion.chat() ===")
 
     # Mock the embedding function to avoid API calls
     monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.1] * 1536)

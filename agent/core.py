@@ -183,6 +183,10 @@ class PersonalAICompanion:
         # 3. Run analysis pipeline with enablement and confidence gates
         gated_insights = self.analysis_pipeline.run(prefs=prefs)
 
+        logger.debug(f"After pipeline.run(): {len(gated_insights)} gated insights")
+        for gi in gated_insights:
+            logger.debug(f"  - engine={gi.get('engine_name')}, resolution_label={gi.get('resolution_label')}, theme_id={gi.get('theme_id')}")
+
         # Track suppressions from pipeline
         suppression_log = self.analysis_pipeline.get_suppression_log()
         for reason, items in suppression_log.items():
@@ -192,6 +196,10 @@ class PersonalAICompanion:
         # 4. Conflict Suppression (custom logic)
         suppression_result = self.conflict_engine.suppress(gated_insights)
         clean_insights = suppression_result['visible']
+
+        logger.debug(f"After conflict_engine.suppress(): {len(clean_insights)} clean insights")
+        for ci in clean_insights:
+            logger.debug(f"  - engine={ci.get('engine_name')}, resolution_label={ci.get('resolution_label')}, theme_id={ci.get('theme_id')}")
         for s in suppression_result['suppressed']:
             self._record_suppression(s['insight'], "conflict")
 
