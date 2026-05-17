@@ -129,7 +129,7 @@ class LeverageEngine:
         self.emit_evidence('rate', 'p_target_given_source', p_b_given_a)
         
         # Store in central registry
-        db.create_or_update_confidence(
+        confidence_repo.create_or_update(
             'leverage', source_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -140,7 +140,7 @@ class LeverageEngine:
         self.ev_engine.record_evidence('leverage', 'theme', source_id, self._evidence)
         
         # 5. Store in DB
-        db.create_or_update_leverage_pair(
+        leverage_repo.create_or_update_pair(
             source_type=source_type,
             source_id=source_id,
             target_type=target_type,
@@ -168,7 +168,7 @@ class LeverageEngine:
         res_engine = ResolutionEngine(self.user_id)
         resolutions = {r['theme_id']: r for r in res_engine.analyze_all_themes()}
 
-        sources = db.get_high_leverage_sources(self.user_id, min_confidence='medium')
+        sources = leverage_repo.get_high_leverage_sources(self.user_id, min_confidence='medium')
         
         filtered_sources = []
         for s in sources:
@@ -193,7 +193,7 @@ class LeverageEngine:
 
     def _get_active_themes(self) -> List[Dict]:
         """Returns themes active in the leverage window with enough data."""
-        all_themes = db.get_themes(self.user_id)
+        all_themes = themes.get_all_themes(self.user_id)
         active = [t for t in all_themes if t['occurrence_count'] >= LEVERAGE_MIN_OCCURRENCES]
         
         recent_start = datetime.now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
@@ -209,7 +209,7 @@ class LeverageEngine:
     def _get_occurrences(self, p_type: str, p_id: int, since: datetime) -> List[datetime]:
         """Fetches timestamps for a pattern within a window."""
         if p_type == 'theme':
-            occs = db.get_theme_occurrences(p_id)
+            occs = themes.get_occurrences(p_id)
         else:
             return []
 

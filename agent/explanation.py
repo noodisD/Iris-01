@@ -28,7 +28,7 @@ class ExplanationEngine:
         Retrieves and formats the latest evidence for a pattern.
         """
         # 1. Fetch confidence first to check guardrail
-        conf = db.get_confidence(pattern_type, pattern_id)
+        conf = conf_repo.get_confidence(pattern_type, pattern_id)
         if not conf:
             return {"summary": "No analytical record found.", "evidence": []}
 

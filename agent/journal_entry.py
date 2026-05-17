@@ -58,7 +58,7 @@ class JournalEntry:
 
         try:
             # 2. Save the raw data to PostgreSQL (Source of Truth)
-            entry_id = db.create_journal_entry(
+            entry_id = journals.create_entry(
                 user_id=self.user_id,
                 raw_text=raw_text,
                 wellbeing_data=wellbeing

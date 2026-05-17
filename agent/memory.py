@@ -49,26 +49,32 @@ class ConversationMemory:
         """
         logger.info(f"Adding message for user {self.user_id} in session {self.session_id}.")
 
-        # Add to in-memory history for immediate context
-        self.history.append({"role": role, "content": content})
-
+        # DB is the source of truth: persist first, then append to in-memory
+        # context only on success. This prevents ghost messages that exist in
+        # the LLM context but not in the database.
         try:
-            # 1. Save the message to PostgreSQL
-            message_id = db.create_conversation_message(
+            message_id = journals.create_conversation_message(
                 user_id=self.user_id,
                 session_id=self.session_id,
                 role=role,
-                content=content
+                content=content,
             )
             logger.info(f"Message {message_id} saved to database.")
 
-            # 2. Trigger the processing pipeline
-            run_processing_pipeline(source_type='message', source_id=message_id)
+            self.history.append({"role": role, "content": content})
+
+            # Pipeline failures are logged but do not roll back the message.
+            # The message is durable; embedding/theme processing can retry later.
+            try:
+                run_processing_pipeline(source_type='message', source_id=message_id)
+            except Exception as pipeline_err:
+                logger.error(
+                    f"Pipeline failed for message {message_id} (message persisted): {pipeline_err}"
+                )
 
         except Exception as e:
-            logger.error(f"Failed to save or process message for user {self.user_id}: {e}")
-            # The message is in memory, so the conversation can continue.
-            # A background job could retry saving later.
+            logger.error(f"Failed to save message for user {self.user_id}: {e}")
+            raise
 
     def get_context(self, max_messages: int = 10) -> List[Dict[str, str]]:
         """
@@ -87,13 +93,18 @@ class ConversationMemory:
         return self.history.copy()
 
     def _load_history_from_db(self):
-        """Loads the history for the current session from the database."""
-        logger.info(f"Loading history for session {self.session_id} from database.")
-        # NOTE: This requires a new method in the Database class, e.g.,
-        # `get_messages_by_session(user_id, session_id)`.
-        # For now, we'll start with an empty history.
-        # self.history = db.get_messages_by_session(self.user_id, self.session_id)
-        self.history = []
+        """Loads recent conversation history from the database to seed session context."""
+        logger.info(f"Loading recent history for user {self.user_id} from database.")
+        try:
+            recent_messages = journals.get_chat_history(self.user_id, limit=20)
+            self.history = [
+                {"role": msg["role"], "content": msg["content"]}
+                for msg in recent_messages
+            ]
+            logger.info(f"Loaded {len(self.history)} messages from database.")
+        except Exception as e:
+            logger.error(f"Failed to load history from database: {e}")
+            self.history = []
 
     def clear(self):
         """Clears the in-memory history."""

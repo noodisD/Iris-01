@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 # Import database and constants
-from .database import db
+from .database import db, preferences as pref_repo
 from .constants import ENGINE_PRIORITY
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class UserPreferencesService:
         """
         Loads user preferences from DB, falling back to system defaults.
         """
-        stored = db.get_preferences(self.user_id)
+        stored = pref_repo.get_preferences(self.user_id)
         if not stored:
             return self.DEFAULT_PREFS.copy()
         
@@ -47,7 +47,7 @@ class UserPreferencesService:
         Validates and updates a specific preference.
         """
         self._validate(key, value)
-        db.update_preference(self.user_id, key, value)
+        pref_repo.update_preference(self.user_id, key, value)
         return self.get_prefs()
 
     def reset(self) -> Dict[str, Any]:

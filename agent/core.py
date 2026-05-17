@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 from .intelligence import Intelligence
 from .memory import ConversationMemory
 from .journal_entry import JournalEntry
-from .database import db
+from .database import (
+    db, themes, trajectories, tensions, resolutions, leverage, decision_impacts,
+    confidence as confidence_repo, evidence as evidence_repo, preferences as pref_repo,
+    journals, habits, embeddings
+)
 
 # New architecture components
 from .pipeline import generate_embedding
@@ -95,7 +99,7 @@ class PersonalAICompanion:
 {aggregated_context}
 """
         # 4. Get short-term conversation context
-        short_term_context = self.memory.get_context(max_messages=10)
+        short_term_context = self.memory.get_context(max_messages=20)
 
         # 5. Call the LLM
         response_text = self.intelligence.chat(
@@ -122,9 +126,10 @@ class PersonalAICompanion:
         # 1. Fetch relevant memories (vector search)
         memories = self._get_relevant_context(user_message)
 
-        # 2. Fetch Habits and Reflections context
+        # 2. Fetch Habits, Reflections, and recent Journal context
         habits_context = self._get_habits_context()
         reflections_context = self._get_reflections_context()
+        journal_context = self._get_recent_journal_entries_context()
         
         # 3. Fetch raw analytical insights
         raw_insights = []
@@ -154,12 +159,12 @@ class PersonalAICompanion:
             raw_insights.extend(res_ins)
             
             # Leverage & Impact
-            lev_sources = db.get_high_leverage_sources(self.user_id, min_confidence='low')
+            lev_sources = leverage.get_high_leverage_sources(self.user_id, min_confidence='low')
             for s in lev_sources:
                 s['engine_name'] = 'leverage'; s['pattern_type'] = 'theme'; s['pattern_id'] = s['source_id']; s['label'] = 'high'
             raw_insights.extend(lev_sources)
             
-            impacts = db.get_significant_decision_impacts(self.user_id, min_confidence='low')
+            impacts = decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
             for i in impacts:
                 i['engine_name'] = 'decision_impact'; i['pattern_type'] = 'theme'; i['pattern_id'] = i['anchor_id']; i['label'] = i['effect_direction']
             raw_insights.extend(impacts)
@@ -210,7 +215,7 @@ class PersonalAICompanion:
         bulleted_narratives = [f"- {n}" for n in narratives]
         body = "\n".join(bulleted_narratives) if narratives else "No significant patterns observed recently."
         
-        return f"# Relevant Long-Term Memory & Journal Entries:\n{memories}\n\n# Recent Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
+        return f"# Recent Journal Entries:\n{journal_context}\n\n# Relevant Long-Term Memory:\n{memories}\n\n# Recent Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
 
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""
@@ -233,7 +238,7 @@ class PersonalAICompanion:
             reflections = db.get_reflections(self.user_id, limit=5)
             if not reflections:
                 return "No recent reflections found."
-            
+
             parts = []
             for r in reflections:
                 date_str = r['reflection_date'].strftime("%Y-%m-%d") if hasattr(r['reflection_date'], 'strftime') else str(r['reflection_date'])
@@ -242,6 +247,29 @@ class PersonalAICompanion:
         except Exception as e:
             logger.error(f"Error fetching reflections context: {e}")
             return "Could not retrieve reflections context."
+
+    def _get_recent_journal_entries_context(self, limit: int = 3, max_chars: int = 1200) -> str:
+        """Retrieves the most recent journal entries so meta-queries about 'my journal'
+        can surface them even when vector search misses on wording."""
+        try:
+            entries = db.get_recent_journal_entries(self.user_id, limit=limit)
+            if not entries:
+                return "No journal entries yet."
+
+            parts = []
+            for e in entries:
+                date_str = e['created_at'].strftime("%Y-%m-%d") if hasattr(e['created_at'], 'strftime') else str(e['created_at'])
+                wb = e.get('wellbeing_data') or {}
+                wb_bits = [f"{k}: {v}" for k, v in wb.items() if v not in (None, "")]
+                wb_line = f" ({', '.join(wb_bits)})" if wb_bits else ""
+                text = (e['raw_text'] or "").strip()
+                if len(text) > max_chars:
+                    text = text[:max_chars].rstrip() + "..."
+                parts.append(f"- [{date_str}]{wb_line}\n  {text}")
+            return "\n".join(parts)
+        except Exception as e:
+            logger.error(f"Error fetching recent journal entries context: {e}")
+            return "Could not retrieve recent journal entries."
 
     def _record_suppression(self, insight: Dict, reason: str):
         """Buffers a suppressed insight for transparency audit."""
@@ -266,9 +294,26 @@ class PersonalAICompanion:
         logger.info("Retrieving relevant context using pgvector...")
         try:
             query_embedding = generate_embedding(text)
-            # Vector store now uses PostgreSQL pgvector - see persistence engine for theme-based semantic search
-            logger.info("Note: Vector similarity search now uses PostgreSQL pgvector backend")
-            return "No specific long-term memories found."
+            results = db.search_similar_embeddings(
+                user_id=self.user_id,
+                query_vector=query_embedding,
+                n_results=n_results
+            )
+
+            if not results:
+                return "No specific long-term memories found."
+
+            context_parts = []
+            for r in results:
+                content = db.get_content_for_source(r['source_type'], r['source_id'])
+                if content:
+                    relevance = 1.0 - r['distance']
+                    context_parts.append(f"- [{r['source_type']}] (relevance: {relevance:.0%}) {content[:300]}")
+
+            if not context_parts:
+                return "No specific long-term memories found."
+
+            return "\n".join(context_parts)
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")
             return "Could not retrieve memories."
@@ -284,7 +329,7 @@ class PersonalAICompanion:
         """
         # 1. Check if user is brand new (no messages in DB)
         # We check conversation_messages table via db
-        history = db.get_chat_history(self.user_id) # I'll assume this method or similar exists
+        history = journals.get_chat_history(self.user_id) # I'll assume this method or similar exists
         # If history is a list of messages
         is_new_user = len(history) == 0
 

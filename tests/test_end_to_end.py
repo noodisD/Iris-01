@@ -184,10 +184,10 @@ def test_error_handling_in_pipeline(test_user, mocker):
         status = cur.fetchone()[0]
         assert status == 'failed', "Entry should be marked as failed after error"
 
-    # Verify no embedding was created
+    # Verify no embedding was created for this specific journal entry
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE source_id = %s;",
+            "SELECT COUNT(*) FROM embeddings WHERE source_type = 'journal_entry' AND source_id = %s;",
             (entry_id,)
         )
         count = cur.fetchone()[0]

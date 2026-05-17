@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Tuple, Any
 import numpy as np
 
 # Import database and constants
-from .database import db
+from .database import resolutions, evidence as evidence_repo, confidence as confidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (
@@ -57,17 +57,17 @@ class ResolutionEngine:
             Dictionary with resolution metrics and label
         """
         if not force_recompute:
-            cached = db.get_resolution('theme', theme_id)
+            cached = resolutions.get_resolution('theme', theme_id)
             if cached and cached.get('last_computed_at') is not None:
                 # Add theme summary for convenience
-                theme = db.get_theme_by_id(theme_id)
+                theme = themes.get_theme(theme_id)
                 cached['summary'] = theme['summary'] if theme else "Unknown"
                 cached['theme_id'] = theme_id
                 return cached
 
         # Get all occurrences for this theme
-        occurrences = db.get_theme_occurrences(theme_id)
-        theme = db.get_theme_by_id(theme_id)
+        occurrences = themes.get_occurrences(theme_id)
+        theme = themes.get_theme(theme_id)
         summary = theme["summary"] if theme else "Unknown"
 
         if not occurrences:
@@ -121,7 +121,7 @@ class ResolutionEngine:
         self.emit_evidence('rate', 'past_rate', past_rate)
         
         # Store in central registry
-        db.create_or_update_confidence(
+        confidence_repo.create_or_update(
             'resolution', theme_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -132,7 +132,7 @@ class ResolutionEngine:
         self.ev_engine.record_evidence('resolution', 'theme', theme_id, self._evidence)
         
         # Store in cache
-        db.create_or_update_resolution(
+        resolutions.create_or_update(
             pattern_type='theme',
             pattern_id=theme_id,
             resolution_label=label,
@@ -155,8 +155,8 @@ class ResolutionEngine:
 
     def analyze_all_themes(self) -> List[dict]:
         """Analyzes all themes for the current user."""
-        themes = db.get_themes(self.user_id)
-        return [self.analyze_theme(t['id']) for t in themes]
+        all_themes = themes.get_all_themes(self.user_id)
+        return [self.analyze_theme(t['id']) for t in all_themes]
 
     def format_for_context(self, max_items: int = 3) -> str:
         """

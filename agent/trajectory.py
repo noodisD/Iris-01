@@ -17,7 +17,7 @@ from typing import Optional, List, Dict, Any
 import numpy as np
 
 # Import database and constants
-from .database import db
+from .database import trajectories, themes, evidence as evidence_repo, confidence as confidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (
@@ -57,10 +57,10 @@ class TrajectoryEngine:
             Dictionary with trajectory metrics and classification
         """
         # Get all occurrences for this theme
-        occurrences = db.get_theme_occurrences(theme_id)
+        occurrences = themes.get_occurrences(theme_id)
 
         # Get theme summary
-        theme = db.get_theme_by_id(theme_id)
+        theme = themes.get_theme(theme_id)
         theme_summary = theme["summary"] if theme else "Unknown theme"
 
         if not occurrences:

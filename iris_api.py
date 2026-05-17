@@ -214,8 +214,6 @@ class ReflectionResponse(BaseModel):
 # This is where we'll store the companion object for each user
 companions_db: Dict[str, object] = {}
 
-# Chat history (in memory for now - user_id -> list of messages)
-chat_history_db: Dict[str, list] = {}
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -300,9 +298,6 @@ async def signup(user: UserSignup):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    # Initialize empty chat history for this user
-    chat_history_db[user.username] = []
-
     # Create and return a token
     token = create_access_token(user.username)
 
@@ -356,19 +351,7 @@ async def chat(message_data: ChatMessage):
         print(f"Error processing message: {e}")
         iris_response = f"I encountered an error processing your message: {str(e)}"
 
-    # Store in chat history
-    if username not in chat_history_db:
-        chat_history_db[username] = []
-
-    chat_history_db[username].append(
-        {
-            "user_message": message_data.message,
-            "companion_response": iris_response,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-    )
-
-    # Return the response
+    # Return the response (messages already persisted by companion.chat() -> memory.add_message())
     return ChatResponse(
         companion_name="IRIS",
         message=iris_response,
@@ -379,17 +362,43 @@ async def chat(message_data: ChatMessage):
 
 @app.post("/api/chat/history")
 async def get_chat_history(request: dict):
-    """Get the user's chat history"""
-    # Extract token from request
+    """Get the user's chat history from the database."""
     token = request.get("token")
     if not token:
         raise HTTPException(status_code=400, detail="Token required")
 
-    # Verify the token and get the username
     username = verify_token(token)
+    user = db.get_user(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # Return the chat history for this user
-    return {"username": username, "messages": chat_history_db.get(username, [])}
+    messages = db.get_chat_history(user["id"], limit=50)
+
+    # Format as user/assistant pairs for frontend compatibility
+    formatted = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg["role"] == "user":
+            companion_response = ""
+            if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                companion_response = messages[i + 1]["content"]
+                i += 1
+            formatted.append({
+                "user_message": msg["content"],
+                "companion_response": companion_response,
+                "timestamp": msg["created_at"].isoformat() if hasattr(msg["created_at"], "isoformat") else str(msg["created_at"]),
+            })
+        elif msg["role"] == "assistant":
+            # Proactive message (no preceding user message)
+            formatted.append({
+                "user_message": "",
+                "companion_response": msg["content"],
+                "timestamp": msg["created_at"].isoformat() if hasattr(msg["created_at"], "isoformat") else str(msg["created_at"]),
+            })
+        i += 1
+
+    return {"username": username, "messages": formatted}
 
 
 @app.post("/api/chat/greeting")
@@ -431,17 +440,7 @@ async def proactive_chat(request: dict):
     try:
         companion = PersonalAICompanion(user_id=user['id'])
         iris_response = companion.generate_proactive_comment(action_type, details)
-        
-        # Store in chat history
-        if username not in chat_history_db:
-            chat_history_db[username] = []
-        
-        chat_history_db[username].append({
-            "user_message": f"[IRIS noticed: {action_type}]",
-            "companion_response": iris_response,
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
-
+        # Response already persisted by companion.generate_proactive_comment() -> memory.add_message()
         return {"message": iris_response}
     except Exception as e:
         print(f"Proactive error: {e}")

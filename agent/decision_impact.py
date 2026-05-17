@@ -74,7 +74,7 @@ class DecisionImpactEngine:
             return []
 
         # 2. Get all candidate targets (active themes)
-        targets = db.get_themes(self.user_id)
+        targets = themes.get_all_themes(self.user_id)
         
         impacts = []
         for target in targets:
@@ -86,12 +86,12 @@ class DecisionImpactEngine:
             if result and result['effect_direction'] != 'none':
                 result['anchor_id'] = anchor_id
                 result['target_id'] = target['id']
-                result['anchor_summary'] = db.get_theme_by_id(anchor_id)['summary']
+                result['anchor_summary'] = themes.get_theme(anchor_id)['summary']
                 result['target_summary'] = target['summary']
                 impacts.append(result)
                 
                 # 4. Store in DB
-                db.create_or_update_decision_impact(
+                decision_impacts.create_or_update(
                     anchor_type=anchor_type,
                     anchor_id=anchor_id,
                     target_type='theme',
@@ -111,7 +111,7 @@ class DecisionImpactEngine:
         Strictly descriptive language.
         """
         # Get significant impacts (medium/high confidence)
-        impacts = db.get_significant_decision_impacts(self.user_id, min_confidence='medium')
+        impacts = decision_impacts.get_significant_impacts(self.user_id, min_confidence='medium')
         
         # Filter: High confidence only for context, and NO negative deltas (decreases)
         # to avoid negative narrative framing by the LLM.
@@ -214,7 +214,7 @@ class DecisionImpactEngine:
         self.emit_evidence('count', 'anchor_count', len(anchor_timestamps))
         
         # Store in central registry
-        db.create_or_update_confidence(
+        confidence_repo.create_or_update(
             'impact', anchor_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -236,7 +236,7 @@ class DecisionImpactEngine:
 
     def _get_candidate_anchors(self) -> List[Dict]:
         """Returns themes with enough data to be anchors."""
-        themes = db.get_themes(self.user_id)
+        themes = themes.get_all_themes(self.user_id)
         # 1. Min count filter
         active = [t for t in themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
         
@@ -255,7 +255,7 @@ class DecisionImpactEngine:
     def _get_anchor_events(self, a_type: str, a_id: int) -> List[datetime]:
         """Returns timestamps of anchor occurrences."""
         if a_type != 'theme': return []
-        occs = db.get_theme_occurrences(a_id)
+        occs = themes.get_occurrences(a_id)
         times = []
         for o in occs:
             dt = o['occurred_at']
@@ -269,7 +269,7 @@ class DecisionImpactEngine:
     def _get_all_occurrences(self, t_type: str, t_id: int) -> List[datetime]:
         """Returns all timestamps for a target theme."""
         if t_type != 'theme': return []
-        occs = db.get_theme_occurrences(t_id)
+        occs = themes.get_occurrences(t_id)
         times = []
         for o in occs:
             dt = o['occurred_at']

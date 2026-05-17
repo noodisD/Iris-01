@@ -10,6 +10,8 @@ import os
 import logging
 import hashlib
 import psycopg2
+from psycopg2 import pool as psycopg2_pool
+from contextlib import contextmanager
 from typing import Any
 from psycopg2.extras import Json
 from .config import settings
@@ -25,65 +27,102 @@ def hash_password(password: str) -> str:
 
 
 class Database:
-    """Manages the PostgreSQL database connection and all data persistence."""
+    """Manages the PostgreSQL connection pool and all data persistence."""
 
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(Database, cls).__new__(cls)
-            cls._instance.conn = None
-            cls._instance._connect()
+            cls._instance._pool = None
+            cls._instance._legacy_conn = None
+            cls._instance._init_pool()
         return cls._instance
 
-    def _connect(self):
-        """Establish a connection to the PostgreSQL database."""
-        if self.conn is not None and not self.conn.closed:
+    def _init_pool(self):
+        """Create the ThreadedConnectionPool and ensure pgvector is installed."""
+        if self._pool is not None and not self._pool.closed:
             return
 
-        logger.info(f"Connecting to PostgreSQL at {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}...")
+        logger.info(
+            f"Creating PostgreSQL connection pool at "
+            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT} (min=1, max=5)..."
+        )
         try:
-            self.conn = psycopg2.connect(
+            self._pool = psycopg2_pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=5,
                 dbname=settings.POSTGRES_DB,
                 user=settings.POSTGRES_USER,
                 password=settings.POSTGRES_PASSWORD,
                 host=settings.POSTGRES_HOST,
-                port=settings.POSTGRES_PORT
+                port=settings.POSTGRES_PORT,
             )
-            
-            # Ensure pgvector extension exists before registering type
-            with self.conn.cursor() as cur:
-                cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-                self.conn.commit()
-
-            # Register pgvector type to handle vectors as lists, not strings
-            register_vector(self.conn)
-            logger.info("Successfully connected to PostgreSQL.")
+            with self.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                    conn.commit()
+            logger.info("PostgreSQL connection pool ready.")
         except psycopg2.OperationalError as e:
-            logger.error(f"Failed to connect to PostgreSQL: {e}")
-            self.conn = None
-            # In a real app, you might want to retry or handle this more gracefully
+            logger.error(f"Failed to create PostgreSQL pool: {e}")
+            self._pool = None
             raise
 
+    @contextmanager
+    def connection(self):
+        """Check out a connection from the pool; return it on exit.
+
+        Rolls back any uncommitted transaction on exception to keep pooled
+        connections clean for the next caller.
+        """
+        if self._pool is None or self._pool.closed:
+            self._init_pool()
+        conn = self._pool.getconn()
+        try:
+            register_vector(conn)
+            yield conn
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            self._pool.putconn(conn)
+
     def get_connection(self):
-        """Returns the current database connection, ensuring it's active."""
-        if self.conn is None or self.conn.closed:
-            self._connect()
-        return self.conn
+        """Legacy API: returns a long-lived shared connection for CLI/test callers.
+
+        New internal code uses the pool via `with self.connection() as conn:`.
+        This dedicated connection is kept separate so legacy callers (companion.py
+        CLI, test fixtures, graph rebuild) never exhaust the pool.
+        """
+        if self._legacy_conn is None or self._legacy_conn.closed:
+            self._legacy_conn = psycopg2.connect(
+                dbname=settings.POSTGRES_DB,
+                user=settings.POSTGRES_USER,
+                password=settings.POSTGRES_PASSWORD,
+                host=settings.POSTGRES_HOST,
+                port=settings.POSTGRES_PORT,
+            )
+            register_vector(self._legacy_conn)
+        return self._legacy_conn
 
     def close_connection(self):
-        """Closes the database connection."""
-        if self.conn and not self.conn.closed:
-            self.conn.close()
-            logger.info("PostgreSQL connection closed.")
+        """Close all connections in the pool and the legacy connection."""
+        if self._pool and not self._pool.closed:
+            self._pool.closeall()
+            logger.info("PostgreSQL connection pool closed.")
+        if self._legacy_conn and not self._legacy_conn.closed:
+            self._legacy_conn.close()
+            self._legacy_conn = None
 
     def create_schema(self):
         """
         Creates the necessary tables and extensions in the database.
         This method is idempotent and safe to run multiple times.
         """
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # Enable pgvector extension
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
@@ -143,6 +182,15 @@ class Database:
                 """)
                 logger.info("Ensured embeddings table exists.")
 
+                # IVFFlat index on cosine distance for fast vector search.
+                # lists=100 is appropriate for tables up to ~1M rows.
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_vector_cosine
+                    ON embeddings USING ivfflat (vector vector_cosine_ops)
+                    WITH (lists = 100);
+                """)
+                logger.info("Ensured IVFFlat index on embeddings.vector exists.")
+
                 # Themes table (discovered semantic themes)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS themes (
@@ -158,6 +206,12 @@ class Database:
                 """)
                 logger.info("Ensured themes table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_themes_user ON themes(user_id);")
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_themes_centroid_cosine
+                    ON themes USING ivfflat (centroid_embedding vector_cosine_ops)
+                    WITH (lists = 50);
+                """)
+                logger.info("Ensured IVFFlat index on themes.centroid_embedding exists.")
 
                 # Theme occurrences table (evidence)
                 cur.execute("""
@@ -462,8 +516,7 @@ class Database:
     def create_user(self, username: str, password: str) -> int:
         """Creates a new user and returns the user ID."""
         password_hash = hash_password(password)
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id;",
@@ -480,8 +533,7 @@ class Database:
 
     def get_user(self, username: str) -> dict:
         """Retrieves a user by username."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s;", (username,))
                 user_data = cur.fetchone()
@@ -508,8 +560,7 @@ class Database:
 
     def create_journal_entry(self, user_id: int, raw_text: str, wellbeing_data: dict) -> int:
         """Creates a new journal entry and returns its ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -532,8 +583,7 @@ class Database:
 
     def create_conversation_message(self, user_id: int, session_id: str, role: str, content: str) -> int:
         """Creates a new conversation message and returns its ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -551,16 +601,23 @@ class Database:
                 raise
 
     def get_chat_history(self, user_id: int, limit: int = 50) -> list:
-        """Retrieves chat history for a specific user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        """Retrieves the most recent chat history for a user, returned in chronological order.
+
+        Pulls the latest `limit` messages (DESC), then reverses so callers get
+        them oldest-first — the order the LLM expects for conversation context.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    SELECT role, content, created_at FROM conversation_messages 
-                    WHERE user_id = %s 
-                    ORDER BY created_at ASC 
-                    LIMIT %s;
+                    SELECT role, content, created_at FROM (
+                        SELECT role, content, created_at
+                        FROM conversation_messages
+                        WHERE user_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    ) recent
+                    ORDER BY created_at ASC;
                     """,
                     (user_id, limit)
                 )
@@ -576,8 +633,7 @@ class Database:
 
     def add_embedding(self, source_type: str, source_id: int, model_name: str, vector: list):
         """Stores a vector embedding for a source item."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -593,6 +649,39 @@ class Database:
                 conn.rollback()
                 logger.error(f"Failed to add embedding for {source_type} ID {source_id}: {e}")
                 raise
+
+    def search_similar_embeddings(self, user_id: int, query_vector: list, n_results: int = 5) -> list:
+        """Searches for semantically similar embeddings using pgvector cosine distance."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT e.source_type, e.source_id, e.vector <=> %s::vector AS distance
+                    FROM embeddings e
+                    WHERE (
+                        (e.source_type = 'journal_entry' AND e.source_id IN (
+                            SELECT id FROM journal_entries WHERE user_id = %s)) OR
+                        (e.source_type = 'reflection' AND e.source_id IN (
+                            SELECT id FROM reflections WHERE user_id = %s)) OR
+                        (e.source_type = 'message' AND e.source_id IN (
+                            SELECT id FROM conversation_messages WHERE user_id = %s AND role = 'user')) OR
+                        (e.source_type = 'habit_completion' AND e.source_id IN (
+                            SELECT hc.id FROM habit_completions hc
+                            JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s))
+                    )
+                    ORDER BY distance ASC
+                    LIMIT %s;
+                    """,
+                    (query_vector, user_id, user_id, user_id, user_id, n_results)
+                )
+                rows = cur.fetchall()
+                return [
+                    {"source_type": row[0], "source_id": row[1], "distance": row[2]}
+                    for row in rows
+                ]
+            except Exception as e:
+                logger.error(f"Failed to search similar embeddings for user {user_id}: {e}")
+                return []
 
     # ============================================================================
     # Processing Status Methods
@@ -611,8 +700,7 @@ class Database:
             raise ValueError(f"Invalid source_type: {source_type}")
         
         table_name = table_map[source_type]
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     f"UPDATE {table_name} SET processing_status = %s WHERE id = %s;",
@@ -637,8 +725,7 @@ class Database:
             raise ValueError(f"Invalid source_type: {source_type}")
 
         table_name = table_map[source_type]
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             if source_type == 'journal_entry':
                 cur.execute(
                     f"SELECT id, user_id, raw_text as content, created_at FROM {table_name} WHERE processing_status = %s LIMIT %s;",
@@ -658,18 +745,19 @@ class Database:
             
             elif source_type == 'message':
                 cur.execute(
-                    f"SELECT id, user_id, content, created_at FROM {table_name} WHERE processing_status = %s LIMIT %s;",
+                    f"SELECT id, user_id, content, created_at, role FROM {table_name} WHERE processing_status = %s LIMIT %s;",
                     (status, limit)
                 )
                 items = cur.fetchall()
                 return [
                     {
-                        "id": row[0], 
-                        "user_id": row[1], 
+                        "id": row[0],
+                        "user_id": row[1],
                         "content": row[2],
                         "created_at": row[3],
-                        "occurred_at": row[3]
-                    } 
+                        "occurred_at": row[3],
+                        "role": row[4]
+                    }
                     for row in items
                 ]
             
@@ -749,8 +837,7 @@ class Database:
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
                     first_seen_at: str, last_seen_at: str, occurrence_count: int = 1) -> int:
         """Creates a new theme and returns its ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -770,8 +857,7 @@ class Database:
 
     def get_themes(self, user_id: int) -> list:
         """Retrieves all themes for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
@@ -794,8 +880,7 @@ class Database:
 
     def get_theme_by_id(self, theme_id: int) -> dict:
         """Retrieves a specific theme by ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
@@ -818,8 +903,7 @@ class Database:
 
     def update_theme_stats(self, theme_id: int, last_seen_at: str):
         """Updates theme's last_seen_at and increments occurrence_count."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -837,8 +921,7 @@ class Database:
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
                             snippet: str, similarity_score: float, occurred_at: str):
         """Records that a theme occurred at a specific entry."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -866,8 +949,7 @@ class Database:
 
     def get_theme_occurrences(self, theme_id: int) -> list:
         """Retrieves all occurrences of a theme."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT source_type, source_id, snippet, similarity_score, occurred_at
@@ -892,8 +974,7 @@ class Database:
         Retrieves embeddings that haven't been assigned to any theme.
         An embedding is assigned if it appears in theme_occurrences.
         """
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT e.id, e.source_type, e.source_id, e.vector, e.created_at
@@ -906,11 +987,12 @@ class Database:
                     (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
                     (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s)) OR
                     (e.source_type = 'habit' AND e.source_id IN (SELECT id FROM habits WHERE user_id = %s)) OR
-                    (e.source_type = 'habit_completion' AND e.source_id IN (SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s))
+                    (e.source_type = 'habit_completion' AND e.source_id IN (SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s)) OR
+                    (e.source_type = 'message' AND e.source_id IN (SELECT id FROM conversation_messages WHERE user_id = %s AND role = 'user'))
                 )
                 ORDER BY e.created_at DESC;
                 """,
-                (user_id, user_id, user_id, user_id)
+                (user_id, user_id, user_id, user_id, user_id)
             )
             rows = cur.fetchall()
             return [
@@ -926,23 +1008,44 @@ class Database:
 
     def get_entry_count(self, user_id: int) -> int:
         """Returns the number of journal entries for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM journal_entries WHERE user_id = %s;", (user_id,))
             return cur.fetchone()[0]
 
     def get_journal_entry_content(self, entry_id: int) -> str:
         """Retrieves the raw text of a journal entry."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (entry_id,))
             result = cur.fetchone()
             return result[0] if result else None
 
+    def get_recent_journal_entries(self, user_id: int, limit: int = 3) -> list:
+        """Retrieves the most recent journal entries for a user, newest first."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, raw_text, wellbeing_data, created_at
+                FROM journal_entries
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s;
+                """,
+                (user_id, limit)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "raw_text": row[1],
+                    "wellbeing_data": row[2],
+                    "created_at": row[3],
+                }
+                for row in rows
+            ]
+
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         """Retrieves text content for any source type."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             if source_type == 'journal_entry':
                 cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (source_id,))
                 res = cur.fetchone()
@@ -971,7 +1074,11 @@ class Database:
                 action = "Skipped" if skipped else "Completed"
                 details = f"Reason: {reason}" if skipped else f"Notes: {notes}"
                 return f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
-            
+            elif source_type == 'message':
+                cur.execute("SELECT content FROM conversation_messages WHERE id = %s;", (source_id,))
+                res = cur.fetchone()
+                return res[0] if res else ""
+
             return ""
 
     # ============================================================================
@@ -982,8 +1089,7 @@ class Database:
                                trend_score: float, recent_count: int, past_count: int,
                                confidence_level: str, data_points_count: int) -> None:
         """Creates or updates a theme trajectory record."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO theme_trajectories
@@ -1008,8 +1114,7 @@ class Database:
 
     def get_theme_trajectory(self, theme_id: int) -> dict:
         """Retrieves trajectory information for a specific theme."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT trajectory_label, trend_score, recent_count, past_count,
                        confidence_level, data_points_count, last_computed_at
@@ -1037,8 +1142,7 @@ class Database:
 
     def get_all_theme_trajectories(self, user_id: int) -> list:
         """Retrieves all theme trajectories for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT tt.theme_id, tt.trajectory_label, tt.trend_score, tt.recent_count,
                        tt.past_count, tt.confidence_level, tt.data_points_count,
@@ -1070,8 +1174,7 @@ class Database:
 
     def get_theme_pairs(self, user_id: int) -> list:
         """Retrieves all theme pairs for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT DISTINCT t1.id, t1.summary, t2.id, t2.summary
                 FROM themes t1
@@ -1092,8 +1195,7 @@ class Database:
 
     def get_theme_pair_occurrences(self, theme_a_id: int, theme_b_id: int) -> list:
         """Retrieves occurrences where both themes appear together."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             # Get occurrences of theme A
             cur.execute("""
                 SELECT occurred_at, source_type, source_id
@@ -1129,8 +1231,7 @@ class Database:
                                 divergence_score: float, stability_score: float,
                                 tension_label: str, confidence_level: str) -> None:
         """Creates or updates a tension record between two themes."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # Ensure theme_a_id < theme_b_id for consistent ordering
                 if theme_a_id > theme_b_id:
@@ -1162,8 +1263,7 @@ class Database:
 
     def get_all_tensions(self, user_id: int) -> list:
         """Retrieves all tensions for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT tt.id, tt.theme_a_id, t1.summary as theme_a_summary,
                        tt.theme_b_id, t2.summary as theme_b_summary,
@@ -1199,8 +1299,7 @@ class Database:
 
     def get_significant_tensions(self, user_id: int) -> list:
         """Retrieves significant tensions (high confidence) for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT tt.id, tt.theme_a_id, t1.summary as theme_a_summary,
                        tt.theme_b_id, t2.summary as theme_b_summary,
@@ -1237,8 +1336,7 @@ class Database:
 
     def invalidate_tension(self, theme_id: int) -> None:
         """Mark all tensions involving this theme as stale (set last_computed_at = NULL)."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     UPDATE theme_tensions
@@ -1260,8 +1358,7 @@ class Database:
                                   confidence_level: str, recent_count: int,
                                   past_count: int) -> None:
         """Creates or updates a resolution record."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO pattern_resolutions
@@ -1285,8 +1382,7 @@ class Database:
 
     def get_resolution(self, pattern_type: str, pattern_id: int) -> dict:
         """Retrieves resolution info for a specific pattern."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT resolution_label, attenuation_score, confidence_level,
                        recent_count, past_count, last_computed_at
@@ -1307,8 +1403,7 @@ class Database:
 
     def get_all_resolutions(self, user_id: int) -> list:
         """Retrieves all resolutions for a user's themes."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             # Join with themes to get summary and filter by user
             cur.execute("""
                 SELECT pr.pattern_type, pr.pattern_id, pr.resolution_label,
@@ -1338,8 +1433,7 @@ class Database:
 
     def invalidate_resolution(self, pattern_type: str, pattern_id: int) -> None:
         """Mark resolution as stale (last_computed_at = NULL)."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     UPDATE pattern_resolutions
@@ -1361,8 +1455,7 @@ class Database:
                                     influence_score: float, directional_lift: float,
                                     cooccurrence_count: int, confidence_level: str) -> None:
         """Creates or updates a leverage relationship between two patterns."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO pattern_leverage
@@ -1385,8 +1478,7 @@ class Database:
 
     def get_leverage_targets(self, source_type: str, source_id: int) -> list:
         """Retrieves all patterns influenced by a specific source."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             # We assume themes for target for now
             cur.execute("""
                 SELECT pl.target_type, pl.target_id, pl.influence_score, 
@@ -1419,8 +1511,7 @@ class Database:
         conf_map = {'low': 0, 'medium': 1, 'high': 2}
         min_val = conf_map.get(min_confidence, 1)
 
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             # We aggregate influence across targets
             cur.execute("""
                 SELECT pl.source_type, pl.source_id, AVG(pl.influence_score) as avg_influence,
@@ -1450,8 +1541,7 @@ class Database:
 
     def invalidate_leverage_for_source(self, source_type: str, source_id: int) -> None:
         """Mark leverage records as stale (last_computed_at = NULL)."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # Invalidate where it is source OR target
                 cur.execute("""
@@ -1476,8 +1566,7 @@ class Database:
                                        anchor_count: int, target_count: int,
                                        confidence_level: str) -> None:
         """Creates or updates a decision impact record."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO decision_impacts
@@ -1501,8 +1590,7 @@ class Database:
 
     def get_decision_impacts_for_anchor(self, anchor_type: str, anchor_id: int) -> list:
         """Retrieves all significant impacts for a specific anchor."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT di.target_type, di.target_id, di.effect_direction,
                        di.delta_score, di.anchor_count, di.target_count,
@@ -1534,8 +1622,7 @@ class Database:
         conf_map = {'low': 0, 'medium': 1, 'high': 2}
         min_val = conf_map.get(min_confidence, 1)
 
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT di.anchor_type, di.anchor_id, t1.summary as anchor_summary,
                        di.target_type, di.target_id, t2.summary as target_summary,
@@ -1567,8 +1654,7 @@ class Database:
 
     def invalidate_decision_impacts(self, pattern_type: str, pattern_id: int) -> None:
         """Mark decision impact records as stale (last_computed_at = NULL)."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # Invalidate where it is anchor OR target
                 cur.execute("""
@@ -1592,8 +1678,7 @@ class Database:
                                   data_points_count: int, time_coverage_days: int,
                                   consistency_score: float, recency_score: float) -> None:
         """Stores a standard confidence assessment for any pattern."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO pattern_confidence
@@ -1618,8 +1703,7 @@ class Database:
 
     def get_confidence(self, pattern_type: str, pattern_id: int) -> dict:
         """Retrieves the central confidence assessment for a pattern."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT confidence_level, confidence_score, data_points_count,
                        time_coverage_days, consistency_score, recency_score,
@@ -1642,8 +1726,7 @@ class Database:
 
     def invalidate_pattern_confidence(self, pattern_type: str, pattern_id: int) -> None:
         """Mark central confidence record as stale."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     UPDATE pattern_confidence
@@ -1669,8 +1752,7 @@ class Database:
         if not records:
             return
 
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # evidence_value is stored as JSONB
                 from psycopg2.extras import execute_values
@@ -1692,8 +1774,7 @@ class Database:
         If NO engine_name provided, gets the latest snapshots for ALL engines 
         associated with this pattern.
         """
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             if engine_name:
                 # 1. Find latest computation for specific engine
                 cur.execute("""
@@ -1745,8 +1826,7 @@ class Database:
                                         pattern_type: str, pattern_id: int,
                                         priority_score: float, rank: int) -> None:
         """Stores or updates the priority score and rank for an insight."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     INSERT INTO insight_priorities 
@@ -1766,8 +1846,7 @@ class Database:
     def get_insight_priority(self, engine_name: str, pattern_type: str, pattern_id: int) -> dict:
         """Retrieves the priority assessment for a specific insight."""
         insight_id = f"{engine_name}:{pattern_type}:{pattern_id}"
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT priority_score, rank, computed_at
                 FROM insight_priorities
@@ -1788,8 +1867,7 @@ class Database:
 
     def get_preferences(self, user_id: int) -> dict:
         """Retrieves user preferences or returns default structure if not found."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
                     SELECT min_confidence, max_items, enabled_engines, show_suppressed
@@ -1814,8 +1892,7 @@ class Database:
         Updates a specific user preference and logs the change.
         Note: value must be JSON serializable if updating enabled_engines.
         """
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 # 1. Fetch old value for audit
                 cur.execute(f"SELECT {key} FROM user_preferences WHERE user_id = %s;", (user_id,))
@@ -1844,8 +1921,7 @@ class Database:
 
     def reset_preferences(self, user_id: int) -> None:
         """Deletes user preference row to restore system defaults."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("DELETE FROM user_preferences WHERE user_id = %s;", (user_id,))
                 conn.commit()
@@ -1863,8 +1939,7 @@ class Database:
                     weekly_target: float = 0, tracking_metric: str = 'completion',
                     category: str = 'general') -> int:
         """Creates a new habit and returns its ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -1884,8 +1959,7 @@ class Database:
 
     def get_habits(self, user_id: int, active_only: bool = True) -> list:
         """Retrieves habits for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 if active_only:
                     cur.execute(
@@ -1933,8 +2007,7 @@ class Database:
 
     def get_habit(self, habit_id: int) -> dict:
         """Retrieves a specific habit by ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -1971,8 +2044,7 @@ class Database:
 
     def update_habit(self, habit_id: int, **updates) -> bool:
         """Updates a habit's fields."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 allowed_fields = {'name', 'description', 'is_active', 'current_streak', 'longest_streak', 'total_completions', 'habit_type', 'weekly_target', 'tracking_metric'}
                 update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
@@ -2000,8 +2072,7 @@ class Database:
 
     def log_habit_completion(self, habit_id: int, completion_date, value: float = 1.0, notes: str = None) -> int:
         """Logs a habit completion."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -2023,8 +2094,7 @@ class Database:
 
     def log_habit_skip(self, habit_id: int, skip_date, reason: str = None) -> int:
         """Logs a habit skip."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -2046,8 +2116,7 @@ class Database:
 
     def get_habit_completions(self, habit_id: int, start_date = None, end_date = None) -> list:
         """Retrieves completions for a habit in a date range."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 if start_date and end_date:
                     cur.execute(
@@ -2095,8 +2164,7 @@ class Database:
     def create_reflection(self, user_id: int, content: str, reflection_date = None,
                          mood: str = None, energy_level: int = None, clarity_level: int = None, tags: list = None) -> int:
         """Creates a new reflection and returns its ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 from datetime import date
                 if reflection_date is None:
@@ -2120,8 +2188,7 @@ class Database:
 
     def get_reflections(self, user_id: int, limit: int = 30) -> list:
         """Retrieves recent reflections for a user."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -2155,8 +2222,7 @@ class Database:
 
     def get_reflection(self, reflection_id: int) -> dict:
         """Retrieves a specific reflection by ID."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
@@ -2188,8 +2254,7 @@ class Database:
 
     def update_reflection(self, reflection_id: int, **updates) -> bool:
         """Updates a reflection's fields."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 allowed_fields = {'content', 'mood', 'energy_level', 'tags'}
                 update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
@@ -2219,8 +2284,7 @@ class Database:
 
     def delete_reflection(self, reflection_id: int) -> bool:
         """Deletes a reflection."""
-        conn = self.get_connection()
-        with conn.cursor() as cur:
+        with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("DELETE FROM reflections WHERE id = %s;", (reflection_id,))
                 conn.commit()
@@ -2240,3 +2304,23 @@ class Database:
 
 # Create a global instance for easy access throughout the application
 db = Database()
+
+# Initialize repositories for clean domain-specific access
+from .repositories import initialize_repositories
+_repos = initialize_repositories(db)
+
+# Export repositories for use by engines and other modules
+users = _repos['users']
+journals = _repos['journals']
+habits = _repos['habits']
+embeddings = _repos['embeddings']
+themes = _repos['themes']
+trajectories = _repos['trajectories']
+tensions = _repos['tensions']
+resolutions = _repos['resolutions']
+leverage = _repos['leverage']
+decision_impacts = _repos['decision_impacts']
+confidence = _repos['confidence']
+evidence = _repos['evidence']
+priorities = _repos['priorities']
+preferences = _repos['preferences']

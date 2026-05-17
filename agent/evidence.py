@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 
 # Import database
-from .database import db
+from .database import evidence as evidence_repo
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class EvidenceEngine:
             for r in records
         ]
         
-        db.add_evidence_records(db_rows)
+        evidence_repo.add_records(db_rows)
         logger.info(f"Recorded {len(db_rows)} evidence rows for {engine_name} run {comp_id}")
         return comp_id
 

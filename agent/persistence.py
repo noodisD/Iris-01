@@ -26,8 +26,8 @@ except ImportError:
 
 import numpy as np
 
-# Import database and constants
-from .database import db
+# Import repositories and constants
+from .database import themes, embeddings, confidence as confidence_repo
 from .confidence import ConfidenceEngine
 from .evidence import EvidenceEngine
 from .constants import (
@@ -142,7 +142,7 @@ class PersistenceEngine:
             if similarity >= self.similarity_threshold:
                 # Record occurrence and update stats
                 snippet = self._extract_snippet(content)
-                db.add_theme_occurrence(
+                themes.add_occurrence(
                     theme_id=theme["id"],
                     source_type=source_type,
                     source_id=source_id,
@@ -150,7 +150,7 @@ class PersistenceEngine:
                     similarity_score=float(similarity),
                     occurred_at=occurred_at.isoformat()
                 )
-                db.update_theme_stats(theme["id"], occurred_at.isoformat())
+                themes.update_stats(theme["id"], occurred_at.isoformat())
                 logger.info(f"Matched entry {source_id} to theme {theme['id']} "
                            f"(similarity: {similarity:.3f})")
                 return theme["id"]  # First match wins
@@ -172,7 +172,7 @@ class PersistenceEngine:
             return []
 
         # 1. Get entries not yet assigned to any theme
-        unassigned = db.get_unassigned_embeddings(self.user_id)
+        unassigned = embeddings.get_unassigned_embeddings(self.user_id)
         if len(unassigned) < self.min_cluster_size:
             logger.info(f"Not enough unassigned entries ({len(unassigned)}) "
                        f"for theme discovery (min: {self.min_cluster_size})")
@@ -301,7 +301,7 @@ class PersistenceEngine:
 
         # Create theme in database
         try:
-            theme_id = db.create_theme(
+            theme_id = themes.create_theme(
                 user_id=self.user_id,
                 centroid_embedding=centroid.tolist(),
                 summary=summary,
@@ -323,7 +323,7 @@ class PersistenceEngine:
                     # Use manual cosine similarity calculation
                     similarity = cosine_similarity_manual(centroid, vectors[i])
 
-                db.add_theme_occurrence(
+                themes.add_occurrence(
                     theme_id=theme_id,
                     source_type=entry["source_type"],
                     source_id=entry["source_id"],
@@ -356,7 +356,7 @@ class PersistenceEngine:
         # Get actual text snippets
         snippets = []
         for entry in entries[:3]:  # Use first 3 entries for context
-            text = db.get_content_for_source(entry["source_type"], entry["source_id"])
+            text = embeddings.get_content_for_source(entry["source_type"], entry["source_id"])
             if text:
                 # Truncate to first 150 chars
                 snippets.append(text[:150])
@@ -622,5 +622,5 @@ Theme summary:"""
 
     def _get_entry_snippet(self, entry_id: int, source_type: str = 'journal_entry', max_length: int = 200) -> str:
         """Get snippet from a journal entry."""
-        text = db.get_content_for_source(source_type, entry_id)
+        text = embeddings.get_content_for_source(source_type, entry_id)
         return self._extract_snippet(text, max_length) if text else ""

@@ -9,6 +9,13 @@ vector and graph database lenses.
 
 import logging
 import openai
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
 from .config import settings
 
 # Import the data layer interfaces
@@ -21,16 +28,36 @@ logger = logging.getLogger(__name__)
 # Configure OpenAI client
 openai.api_key = settings.OPENAI_API_KEY
 
+# Retry only on transient OpenAI errors (rate limits, timeouts, 5xx).
+# Auth errors and bad requests are not retried — they won't succeed on retry.
+_TRANSIENT_OPENAI_ERRORS = (
+    openai.RateLimitError,
+    openai.APITimeoutError,
+    openai.APIConnectionError,
+    openai.InternalServerError,
+)
+
+
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(_TRANSIENT_OPENAI_ERRORS),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list:
     """
     Generates an embedding for a given text using the OpenAI API.
+    Retries up to 4 times on transient errors with exponential backoff.
     """
     text = text.replace("\n", " ")
     try:
         response = openai.embeddings.create(input=[text], model=model)
         return response.data[0].embedding
+    except _TRANSIENT_OPENAI_ERRORS:
+        raise  # let tenacity handle
     except Exception as e:
-        logger.error(f"Failed to generate embedding: {e}")
+        logger.error(f"Failed to generate embedding (non-retryable): {e}")
         raise
 
 def extract_entities(text: str) -> dict:
@@ -50,10 +77,10 @@ def run_processing_pipeline(source_type: str, source_id: int):
 
     try:
         # 1. Update status to 'processing'
-        db.update_processing_status(source_type, source_id, 'processing')
+        embeddings.update_processing_status(source_type, source_id, 'processing')
 
         # 2. Fetch the raw content from PostgreSQL
-        item = db.get_items_to_process(source_type, status='processing', limit=1)
+        item = embeddings.get_items_to_process(source_type, status='processing', limit=1)
         if not item:
             logger.warning(f"Could not find {source_type} ID {source_id} to process.")
             return
@@ -92,38 +119,52 @@ def run_processing_pipeline(source_type: str, source_id: int):
         embedding = generate_embedding(content, model=model_name)
 
         # 4. Store the canonical embedding in PostgreSQL
-        db.add_embedding(source_type, source_id, model_name, embedding)
+        embeddings.add_embedding(source_type, source_id, model_name, embedding)
 
-        # 6. Extract entities and project into the Neo4j lens
-        if source_type == 'journal_entry':
-            entities = extract_entities(content)
+        # 6. Extract entities and project into the Neo4j lens.
+        # Neo4j is a "disposable lens" — if it's down, ingestion must still succeed.
+        # Wrap all graph writes so a Neo4j outage can't orphan a PostgreSQL-committed embedding.
+        try:
+            if source_type == 'journal_entry':
+                entities = extract_entities(content)
 
-            graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
-            for idea in entities.get("ideas", []):
-                graph_db.add_idea_node(idea)
-                graph_db.link_journal_to_idea(source_id, idea)
-        elif source_type == 'reflection':
-            entities = extract_entities(content)
+                graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
+                for idea in entities.get("ideas", []):
+                    graph_db.add_idea_node(idea)
+                    graph_db.link_journal_to_idea(source_id, idea)
+            elif source_type == 'reflection':
+                entities = extract_entities(content)
 
-            graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
-            for idea in entities.get("ideas", []):
-                graph_db.add_idea_node(idea)
-                graph_db.link_journal_to_idea(source_id, idea)
-        elif source_type == 'habit':
-            name = item_data['name']
-            graph_db.add_habit_node(source_id, user_id, name, occurred_at)
-        elif source_type == 'habit_completion':
-            habit_id = item_data['habit_id']
-            graph_db.add_habit_completion_node(source_id, habit_id, user_id, occurred_at, notes=content)
-        elif source_type == 'message':
-            pass
+                graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
+                for idea in entities.get("ideas", []):
+                    graph_db.add_idea_node(idea)
+                    graph_db.link_journal_to_idea(source_id, idea)
+            elif source_type == 'habit':
+                name = item_data['name']
+                graph_db.add_habit_node(source_id, user_id, name, occurred_at)
+            elif source_type == 'habit_completion':
+                habit_id = item_data['habit_id']
+                graph_db.add_habit_completion_node(source_id, habit_id, user_id, occurred_at, notes=content)
+            elif source_type == 'message':
+                # Messages contribute through theme matching and vector search,
+                # not graph topology. No graph projection needed.
+                pass
 
-        # Link same-day events in Graph to increase connectivity
-        if source_type in ['journal_entry', 'reflection', 'habit_completion']:
-            graph_db.link_same_day_events(source_id, source_type, occurred_at)
+            # Link same-day events in Graph to increase connectivity
+            if source_type in ['journal_entry', 'reflection', 'habit_completion']:
+                graph_db.link_same_day_events(source_id, source_type, occurred_at)
+        except Exception as e:
+            logger.warning(
+                f"Neo4j projection skipped for {source_type} {source_id}: {e}"
+            )
 
         # 7. Check for persistence (what keeps coming back)
-        if source_type in ['journal_entry', 'reflection', 'habit_completion']:
+        # User messages participate in theme matching; assistant responses are excluded
+        # to avoid amplifying theme signals with derivative content.
+        should_check_persistence = source_type in ['journal_entry', 'reflection', 'habit_completion']
+        if source_type == 'message' and item_data.get('role') == 'user':
+            should_check_persistence = True
+        if should_check_persistence:
             try:
                 engine = PersistenceEngine(user_id)
                 matched_theme_id = engine.check_persistence(
@@ -140,11 +181,11 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 # Non-blocking: don't fail the pipeline if persistence fails
 
         # 8. Update status to 'complete'
-        db.update_processing_status(source_type, source_id, 'complete')
+        embeddings.update_processing_status(source_type, source_id, 'complete')
         logger.info(f"Successfully completed processing for {source_type} ID: {source_id}")
 
     except Exception as e:
         logger.error(f"Processing pipeline failed for {source_type} ID {source_id}: {e}")
-        db.update_processing_status(source_type, source_id, 'failed')
+        embeddings.update_processing_status(source_type, source_id, 'failed')
         # Optionally, re-raise the exception if the caller needs to handle it
         # raise
