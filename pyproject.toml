@@ -10,7 +10,6 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     # Core LLM
     "openai>=1.50.0",
-    "google-generativeai>=0.8.0",
 
     # Data & Validation
     "pydantic>=2.8.0",
@@ -77,5 +76,13 @@ disallow_untyped_defs = true
 
 [tool.ruff]
 line-length = 100
-select = ["E", "W", "F", "I", "B", "C4", "C9", "DTZ", "G", "PGH", "PIE", "PL", "PT", "PYI", "RUF", "SIM", "UP", "W", "EXE"]
-ignore = ["PLR"]  # Design related pylint codes
+extend-exclude = ["archive", "frontend"]
+
+[tool.ruff.lint]
+# Moved out of [tool.ruff]: top-level select/ignore have been deprecated since
+# ruff 0.2 and were emitting a warning on every run.
+select = ["E", "W", "F", "I", "B", "C4", "C9", "DTZ", "G", "PGH", "PIE", "PL", "PT", "PYI", "RUF", "SIM", "UP", "EXE"]
+ignore = [
+    "PLR",   # pylint "design" rules: argument/branch/statement counts
+    "E501",  # line length is handled by the formatter, not the linter
+]

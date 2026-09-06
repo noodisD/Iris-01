@@ -7,8 +7,9 @@ into the conversation as Iris's own words, and a deleted entry that left its
 evidence behind.
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
 
 import iris_api

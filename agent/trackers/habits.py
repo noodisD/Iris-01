@@ -6,7 +6,7 @@ Provides business logic for managing habits, completions, and streaks.
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional
+
 from ..database import db
 from ..pipeline import run_processing_pipeline
 
@@ -25,7 +25,7 @@ class HabitTracker:
     def create_habit(
         self,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         frequency_type: str = "daily",
         habit_type: str = "completion",
         weekly_target: float = 0,
@@ -43,11 +43,11 @@ class HabitTracker:
             print(f"Pipeline error for habit {habit_id}: {e}")
         return habit_id
 
-    def get_habits(self, active_only: bool = True) -> List[Dict]:
+    def get_habits(self, active_only: bool = True) -> list[dict]:
         """Get all habits for this user."""
         return db.get_habits(self.user_id, active_only)
 
-    def get_habit(self, habit_id: int) -> Optional[Dict]:
+    def get_habit(self, habit_id: int) -> dict | None:
         """Get a specific habit by ID."""
         habit = db.get_habit(habit_id)
         if habit and habit["user_id"] != self.user_id:
@@ -73,27 +73,27 @@ class HabitTracker:
     def log_completion(
         self,
         habit_id: int,
-        completion_date: Optional[date] = None,
+        completion_date: date | None = None,
         value: float = 1.0,
-        notes: Optional[str] = None
+        notes: str | None = None
     ) -> int:
         """Log a habit completion."""
         if completion_date is None:
             completion_date = date.today()
         completion_id = db.log_habit_completion(habit_id, completion_date, value, notes)
-        
+
         try:
             run_processing_pipeline('habit_completion', completion_id)
         except Exception as e:
             print(f"Pipeline error for completion {completion_id}: {e}")
-            
+
         return completion_id
 
     def log_skip(
         self,
         habit_id: int,
-        skip_date: Optional[date] = None,
-        reason: Optional[str] = None
+        skip_date: date | None = None,
+        reason: str | None = None
     ) -> int:
         """Log an intentional skip."""
         if skip_date is None:
@@ -109,7 +109,7 @@ class HabitTracker:
 
     # ========== Streak Management ==========
 
-    def update_streaks(self, habit_id: int) -> Dict:
+    def update_streaks(self, habit_id: int) -> dict:
         """
         Recalculate and update streak counters for a habit.
         Returns dict with current_streak, longest_streak, total_completions.
@@ -138,7 +138,7 @@ class HabitTracker:
         # but for now we keep daily consecutive completion streak.
         current_streak = 0
         current_date = date.today()
-        
+
         # Check if completed today or yesterday (to maintain streak)
         # If not completed today, streak might still be active if completed yesterday
         for completion in sorted_completions:
@@ -193,7 +193,7 @@ class HabitTracker:
             "total_completions": total_completions
         }
 
-    def get_streak_info(self, habit_id: int) -> Dict:
+    def get_streak_info(self, habit_id: int) -> dict:
         """Get streak information for a habit."""
         habit = self.get_habit(habit_id)
         if not habit:
@@ -206,7 +206,7 @@ class HabitTracker:
 
     # ========== Queries & Analytics ==========
 
-    def get_today_status(self) -> List[Dict]:
+    def get_today_status(self) -> list[dict]:
         """Get all habits with today's completion status."""
         habits = self.get_habits(active_only=True)
         today = date.today()
@@ -220,13 +220,13 @@ class HabitTracker:
             habit["completed_today"] = bool(today_completion and today_completion["is_completed"])
             habit["skipped_today"] = bool(today_completion and today_completion["is_skipped"])
             habit["today_value"] = today_completion["value"] if today_completion else 0
-            
+
             # Add weekly progress info
             habit["weekly_progress"] = self.get_weekly_progress(habit["id"])
 
         return habits
 
-    def get_weekly_progress(self, habit_id: int) -> Dict:
+    def get_weekly_progress(self, habit_id: int) -> dict:
         """Calculate progress towards weekly target."""
         habit = db.get_habit(habit_id)
         if not habit or habit["weekly_target"] <= 0:
@@ -235,12 +235,12 @@ class HabitTracker:
         today = date.today()
         # Assume week starts on Monday (0)
         start_of_week = today - timedelta(days=today.weekday())
-        
+
         completions = db.get_habit_completions(habit_id, start_of_week, today)
         current_total = sum(c["value"] for c in completions if c["is_completed"])
-        
+
         percent = (current_total / habit["weekly_target"] * 100) if habit["weekly_target"] > 0 else 0
-        
+
         return {
             "current": current_total,
             "target": habit["weekly_target"],
@@ -249,7 +249,7 @@ class HabitTracker:
             "is_met": current_total >= habit["weekly_target"]
         }
 
-    def get_weekly_summary(self) -> Dict:
+    def get_weekly_summary(self) -> dict:
         """Get completion statistics for the past 7 days."""
         habits = self.get_habits(active_only=True)
         today = date.today()
@@ -285,7 +285,7 @@ class HabitTracker:
         habit_id: int,
         start_date: date,
         end_date: date
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Get completion calendar for a habit in a date range."""
         completions = db.get_habit_completions(habit_id, start_date, end_date)
 
@@ -313,7 +313,7 @@ class HabitTracker:
 
         return calendar
 
-    def get_consistency_report(self, days: int = 30) -> Dict:
+    def get_consistency_report(self, days: int = 30) -> dict:
         """Generate a consistency report across all habits."""
         habits = self.get_habits(active_only=True)
         today = date.today()
@@ -335,7 +335,7 @@ class HabitTracker:
 
             completions = db.get_habit_completions(habit["id"], start_period, today)
             completed = sum(1 for c in completions if c["is_completed"])
-            
+
             # Prevent division by zero
             completion_rate = (completed / effective_days * 100) if effective_days > 0 else 0
 

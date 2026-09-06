@@ -6,18 +6,19 @@ It enforces the single source of truth principle. All data, including embeddings
 is stored here canonically.
 """
 
-import os
-import logging
 import hashlib
-import psycopg2
-from psycopg2 import pool as psycopg2_pool
+import logging
 from contextlib import contextmanager
 from typing import Any
-from psycopg2.extras import Json
-from .config import settings
+
+import psycopg2
 
 # Use pgvector extension
 from pgvector.psycopg2 import register_vector
+from psycopg2 import pool as psycopg2_pool
+from psycopg2.extras import Json
+
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class Database:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Database, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._pool = None
             cls._instance._legacy_conn = None
         return cls._instance
@@ -507,7 +508,7 @@ class Database:
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS weekly_target FLOAT DEFAULT 0;")
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS tracking_metric VARCHAR(50) DEFAULT 'completion';")
                 cur.execute("ALTER TABLE habits ADD COLUMN IF NOT EXISTS processing_status VARCHAR(20) DEFAULT 'pending';")
-                
+
                 logger.info("Ensured habits table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_habits_user_active ON habits(user_id, is_active);")
                 # Optimization 1: Composite index for pipeline processing
@@ -581,10 +582,10 @@ class Database:
                 conn.commit()
                 logger.info(f"Created new user '{username}' with ID {user_id}.")
                 return user_id
-            except psycopg2.IntegrityError:
+            except psycopg2.IntegrityError as e:
                 conn.rollback()
                 logger.warning(f"Attempted to create a user that already exists: {username}")
-                raise ValueError("Username already exists.")
+                raise ValueError("Username already exists.") from e
 
     def get_user(self, username: str) -> dict:
         """Retrieves a user by username."""
@@ -753,7 +754,7 @@ class Database:
         }
         if source_type not in table_map:
             raise ValueError(f"Invalid source_type: {source_type}")
-        
+
         table_name = table_map[source_type]
         with self.connection() as conn, conn.cursor() as cur:
             try:
@@ -801,15 +802,15 @@ class Database:
                 items = cur.fetchall()
                 return [
                     {
-                        "id": row[0], 
-                        "user_id": row[1], 
-                        "content": row[2], 
+                        "id": row[0],
+                        "user_id": row[1],
+                        "content": row[2],
                         "created_at": row[3],
                         "occurred_at": row[3]
-                    } 
+                    }
                     for row in items
                 ]
-            
+
             elif source_type == 'message':
                 cur.execute(
                     f"SELECT id, user_id, content, created_at, role FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
@@ -827,7 +828,7 @@ class Database:
                     }
                     for row in items
                 ]
-            
+
             elif source_type == 'reflection':
                 cur.execute(
                     f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
@@ -836,12 +837,12 @@ class Database:
                 items = cur.fetchall()
                 return [
                     {
-                        "id": row[0], 
-                        "user_id": row[1], 
-                        "content": f"Anchor: Self-Reflection | Source: Reflection | Mood: {row[4] or 'okay'} (Energy: {row[5] or '?'}/10, Clarity: {row[6] or '?'}/10) | Content: {row[2]}", 
+                        "id": row[0],
+                        "user_id": row[1],
+                        "content": f"Anchor: Self-Reflection | Source: Reflection | Mood: {row[4] or 'okay'} (Energy: {row[5] or '?'}/10, Clarity: {row[6] or '?'}/10) | Content: {row[2]}",
                         "created_at": row[3],
                         "occurred_at": row[7]
-                    } 
+                    }
                     for row in items
                 ]
 
@@ -853,13 +854,13 @@ class Database:
                 items = cur.fetchall()
                 return [
                     {
-                        "id": row[0], 
-                        "user_id": row[1], 
-                        "content": f"Anchor: {row[2]} | Source: Habit Definition | Category: {row[5] or 'General'} | Intent: {row[3] or 'No description'}", 
+                        "id": row[0],
+                        "user_id": row[1],
+                        "content": f"Anchor: {row[2]} | Source: Habit Definition | Category: {row[5] or 'General'} | Intent: {row[3] or 'No description'}",
                         "created_at": row[4],
                         "occurred_at": row[4],
                         "name": row[2]
-                    } 
+                    }
                     for row in items
                 ]
 
@@ -873,20 +874,20 @@ class Database:
                 """
                 cur.execute(query, params)
                 items = cur.fetchall()
-                
+
                 results = []
                 for row in items:
                     hc_id, user_id, name, is_completed, is_skipped, skip_reason, notes, completed_at, habit_id, description, completion_date = row
-                    
+
                     if is_skipped:
                         action = "Skipped"
                         details = f"Reason: {skip_reason}"
                     else:
                         action = "Completed"
                         details = f"Notes: {notes}"
-                    
+
                     text = f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
-                    
+
                     results.append({
                         "id": hc_id,
                         "user_id": user_id,
@@ -1013,14 +1014,14 @@ class Database:
                     """,
                     (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
                 )
-                
+
                 # Invalidate caches
                 cur.execute("UPDATE pattern_resolutions SET last_computed_at = NULL WHERE pattern_type = 'theme' AND pattern_id = %s;", (theme_id,))
                 cur.execute("UPDATE theme_tensions SET last_computed_at = NULL WHERE theme_a_id = %s OR theme_b_id = %s;", (theme_id, theme_id))
                 self.invalidate_leverage_for_source('theme', theme_id)
                 self.invalidate_decision_impacts('theme', theme_id)
                 self.invalidate_pattern_confidence('theme', theme_id)
-                
+
                 conn.commit()
             except psycopg2.Error as e:
                 conn.rollback()
@@ -1882,14 +1883,13 @@ class Database:
                 comp_ids = [r[0] for r in rows]
 
             # 3. Fetch all records for these computation IDs
-            from psycopg2.extras import execute_values
             cur.execute("""
                 SELECT engine_name, evidence_type, evidence_key, evidence_value, created_at
                 FROM pattern_evidence
                 WHERE computation_id IN %s
                 ORDER BY created_at DESC, engine_name, evidence_type, evidence_key
             """, (tuple(comp_ids),))
-            
+
             rows = cur.fetchall()
             return [
                 {
@@ -1996,7 +1996,7 @@ class Database:
                     INSERT INTO preference_audit (user_id, setting_key, old_value, new_value)
                     VALUES (%s, %s, %s, %s);
                 """, (user_id, key, old_val, str(value)))
-                
+
                 conn.commit()
             except psycopg2.Error as e:
                 conn.rollback()
@@ -2570,6 +2570,7 @@ db = Database()
 
 # Initialize repositories for clean domain-specific access
 from .repositories import initialize_repositories
+
 _repos = initialize_repositories(db)
 
 # Export repositories for use by engines and other modules

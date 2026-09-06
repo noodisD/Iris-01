@@ -1,8 +1,10 @@
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
+
 from agent.database import db
 from agent.decision_impact import DecisionImpactEngine
-from agent.constants import DECISION_IMPACT_MIN_ANCHORS, DECISION_IMPACT_MIN_DATA_POINTS
+
 
 @pytest.fixture
 def impact_engine(test_user):

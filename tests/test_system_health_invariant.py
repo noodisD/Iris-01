@@ -1,9 +1,7 @@
 import os
 import sys
-import time
 import uuid
-import random
-from datetime import datetime, timedelta
+
 from dotenv import load_dotenv
 
 # Add project root to path
@@ -11,8 +9,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.trackers.reflections import ReflectionService
 from agent.persistence import PersistenceEngine
+from agent.trackers.reflections import ReflectionService
 
 load_dotenv()
 
@@ -25,16 +23,16 @@ def test_system_health_invariant():
     2. Cluster of 5 items -> SURFACED
     """
     print("\n=== SYSTEM HEALTH INVARIANT TEST ===")
-    
+
     # 1. Setup two users
     user_a_name = f"user_proto_{uuid.uuid4().hex[:8]}"
     user_b_name = f"user_theme_{uuid.uuid4().hex[:8]}"
-    
+
     id_a = db.create_user(user_a_name, "pass")
     id_b = db.create_user(user_b_name, "pass")
-    
+
     print(f"User A (Proto): {id_a} | User B (Theme): {id_b}")
-    
+
     # 2. Inject Data
     # CASE A: 4 items (Suppressed)
     print("> CASE A: Injecting 4 identical reflections (User A)...")
@@ -42,7 +40,7 @@ def test_system_health_invariant():
     refl_a = ReflectionService(id_a)
     for _ in range(4):
         refl_a.create_reflection(text_a, energy_level=8)
-    
+
     # CASE B: 5 items (Visible)
     print("> CASE B: Injecting 5 identical reflections (User B)...")
     text_b = f"This is a specific repetitive thought about B: {uuid.uuid4().hex}"
@@ -57,7 +55,7 @@ def test_system_health_invariant():
 
     # 4. Examine Context Injection
     print("\n=== INVARIANT VERIFICATION ===")
-    
+
     # Verify User A (4 items -> 0 visible)
     comp_a = PersonalAICompanion(id_a)
     ctx_a = comp_a._get_aggregated_context("check")
@@ -68,7 +66,7 @@ def test_system_health_invariant():
         patterns_a = [l for l in section.split("\n") if l.strip().startswith("- ")]
     else:
         patterns_a = []
-        
+
     print(f"  - User A (Count 4) patterns surfaced: {len(patterns_a)}")
     assert len(patterns_a) == 0 or "No significant patterns observed" in ctx_a
     print("  [PASS] Proto-theme (n=4) correctly suppressed.")
@@ -81,7 +79,7 @@ def test_system_health_invariant():
         patterns_b = [l for l in section.split("\n") if l.strip().startswith("- ")]
     else:
         patterns_b = []
-        
+
     print(f"  - User B (Count 5) patterns surfaced: {len(patterns_b)}")
     assert len(patterns_b) == 1
     print("  [PASS] Genuine theme (n=5) correctly surfaced.")

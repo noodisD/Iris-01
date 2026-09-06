@@ -1,13 +1,15 @@
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+
+import pytest
+
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.trajectory import TrajectoryEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
 from agent.decision_impact import DecisionImpactEngine
+from agent.leverage import LeverageEngine
+from agent.resolution import ResolutionEngine
+from agent.trajectory import TrajectoryEngine
+
 
 @pytest.fixture
 def mock_embedding(monkeypatch):
@@ -18,7 +20,7 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     user_id = test_user['id']
     start_time = datetime(2026, 1, 1)
     freeze_time.set_time(start_time)
-    
+
     # Themes
     t_stress = db.create_theme(user_id, [0.1]*1536, "Work Stress", start_time.isoformat(), start_time.isoformat())
     t_sleep = db.create_theme(user_id, [0.2]*1536, "Poor Sleep", start_time.isoformat(), start_time.isoformat())
@@ -66,29 +68,29 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     # Now
     current_now = start_time + timedelta(days=110)
     freeze_time.set_time(current_now)
-    
+
     # Analysis
     TrajectoryEngine(user_id).analyze_all_themes()
     ResolutionEngine(user_id).analyze_all_themes()
     LeverageEngine(user_id).analyze_all_leverage(force_recompute=True)
     DecisionImpactEngine(user_id).analyze_all_anchors()
-    
+
     # Core
     companion = PersonalAICompanion(user_id=user_id)
     companion.chat("Status report.")
     prompt = mock_llm.chat.call_args[1]['system_prompt']
-    
+
     # Final Epistemic Check
     print("\n--- FINAL SYSTEM PROMPT ---")
     print(prompt)
-    
-    # Assertions: 
+
+    # Assertions:
     # 1. We expect at least the primary anchor 'Work Stress' to be present
     assert "Work Stress" in prompt
-    
+
     # 2. We expect at least one sequence or driver mention
     assert "following" in prompt.lower() or "preceded" in prompt.lower()
-    
+
     # 3. "No Advice" Guarantee
     for word in ["you should", "I suggest", "means that", "because"]:
         assert word not in prompt.lower(), f"Safety violation: {word}"

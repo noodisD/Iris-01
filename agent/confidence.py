@@ -14,20 +14,18 @@ It does not judge importance, only the reliability of the observation.
 import logging
 import math
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-import numpy as np
+from typing import Any
 
 # Import constants
 from .constants import (
-    CONF_WEIGHT_SUFFICIENCY,
+    CONF_CONSISTENCY_THRESHOLD,
+    CONF_HIGH_POINTS,
+    CONF_MIN_POINTS,
+    CONF_RECENCY_DAYS,
     CONF_WEIGHT_CONSISTENCY,
     CONF_WEIGHT_RECENCY,
-    CONF_MIN_POINTS,
-    CONF_MEDIUM_POINTS,
-    CONF_HIGH_POINTS,
-    CONF_RECENCY_DAYS,
-    CONF_CONSISTENCY_THRESHOLD,
-    EVIDENCE_WEIGHTS
+    CONF_WEIGHT_SUFFICIENCY,
+    EVIDENCE_WEIGHTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,10 +40,10 @@ class ConfidenceEngine:
         self,
         pattern_type: str,
         pattern_id: int,
-        timestamps: List[datetime],
-        directions: Optional[List[str]] = None,
-        sources: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        timestamps: list[datetime],
+        directions: list[str] | None = None,
+        sources: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Calculates a reliability score and label for a set of evidence.
         
@@ -71,9 +69,9 @@ class ConfidenceEngine:
                 # Handle specific vs general keys (e.g. habit_completion vs habit_completion_with_notes)
                 # Ideally caller handles specific logic, but here we just map string to weight.
                 # Use base weight if specific not found
-                weight = EVIDENCE_WEIGHTS.get(s, 0.5) 
+                weight = EVIDENCE_WEIGHTS.get(s, 0.5)
                 weighted_count += weight
-            
+
             # Normalize: We want weighted_count to reach ~CONF_HIGH_POINTS
             # But since weights are <= 1.0, weighted_count will be <= count.
             # We treat weighted_count as the effective "N".
@@ -87,7 +85,7 @@ class ConfidenceEngine:
         # 2. Time Coverage
         sorted_ts = sorted([ts.replace(tzinfo=None) if ts.tzinfo else ts for ts in timestamps])
         coverage_days = (sorted_ts[-1] - sorted_ts[0]).days
-        
+
         # 3. Recency Score (Exponential decay)
         now = datetime.now().replace(tzinfo=None)
         days_since_last = (now - sorted_ts[-1]).days
@@ -97,7 +95,7 @@ class ConfidenceEngine:
         # 4. Consistency Score (Directionalagreement)
         has_direction = directions is not None and len(directions) > 0
         consistency = 0.0
-        
+
         if has_direction:
             # Find the dominant direction
             counts = {}
@@ -105,7 +103,7 @@ class ConfidenceEngine:
                 counts[d] = counts.get(d, 0) + 1
             dominant_count = max(counts.values()) if counts else 0
             consistency = dominant_count / len(directions)
-            
+
             # Use standard weights
             w_s, w_c, w_r = CONF_WEIGHT_SUFFICIENCY, CONF_WEIGHT_CONSISTENCY, CONF_WEIGHT_RECENCY
         else:
@@ -119,10 +117,10 @@ class ConfidenceEngine:
 
         # 5. Weighted Aggregate Score
         score = (w_s * sufficiency) + (w_c * consistency) + (w_r * recency)
-        
+
         # 6. Classification (Gatekeeper logic)
         label = 'low'
-        
+
         # Rule: High points + Good consistency + Decent recency = High
         if effective_count >= CONF_HIGH_POINTS and recency >= 0.5:
             if not has_direction or consistency >= CONF_CONSISTENCY_THRESHOLD:
@@ -135,7 +133,7 @@ class ConfidenceEngine:
                 label = 'medium'
             else:
                 label = 'low'
-        
+
         # Final override: very old evidence is never high confidence
         if recency < 0.2:
             label = 'low'
@@ -155,10 +153,10 @@ class ConfidenceEngine:
                 "final_score": round(score, 3)
             }
         }
-        
+
         return result
 
-    def _empty_result(self) -> Dict:
+    def _empty_result(self) -> dict:
         return {
             "confidence_level": "low",
             "confidence_score": 0.0,

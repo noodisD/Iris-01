@@ -4,9 +4,9 @@ IRIS Minimal Companion - CLI
 Now with multi-user support and a full database backend.
 """
 
-import sys
 import getpass
 import signal
+import sys
 import warnings
 from pathlib import Path
 
@@ -20,29 +20,35 @@ COMPANION_DIR = Path(__file__).parent.absolute()
 sys.path.insert(0, str(COMPANION_DIR))
 
 from dotenv import load_dotenv
+
 load_dotenv(COMPANION_DIR / ".env")
 
 # Configure logging first, before any agent imports
 import logging
+
 from agent.logging_config import configure_logging
+
 configure_logging()
 logger = logging.getLogger(__name__)
 
 # New architecture imports
-from agent.database import db
+from agent.constants import (
+    DECISION_IMPACT_WINDOW_DAYS,
+    RESOLUTION_RECENT_DAYS,
+    TRAJECTORY_RECENT_DAYS,
+)
 from agent.core import PersonalAICompanion
-from agent.persistence import PersistenceEngine
-from agent.trajectory import TrajectoryEngine
-from agent.tension import TensionEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
+from agent.database import db
 from agent.decision_impact import DecisionImpactEngine
-from agent.explanation import ExplanationEngine
 from agent.evidence import EvidenceEngine
-from agent.prioritization import InsightPrioritizationEngine
+from agent.explanation import ExplanationEngine
+from agent.leverage import LeverageEngine
 from agent.narrative import NarrativeFormatter
-from agent.preferences import UserPreferencesService
-from agent.constants import TRAJECTORY_RECENT_DAYS, RESOLUTION_RECENT_DAYS, DECISION_IMPACT_WINDOW_DAYS
+from agent.persistence import PersistenceEngine
+from agent.resolution import ResolutionEngine
+from agent.tension import TensionEngine
+from agent.trajectory import TrajectoryEngine
+
 
 def show_help():
     print("""
@@ -218,14 +224,14 @@ def show_trajectory(companion: PersonalAICompanion):
             print("↗ EMERGING")
             for item in emerging:
                 print(f"- \"{item['theme_summary']}\"")
-                print(f"  First appeared recently, recurring now")
+                print("  First appeared recently, recurring now")
                 print()
 
         if fading:
             print("↓ FADING")
             for item in fading:
                 print(f"- \"{item['theme_summary']}\"")
-                print(f"  Not mentioned as frequently recently")
+                print("  Not mentioned as frequently recently")
                 print()
 
     except Exception as e:
@@ -279,7 +285,7 @@ def show_tensions(companion: PersonalAICompanion):
             print("🔒 PERSISTENT")
             for item in persistent:
                 print(f"- \"{item['theme_a_summary']}\" and \"{item['theme_b_summary']}\"")
-                print(f"  Co-occur frequently with different activity patterns")
+                print("  Co-occur frequently with different activity patterns")
                 print(f"  Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -287,7 +293,7 @@ def show_tensions(companion: PersonalAICompanion):
             print("↗ EMERGING")
             for item in emerging:
                 print(f"- \"{item['theme_a_summary']}\" and \"{item['theme_b_summary']}\"")
-                print(f"  Recently started co-occurring with different patterns")
+                print("  Recently started co-occurring with different patterns")
                 print(f"  Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -295,7 +301,7 @@ def show_tensions(companion: PersonalAICompanion):
             print("↘ FADING")
             for item in fading:
                 print(f"- \"{item['theme_a_summary']}\" and \"{item['theme_b_summary']}\"")
-                print(f"  Previously co-occurred but now appearing less together")
+                print("  Previously co-occurred but now appearing less together")
                 print(f"  Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -303,7 +309,7 @@ def show_tensions(companion: PersonalAICompanion):
             print("⚡ INTERMITTENT")
             for item in intermittent:
                 print(f"- \"{item['theme_a_summary']}\" and \"{item['theme_b_summary']}\"")
-                print(f"  Co-occur sporadically with different patterns")
+                print("  Co-occur sporadically with different patterns")
                 print(f"  Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -355,7 +361,7 @@ def show_resolutions(companion: PersonalAICompanion):
             print("🌅 REAPPEARING")
             for item in reappearing:
                 print(f"- \"{item['summary']}\" (ID: {item['theme_id']})")
-                print(f"  Recently reappeared after a significant gap")
+                print("  Recently reappeared after a significant gap")
                 print(f"  Recent: {item['recent_count']} | Past: {item['past_count']} | Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -363,7 +369,7 @@ def show_resolutions(companion: PersonalAICompanion):
             print("⚖️ STABILIZED")
             for item in stabilized:
                 print(f"- \"{item['summary']}\" (ID: {item['theme_id']})")
-                print(f"  Frequency has stabilized compared to the baseline")
+                print("  Frequency has stabilized compared to the baseline")
                 print(f"  Attenuation Score: {item['attenuation_score']:.3f} | Confidence: {item['confidence_level'].upper()}")
                 print()
 
@@ -399,7 +405,7 @@ def show_leverage(companion: PersonalAICompanion):
         engine = LeverageEngine(companion.user_id)
         # Scan and compute (or refresh cache)
         engine.analyze_all_leverage()
-        
+
         sources = db.get_high_leverage_sources(companion.user_id)
 
         if not sources:
@@ -410,7 +416,7 @@ def show_leverage(companion: PersonalAICompanion):
             print(f"{i}. \"{s['summary']}\" (ID: {s['source_id']})")
             print(f"   Influences {s['targets_count']} other patterns | Avg Score: {s['avg_influence']:.2f}")
             print()
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -420,12 +426,12 @@ def show_leverage_detail(companion: PersonalAICompanion, theme_id: str):
     try:
         theme_id = int(theme_id)
         engine = LeverageEngine(companion.user_id)
-        
+
         # Analyze to ensure cache is fresh
         engine.analyze_pair('theme', theme_id, 'theme', theme_id) # Just to trigger some logic, wait
-        
+
         targets = db.get_leverage_targets('theme', theme_id)
-        
+
         theme = db.get_theme_by_id(theme_id)
         print(f"SOURCE PATTERN: \"{theme['summary']}\"")
         print("-" * 30)
@@ -451,7 +457,7 @@ def show_impact(companion: PersonalAICompanion):
         engine = DecisionImpactEngine(companion.user_id)
         # Scan and compute
         engine.analyze_all_anchors()
-        
+
         impacts = db.get_significant_decision_impacts(companion.user_id)
 
         if not impacts:
@@ -470,7 +476,7 @@ def show_impact(companion: PersonalAICompanion):
             print(f"{i}. \"{data['summary']}\" (ID: {aid})")
             print(f"   Precedes {data['count']} significant shifts in other patterns.")
             print()
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -479,10 +485,9 @@ def show_impact_detail(companion: PersonalAICompanion, anchor_id: str):
     print()
     try:
         anchor_id = int(anchor_id)
-        engine = DecisionImpactEngine(companion.user_id)
-        
+
         impacts = db.get_decision_impacts_for_anchor('theme', anchor_id)
-        
+
         theme = db.get_theme_by_id(anchor_id)
         print(f"ANCHOR PATTERN: \"{theme['summary']}\"")
         print("-" * 40)
@@ -509,7 +514,7 @@ def show_confidence(companion: PersonalAICompanion, p_type: str, p_id: str):
     try:
         p_id = int(p_id)
         conf = db.get_confidence(p_type, p_id)
-        
+
         if not conf:
             print(f"No confidence record found for {p_type} ID {p_id}.")
             return
@@ -525,7 +530,7 @@ def show_confidence(companion: PersonalAICompanion, p_type: str, p_id: str):
         print(f"- Consistency Score: {conf['consistency_score']:>4.2f} (Threshold: 0.70)")
         print()
         print("Computed at: ", conf['last_computed_at'])
-        
+
     except ValueError:
         print("✗ Invalid ID format. Use: /confidence <type> <id>")
     except Exception as e:
@@ -538,10 +543,10 @@ def show_explanation(companion: PersonalAICompanion, p_type: str, p_id: str):
         p_id = int(p_id)
         explainer = ExplanationEngine(companion.user_id)
         bundle = explainer.explain(p_type, p_id)
-        
+
         print(f"Summary: {bundle['summary']}")
         print(f"Confidence: {bundle.get('confidence', 'N/A')}")
-        
+
         if bundle['evidence']:
             print("\nEvidence Evidence:")
             for ev in bundle['evidence']:
@@ -549,10 +554,10 @@ def show_explanation(companion: PersonalAICompanion, p_type: str, p_id: str):
                 val = ev['value']
                 if isinstance(val, float): val = f"{val:.3f}"
                 print(f"- {ev['label']:<30} : {val} ({ev['engine']})")
-        
+
         if 'computed_at' in bundle:
             print(f"\nLast calculated: {bundle['computed_at']}")
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -563,7 +568,7 @@ def show_raw_evidence(companion: PersonalAICompanion, p_type: str, p_id: str):
         p_id = int(p_id)
         ev_engine = EvidenceEngine()
         bundle = ev_engine.get_latest_bundle(p_type, p_id)
-        
+
         if not bundle:
             print("No evidence found.")
             return
@@ -572,7 +577,7 @@ def show_raw_evidence(companion: PersonalAICompanion, p_type: str, p_id: str):
         print("-" * 55)
         for rec in bundle:
             print(f"{rec['engine_name']:<15} | {rec['evidence_key']:<25} | {rec['evidence_value']}")
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -581,26 +586,22 @@ def show_priorities(companion: PersonalAICompanion):
     print("\n--- INSIGHT PRIORITIZATION LEADERBOARD ---\n")
     try:
         # We need to compute them fresh for the leaderboard
-        from agent.persistence import PersistenceEngine
-        from agent.trajectory import TrajectoryEngine
         from agent.resolution import ResolutionEngine
-        from agent.leverage import LeverageEngine
-        from agent.decision_impact import DecisionImpactEngine
-        
+        from agent.trajectory import TrajectoryEngine
+
         raw = []
         raw.extend(TrajectoryEngine(companion.user_id).analyze_all_themes())
         raw.extend(ResolutionEngine(companion.user_id).analyze_all_themes())
         # ... fetch others if needed for a full view
-        
-        # Mapping to prioritize format happens in core normally, 
+
+        # Mapping to prioritize format happens in core normally,
         # for CLI we'll just show what's in the DB priorities table if available.
         # But compute_all is better for a 'live' view.
-        
-        engine = InsightPrioritizationEngine(companion.user_id)
-        # Note: We'd need to convert raw list to the Contract format here 
+
+        # Note: We'd need to convert raw list to the Contract format here
         # if we wanted a truly live view.
         # For MVP, let's just query the DB for the last computed ranks.
-        
+
         conn = db.get_connection()
         with conn.cursor() as cur:
             cur.execute("""
@@ -609,7 +610,7 @@ def show_priorities(companion: PersonalAICompanion):
                 ORDER BY rank ASC LIMIT 10;
             """)
             rows = cur.fetchall()
-            
+
             if not rows:
                 print("No insights have been prioritized yet. Chat with IRIS first!")
                 return
@@ -619,7 +620,7 @@ def show_priorities(companion: PersonalAICompanion):
             for r in rows:
                 print(f"{r[0]:<4} | {r[1]:<15} | {r[2].upper()} {r[3]:<8} | {r[4]:.3f}")
             print()
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -630,15 +631,15 @@ def show_narrative(companion: PersonalAICompanion, p_type: str, p_id: str):
         p_id = int(p_id)
         # We need a fresh insight object to format
         # For simplicity, we'll try to find it in the trajectory/resolution engines
-        from agent.trajectory import TrajectoryEngine
         from agent.resolution import ResolutionEngine
-        
+        from agent.trajectory import TrajectoryEngine
+
         # 1. Fetch raw insight
         ins = None
         trajs = TrajectoryEngine(companion.user_id).analyze_all_themes()
         ins = next((i for i in trajs if i['theme_id'] == p_id), None)
         if ins: ins['engine_name'] = 'trajectory'
-        
+
         if not ins:
             res = ResolutionEngine(companion.user_id).analyze_all_themes()
             ins = next((i for i in res if i['theme_id'] == p_id), None)
@@ -650,12 +651,12 @@ def show_narrative(companion: PersonalAICompanion, p_type: str, p_id: str):
 
         # 2. Format
         text = NarrativeFormatter.format_insight(ins)
-        
+
         print(f"ENGINE:    {ins['engine_name'].upper()}")
         print(f"LABEL:     {ins.get('trajectory_label') or ins.get('resolution_label')}")
         print(f"NARRATIVE: \"{text}\"")
         print()
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -681,18 +682,18 @@ def update_setting(companion: PersonalAICompanion, key: str, value: str):
         elif value.lower() == 'false': final_val = False
         elif value.isdigit(): final_val = int(value)
         elif value.lower() == 'null': final_val = None
-        
+
         # enabled_engines needs list parsing (simple comma separated)
         if key == 'enabled_engines' and value.lower() != 'null':
             final_val = [v.strip() for v in value.split(',')]
 
         companion.pref_service.update_pref(key, final_val)
         print(f"✓ Setting '{key}' updated successfully.")
-        
+
         # Immediate feedback
         if key == 'min_confidence' and final_val == 'low':
             print("(!) IRIS is now in Exploratory Mode (Confidence: Low)")
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -714,10 +715,10 @@ def show_why(companion: PersonalAICompanion, p_type: str, p_id: str):
             if not row:
                 print("No prioritization record found for this pattern.")
                 return
-            
+
             engine, score, rank = row
             conf = db.get_confidence(p_type, p_id)
-            
+
             print(f"PATTERN:    {p_type.upper()} {p_id}")
             print(f"ENGINE:     {engine.upper()}")
             print(f"RANK:       #{rank} in last run")
@@ -725,7 +726,7 @@ def show_why(companion: PersonalAICompanion, p_type: str, p_id: str):
             if conf:
                 print(f"CONFIDENCE: {conf['confidence_level'].upper()} ({conf['confidence_score']:.2f})")
             print("\nReason: High relevance score and passed analytical gates.")
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -760,24 +761,23 @@ def show_conflicts(companion: PersonalAICompanion, p_type: str, p_id: str):
         # We need to run the aggregation logic once to see the suppression result
         # For audit, we'll manually call the engine
         from agent.conflict import ConflictSuppressionEngine
-        from agent.trajectory import TrajectoryEngine
-        from agent.tension import TensionEngine
         from agent.resolution import ResolutionEngine
-        
+        from agent.trajectory import TrajectoryEngine
+
         # 1. Fetch raw insights for this pattern
         raw = []
         raw.extend([t for t in TrajectoryEngine(companion.user_id).analyze_all_themes() if t['theme_id'] == p_id])
         raw.extend([r for r in ResolutionEngine(companion.user_id).analyze_all_themes() if r['theme_id'] == p_id])
         # ... add more if needed
-        
+
         engine = ConflictSuppressionEngine()
         result = engine.suppress(raw)
-        
+
         print(f"PATTERN: {p_type.upper()} (ID: {p_id})")
         print(f"VISIBLE INSIGHTS: {len(result['visible'])}")
         for v in result['visible']:
             print(f"- {v['engine_name'].upper()}: {v.get('resolution_label') or v.get('trajectory_label') or 'active'}")
-            
+
         print(f"\nSUPPRESSED INSIGHTS: {len(result['suppressed'])}")
         for s in result['suppressed']:
             ins = s['insight']
@@ -786,7 +786,7 @@ def show_conflicts(companion: PersonalAICompanion, p_type: str, p_id: str):
             if 'winner_engine' in s:
                 print(f"  WINNER: {s['winner_engine'].upper()}")
             print()
-            
+
     except Exception as e:
         logger.error(f"\1: {e}")
 
@@ -794,16 +794,16 @@ def main_chat_loop(user_id: int):
     """The main loop for chatting with the companion."""
     try:
         companion = PersonalAICompanion(user_id=user_id)
-        
+
         # Register signal handler for graceful shutdown
         def handle_signal(sig, frame):
             print("\n(!) Shutdown signal received. Cleaning up...")
             companion.shutdown()
             sys.exit(0)
-        
+
         signal.signal(signal.SIGTERM, handle_signal)
         signal.signal(signal.SIGINT, handle_signal) # Also handle Ctrl+C
-        
+
         print("\n✓ Companion initialized. Type '/help' for commands or start chatting!\n")
     except Exception as e:
         logger.error(f"\1: {e}")

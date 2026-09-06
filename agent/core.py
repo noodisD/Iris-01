@@ -6,35 +6,34 @@ all the different services (intelligence, memory, journal, etc.).
 
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
 
 # Main services
-from .intelligence import Intelligence
-from .memory import ConversationMemory
-from .journal_entry import JournalEntry
+from .conflict import ConflictSuppressionEngine
+from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .database import (
-    db, themes, trajectories, tensions, resolutions, leverage, decision_impacts,
-    confidence as confidence_repo, evidence as evidence_repo, preferences as pref_repo,
-    journals, habits, embeddings
+    db,
+    decision_impacts,
+    habits,
+    journals,
+    leverage,
 )
+from .intelligence import Intelligence
+from .journal_entry import JournalEntry
+from .memory import ConversationMemory
+from .narrative import NarrativeFormatter
+from .persistence import PersistenceEngine
 
 # New architecture components
 from .pipeline import generate_embedding
-from .pipeline_orchestrator import AnalysisPipeline, engine_enablement_gate, confidence_gate
-from .persistence import PersistenceEngine
-from .trajectory import TrajectoryEngine
-from .tension import TensionEngine
-from .resolution import ResolutionEngine
-from .leverage import LeverageEngine
-from .decision_impact import DecisionImpactEngine
-from .conflict import ConflictSuppressionEngine
-from .prioritization import InsightPrioritizationEngine
-from .narrative import NarrativeFormatter
+from .pipeline_orchestrator import AnalysisPipeline, confidence_gate, engine_enablement_gate
 from .preferences import UserPreferencesService
 from .preferences_guard import PreferencesGuard
-from .constants import DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
+from .prioritization import InsightPrioritizationEngine
+from .resolution import ResolutionEngine
+from .tension import TensionEngine
+from .trajectory import TrajectoryEngine
 
 # Handle both package and direct imports
 try:
@@ -46,16 +45,20 @@ except (ImportError, ValueError):
 class PersonalAICompanion:
     """The core AI companion, orchestrating all services."""
 
-    def __init__(self, user_id: int, model: str = "gpt-4.1-mini"):
+    def __init__(self, user_id: int, model: str = None):
         """
         Initialize the companion for a specific user.
+
+        `model` defaults to settings.OPENAI_MODEL. It used to be hardcoded here,
+        in persistence and in the review endpoint — three different values —
+        so the OPENAI_MODEL setting was read by nothing.
         """
         if user_id is None:
             raise ValueError("PersonalAICompanion requires a valid user_id.")
-        
+
         self.user_id = user_id
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         # Initialize the core services for this user/session
         self.intelligence = Intelligence(model=model)
         self.memory = ConversationMemory(user_id=self.user_id, session_id=self.session_id)
@@ -66,7 +69,7 @@ class PersonalAICompanion:
         # Initialize preferences guard for validation
         prefs = self.pref_service.get_prefs()
         self.prefs_guard = PreferencesGuard(user_id=self.user_id, prefs_dict=prefs)
-        
+
         # Session-scoped cache for transparency
         self.last_suppressed_insights = {}
 
@@ -177,7 +180,7 @@ class PersonalAICompanion:
         # 0. Load Preferences
         prefs = self.pref_service.get_prefs()
         self.last_suppressed_insights = {} # Reset buffer
-        
+
         # 1. Fetch relevant memories (vector search)
         memories = self._get_relevant_context(user_message)
 
@@ -185,7 +188,7 @@ class PersonalAICompanion:
         habits_context = self._get_habits_context()
         reflections_context = self._get_reflections_context()
         journal_context = self._get_recent_journal_entries_context()
-        
+
         # 3. Run analysis pipeline with enablement and confidence gates
         gated_insights = self.analysis_pipeline.run(prefs=prefs)
 
@@ -229,7 +232,7 @@ class PersonalAICompanion:
         # Ensure bulleted list
         bulleted_narratives = [f"- {n}" for n in narratives]
         body = "\n".join(bulleted_narratives) if narratives else "No significant patterns observed recently."
-        
+
         return f"# Recent Journal Entries:\n{journal_context}\n\n# Relevant Long-Term Memory:\n{memories}\n\n# Recent Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
 
     def _get_habits_context(self) -> str:
@@ -286,7 +289,7 @@ class PersonalAICompanion:
             logger.error(f"Error fetching recent journal entries context: {e}")
             return "Could not retrieve recent journal entries."
 
-    def _record_suppression(self, insight: Dict, reason: str):
+    def _record_suppression(self, insight: dict, reason: str):
         """Buffers a suppressed insight for transparency audit."""
         key = f"{insight['engine_name']}:{insight['pattern_type']}:{insight['pattern_id']}"
         self.last_suppressed_insights[key] = {
@@ -295,7 +298,7 @@ class PersonalAICompanion:
             "timestamp": datetime.now().isoformat()
         }
 
-    def _filter_by_confidence(self, items: List[Dict], min_level: str = "medium") -> List[Dict]:
+    def _filter_by_confidence(self, items: list[dict], min_level: str = "medium") -> list[dict]:
         ranks = {'low': 0, 'medium': 1, 'high': 2}
         min_val = ranks.get(min_level, 1)
         filtered = []
@@ -333,7 +336,7 @@ class PersonalAICompanion:
             logger.error(f"Failed to retrieve context: {e}")
             return "Could not retrieve memories."
 
-    def get_conversation_history(self) -> List[Dict[str, str]]:
+    def get_conversation_history(self) -> list[dict[str, str]]:
         """Gets the full in-memory history for the current session."""
         return self.memory.get_full_history()
 
@@ -350,25 +353,25 @@ class PersonalAICompanion:
 
         # 2. Fetch recent context
         aggregated_context = self._get_aggregated_context("Initial session greeting")
-        
+
         if is_new_user:
             prompt_hint = "The user has just signed up and opened the chat for the first time. Generate a warm, welcoming introduction as Iris. Explain briefly that you are a companion who helps notice patterns in their habits and reflections. Keep it very short (2 sentences)."
         else:
             prompt_hint = "The user is returning for a new session. Generate a warm, very short (1-2 sentences) greeting. If there are interesting recent patterns or reflections in the context, mention them casually. If not, just a warm welcome back."
-        
+
         system_prompt = f"{SYSTEM_PROMPT}\n\n{aggregated_context}\n\nIMPORTANT: You are just saying hello. Keep it extremely natural and brief."
         messages = [{"role": "user", "content": f"[SYSTEM TRIGGER: {prompt_hint}]"}]
-        
+
         response_text = self.intelligence.chat(
             messages=messages,
             system_prompt=system_prompt,
             temperature=DEFAULT_TEMPERATURE,
             max_tokens=100
         )
-        
+
         return response_text
 
-    def generate_proactive_comment(self, action_type: str, details: Dict) -> str:
+    def generate_proactive_comment(self, action_type: str, details: dict) -> str:
         """
         Generates a proactive comment based on a user action.
         Does not require a user message to trigger.
@@ -384,12 +387,12 @@ class PersonalAICompanion:
 
         # Build context
         aggregated_context = self._get_aggregated_context(prompt_hint)
-        
+
         system_prompt = f"{SYSTEM_PROMPT}\n\n{aggregated_context}\n\nIMPORTANT: You are initiating this thought yourself based on what you just noticed. Keep it short (1-3 sentences) and very human."
-        
+
         # We use a hidden system prompt to guide the "start" of the conversation
         messages = [{"role": "user", "content": f"[SYSTEM TRIGGER: {prompt_hint}]"}]
-        
+
         response_text = self.intelligence.chat(
             messages=messages,
             system_prompt=system_prompt,

@@ -5,23 +5,24 @@ It handles authentication, routing requests to the right companion instance, and
 """
 
 import logging
+
 from agent.logging_config import configure_logging
 
 # Configure logging first, before any other imports
 configure_logging()
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, Response
-from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel
-from datetime import datetime, timedelta, date, UTC
-from typing import Optional, List
-import os
 import json
-from dotenv import load_dotenv
+import os
 from contextlib import asynccontextmanager
+from datetime import UTC, date, datetime, timedelta
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 # Load environment variables
 load_dotenv()
@@ -30,9 +31,9 @@ load_dotenv()
 try:
     from agent.core import PersonalAICompanion
     from agent.database import db
+    from agent.insights_service import InsightsService
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
-    from agent.insights_service import InsightsService
 
     COMPANION_AVAILABLE = True
     logger.info("PersonalAICompanion and db imported successfully")
@@ -74,40 +75,40 @@ app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 class HabitCreate(BaseModel):
     """Create a new habit"""
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     frequency_type: str = "daily"  # daily, weekly, specific_days
     habit_type: str = "completion"  # completion, duration, count
     weekly_target: float = 0
-    tracking_metric: Optional[str] = "completion"
-    category: Optional[str] = "general"
+    tracking_metric: str | None = "completion"
+    category: str | None = "general"
 
 class HabitUpdate(BaseModel):
     """Update habit fields"""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    habit_type: Optional[str] = None
-    weekly_target: Optional[float] = None
-    tracking_metric: Optional[str] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    description: str | None = None
+    habit_type: str | None = None
+    weekly_target: float | None = None
+    tracking_metric: str | None = None
+    is_active: bool | None = None
 
 class HabitCompletion(BaseModel):
     """Log a habit completion"""
     habit_id: int
     value: float = 1.0
-    date: Optional[str] = None  # ISO date string, defaults to today
-    notes: Optional[str] = None
+    date: str | None = None  # ISO date string, defaults to today
+    notes: str | None = None
 
 class HabitSkip(BaseModel):
     """Log a habit skip"""
     habit_id: int
-    date: Optional[str] = None  # ISO date string, defaults to today
-    reason: Optional[str] = None
+    date: str | None = None  # ISO date string, defaults to today
+    reason: str | None = None
 
 class HabitResponse(BaseModel):
     """Habit response model"""
     id: int
     name: str
-    description: Optional[str]
+    description: str | None
     frequency_type: str
     category: str
     is_active: bool
@@ -124,27 +125,27 @@ class HabitResponse(BaseModel):
 class ReflectionCreate(BaseModel):
     """Create a new reflection"""
     content: str
-    energy_level: Optional[int] = None  # 1-10
-    clarity_level: Optional[int] = None # 1-10
-    tags: Optional[List[str]] = None
-    reflection_date: Optional[str] = None  # ISO date string
+    energy_level: int | None = None  # 1-10
+    clarity_level: int | None = None # 1-10
+    tags: list[str] | None = None
+    reflection_date: str | None = None  # ISO date string
 
 class ReflectionUpdate(BaseModel):
     """Update reflection fields"""
-    content: Optional[str] = None
-    energy_level: Optional[int] = None
-    clarity_level: Optional[int] = None
-    tags: Optional[List[str]] = None
+    content: str | None = None
+    energy_level: int | None = None
+    clarity_level: int | None = None
+    tags: list[str] | None = None
 
 class ReflectionResponse(BaseModel):
     """Reflection response model"""
     id: int
     reflection_date: str
     content: str
-    mood: Optional[str]
-    energy_level: Optional[int]
-    clarity_level: Optional[int]
-    tags: Optional[List[str]]
+    mood: str | None
+    energy_level: int | None
+    clarity_level: int | None
+    tags: list[str] | None
     created_at: str
     updated_at: str
 
@@ -343,15 +344,15 @@ async def stream_conversation_reply(
 class AppHabitCreate(BaseModel):
     """Habit create payload from the integrated frontend (Pick<Habit,'name'|'tag'|'intent'|'color'>)."""
     name: str
-    tag: Optional[str] = None
-    intent: Optional[str] = None
-    color: Optional[str] = None
+    tag: str | None = None
+    intent: str | None = None
+    color: str | None = None
 
 
 class HabitToggle(BaseModel):
     """Toggle a habit's completion for a date (defaults to today)."""
     done: bool
-    date: Optional[str] = None  # ISO date string
+    date: str | None = None  # ISO date string
 
 
 # Stable theme colors assigned deterministically when a habit has none stored.
@@ -448,7 +449,7 @@ async def get_weekly_summary(user_id: int = Depends(get_current_user_id)):
 @app.get("/api/habits/consistency/{days}")
 async def get_consistency_report(days: int = 30, user_id: int = Depends(get_current_user_id)):
     """Get consistency report across all habits"""
-    
+
     tracker = HabitTracker(user_id)
     report = tracker.get_consistency_report(days)
     return report
@@ -468,7 +469,7 @@ async def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depen
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     update_dict = updates.dict(exclude_none=True)
     tracker.update_habit(habit_id, **update_dict)
     return {"message": "Habit updated successfully"}
@@ -479,7 +480,7 @@ async def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     tracker.delete_habit(habit_id)
     return {"message": "Habit deleted successfully"}
 
@@ -487,10 +488,10 @@ async def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id
 async def log_completion(completion: HabitCompletion, user_id: int = Depends(get_current_user_id)):
     """Log a habit completion"""
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(completion.habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse date if provided
     completion_date = None
     if completion.date:
@@ -498,10 +499,10 @@ async def log_completion(completion: HabitCompletion, user_id: int = Depends(get
             completion_date = datetime.fromisoformat(completion.date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     tracker.log_completion(completion.habit_id, completion_date, completion.value, completion.notes)
     streak_info = tracker.update_streaks(completion.habit_id)
-    
+
     return {
         "message": "Completion logged successfully",
         "streaks": streak_info
@@ -511,10 +512,10 @@ async def log_completion(completion: HabitCompletion, user_id: int = Depends(get
 async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id)):
     """Log a habit skip"""
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(skip.habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse date if provided
     skip_date = None
     if skip.date:
@@ -522,7 +523,7 @@ async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id))
             skip_date = datetime.fromisoformat(skip.date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     tracker.log_skip(skip.habit_id, skip_date, skip.reason)
     return {"message": "Skip logged successfully"}
 
@@ -530,17 +531,17 @@ async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id))
 async def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int = Depends(get_current_user_id)):
     """Get a calendar view of habit completions in a date range"""
     tracker = HabitTracker(user_id)
-    
+
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
-    
+
     # Parse dates
     try:
         start_date = datetime.fromisoformat(start).date()
         end_date = datetime.fromisoformat(end).date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     calendar = tracker.get_calendar(habit_id, start_date, end_date)
     return {"calendar": calendar, "habit_id": habit_id}
 
@@ -560,7 +561,7 @@ async def list_reflections(user_id: int = Depends(get_current_user_id), limit: i
 async def create_reflection(reflection: ReflectionCreate, user_id: int = Depends(get_current_user_id)):
     """Create a new reflection"""
     service = ReflectionService(user_id)
-    
+
     # Parse date if provided
     reflection_date = None
     if reflection.reflection_date:
@@ -568,7 +569,7 @@ async def create_reflection(reflection: ReflectionCreate, user_id: int = Depends
             reflection_date = datetime.fromisoformat(reflection.reflection_date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    
+
     try:
         reflection_id = service.create_reflection(
             content=reflection.content,
@@ -611,20 +612,20 @@ async def get_reflection(reflection_id: int, user_id: int = Depends(get_current_
     """Get a specific reflection"""
     service = ReflectionService(user_id)
     reflection = service.get_reflection(reflection_id)
-    
+
     if not reflection:
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     return reflection
 
 @app.put("/api/reflections/{reflection_id}")
 async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_id: int = Depends(get_current_user_id)):
     """Update a reflection"""
     service = ReflectionService(user_id)
-    
+
     if not service.get_reflection(reflection_id):
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     try:
         update_dict = updates.dict(exclude_none=True)
         service.update_reflection(reflection_id, **update_dict)
@@ -636,10 +637,10 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_
 async def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
     """Delete a reflection"""
     service = ReflectionService(user_id)
-    
+
     if not service.get_reflection(reflection_id):
         raise HTTPException(status_code=404, detail="Reflection not found")
-    
+
     service.delete_reflection(reflection_id)
     return {"message": "Reflection deleted successfully"}
 
@@ -650,8 +651,8 @@ async def delete_reflection(reflection_id: int, user_id: int = Depends(get_curre
 
 class JournalCreate(BaseModel):
     """Journal create payload from the frontend (Pick<JournalEntry,'lines'|'mood'>)."""
-    lines: List[str]
-    mood: Optional[int] = None  # 1-10, stored as the reflection's energy_level
+    lines: list[str]
+    mood: int | None = None  # 1-10, stored as the reflection's energy_level
 
 
 def _reflection_to_journal(r: dict, user_id: int) -> dict:
@@ -670,7 +671,7 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
 
 @app.get("/api/journal")
 async def list_journal(user_id: int = Depends(get_current_user_id),
-                       limit: int = 50, cursor: Optional[str] = None):
+                       limit: int = 50, cursor: str | None = None):
     """Return reflections as the frontend `JournalListResponse` (newest first).
 
     `cursor` is the id of the last entry of the previous page; `nextCursor` is
@@ -1089,7 +1090,7 @@ def _generate_review_letter(user_id, week_start, week_end, mood_avg, mood_delta,
         "Write the letter."
     )
     try:
-        intelligence = core_module.Intelligence(model="gpt-4.1-mini")
+        intelligence = core_module.Intelligence()
         text = intelligence.chat(
             messages=[{"role": "user", "content": prompt}],
             system_prompt=system,

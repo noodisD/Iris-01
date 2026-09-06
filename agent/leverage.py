@@ -12,20 +12,22 @@ The engine does not judge. It simply observes co-occurrence asymmetry and tempor
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple, Any
-import numpy as np
+from typing import Any
+
+from .confidence import ConfidenceEngine
+from .constants import (
+    LEVERAGE_ASYMMETRY_THRESHOLD,
+    LEVERAGE_MIN_CO_OCCURRENCES,
+    LEVERAGE_MIN_OCCURRENCES,
+    LEVERAGE_TIME_LAG_DAYS,
+    LEVERAGE_WINDOW_DAYS,
+)
+from .database import confidence as confidence_repo
+from .database import leverage as leverage_repo
 
 # Import database and constants
-from .database import db, leverage as leverage_repo, themes, confidence as confidence_repo, evidence as evidence_repo
-from .confidence import ConfidenceEngine
+from .database import themes
 from .evidence import EvidenceEngine
-from .constants import (
-    LEVERAGE_WINDOW_DAYS,
-    LEVERAGE_TIME_LAG_DAYS,
-    LEVERAGE_MIN_OCCURRENCES,
-    LEVERAGE_MIN_CO_OCCURRENCES,
-    LEVERAGE_ASYMMETRY_THRESHOLD
-)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ class LeverageEngine:
         """Buffers evidence for later persistence."""
         self._evidence.append({"type": ev_type, "key": key, "value": value})
 
-    def analyze_all_leverage(self, force_recompute: bool = False) -> List[Dict]:
+    def analyze_all_leverage(self, force_recompute: bool = False) -> list[dict]:
         """
         Performs a global scan for leverage relationships among recent/active themes.
         """
@@ -56,27 +58,27 @@ class LeverageEngine:
 
         results = []
         # 2. Pairwise scan (O(N^2))
-        for i, source in enumerate(active_themes):
+        for source in active_themes:
             for target in active_themes:
                 if source['id'] == target['id']:
                     continue
-                
+
                 result = self.analyze_pair('theme', source['id'], 'theme', target['id'])
                 if result and result['influence_score'] >= LEVERAGE_ASYMMETRY_THRESHOLD:
                     result['source_summary'] = source['summary']
                     result['target_summary'] = target['summary']
                     results.append(result)
-        
+
         return results
 
-    def analyze_pair(self, source_type: str, source_id: int, 
-                    target_type: str, target_id: int) -> Optional[Dict]:
+    def analyze_pair(self, source_type: str, source_id: int,
+                    target_type: str, target_id: int) -> dict | None:
         """
         Calculates directional lift and influence for a specific pair.
         """
         # 1. Gather occurrences within window
         recent_start = datetime.now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
-        
+
         source_occs = self._get_occurrences(source_type, source_id, recent_start)
         target_occs = self._get_occurrences(target_type, target_id, recent_start)
 
@@ -87,17 +89,17 @@ class LeverageEngine:
         forward_count = 0  # A -> B
         backward_count = 0 # B -> A
         simultaneous_count = 0
-        
+
         for s_at in source_occs:
             for t_at in target_occs:
                 if self._is_simultaneous(s_at, t_at):
                     simultaneous_count += 1
                     continue
-                
+
                 delta = (t_at - s_at).days
                 if 0 < delta <= LEVERAGE_TIME_LAG_DAYS:
                     forward_count += 1
-                
+
                 delta_back = (s_at - t_at).days
                 if 0 < delta_back <= LEVERAGE_TIME_LAG_DAYS:
                     backward_count += 1
@@ -111,23 +113,23 @@ class LeverageEngine:
         # P(A|B) = Backward / Total(B)
         p_b_given_a = forward_count / len(source_occs)
         p_a_given_b = backward_count / len(target_occs)
-        
+
         lift = p_b_given_a - p_a_given_b
         influence_score = max(0.0, min(1.0, lift))
-        
+
         # 4. Confidence level using central engine
         # For leverage, the 'timestamps' are the co-occurrences
         self._evidence = [] # Clear buffer
         conf = self.conf_engine.compute_confidence('leverage', source_id, source_occs)
         confidence = conf['confidence_level']
-        
+
         # Emit evidence
         self.emit_evidence('count', 'forward_count', forward_count)
         self.emit_evidence('count', 'backward_count', backward_count)
         self.emit_evidence('count', 'simultaneous_count', simultaneous_count)
         self.emit_evidence('delta', 'directional_lift', lift)
         self.emit_evidence('rate', 'p_target_given_source', p_b_given_a)
-        
+
         # Store in central registry
         confidence_repo.create_or_update(
             'leverage', source_id,
@@ -135,10 +137,10 @@ class LeverageEngine:
             conf['data_points_count'], conf['time_coverage_days'],
             conf['consistency_score'], conf['recency_score']
         )
-        
+
         # Store in evidence registry
         self.ev_engine.record_evidence('leverage', 'theme', source_id, self._evidence)
-        
+
         # 5. Store in DB
         leverage_repo.create_or_update_pair(
             source_type=source_type,
@@ -150,7 +152,7 @@ class LeverageEngine:
             cooccurrence_count=total_cooccurrence,
             confidence_level=confidence
         )
-        
+
         return {
             "source_id": source_id,
             "target_id": target_id,
@@ -169,7 +171,7 @@ class LeverageEngine:
         resolutions = {r['theme_id']: r for r in res_engine.analyze_all_themes()}
 
         sources = leverage_repo.get_high_leverage_sources(self.user_id, min_confidence='medium')
-        
+
         filtered_sources = []
         for s in sources:
             res = resolutions.get(s['source_id'])
@@ -181,21 +183,21 @@ class LeverageEngine:
             return ""
 
         filtered_sources = filtered_sources[:max_items]
-        
+
         lines = ["# Observed Structural Drivers:"]
         for s in filtered_sources:
             summary = s['summary']
             lines.append(f"- Pattern '{summary}' frequently precedes several other patterns in your recent history.")
-            
+
         return "\n".join(lines)
 
     # --- Private Helpers ---
 
-    def _get_active_themes(self) -> List[Dict]:
+    def _get_active_themes(self) -> list[dict]:
         """Returns themes active in the leverage window with enough data."""
         all_themes = themes.get_all_themes(self.user_id)
         active = [t for t in all_themes if t['occurrence_count'] >= LEVERAGE_MIN_OCCURRENCES]
-        
+
         recent_start = datetime.now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
         refined = []
         for t in active:
@@ -203,10 +205,10 @@ class LeverageEngine:
             if len(occs) >= LEVERAGE_MIN_OCCURRENCES:
                 t['recent_occs_count'] = len(occs)
                 refined.append(t)
-        
+
         return refined
 
-    def _get_occurrences(self, p_type: str, p_id: int, since: datetime) -> List[datetime]:
+    def _get_occurrences(self, p_type: str, p_id: int, since: datetime) -> list[datetime]:
         """Fetches timestamps for a pattern within a window."""
         if p_type == 'theme':
             occs = themes.get_occurrences(p_id)
@@ -220,7 +222,7 @@ class LeverageEngine:
                 dt = datetime.fromisoformat(str(dt))
             if dt.tzinfo is not None:
                 dt = dt.replace(tzinfo=None)
-            
+
             if dt >= since:
                 times.append(dt)
         return sorted(times)

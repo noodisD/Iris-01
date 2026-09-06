@@ -6,11 +6,13 @@ It provides a single source of truth for the companion's analytical sensitivity.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any
+
+from .constants import ENGINE_PRIORITY
 
 # Import database and constants
-from .database import db, preferences as pref_repo
-from .constants import ENGINE_PRIORITY
+from .database import db
+from .database import preferences as pref_repo
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +31,20 @@ class UserPreferencesService:
     def __init__(self, user_id: int):
         self.user_id = user_id
 
-    def get_prefs(self) -> Dict[str, Any]:
+    def get_prefs(self) -> dict[str, Any]:
         """
         Loads user preferences from DB, falling back to system defaults.
         """
         stored = pref_repo.get_preferences(self.user_id)
         if not stored:
             return self.DEFAULT_PREFS.copy()
-        
+
         # Merge stored with defaults to ensure all keys exist
         prefs = self.DEFAULT_PREFS.copy()
         prefs.update(stored)
         return prefs
 
-    def update_pref(self, key: str, value: Any) -> Dict[str, Any]:
+    def update_pref(self, key: str, value: Any) -> dict[str, Any]:
         """
         Validates and updates a specific preference.
         """
@@ -50,7 +52,7 @@ class UserPreferencesService:
         pref_repo.update_preference(self.user_id, key, value)
         return self.get_prefs()
 
-    def reset(self) -> Dict[str, Any]:
+    def reset(self) -> dict[str, Any]:
         """
         Restores system defaults for the user.
         """
@@ -64,7 +66,7 @@ class UserPreferencesService:
         if key == "min_confidence":
             if value not in ["low", "medium", "high"]:
                 raise ValueError("min_confidence must be 'low', 'medium', or 'high'")
-        
+
         elif key == "max_items":
             try:
                 v = int(value)
@@ -72,7 +74,7 @@ class UserPreferencesService:
                     raise ValueError("max_items must be between 1 and 10")
             except (TypeError, ValueError):
                 raise ValueError("max_items must be an integer between 1 and 10")
-        
+
         elif key == "enabled_engines":
             if value is not None:
                 if not isinstance(value, list):
@@ -82,10 +84,10 @@ class UserPreferencesService:
                 for e in value:
                     if e not in all_engines:
                         raise ValueError(f"Invalid engine name: {e}")
-        
+
         elif key == "show_suppressed":
             if not isinstance(value, bool):
                 raise ValueError("show_suppressed must be a boolean")
-        
+
         else:
             raise ValueError(f"Unknown setting: {key}")

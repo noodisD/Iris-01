@@ -1,0 +1,1603 @@
+{
+  "columns": {
+    "conversation_messages": {
+      "content": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "processing_status": {
+        "default": "'pending'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "role": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "session_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "decision_impacts": {
+      "anchor_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "anchor_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "anchor_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "delta_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "effect_direction": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "target_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "target_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "target_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
+    "embeddings": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "model_name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "source_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "vector": {
+        "default": null,
+        "nullable": "NO",
+        "type": "USER-DEFINED"
+      }
+    },
+    "habit_completions": {
+      "completed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "completion_date": {
+        "default": null,
+        "nullable": "NO",
+        "type": "date"
+      },
+      "habit_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "is_completed": {
+        "default": "true",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "is_skipped": {
+        "default": "false",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "notes": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "processing_status": {
+        "default": "'pending'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "skip_reason": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "value": {
+        "default": "1.0",
+        "nullable": "YES",
+        "type": "double precision"
+      }
+    },
+    "habits": {
+      "category": {
+        "default": "'general'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "current_streak": {
+        "default": "0",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "description": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "frequency_target": {
+        "default": "1",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "frequency_type": {
+        "default": "'daily'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "habit_type": {
+        "default": "'completion'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "is_active": {
+        "default": "true",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "longest_streak": {
+        "default": "0",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "processing_status": {
+        "default": "'pending'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "specific_days": {
+        "default": null,
+        "nullable": "YES",
+        "type": "ARRAY"
+      },
+      "total_completions": {
+        "default": "0",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "tracking_metric": {
+        "default": "'completion'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "weekly_target": {
+        "default": "0",
+        "nullable": "YES",
+        "type": "double precision"
+      }
+    },
+    "insight_priorities": {
+      "computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "engine_name": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "insight_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "pattern_type": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "priority_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "rank": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      }
+    },
+    "insight_status": {
+      "insight_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "seen": {
+        "default": "false",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "snoozed_until": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "status": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "journal_entries": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "processing_status": {
+        "default": "'pending'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "raw_text": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "wellbeing_data": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      }
+    },
+    "pattern_confidence": {
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "confidence_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "consistency_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "data_points_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "pattern_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "recency_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "time_coverage_days": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      }
+    },
+    "pattern_evidence": {
+      "computation_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "uuid"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "engine_name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "evidence_key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "evidence_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "evidence_value": {
+        "default": null,
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "pattern_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
+    "pattern_leverage": {
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "cooccurrence_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "directional_lift": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "influence_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "source_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "target_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "target_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
+    "pattern_resolutions": {
+      "attenuation_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "past_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "pattern_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "recent_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "resolution_label": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      }
+    },
+    "preference_audit": {
+      "changed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "new_value": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "old_value": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "setting_key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "reflections": {
+      "clarity_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "smallint"
+      },
+      "content": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "energy_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "smallint"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "mood": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "processing_status": {
+        "default": "'pending'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "reflection_date": {
+        "default": null,
+        "nullable": "NO",
+        "type": "date"
+      },
+      "tags": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "theme_occurrences": {
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "occurred_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "similarity_score": {
+        "default": null,
+        "nullable": "NO",
+        "type": "double precision"
+      },
+      "snippet": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "source_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "theme_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "theme_tensions": {
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "cooccurrence_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "divergence_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "past_cooccurrence_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "recent_cooccurrence_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "stability_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "tension_label": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "theme_a_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "theme_b_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      }
+    },
+    "theme_trajectories": {
+      "confidence_level": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "data_points_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "last_computed_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "past_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "recent_count": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "theme_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "trajectory_label": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "trend_score": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      }
+    },
+    "themes": {
+      "centroid_embedding": {
+        "default": null,
+        "nullable": "NO",
+        "type": "USER-DEFINED"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "first_seen_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_seen_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "occurrence_count": {
+        "default": "1",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "summary": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "user_app_settings": {
+      "connectors": {
+        "default": "'{}'::jsonb",
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "daily_checkin_time": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "density": {
+        "default": "'balanced'::text",
+        "nullable": "YES",
+        "type": "text"
+      },
+      "max_nudges_per_day": {
+        "default": "3",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "name": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "onboarding_answers": {
+        "default": "'{}'::jsonb",
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "onboarding_completed": {
+        "default": "false",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "threads": {
+        "default": "'[]'::jsonb",
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "timezone": {
+        "default": "'UTC'::text",
+        "nullable": "YES",
+        "type": "text"
+      },
+      "tone": {
+        "default": "'warm'::text",
+        "nullable": "YES",
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "weekly_review_time": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      }
+    },
+    "user_preferences": {
+      "enabled_engines": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "max_items": {
+        "default": "5",
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "min_confidence": {
+        "default": "'medium'::character varying",
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "show_suppressed": {
+        "default": "false",
+        "nullable": "YES",
+        "type": "boolean"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "users": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "password_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "username": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    }
+  },
+  "constraints": {
+    "conversation_messages": {
+      "conversation_messages_content_not_null": {
+        "definition": "NOT NULL content",
+        "type": "n"
+      },
+      "conversation_messages_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "conversation_messages_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "conversation_messages_role_not_null": {
+        "definition": "NOT NULL role",
+        "type": "n"
+      },
+      "conversation_messages_session_id_not_null": {
+        "definition": "NOT NULL session_id",
+        "type": "n"
+      },
+      "conversation_messages_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "type": "f"
+      },
+      "conversation_messages_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "decision_impacts": {
+      "decision_impacts_anchor_id_not_null": {
+        "definition": "NOT NULL anchor_id",
+        "type": "n"
+      },
+      "decision_impacts_anchor_type_anchor_id_target_type_target_i_key": {
+        "definition": "UNIQUE (anchor_type, anchor_id, target_type, target_id)",
+        "type": "u"
+      },
+      "decision_impacts_anchor_type_not_null": {
+        "definition": "NOT NULL anchor_type",
+        "type": "n"
+      },
+      "decision_impacts_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "decision_impacts_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "decision_impacts_target_id_not_null": {
+        "definition": "NOT NULL target_id",
+        "type": "n"
+      },
+      "decision_impacts_target_type_not_null": {
+        "definition": "NOT NULL target_type",
+        "type": "n"
+      }
+    },
+    "embeddings": {
+      "embeddings_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "embeddings_model_name_not_null": {
+        "definition": "NOT NULL model_name",
+        "type": "n"
+      },
+      "embeddings_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "embeddings_source_id_not_null": {
+        "definition": "NOT NULL source_id",
+        "type": "n"
+      },
+      "embeddings_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      },
+      "embeddings_source_type_source_id_model_name_key": {
+        "definition": "UNIQUE (source_type, source_id, model_name)",
+        "type": "u"
+      },
+      "embeddings_vector_not_null": {
+        "definition": "NOT NULL vector",
+        "type": "n"
+      }
+    },
+    "habit_completions": {
+      "habit_completions_completion_date_not_null": {
+        "definition": "NOT NULL completion_date",
+        "type": "n"
+      },
+      "habit_completions_habit_id_completion_date_key": {
+        "definition": "UNIQUE (habit_id, completion_date)",
+        "type": "u"
+      },
+      "habit_completions_habit_id_fkey": {
+        "definition": "FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "habit_completions_habit_id_not_null": {
+        "definition": "NOT NULL habit_id",
+        "type": "n"
+      },
+      "habit_completions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "habit_completions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
+    "habits": {
+      "habits_frequency_type_check": {
+        "definition": "CHECK (((frequency_type)::text = ANY ((ARRAY['daily'::character varying, 'weekly'::character varying, 'specific_days'::character varying])::text[])))",
+        "type": "c"
+      },
+      "habits_frequency_type_not_null": {
+        "definition": "NOT NULL frequency_type",
+        "type": "n"
+      },
+      "habits_habit_type_check": {
+        "definition": "CHECK (((habit_type)::text = ANY ((ARRAY['completion'::character varying, 'duration'::character varying, 'count'::character varying])::text[])))",
+        "type": "c"
+      },
+      "habits_habit_type_not_null": {
+        "definition": "NOT NULL habit_type",
+        "type": "n"
+      },
+      "habits_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "habits_name_not_null": {
+        "definition": "NOT NULL name",
+        "type": "n"
+      },
+      "habits_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "habits_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "habits_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "insight_priorities": {
+      "insight_priorities_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "insight_priorities_insight_id_key": {
+        "definition": "UNIQUE (insight_id)",
+        "type": "u"
+      },
+      "insight_priorities_insight_id_not_null": {
+        "definition": "NOT NULL insight_id",
+        "type": "n"
+      },
+      "insight_priorities_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
+    "insight_status": {
+      "insight_status_insight_id_not_null": {
+        "definition": "NOT NULL insight_id",
+        "type": "n"
+      },
+      "insight_status_pkey": {
+        "definition": "PRIMARY KEY (user_id, insight_id)",
+        "type": "p"
+      },
+      "insight_status_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "insight_status_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "journal_entries": {
+      "journal_entries_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "journal_entries_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "journal_entries_raw_text_not_null": {
+        "definition": "NOT NULL raw_text",
+        "type": "n"
+      },
+      "journal_entries_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "type": "f"
+      },
+      "journal_entries_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "pattern_confidence": {
+      "pattern_confidence_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "pattern_confidence_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "pattern_confidence_pattern_type_not_null": {
+        "definition": "NOT NULL pattern_type",
+        "type": "n"
+      },
+      "pattern_confidence_pattern_type_pattern_id_key": {
+        "definition": "UNIQUE (pattern_type, pattern_id)",
+        "type": "u"
+      },
+      "pattern_confidence_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
+    "pattern_evidence": {
+      "pattern_evidence_computation_id_not_null": {
+        "definition": "NOT NULL computation_id",
+        "type": "n"
+      },
+      "pattern_evidence_engine_name_not_null": {
+        "definition": "NOT NULL engine_name",
+        "type": "n"
+      },
+      "pattern_evidence_evidence_key_not_null": {
+        "definition": "NOT NULL evidence_key",
+        "type": "n"
+      },
+      "pattern_evidence_evidence_type_not_null": {
+        "definition": "NOT NULL evidence_type",
+        "type": "n"
+      },
+      "pattern_evidence_evidence_value_not_null": {
+        "definition": "NOT NULL evidence_value",
+        "type": "n"
+      },
+      "pattern_evidence_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "pattern_evidence_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "pattern_evidence_pattern_type_not_null": {
+        "definition": "NOT NULL pattern_type",
+        "type": "n"
+      },
+      "pattern_evidence_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
+    "pattern_leverage": {
+      "pattern_leverage_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "pattern_leverage_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "pattern_leverage_source_id_not_null": {
+        "definition": "NOT NULL source_id",
+        "type": "n"
+      },
+      "pattern_leverage_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      },
+      "pattern_leverage_source_type_source_id_target_type_target_i_key": {
+        "definition": "UNIQUE (source_type, source_id, target_type, target_id)",
+        "type": "u"
+      },
+      "pattern_leverage_target_id_not_null": {
+        "definition": "NOT NULL target_id",
+        "type": "n"
+      },
+      "pattern_leverage_target_type_not_null": {
+        "definition": "NOT NULL target_type",
+        "type": "n"
+      }
+    },
+    "pattern_resolutions": {
+      "pattern_resolutions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "pattern_resolutions_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "pattern_resolutions_pattern_type_not_null": {
+        "definition": "NOT NULL pattern_type",
+        "type": "n"
+      },
+      "pattern_resolutions_pattern_type_pattern_id_key": {
+        "definition": "UNIQUE (pattern_type, pattern_id)",
+        "type": "u"
+      },
+      "pattern_resolutions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
+    "preference_audit": {
+      "preference_audit_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "preference_audit_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "preference_audit_setting_key_not_null": {
+        "definition": "NOT NULL setting_key",
+        "type": "n"
+      },
+      "preference_audit_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "preference_audit_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "reflections": {
+      "reflections_clarity_level_check": {
+        "definition": "CHECK (((clarity_level >= 1) AND (clarity_level <= 10)))",
+        "type": "c"
+      },
+      "reflections_content_not_null": {
+        "definition": "NOT NULL content",
+        "type": "n"
+      },
+      "reflections_energy_level_check": {
+        "definition": "CHECK (((energy_level >= 1) AND (energy_level <= 10)))",
+        "type": "c"
+      },
+      "reflections_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "reflections_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "reflections_reflection_date_not_null": {
+        "definition": "NOT NULL reflection_date",
+        "type": "n"
+      },
+      "reflections_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "reflections_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "theme_occurrences": {
+      "theme_occurrences_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "theme_occurrences_occurred_at_not_null": {
+        "definition": "NOT NULL occurred_at",
+        "type": "n"
+      },
+      "theme_occurrences_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "theme_occurrences_similarity_score_not_null": {
+        "definition": "NOT NULL similarity_score",
+        "type": "n"
+      },
+      "theme_occurrences_source_id_not_null": {
+        "definition": "NOT NULL source_id",
+        "type": "n"
+      },
+      "theme_occurrences_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      },
+      "theme_occurrences_theme_id_fkey": {
+        "definition": "FOREIGN KEY (theme_id) REFERENCES themes(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "theme_occurrences_theme_id_not_null": {
+        "definition": "NOT NULL theme_id",
+        "type": "n"
+      },
+      "theme_occurrences_theme_id_source_type_source_id_key": {
+        "definition": "UNIQUE (theme_id, source_type, source_id)",
+        "type": "u"
+      }
+    },
+    "theme_tensions": {
+      "theme_tensions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "theme_tensions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "theme_tensions_theme_a_id_fkey": {
+        "definition": "FOREIGN KEY (theme_a_id) REFERENCES themes(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "theme_tensions_theme_a_id_theme_b_id_key": {
+        "definition": "UNIQUE (theme_a_id, theme_b_id)",
+        "type": "u"
+      },
+      "theme_tensions_theme_b_id_fkey": {
+        "definition": "FOREIGN KEY (theme_b_id) REFERENCES themes(id) ON DELETE CASCADE",
+        "type": "f"
+      }
+    },
+    "theme_trajectories": {
+      "theme_trajectories_pkey": {
+        "definition": "PRIMARY KEY (theme_id)",
+        "type": "p"
+      },
+      "theme_trajectories_theme_id_fkey": {
+        "definition": "FOREIGN KEY (theme_id) REFERENCES themes(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "theme_trajectories_theme_id_not_null": {
+        "definition": "NOT NULL theme_id",
+        "type": "n"
+      }
+    },
+    "themes": {
+      "themes_centroid_embedding_not_null": {
+        "definition": "NOT NULL centroid_embedding",
+        "type": "n"
+      },
+      "themes_first_seen_at_not_null": {
+        "definition": "NOT NULL first_seen_at",
+        "type": "n"
+      },
+      "themes_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "themes_last_seen_at_not_null": {
+        "definition": "NOT NULL last_seen_at",
+        "type": "n"
+      },
+      "themes_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "themes_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "type": "f"
+      },
+      "themes_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "user_app_settings": {
+      "user_app_settings_pkey": {
+        "definition": "PRIMARY KEY (user_id)",
+        "type": "p"
+      },
+      "user_app_settings_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "user_app_settings_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "user_preferences": {
+      "user_preferences_min_confidence_check": {
+        "definition": "CHECK (((min_confidence)::text = ANY ((ARRAY['low'::character varying, 'medium'::character varying, 'high'::character varying])::text[])))",
+        "type": "c"
+      },
+      "user_preferences_pkey": {
+        "definition": "PRIMARY KEY (user_id)",
+        "type": "p"
+      },
+      "user_preferences_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "user_preferences_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "users": {
+      "users_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "users_password_hash_not_null": {
+        "definition": "NOT NULL password_hash",
+        "type": "n"
+      },
+      "users_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "users_username_key": {
+        "definition": "UNIQUE (username)",
+        "type": "u"
+      },
+      "users_username_not_null": {
+        "definition": "NOT NULL username",
+        "type": "n"
+      }
+    }
+  },
+  "indexes": {
+    "conversation_messages": {
+      "conversation_messages_pkey": "CREATE UNIQUE INDEX conversation_messages_pkey ON public.conversation_messages USING btree (id)"
+    },
+    "decision_impacts": {
+      "decision_impacts_anchor_type_anchor_id_target_type_target_i_key": "CREATE UNIQUE INDEX decision_impacts_anchor_type_anchor_id_target_type_target_i_key ON public.decision_impacts USING btree (anchor_type, anchor_id, target_type, target_id)",
+      "decision_impacts_pkey": "CREATE UNIQUE INDEX decision_impacts_pkey ON public.decision_impacts USING btree (id)"
+    },
+    "embeddings": {
+      "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",
+      "embeddings_source_type_source_id_model_name_key": "CREATE UNIQUE INDEX embeddings_source_type_source_id_model_name_key ON public.embeddings USING btree (source_type, source_id, model_name)",
+      "idx_embeddings_vector_cosine": "CREATE INDEX idx_embeddings_vector_cosine ON public.embeddings USING ivfflat (vector vector_cosine_ops) WITH (lists='100')"
+    },
+    "habit_completions": {
+      "habit_completions_habit_id_completion_date_key": "CREATE UNIQUE INDEX habit_completions_habit_id_completion_date_key ON public.habit_completions USING btree (habit_id, completion_date)",
+      "habit_completions_pkey": "CREATE UNIQUE INDEX habit_completions_pkey ON public.habit_completions USING btree (id)",
+      "idx_completions_habit_date": "CREATE INDEX idx_completions_habit_date ON public.habit_completions USING btree (habit_id, completion_date DESC)",
+      "idx_completions_status_date": "CREATE INDEX idx_completions_status_date ON public.habit_completions USING btree (processing_status, completed_at)"
+    },
+    "habits": {
+      "habits_pkey": "CREATE UNIQUE INDEX habits_pkey ON public.habits USING btree (id)",
+      "idx_habits_status_date": "CREATE INDEX idx_habits_status_date ON public.habits USING btree (processing_status, created_at)",
+      "idx_habits_user_active": "CREATE INDEX idx_habits_user_active ON public.habits USING btree (user_id, is_active)"
+    },
+    "insight_priorities": {
+      "insight_priorities_insight_id_key": "CREATE UNIQUE INDEX insight_priorities_insight_id_key ON public.insight_priorities USING btree (insight_id)",
+      "insight_priorities_pkey": "CREATE UNIQUE INDEX insight_priorities_pkey ON public.insight_priorities USING btree (id)"
+    },
+    "insight_status": {
+      "insight_status_pkey": "CREATE UNIQUE INDEX insight_status_pkey ON public.insight_status USING btree (user_id, insight_id)"
+    },
+    "journal_entries": {
+      "journal_entries_pkey": "CREATE UNIQUE INDEX journal_entries_pkey ON public.journal_entries USING btree (id)"
+    },
+    "pattern_confidence": {
+      "pattern_confidence_pattern_type_pattern_id_key": "CREATE UNIQUE INDEX pattern_confidence_pattern_type_pattern_id_key ON public.pattern_confidence USING btree (pattern_type, pattern_id)",
+      "pattern_confidence_pkey": "CREATE UNIQUE INDEX pattern_confidence_pkey ON public.pattern_confidence USING btree (id)"
+    },
+    "pattern_evidence": {
+      "idx_evidence_pattern": "CREATE INDEX idx_evidence_pattern ON public.pattern_evidence USING btree (pattern_type, pattern_id, created_at DESC)",
+      "pattern_evidence_pkey": "CREATE UNIQUE INDEX pattern_evidence_pkey ON public.pattern_evidence USING btree (id)"
+    },
+    "pattern_leverage": {
+      "pattern_leverage_pkey": "CREATE UNIQUE INDEX pattern_leverage_pkey ON public.pattern_leverage USING btree (id)",
+      "pattern_leverage_source_type_source_id_target_type_target_i_key": "CREATE UNIQUE INDEX pattern_leverage_source_type_source_id_target_type_target_i_key ON public.pattern_leverage USING btree (source_type, source_id, target_type, target_id)"
+    },
+    "pattern_resolutions": {
+      "pattern_resolutions_pattern_type_pattern_id_key": "CREATE UNIQUE INDEX pattern_resolutions_pattern_type_pattern_id_key ON public.pattern_resolutions USING btree (pattern_type, pattern_id)",
+      "pattern_resolutions_pkey": "CREATE UNIQUE INDEX pattern_resolutions_pkey ON public.pattern_resolutions USING btree (id)"
+    },
+    "preference_audit": {
+      "preference_audit_pkey": "CREATE UNIQUE INDEX preference_audit_pkey ON public.preference_audit USING btree (id)"
+    },
+    "reflections": {
+      "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",
+      "idx_reflections_user_date": "CREATE INDEX idx_reflections_user_date ON public.reflections USING btree (user_id, reflection_date DESC)",
+      "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)"
+    },
+    "theme_occurrences": {
+      "idx_occurrences_source": "CREATE INDEX idx_occurrences_source ON public.theme_occurrences USING btree (source_type, source_id)",
+      "idx_occurrences_theme": "CREATE INDEX idx_occurrences_theme ON public.theme_occurrences USING btree (theme_id, occurred_at DESC)",
+      "theme_occurrences_pkey": "CREATE UNIQUE INDEX theme_occurrences_pkey ON public.theme_occurrences USING btree (id)",
+      "theme_occurrences_theme_id_source_type_source_id_key": "CREATE UNIQUE INDEX theme_occurrences_theme_id_source_type_source_id_key ON public.theme_occurrences USING btree (theme_id, source_type, source_id)"
+    },
+    "theme_tensions": {
+      "theme_tensions_pkey": "CREATE UNIQUE INDEX theme_tensions_pkey ON public.theme_tensions USING btree (id)",
+      "theme_tensions_theme_a_id_theme_b_id_key": "CREATE UNIQUE INDEX theme_tensions_theme_a_id_theme_b_id_key ON public.theme_tensions USING btree (theme_a_id, theme_b_id)"
+    },
+    "theme_trajectories": {
+      "theme_trajectories_pkey": "CREATE UNIQUE INDEX theme_trajectories_pkey ON public.theme_trajectories USING btree (theme_id)"
+    },
+    "themes": {
+      "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
+      "idx_themes_user": "CREATE INDEX idx_themes_user ON public.themes USING btree (user_id)",
+      "themes_pkey": "CREATE UNIQUE INDEX themes_pkey ON public.themes USING btree (id)"
+    },
+    "user_app_settings": {
+      "user_app_settings_pkey": "CREATE UNIQUE INDEX user_app_settings_pkey ON public.user_app_settings USING btree (user_id)"
+    },
+    "user_preferences": {
+      "user_preferences_pkey": "CREATE UNIQUE INDEX user_preferences_pkey ON public.user_preferences USING btree (user_id)"
+    },
+    "users": {
+      "users_pkey": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+      "users_username_key": "CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username)"
+    }
+  }
+}

@@ -3,7 +3,9 @@ Tests for the Core Orchestrator.
 """
 
 import pytest
+
 from agent.core import PersonalAICompanion
+
 
 @pytest.fixture
 def companion(test_user):
@@ -29,13 +31,13 @@ def test_chat_method(companion, mocker):
     mock_llm_chat.return_value = "This is the assistant's response."
 
     user_message = "This is a test message."
-    
+
     # 2. Call the chat method
     response = companion.chat(user_message)
-    
+
     # 3. Assertions
     assert response == "This is the assistant's response."
-    
+
     # Check that memory was updated for both user and assistant
     assert mock_add_message.call_count == 2
     mock_add_message.assert_any_call("user", user_message)
@@ -43,7 +45,7 @@ def test_chat_method(companion, mocker):
 
     # Check that the context retrieval was called
     mock_get_context.assert_called_once_with(user_message)
-    
+
     # Check that the LLM was called with the enhanced prompt
     mock_llm_chat.assert_called_once()
     call_args = mock_llm_chat.call_args
@@ -56,9 +58,9 @@ def test_get_relevant_context(companion, mocker):
     # Mock the functions/methods called by _get_relevant_context
     mock_generate_embedding = mocker.patch("agent.core.generate_embedding")
     mock_generate_embedding.return_value = [0.3] * 1536
-    
+
     context = companion._get_relevant_context("Some text")
-    
+
     # Verify embedding was generated
     mock_generate_embedding.assert_called_once_with("Some text")
     # Context retrieval returns stub when no pgvector data exists (expected behavior post-migration)

@@ -3,12 +3,10 @@ End-to-end integration tests for the complete data flow.
 Tests the full pipeline: PostgreSQL → Embedding → pgvector → Themes
 """
 
-import pytest
+from unittest.mock import MagicMock
+
 from agent.database import db
 from agent.pipeline import run_processing_pipeline
-from unittest.mock import patch, MagicMock
-import shutil
-import os
 
 
 def test_complete_journal_entry_flow(test_user, mocker):

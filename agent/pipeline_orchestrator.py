@@ -20,11 +20,10 @@ Benefits:
 - Tests can mock the pipeline or individual gates
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Callable
-from dataclasses import dataclass
-from datetime import datetime
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +51,10 @@ class AnalysisPipeline:
     def __init__(self, user_id: int):
         """Initialize pipeline for a specific user."""
         self.user_id = user_id
-        self.engines: Dict[str, Engine] = {}
-        self.gates: List[Gate] = []
-        self._insights: List[Dict[str, Any]] = []
-        self._suppression_log: Dict[str, List[str]] = {}  # Track why insights were filtered
+        self.engines: dict[str, Engine] = {}
+        self.gates: list[Gate] = []
+        self._insights: list[dict[str, Any]] = []
+        self._suppression_log: dict[str, list[str]] = {}  # Track why insights were filtered
 
     def register_engine(self, name: str, callable: Callable,
                        enabled_by_default: bool = True,
@@ -90,8 +89,8 @@ class AnalysisPipeline:
         self.gates.append(gate)
         self.gates.sort(key=lambda g: g.order)  # Keep sorted
 
-    def run(self, prefs: Optional[Dict[str, Any]] = None,
-            parallel: bool = False) -> List[Dict[str, Any]]:
+    def run(self, prefs: dict[str, Any] | None = None,
+            parallel: bool = False) -> list[dict[str, Any]]:
         """Execute the full pipeline.
 
         Args:
@@ -184,7 +183,7 @@ class AnalysisPipeline:
             if 'label' not in insight:
                 insight['label'] = insight.get('summary', 'Insight')
 
-    def _apply_gates(self, prefs: Dict[str, Any]) -> None:
+    def _apply_gates(self, prefs: dict[str, Any]) -> None:
         """Apply all registered gates in sequence."""
         context = {
             'user_id': self.user_id,
@@ -199,7 +198,7 @@ class AnalysisPipeline:
             except Exception as e:
                 logger.error(f"Gate '{gate.name}' failed: {e}")
 
-    def get_suppression_log(self) -> Dict[str, List[str]]:
+    def get_suppression_log(self) -> dict[str, list[str]]:
         """Return log of why insights were suppressed at each gate."""
         return self._suppression_log
 
@@ -216,8 +215,8 @@ class AnalysisPipeline:
 
 # Standard gate implementations
 
-def engine_enablement_gate(insights: List[Dict[str, Any]],
-                          context: Dict[str, Any]) -> List[Dict[str, Any]]:
+def engine_enablement_gate(insights: list[dict[str, Any]],
+                          context: dict[str, Any]) -> list[dict[str, Any]]:
     """GATE 1: Filter insights by user's enabled_engines preference.
 
     If prefs['enabled_engines'] is None, all engines are allowed.
@@ -246,8 +245,8 @@ def engine_enablement_gate(insights: List[Dict[str, Any]],
     return filtered
 
 
-def confidence_gate(insights: List[Dict[str, Any]],
-                   context: Dict[str, Any]) -> List[Dict[str, Any]]:
+def confidence_gate(insights: list[dict[str, Any]],
+                   context: dict[str, Any]) -> list[dict[str, Any]]:
     """GATE 2: Filter insights by confidence level.
 
     User can set min_confidence in prefs. Insights below that level are dropped.
@@ -278,8 +277,8 @@ def confidence_gate(insights: List[Dict[str, Any]],
     return filtered
 
 
-def budget_gate(insights: List[Dict[str, Any]],
-               context: Dict[str, Any]) -> List[Dict[str, Any]]:
+def budget_gate(insights: list[dict[str, Any]],
+               context: dict[str, Any]) -> list[dict[str, Any]]:
     """GATE 4: Limit number of insights by user's max_items preference.
 
     Assumes insights are already ranked by priority.

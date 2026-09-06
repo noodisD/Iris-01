@@ -6,10 +6,11 @@ It performs no logic or inference, only structured recall.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any
+
+from .database import confidence as conf_repo
 
 # Import database and evidence
-from .database import db, confidence as conf_repo
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class ExplanationEngine:
         self.user_id = user_id
         self.ev_engine = EvidenceEngine()
 
-    def explain(self, pattern_type: str, pattern_id: int, engine_name: Optional[str] = None) -> Dict[str, Any]:
+    def explain(self, pattern_type: str, pattern_id: int, engine_name: str | None = None) -> dict[str, Any]:
         """
         Retrieves and formats the latest evidence for a pattern.
         """
@@ -74,31 +75,31 @@ class ExplanationEngine:
             "occurrence_count": "Total occurrences",
             "time_coverage_days": "Time span of evidence",
             "recency_score": "Evidence recency (decayed)",
-            
+
             # Trajectory
             "recent_count": "Recent occurrences (21d)",
             "past_count": "Baseline occurrences (90d)",
             "trend_score": "Linear trend slope",
             "total_occurrences": "Total data points",
-            
+
             # Tension
             "cooccurrence_count": "Times themes appeared together",
             "cooccurrence_rate": "Ratio of co-occurrence",
             "divergence_score": "Pattern divergence",
             "stability_score": "Co-occurrence consistency",
-            
+
             # Resolution
             "attenuation_score": "Rate of weakening",
             "recent_rate": "Daily rate (Recent)",
             "past_rate": "Daily rate (Baseline)",
-            
+
             # Leverage
             "forward_count": "Times Source preceded Target",
             "backward_count": "Times Target preceded Source",
             "simultaneous_count": "Times they occurred together",
             "directional_lift": "Asymmetry (Lift)",
             "p_target_given_source": "Probability Target follows Source",
-            
+
             # Impact
             "avg_baseline_rate": "Baseline frequency",
             "avg_post_rate": "Frequency after anchor",

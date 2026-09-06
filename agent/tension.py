@@ -12,21 +12,23 @@ The engine does not judge. It simply observes co-occurrence and divergence.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 import numpy as np
 
-# Import database and constants
-from .database import tensions, evidence as evidence_repo, confidence as confidence_repo, themes
 from .confidence import ConfidenceEngine
-from .evidence import EvidenceEngine
 from .constants import (
-    TENSION_MIN_COOCCURRENCE,
-    TENSION_RECENT_DAYS,
     TENSION_BASELINE_DAYS,
-    TENSION_MIN_STABILITY,
+    TENSION_MAX_THEMES_FOR_PAIRS,
+    TENSION_MIN_COOCCURRENCE,
     TENSION_MIN_OCCURRENCES,
-    TENSION_MAX_THEMES_FOR_PAIRS
+    TENSION_MIN_STABILITY,
+    TENSION_RECENT_DAYS,
 )
+
+# Import database and constants
+from .database import tensions, themes
+from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
 
@@ -65,26 +67,26 @@ class TensionEngine:
         now = datetime.now()
         return now
 
-    def _get_active_themes(self) -> List[Dict]:
+    def _get_active_themes(self) -> list[dict]:
         """
         Get active themes that meet minimum occurrence criteria.
         Limits to top N most active themes to keep runtime predictable.
         """
         all_themes = themes.get_all_themes(self.user_id)
-        
+
         # Filter themes that have minimum occurrences
         active_themes = [t for t in all_themes if t["occurrence_count"] >= TENSION_MIN_OCCURRENCES]
-        
+
         # Sort by occurrence count (descending) and take top N
         active_themes.sort(key=lambda x: x["occurrence_count"], reverse=True)
         return active_themes[:TENSION_MAX_THEMES_FOR_PAIRS]
 
-    def _generate_candidate_pairs(self) -> List[Dict]:
+    def _generate_candidate_pairs(self) -> list[dict]:
         """
         Generate candidate theme pairs for tension analysis.
         """
         active_themes = self._get_active_themes()
-        
+
         # Generate all unique pairs (combinations)
         pairs = []
         for i in range(len(active_themes)):
@@ -93,22 +95,22 @@ class TensionEngine:
                     "theme_a": active_themes[i],
                     "theme_b": active_themes[j]
                 })
-        
+
         return pairs
 
-    def _calculate_cooccurrence_metrics(self, theme_a_id: int, theme_b_id: int) -> Dict:
+    def _calculate_cooccurrence_metrics(self, theme_a_id: int, theme_b_id: int) -> dict:
         """
         Calculate co-occurrence metrics for a theme pair.
         """
         # Get occurrences for both themes
         occurrences_a = themes.get_occurrences(theme_a_id)
         occurrences_b = themes.get_occurrences(theme_b_id)
-        
+
         # Find co-occurrences (same source_id means same journal entry)
         cooccurrences = []
         for occ_a in occurrences_a:
             for occ_b in occurrences_b:
-                if (occ_a["source_type"] == occ_b["source_type"] and 
+                if (occ_a["source_type"] == occ_b["source_type"] and
                     occ_a["source_id"] == occ_b["source_id"]):
                     # Same entry, so they co-occur
                     cooccurrences.append({
@@ -116,42 +118,42 @@ class TensionEngine:
                         "source_type": occ_a["source_type"],
                         "source_id": occ_a["source_id"]
                     })
-        
+
         # Calculate time windows
         recent_start, baseline_end, baseline_start = self._get_time_windows()
-        
+
         # Separate co-occurrences by time window
         recent_cooccurrences = []
         past_cooccurrences = []
-        
+
         for coocc in cooccurrences:
             occurred_at = coocc["occurred_at"]
             if isinstance(occurred_at, datetime):
                 dt_occurred = occurred_at
             else:
                 dt_occurred = datetime.fromisoformat(str(occurred_at))
-            
+
             # Ensure offset-naive for comparison
             if dt_occurred.tzinfo is not None:
                 dt_occurred = dt_occurred.replace(tzinfo=None)
-            
+
             if dt_occurred >= recent_start:
                 recent_cooccurrences.append(coocc)
             elif baseline_start <= dt_occurred < baseline_end:
                 past_cooccurrences.append(coocc)
-        
+
         # Calculate metrics
         cooccurrence_count = len(cooccurrences)
         recent_count = len(recent_cooccurrences)
         past_count = len(past_cooccurrences)
-        
+
         # Calculate co-occurrence rate (relative to individual theme occurrences)
         total_occurrences_a = len(occurrences_a)
         total_occurrences_b = len(occurrences_b)
         min_theme_occurrences = min(total_occurrences_a, total_occurrences_b)
-        
+
         cooccurrence_rate = cooccurrence_count / min_theme_occurrences if min_theme_occurrences > 0 else 0
-        
+
         return {
             "cooccurrence_count": cooccurrence_count,
             "recent_cooccurrence_count": recent_count,
@@ -169,11 +171,11 @@ class TensionEngine:
             # Try to get trajectory information for both themes
             from .trajectory import TrajectoryEngine
             trajectory_engine = TrajectoryEngine(self.user_id)
-            
+
             # Get trajectory analysis for both themes
             analysis_a = trajectory_engine.analyze_theme(theme_a_id)
             analysis_b = trajectory_engine.analyze_theme(theme_b_id)
-            
+
             # If both have trajectory data, use trend scores
             if analysis_a and analysis_b:
                 # Calculate divergence as absolute difference in trend scores
@@ -182,15 +184,15 @@ class TensionEngine:
         except Exception:
             # If trajectory engine is not available or fails, use frequency-based divergence
             pass
-        
+
         # Fallback: use frequency-based divergence
         # Get occurrences for both themes
         occurrences_a = themes.get_occurrences(theme_a_id)
         occurrences_b = themes.get_occurrences(theme_b_id)
-        
+
         # Calculate recent vs past ratios for both themes
         recent_start, baseline_end, baseline_start = self._get_time_windows()
-        
+
         # Count recent and past occurrences for theme A
         recent_a = 0
         past_a = 0
@@ -200,15 +202,15 @@ class TensionEngine:
                 dt_occurred = occurred_at
             else:
                 dt_occurred = datetime.fromisoformat(str(occurred_at))
-            
+
             if dt_occurred.tzinfo is not None:
                 dt_occurred = dt_occurred.replace(tzinfo=None)
-            
+
             if dt_occurred >= recent_start:
                 recent_a += 1
             elif baseline_start <= dt_occurred < baseline_end:
                 past_a += 1
-        
+
         # Count recent and past occurrences for theme B
         recent_b = 0
         past_b = 0
@@ -218,31 +220,31 @@ class TensionEngine:
                 dt_occurred = occurred_at
             else:
                 dt_occurred = datetime.fromisoformat(str(occurred_at))
-            
+
             if dt_occurred.tzinfo is not None:
                 dt_occurred = dt_occurred.replace(tzinfo=None)
-            
+
             if dt_occurred >= recent_start:
                 recent_b += 1
             elif baseline_start <= dt_occurred < baseline_end:
                 past_b += 1
-        
+
         # Calculate frequency ratios
         ratio_a = recent_a / (past_a + 1)  # +1 to avoid division by zero
         ratio_b = recent_b / (past_b + 1)
-        
+
         # Divergence is the absolute difference in ratios
         divergence_score = abs(ratio_a - ratio_b)
         return divergence_score
 
-    def _calculate_stability_metrics(self, cooccurrences: List[Dict]) -> float:
+    def _calculate_stability_metrics(self, cooccurrences: list[dict]) -> float:
         """
         Calculate stability score for a theme pair.
         Stability answers: "Is this tension persistent or sporadic?"
         """
         if not cooccurrences:
             return 0.0
-        
+
         # Extract occurrence times
         occurrence_times = []
         for coocc in cooccurrences:
@@ -251,36 +253,36 @@ class TensionEngine:
                 dt_occurred = occurred_at
             else:
                 dt_occurred = datetime.fromisoformat(str(occurred_at))
-            
+
             if dt_occurred.tzinfo is not None:
                 dt_occurred = dt_occurred.replace(tzinfo=None)
-            
+
             occurrence_times.append(dt_occurred)
-        
+
         if len(occurrence_times) < 2:
             return 1.0 if len(occurrence_times) > 0 else 0.0
-        
+
         # Sort by time
         occurrence_times.sort()
-        
+
         # Calculate intervals between consecutive occurrences
         intervals = []
         for i in range(1, len(occurrence_times)):
             interval = (occurrence_times[i] - occurrence_times[i-1]).days
             intervals.append(interval)
-        
+
         # Calculate stability as inverse of coefficient of variation
         # Higher stability means more consistent intervals
         if len(intervals) == 0:
             return 1.0
-        
+
         mean_interval = sum(intervals) / len(intervals)
         if mean_interval == 0:
             return 1.0  # All occurrences at same time
-        
+
         std_interval = np.std(intervals) if len(intervals) > 1 else 0
         coefficient_of_variation = std_interval / mean_interval if mean_interval > 0 else 0
-        
+
         # Stability is inverse of variation, bounded between 0 and 1
         stability_score = 1.0 / (1.0 + coefficient_of_variation)
         return min(stability_score, 1.0)  # Ensure it's not greater than 1
@@ -292,11 +294,11 @@ class TensionEngine:
         """
         if cooccurrence_count < TENSION_MIN_COOCCURRENCE:
             return "intermittent"  # Not enough co-occurrences to be significant
-        
+
         # Calculate time-based classification
         has_recent_activity = recent_count > 0
         has_past_activity = past_count > 0
-        
+
         if stability_score >= TENSION_MIN_STABILITY and has_recent_activity:
             return "persistent"
         elif has_recent_activity and not has_past_activity:
@@ -317,7 +319,7 @@ class TensionEngine:
         else:
             return "high"
 
-    def analyze_tension(self, theme_a_id: int, theme_b_id: int) -> Dict:
+    def analyze_tension(self, theme_a_id: int, theme_b_id: int) -> dict:
         """
         Analyze tension between two themes.
         
@@ -330,13 +332,13 @@ class TensionEngine:
         """
         # Calculate co-occurrence metrics
         cooccurrence_metrics = self._calculate_cooccurrence_metrics(theme_a_id, theme_b_id)
-        
+
         # Calculate divergence metrics
         divergence_score = self._calculate_divergence_metrics(theme_a_id, theme_b_id)
-        
+
         # Calculate stability metrics
         stability_score = self._calculate_stability_metrics(cooccurrence_metrics["cooccurrences"])
-        
+
         # Classify tension
         tension_label = self._classify_tension(
             cooccurrence_metrics["cooccurrence_count"],
@@ -345,7 +347,7 @@ class TensionEngine:
             stability_score,
             divergence_score
         )
-        
+
         # Calculate confidence using central engine
         self._evidence = [] # Clear buffer
         cooccs = cooccurrence_metrics["cooccurrences"]
@@ -355,19 +357,19 @@ class TensionEngine:
             if not isinstance(dt, datetime):
                 dt = datetime.fromisoformat(str(dt))
             timestamps.append(dt)
-        
+
         conf = self.conf_engine.compute_confidence('tension', theme_a_id, timestamps)
         confidence_level = conf['confidence_level']
-        
+
         # Emit evidence
         self.emit_evidence('count', 'cooccurrence_count', cooccurrence_metrics["cooccurrence_count"])
         self.emit_evidence('rate', 'cooccurrence_rate', cooccurrence_metrics["cooccurrence_rate"])
         self.emit_evidence('delta', 'divergence_score', divergence_score)
         self.emit_evidence('delta', 'stability_score', stability_score)
-        
+
         # Record evidence bundle (using the first theme as primary ID for registry)
         self.ev_engine.record_evidence('tension', 'theme', theme_a_id, self._evidence)
-        
+
         # Create result (convert numpy types to Python native types)
         result = {
             "theme_a_id": theme_a_id,
@@ -382,7 +384,7 @@ class TensionEngine:
             "confidence_level": confidence_level,
             "evidence": cooccurrence_metrics["cooccurrences"][:5]  # Sample evidence
         }
-        
+
         # Store in cache (convert numpy types to Python native types)
         tensions.create_or_update(
             theme_a_id=theme_a_id,
@@ -395,26 +397,20 @@ class TensionEngine:
             tension_label=result["tension_label"],
             confidence_level=result["confidence_level"]
         )
-        
+
         # Now we can store in pattern_confidence using the tension record ID
         # We need to fetch the ID we just created/updated
         # For MVP simplicity, we'll let theme_tensions keep the label.
-        
+
         return result
 
-    def analyze_all_pairs(self) -> List[Dict]:
+    def analyze_all_pairs(self) -> list[dict]:
         """
         Alias for analyze_all_tensions to maintain backward compatibility.
         """
         return self.analyze_all_tensions()
 
-    def analyze_all_pairs(self) -> List[Dict]:
-        """
-        Alias for analyze_all_tensions to maintain backward compatibility.
-        """
-        return self.analyze_all_tensions()
-
-    def analyze_all_tensions(self) -> List[Dict]:
+    def analyze_all_tensions(self) -> list[dict]:
         """
         Analyze tensions for all valid theme pairs.
         
@@ -423,19 +419,19 @@ class TensionEngine:
         """
         candidate_pairs = self._generate_candidate_pairs()
         results = []
-        
+
         for pair in candidate_pairs:
             theme_a = pair["theme_a"]
             theme_b = pair["theme_b"]
-            
+
             analysis = self.analyze_tension(theme_a["id"], theme_b["id"])
             analysis["theme_a_summary"] = theme_a["summary"]
             analysis["theme_b_summary"] = theme_b["summary"]
             results.append(analysis)
-        
+
         return results
 
-    def get_significant_tensions(self) -> List[Dict]:
+    def get_significant_tensions(self) -> list[dict]:
         """
         Get tensions that are above confidence threshold.
         
@@ -443,10 +439,10 @@ class TensionEngine:
             List of high-confidence tension analyses
         """
         all_analysis = self.analyze_all_tensions()
-        
-        significant = [analysis for analysis in all_analysis 
+
+        significant = [analysis for analysis in all_analysis
                       if analysis["confidence_level"] == "high"]
-        
+
         # Sort by stability and co-occurrence count
         significant.sort(key=lambda x: (x["stability_score"], x["cooccurrence_count"]), reverse=True)
         return significant
@@ -462,16 +458,15 @@ class TensionEngine:
             Formatted string for system prompt injection
         """
         significant = self.get_significant_tensions()[:max_items]
-        
+
         if not significant:
             return ""
-        
+
         lines = ["# Theme Tensions:"]
         for item in significant:
             summary_a = item["theme_a_summary"]
             summary_b = item["theme_b_summary"]
-            label = item["tension_label"]
-            
+
             lines.append(f"- \"{summary_a}\" and \"{summary_b}\" frequently appear together and show different recent activity patterns")
-        
+
         return "\n".join(lines)

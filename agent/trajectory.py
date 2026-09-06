@@ -13,20 +13,23 @@ The engine does not judge. It simply observes direction, rate, and recency.
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 import numpy as np
 
-# Import database and constants
-from .database import trajectories, themes, evidence as evidence_repo, confidence as confidence_repo
 from .confidence import ConfidenceEngine
-from .evidence import EvidenceEngine
 from .constants import (
-    TRAJECTORY_RECENT_DAYS,
+    EVIDENCE_WEIGHTS,
     TRAJECTORY_BASELINE_DAYS,
     TRAJECTORY_DELTA_THRESHOLD,
     TRAJECTORY_MIN_DATA_POINTS,
-    EVIDENCE_WEIGHTS
+    TRAJECTORY_RECENT_DAYS,
 )
+from .database import confidence as confidence_repo
+
+# Import database and constants
+from .database import themes, trajectories
+from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ class TrajectoryEngine:
                 "theme_summary": theme_summary,
                 "evidence": []
             }
-        
+
         # Calculate time windows
         recent_window_start = datetime.now() - timedelta(days=TRAJECTORY_RECENT_DAYS)
         baseline_window_end = recent_window_start
@@ -103,23 +106,23 @@ class TrajectoryEngine:
                 recent_occurrences.append(occ)
             elif baseline_window_start <= dt_occurred < baseline_window_end:
                 past_occurrences.append(occ)
-        
+
         # Calculate metrics
         recent_rate = len(recent_occurrences) / TRAJECTORY_RECENT_DAYS if TRAJECTORY_RECENT_DAYS > 0 else 0
         past_rate = len(past_occurrences) / TRAJECTORY_BASELINE_DAYS if TRAJECTORY_BASELINE_DAYS > 0 else 0
         frequency_delta = recent_rate - past_rate
-        
+
         # Calculate trend slope
         trend_slope = self._calculate_trend_slope(occurrences)
-        
+
         # Determine trajectory label
         trajectory_label = self._classify_trajectory(
-            len(occurrences), 
-            frequency_delta, 
-            trend_slope, 
+            len(occurrences),
+            frequency_delta,
+            trend_slope,
             occurrences
         )
-        
+
         # Calculate confidence using the central engine
         self._evidence = [] # Clear buffer
         timestamps = []
@@ -129,7 +132,7 @@ class TrajectoryEngine:
             if not isinstance(dt, datetime):
                 dt = datetime.fromisoformat(str(dt))
             timestamps.append(dt)
-            
+
             # Extract source type for evidence tiering
             st = o['source_type']
             snippet = o.get('snippet', '')
@@ -137,18 +140,18 @@ class TrajectoryEngine:
                 source_types.append('habit_completion_with_notes')
             else:
                 source_types.append(st)
-        
+
         # We consider the trajectory label itself as the 'direction' for consistency check
         # Improved: Pass source_types for evidence tiering
         conf = self.conf_engine.compute_confidence('trajectory', theme_id, timestamps, sources=source_types)
         confidence_level = conf['confidence_level']
-        
+
         # Emit evidence
         self.emit_evidence('rate', 'recent_count', len(recent_occurrences))
         self.emit_evidence('rate', 'past_count', len(past_occurrences))
         self.emit_evidence('delta', 'trend_score', trend_slope)
         self.emit_evidence('count', 'total_occurrences', len(occurrences))
-        
+
         # Store in central registry
         confidence_repo.create_or_update(
             'trajectory', theme_id,
@@ -170,7 +173,7 @@ class TrajectoryEngine:
             confidence_level=confidence_level,
             data_points_count=len(occurrences)
         )
-        
+
         return {
             "theme_id": theme_id,
             "trajectory_label": trajectory_label,
@@ -199,7 +202,7 @@ class TrajectoryEngine:
             analysis = self.analyze_theme(theme["id"])
             analysis["theme_summary"] = theme["summary"]
             results.append(analysis)
-        
+
         return results
 
     def get_significant_changes(self) -> list:
@@ -210,12 +213,12 @@ class TrajectoryEngine:
             List of themes with significant trajectory changes
         """
         all_analysis = self.analyze_all_themes()
-        
+
         significant = []
         for analysis in all_analysis:
             if analysis["trajectory_label"] in ["increasing", "emerging", "fading"]:
                 significant.append(analysis)
-        
+
         # Sort by significance (magnitude of trend score)
         significant.sort(key=lambda x: abs(x["trend_score"]), reverse=True)
         return significant
@@ -231,25 +234,25 @@ class TrajectoryEngine:
             Formatted string for system prompt injection
         """
         significant = self.get_significant_changes()[:max_items]
-        
+
         if not significant:
             return ""
-        
+
         lines = ["# Long-Term Trends:"]
         for item in significant:
             summary = item["theme_summary"]
             label = item["trajectory_label"]
-            
+
             if label == "increasing":
                 lines.append(f"- \"{summary}\" is increasing in frequency")
             elif label == "fading":
                 lines.append(f"- \"{summary}\" is fading")
             elif label == "emerging":
                 lines.append(f"- \"{summary}\" is emerging recently")
-        
+
         return "\n".join(lines)
 
-    def _calculate_trend_slope(self, occurrences: List[dict]) -> float:
+    def _calculate_trend_slope(self, occurrences: list[dict]) -> float:
         """
         Calculate the trend slope using weighted linear regression.
         Weights are determined by Evidence Tiering (reflection > habit).
@@ -262,18 +265,18 @@ class TrajectoryEngine:
         """
         if len(occurrences) < 2:
             return 0.0
-        
+
         # Convert timestamps to days since first occurrence
         timestamps = []
         weights = []
-        
+
         for occ in occurrences:
             occurred_at = occ["occurred_at"]
             if isinstance(occurred_at, datetime):
                 timestamps.append(occurred_at)
             else:
                 timestamps.append(datetime.fromisoformat(str(occurred_at)))
-            
+
             # Determine weight
             st = occ['source_type']
             snippet = occ.get('snippet', '')
@@ -281,28 +284,28 @@ class TrajectoryEngine:
                 weights.append(EVIDENCE_WEIGHTS.get('habit_completion_with_notes', 0.8))
             else:
                 weights.append(EVIDENCE_WEIGHTS.get(st, 0.5)) # Default 0.5
-        
+
         if not timestamps:
             return 0.0
-        
+
         # Sort together
         paired = sorted(zip(timestamps, weights), key=lambda x: x[0])
         timestamps = [p[0] for p in paired]
         weights = [p[1] for p in paired]
-        
+
         first_date = timestamps[0]
-        
+
         # X = days since first occurrence, Y = cumulative count
         x_values = []
         y_values = []
         w_values = []
-        
+
         for i, timestamp in enumerate(timestamps):
             days_since_first = (timestamp - first_date).days
             x_values.append(days_since_first)
             y_values.append(i + 1)  # cumulative count
             w_values.append(math.sqrt(weights[i])) # Sqrt for WLS transformation
-        
+
         # Perform weighted linear regression
         if len(x_values) > 1:
             # Construct Weighted A and y
@@ -312,11 +315,11 @@ class TrajectoryEngine:
             X = np.array(x_values)
             Y = np.array(y_values)
             W = np.array(w_values)
-            
+
             # Weighted X matrix (column of weighted xs, column of weights)
             A_w = np.vstack([X * W, W]).T
             y_w = Y * W
-            
+
             try:
                 slope, _ = np.linalg.lstsq(A_w, y_w, rcond=None)[0]
                 return float(slope)
@@ -325,8 +328,8 @@ class TrajectoryEngine:
         else:
             return 0.0
 
-    def _classify_trajectory(self, total_occurrences: int, frequency_delta: float, 
-                           trend_slope: float, occurrences: List[dict]) -> str:
+    def _classify_trajectory(self, total_occurrences: int, frequency_delta: float,
+                           trend_slope: float, occurrences: list[dict]) -> str:
         """
         Classify the trajectory based on calculated metrics.
         
@@ -341,7 +344,7 @@ class TrajectoryEngine:
         """
         if total_occurrences < TRAJECTORY_MIN_DATA_POINTS:
             return "insufficient data"
-        
+
         # Check if theme is new/emerging
         if occurrences:
             timestamps = []
@@ -383,7 +386,7 @@ class TrajectoryEngine:
 
             if days_since_first < 30 and recent_activity:
                 return "emerging"
-        
+
         # Use frequency delta as primary classifier
         if frequency_delta > TRAJECTORY_DELTA_THRESHOLD:
             return "increasing"

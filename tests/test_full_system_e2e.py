@@ -1,20 +1,13 @@
 
-import pytest
-import time
 import logging
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.persistence import PersistenceEngine
 from agent.trajectory import TrajectoryEngine
-from agent.tension import TensionEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
-from agent.decision_impact import DecisionImpactEngine
-from agent.confidence import ConfidenceEngine
-from agent.explanation import ExplanationEngine
 
 # Setup logging
 logger = logging.getLogger("FullSystemTest")
@@ -44,9 +37,9 @@ def test_full_system_with_meta_controls(test_user, mock_external_services):
     """
     user_id = test_user['id']
     now = datetime.now()
-    
+
     logger.info("Starting System Test with Meta-Controls (Confidence & Conflict)...")
-    
+
     # Create Theme
     t_stress = db.create_theme(user_id, [0.1]*1536, "Work Stress", (now-timedelta(days=100)).isoformat(), now.isoformat())
 
@@ -81,20 +74,20 @@ def test_full_system_with_meta_controls(test_user, mock_external_services):
     companion = PersonalAICompanion(user_id=user_id)
     companion.intelligence.chat = MagicMock(return_value="OK")
     companion.chat("Conflict test.")
-    
+
     prompt = companion.intelligence.chat.call_args[1]['system_prompt']
-    
+
     print("\n--- CONFLICT ANALYSIS ---")
     # Section check
     stress_increasing = "is increasing in frequency" in prompt or "Work Stress" in prompt
     stress_dissipated = "appeared frequently in the past but has not appeared recently" in prompt
-    
+
     status_inc = "[OK]" if stress_increasing else "[MISSING]"
     status_dis = "[SUPPRESSED]" if not stress_dissipated else "[CONFLICT DETECTED]"
-    
+
     print(f"Trajectory Winner in Prompt: {status_inc}")
     print(f"Resolution Loser in Prompt: {status_dis}")
-    
+
     assert stress_increasing, "High confidence winner was incorrectly removed"
     assert not stress_dissipated, "Losing contradictory insight was not suppressed"
 

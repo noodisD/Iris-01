@@ -3,16 +3,18 @@ Tests for the Processing Pipeline Layer.
 """
 
 import pytest
-from agent.pipeline import generate_embedding, extract_entities, run_processing_pipeline
+
 from agent.database import db
+from agent.pipeline import extract_entities, generate_embedding, run_processing_pipeline
+
 
 def test_generate_embedding(mocker):
     """Test the embedding generation, mocking the OpenAI API call."""
     mock_openai = mocker.patch("agent.pipeline.openai.embeddings.create")
     mock_openai.return_value.data = [mocker.Mock(embedding=[0.1] * 1536)]
-    
+
     embedding = generate_embedding("test text")
-    
+
     mock_openai.assert_called_once()
     assert isinstance(embedding, list)
     assert len(embedding) == 1536
@@ -41,16 +43,16 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
         source_id = db.create_journal_entry(test_user["id"], content, {"mood": 5})
     else: # message
         source_id = db.create_conversation_message(test_user["id"], "test_session", "user", content)
-    
+
     # 3. Run the pipeline
     run_processing_pipeline(source_type, source_id)
-    
+
     # 4. Assertions
     # Content is passed as-is to generate_embedding, which handles newline replacement internally
 
     # Assert embedding was generated
     mock_generate_embedding.assert_called_once_with(content, model="text-embedding-3-small")
-    
+
     # Assert embedding was stored in PostgreSQL
     conn = db.get_connection()
     with conn.cursor() as cur:
@@ -60,7 +62,7 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
         assert len(result[0]) == 1536
 
 
-    
+
     # Focus here is on embedding storage and pipeline execution
 
     # Assert processing status is 'complete'

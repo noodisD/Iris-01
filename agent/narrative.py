@@ -7,8 +7,8 @@ Any violation is treated as a system error.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any
 
 from .narrative_policy import FORBIDDEN_REGEX, NARRATIVE_FAIL_MODE
 from .narrative_templates import NARRATIVE_TEMPLATES
@@ -21,7 +21,7 @@ class NarrativeFormatter:
     """
 
     @staticmethod
-    def format_all(insights: List[Dict[str, Any]]) -> List[str]:
+    def format_all(insights: list[dict[str, Any]]) -> list[str]:
         """
         Renders a prioritized list of insights into narratives while
         strictly preserving list order.
@@ -38,7 +38,7 @@ class NarrativeFormatter:
         return narratives
 
     @staticmethod
-    def format_insight(insight: Dict[str, Any]) -> Optional[str]:
+    def format_insight(insight: dict[str, Any]) -> str | None:
         """
         Selects a template and populates it using evidence fields.
         """
@@ -71,7 +71,7 @@ class NarrativeFormatter:
             return None
 
     @staticmethod
-    def _prepare_template_data(engine: str, ins: Dict[str, Any]) -> Dict[str, Any]:
+    def _prepare_template_data(engine: str, ins: dict[str, Any]) -> dict[str, Any]:
         """Maps insight fields to template placeholders."""
         # Generic mappings
         data = {
@@ -84,7 +84,7 @@ class NarrativeFormatter:
         return data
 
     @staticmethod
-    def _sanitize_label(ins: Dict) -> str:
+    def _sanitize_label(ins: dict) -> str:
         """Extracts and normalizes classification labels."""
         resolution_label = ins.get('resolution_label')
         trajectory_label = ins.get('trajectory_label')
@@ -112,14 +112,14 @@ class NarrativeFormatter:
         return result
 
     @staticmethod
-    def _get_time_description(ins: Dict) -> str:
+    def _get_time_description(ins: dict) -> str:
         """Extracts temporal bounds from insight."""
         first = ins.get('first_seen_at')
         if first:
             if not isinstance(first, datetime):
                 first = datetime.fromisoformat(str(first))
             return first.strftime("%Y-%m-%d")
-        
+
         # Fallback for engine-specific window constants
         if ins.get('engine_name') == 'decision_impact':
             return "14"

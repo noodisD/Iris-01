@@ -7,8 +7,12 @@ Strictly prevents causal, prescriptive, or interpretive language.
 
 import re
 
-# Enforcement Mode: 'raise' (Dev) or 'silence' (Prod)
-NARRATIVE_FAIL_MODE = "raise"
+from .config import settings
+
+# Enforcement mode, from configuration rather than hardcoded: 'raise'
+# (development) or 'silence' (production). The setting existed and was
+# documented in .env.example for months while this module ignored it.
+NARRATIVE_FAIL_MODE = settings.NARRATIVE_FAIL_MODE
 
 # Forbidden patterns using word boundaries (\b) and lemma variants
 # Prevents: cause, caused, causing, should, recommend, meaning, implying, etc.

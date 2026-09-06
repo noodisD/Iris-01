@@ -2,14 +2,14 @@
 
 from .core import PersonalAICompanion
 from .intelligence import Intelligence
-from .memory import ConversationMemory
 from .journal_entry import JournalEntry
+from .memory import ConversationMemory
 
 __all__ = [
-    "PersonalAICompanion",
-    "Intelligence",
     "ConversationMemory",
+    "Intelligence",
     "JournalEntry",
+    "PersonalAICompanion",
 ]
 
 __version__ = "0.1.0"

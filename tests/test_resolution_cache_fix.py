@@ -2,11 +2,11 @@
 Test to verify that manually-overridden resolutions survive re-analysis.
 This tests the exact scenario from test_final_system_stress_test.py.
 """
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
+
 from agent.core import PersonalAICompanion
-from agent.database import db, resolutions, confidence
+from agent.database import confidence, db, resolutions
 from agent.resolution import ResolutionEngine
 
 
@@ -36,7 +36,7 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
     theme = db.create_theme(user_id, [0.1]*1536, "Stress Theme",
                            (now-timedelta(days=120)).isoformat(), now.isoformat())
 
-    print(f"\n=== STEP 0: Theme Setup ===")
+    print("\n=== STEP 0: Theme Setup ===")
     print(f"Theme ID: {theme}")
 
     # Add occurrences 28-60 days ago (13 occurrences)
@@ -112,7 +112,7 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
     prompt = companion.intelligence.chat.call_args[1]['system_prompt']
 
     # Check that the resolution narrative is present with correct label
-    print(f"Checking narrative in prompt...")
+    print("Checking narrative in prompt...")
     if "Stress Theme" in prompt:
         print("✓ Theme name found in prompt")
     else:

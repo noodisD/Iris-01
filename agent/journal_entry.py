@@ -7,10 +7,9 @@ orchestrating post-processing via the pipeline layer.
 """
 
 import logging
-from typing import Dict, List, Optional
 
 # Import the new architecture's components
-from .database import db, journals
+from .database import journals
 from .pipeline import run_processing_pipeline
 
 logger = logging.getLogger(__name__)
@@ -31,11 +30,11 @@ class JournalEntry:
 
     def create_entry(
         self,
-        wellbeing: Dict,
-        ideas: List[str],
-        goals: List[str],
-        execution: List[str],
-        reflections: Optional[str] = None
+        wellbeing: dict,
+        ideas: list[str],
+        goals: list[str],
+        execution: list[str],
+        reflections: str | None = None
     ) -> str:
         """
         Creates a new journal entry, saves it to the database,
@@ -69,7 +68,7 @@ class JournalEntry:
             # In a production app, this would be a message queue (e.g., Celery, RQ)
             # For this project, we'll call it synchronously for simplicity.
             run_processing_pipeline(source_type='journal_entry', source_id=entry_id)
-            
+
             # 4. Return a success message to the user
             return f"✓ Journal Entry Created (ID: {entry_id}). Processing has started."
 
@@ -80,24 +79,24 @@ class JournalEntry:
 
     def _format_raw_text(
         self,
-        wellbeing: Dict,
-        ideas: List[str],
-        goals: List[str],
-        execution: List[str],
-        reflections: Optional[str]
+        wellbeing: dict,
+        ideas: list[str],
+        goals: list[str],
+        execution: list[str],
+        reflections: str | None
     ) -> str:
         """Formats the structured journal data into a single string."""
-        
+
         parts = []
-        
+
         wb_notes = wellbeing.get('notes', 'N/A')
         parts.append(f"Wellbeing Notes: {wb_notes}")
-        
+
         if ideas:
             parts.append("\nIdeas:")
             for idea in ideas:
                 parts.append(f"- {idea}")
-        
+
         if goals:
             parts.append("\nGoals:")
             for goal in goals:
@@ -107,10 +106,10 @@ class JournalEntry:
             parts.append("\nExecution:")
             for item in execution:
                 parts.append(f"- {item}")
-        
+
         if reflections:
             parts.append(f"\nReflections:\n{reflections}")
-            
+
         return "\n".join(parts)
 
     # NOTE: Read methods (get_entry, get_daily_summary, etc.) would be added here.

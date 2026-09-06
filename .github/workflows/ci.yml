@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "recovery/**"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      # pgvector, not plain postgres: the schema cannot be created without the
+      # vector extension. Mirrors the local setup in the README.
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: iris_user
+          POSTGRES_DB: iris_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U iris_user"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: iris_user
+      POSTGRES_DB: iris_db
+      POSTGRES_PASSWORD: ""
+      # The suite stubs OpenAI at the SDK boundary, so no real key is needed and
+      # no request is made. A placeholder is required because Intelligence
+      # refuses to construct without one.
+      OPENAI_API_KEY: sk-ci-placeholder-not-used
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      # Correctness rules only. F (pyflakes) catches undefined names and dead
+      # imports; two live NameErrors once survived three separate audits of this
+      # repository and both were F821. Style debt is reported but not gating.
+      - name: Lint (correctness rules are a hard gate)
+        run: uv run ruff check . --select F,E9
+
+      - name: Lint (full ruleset, advisory)
+        run: uv run ruff check . || true
+        continue-on-error: true
+
+      - name: Tests
+        run: uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint      # tsc --noEmit
+      - run: npm run build

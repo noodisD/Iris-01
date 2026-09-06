@@ -1,7 +1,10 @@
 
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
+
 from agent.prioritization import InsightPrioritizationEngine
+
 
 @pytest.fixture
 def engine(test_user):
@@ -27,10 +30,10 @@ def test_prioritization_determinism(engine):
             "computed_at": datetime.now()
         }
     ]
-    
+
     res1 = engine.rank_insights(list(insights))
     res2 = engine.rank_insights(list(insights))
-    
+
     assert [i['pattern_id'] for i in res1] == [i['pattern_id'] for i in res2]
 
 def test_confidence_dominance(engine):
@@ -54,9 +57,9 @@ def test_confidence_dominance(engine):
             "computed_at": now
         }
     ]
-    
+
     ranked = engine.rank_insights(insights)
-    
+
     assert ranked[0]['pattern_id'] == 1
     assert ranked[0]['confidence'].lower() == 'high'
 
@@ -79,9 +82,9 @@ def test_diversity_rule(engine):
             "computed_at": now
         }
     ]
-    
+
     ranked = engine.rank_insights(insights)
-    
+
     assert len(ranked) == 1
     assert ranked[0]['engine_name'] == 'resolution'
 
@@ -89,7 +92,7 @@ def test_recency_impact(engine):
     # Recent beats old
     now = datetime.now()
     old = now - timedelta(days=40)
-    
+
     insights = [
         {
             "engine_name": "trajectory",
@@ -106,6 +109,6 @@ def test_recency_impact(engine):
             "computed_at": now
         }
     ]
-    
+
     ranked = engine.rank_insights(insights)
     assert ranked[0]['pattern_id'] == 2

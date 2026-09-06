@@ -8,11 +8,9 @@ session to provide immediate context for the LLM.
 """
 
 import logging
-from datetime import datetime
-from typing import List, Dict
 
 # Import the new architecture's components
-from .database import db, journals
+from .database import journals
 from .pipeline import run_processing_pipeline
 
 logger = logging.getLogger(__name__)
@@ -30,12 +28,12 @@ class ConversationMemory:
         """
         if user_id is None or session_id is None:
             raise ValueError("ConversationMemory requires a valid user_id and session_id.")
-        
+
         self.user_id = user_id
         self.session_id = session_id
-        
+
         # In-memory history for the current session's immediate context
-        self.history: List[Dict[str, str]] = []
+        self.history: list[dict[str, str]] = []
         self._load_history_from_db()
 
     def add_message(self, role: str, content: str):
@@ -76,7 +74,7 @@ class ConversationMemory:
             logger.error(f"Failed to save message for user {self.user_id}: {e}")
             raise
 
-    def get_context(self, max_messages: int = 10) -> List[Dict[str, str]]:
+    def get_context(self, max_messages: int = 10) -> list[dict[str, str]]:
         """
         Gets the recent conversation context from the in-memory history.
 
@@ -88,7 +86,7 @@ class ConversationMemory:
         """
         return self.history[-max_messages:]
 
-    def get_full_history(self) -> List[Dict[str, str]]:
+    def get_full_history(self) -> list[dict[str, str]]:
         """Gets the full in-memory history for the current session."""
         return self.history.copy()
 

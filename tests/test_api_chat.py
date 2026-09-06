@@ -8,6 +8,7 @@ per-test `test_user` so we don't depend on the env default user.
 """
 
 import json
+
 import pytest
 from fastapi.testclient import TestClient
 

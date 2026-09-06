@@ -10,9 +10,9 @@ to stay deterministic and cost-free. Single-user auth overridden to test_user.
 import pytest
 from fastapi.testclient import TestClient
 
-from iris_api import app, get_current_user_id
-from agent.trackers.reflections import ReflectionService
 from agent.trackers.habits import HabitTracker
+from agent.trackers.reflections import ReflectionService
+from iris_api import app, get_current_user_id
 
 
 @pytest.fixture

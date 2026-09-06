@@ -5,25 +5,23 @@ This module centralizes all environment variables, enforces types,
 and provides a fail-fast mechanism for missing required configuration.
 """
 
-import os
-from typing import Optional, List
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     """
     IRIS Configuration Schema.
     Values are automatically loaded from environment variables or .env file.
     """
-    
+
     # System
-    ENV: str = Field(default="dev")
     LOG_LEVEL: str = Field(default="INFO")
-    
+
     # API Keys (Required in Prod)
     OPENAI_API_KEY: str = Field(default="your_openai_api_key_here")
-    OPENAI_MODEL: str = Field(default="gpt-4o-mini")
-    
+    OPENAI_MODEL: str = Field(default="gpt-4.1-mini")
+
     # PostgreSQL
     # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)
     # When connecting directly to container, use 5432
@@ -33,14 +31,10 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = Field(default="localhost")
     POSTGRES_PORT: int = Field(default=5433)
 
-    # Analytical Defaults
-    DEFAULT_MIN_CONFIDENCE: str = Field(default="medium")
-    DEFAULT_MAX_CONTEXT_ITEMS: int = Field(default=5)
-    
-    # Feature Flags
-    CONFLICT_SUPPRESSION_ENABLED: bool = Field(default=True)
+    # Narrative firewall behaviour when a template cannot be rendered safely:
+    # "raise" surfaces the problem (development), "silence" drops that single
+    # insight and carries on (production).
     NARRATIVE_FAIL_MODE: str = Field(default="raise")
-    CHROMADB_TELEMETRY: bool = Field(default=False)
 
     # Configuration for .env loading
     model_config = SettingsConfigDict(
@@ -49,10 +43,10 @@ class Settings(BaseSettings):
         extra="ignore" # Ignore extra env vars not defined here
     )
 
-    @field_validator("ENV")
-    def validate_env(cls, v):
-        if v.lower() not in ["dev", "prod", "test"]:
-            raise ValueError("ENV must be dev, prod, or test")
+    @field_validator("NARRATIVE_FAIL_MODE")
+    def validate_fail_mode(cls, v):
+        if v.lower() not in ["raise", "silence"]:
+            raise ValueError("NARRATIVE_FAIL_MODE must be 'raise' or 'silence'")
         return v.lower()
 
     def sanitized_dict(self) -> dict:

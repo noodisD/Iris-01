@@ -1,6 +1,8 @@
 
 import pytest
+
 from agent.conflict import ConflictSuppressionEngine
+
 
 @pytest.fixture
 def engine():
@@ -24,9 +26,9 @@ def test_conflict_higher_confidence_wins(engine):
             "confidence_level": "medium"
         }
     ]
-    
+
     result = engine.suppress(insights)
-    
+
     assert len(result['visible']) == 1
     assert result['visible'][0]['engine_name'] == 'trajectory'
     assert len(result['suppressed']) == 1
@@ -51,9 +53,9 @@ def test_conflict_priority_tiebreak(engine):
             "confidence_level": "high"
         }
     ]
-    
+
     result = engine.suppress(insights)
-    
+
     assert len(result['visible']) == 1
     assert result['visible'][0]['engine_name'] == 'resolution'
     assert result['suppressed'][0]['winner_engine'] == 'resolution'
@@ -77,15 +79,15 @@ def test_coexistence_allowed(engine):
             "confidence_level": "high"
         }
     ]
-    
+
     result = engine.suppress(insights)
     assert len(result['visible']) == 2
     assert len(result['suppressed']) == 0
 
 def test_confidence_floor_ignored(engine):
     # Scenario: Conflict between Medium and Low
-    # Low confidence insights should not trigger suppression logic 
-    # (they are filtered by the core gatekeeper usually, but the engine 
+    # Low confidence insights should not trigger suppression logic
+    # (they are filtered by the core gatekeeper usually, but the engine
     # should still handle it by original design)
     insights = [
         {
@@ -103,10 +105,10 @@ def test_confidence_floor_ignored(engine):
             "confidence_level": "low"
         }
     ]
-    
+
     result = engine.suppress(insights)
-    # Both should remain because Low confidence insights are ignored by Conflict Logic 
-    # (Wait, my implementation says: if < min_conf, they don't participate in resolution 
+    # Both should remain because Low confidence insights are ignored by Conflict Logic
+    # (Wait, my implementation says: if < min_conf, they don't participate in resolution
     # but stay in 'resolved' list. This is correct as they are noise anyway.)
     assert len(result['visible']) == 2
     assert len(result['suppressed']) == 0
@@ -127,9 +129,9 @@ def test_unordered_rule_matching(engine):
         "trajectory_label": "increasing",
         "confidence_level": "medium"
     }
-    
+
     res1 = engine.suppress([ins_a, ins_b])
     res2 = engine.suppress([ins_b, ins_a])
-    
+
     assert res1['visible'] == res2['visible']
     assert res1['suppressed'][0]['insight']['engine_name'] == 'trajectory'

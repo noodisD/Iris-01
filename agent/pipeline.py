@@ -7,18 +7,20 @@ for generating embeddings and clustering entries into persistent themes.
 """
 
 import logging
+
 import openai
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    before_sleep_log,
 )
+
 from .config import settings
 
 # Import the data layer interfaces
-from .database import db, embeddings
+from .database import embeddings
 from .persistence import PersistenceEngine
 
 logger = logging.getLogger(__name__)
@@ -106,11 +108,11 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 dt_occ = datetime.fromisoformat(occurred_at)
             else:
                 dt_occ = occurred_at
-            
+
             # Use hasattr to safely check for tzinfo (date objects don't have it)
             if dt_occ and hasattr(dt_occ, 'tzinfo') and dt_occ.tzinfo:
                 dt_occ = dt_occ.replace(tzinfo=None)
-                
+
             # Convert date to datetime for comparison if needed
             from datetime import date
             if isinstance(dt_occ, date) and not isinstance(dt_occ, datetime):
@@ -122,7 +124,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 logger.info(f"Processing historical item from {dt_comp} (Backfill detected)")
         except Exception as e:
             logger.warning(f"Timestamp check failed: {e}")
-        
+
         # 3. Generate embedding
         model_name = "text-embedding-3-small"
         embedding = generate_embedding(content, model=model_name)

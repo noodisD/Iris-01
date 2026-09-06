@@ -3,16 +3,17 @@ import os
 import subprocess
 import sys
 
+
 def run_live():
     # 1. Load key from .env manually
     key = None
     if os.path.exists(".env"):
-        with open(".env", "r") as f:
+        with open(".env") as f:
             for line in f:
                 if line.startswith("OPENAI_API_KEY="):
                     key = line.split("=")[1].strip()
                     break
-    
+
     if not key:
         print("Error: OPENAI_API_KEY not found in .env")
         sys.exit(1)

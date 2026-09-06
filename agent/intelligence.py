@@ -1,39 +1,29 @@
 """
-Intelligence layer - Multi-model support (Gemini 2.5 Flash, OpenAI)
+Intelligence layer — the OpenAI chat client.
+
+A pluggable multi-provider abstraction (llm_provider.py) and a Gemini fallback
+both used to live here. Neither was ever reachable: nothing passed
+use_gemini=True and chat_with_provider() was never called outside this module,
+while the Gemini SDK it depended on reached end of support in November 2025.
 """
 
 import logging
-import warnings
-import os
+from typing import Any
+
 from openai import AsyncOpenAI, OpenAI
-from typing import Optional, List, Dict, Any
+
 from .config import settings
-from .llm_provider import LLMProvider, OpenAIProvider, GeminiProvider, Message
 
 logger = logging.getLogger(__name__)
 
-try:
-    # Suppress deprecation warning for google.generativeai (still works, just deprecated)
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    import google.generativeai as genai
-    warnings.resetwarnings()
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-
 
 class Intelligence:
-    """Multi-model wrapper: OpenAI (primary), Gemini (fallback)"""
+    """Thin wrapper over the OpenAI chat completions API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = None, use_gemini: bool = False):
-        """Initialize intelligence layer with multi-model support"""
-        self.use_gemini = use_gemini
-        self.gemini_client = None
+    def __init__(self, api_key: str | None = None, model: str = None):
+        """Initialise the OpenAI client for this session."""
         self.openai_client = None
         self.model = model or settings.OPENAI_MODEL
-
-        # LLM Provider (abstraction for pluggable model support)
-        self.provider: Optional[LLMProvider] = None
 
         # Initialize OpenAI first (primary)
         openai_key = api_key or settings.OPENAI_API_KEY
@@ -42,104 +32,26 @@ class Intelligence:
             try:
                 self.openai_client = OpenAI(api_key=openai_key)
                 self.async_client = AsyncOpenAI(api_key=openai_key)
-
-                # Initialize OpenAI provider
-                self.provider = OpenAIProvider(api_key=openai_key, model=self.model)
-
-                self.use_gemini = False
             except Exception as e:
                 print(f"⚠️  OpenAI initialization failed: {e}")
 
-        # Initialize Gemini as fallback if requested and available
-        if use_gemini and GEMINI_AVAILABLE:
-            gemini_key = api_key or os.getenv("GEMINI_API_KEY")
-            if gemini_key and gemini_key != "your_gemini_api_key_here":
-                try:
-                    genai.configure(api_key=gemini_key)
-                    self.gemini_client = genai.GenerativeModel(
-                        model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
-                    )
-
-                    # Initialize Gemini provider
-                    self.provider = GeminiProvider(
-                        api_key=gemini_key,
-                        model=os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
-                    )
-
-                    self.use_gemini = True
-                except Exception as e:
-                    print(f"⚠️  Gemini initialization failed: {e}. Using OpenAI instead.")
-                    self.use_gemini = False
-            else:
-                if use_gemini:
-                    print("⚠️  Gemini API key not set. Using OpenAI.")
-                self.use_gemini = False
-
-        if not self.openai_client and not self.gemini_client:
-            raise ValueError(
-                "No API keys configured. Set OPENAI_API_KEY or GEMINI_API_KEY in .env"
-            )
+        if not self.openai_client:
+            raise ValueError("No API key configured. Set OPENAI_API_KEY in .env")
 
     def set_model(self, model: str) -> None:
-        """Switch the active model
-
-        Args:
-            model: Model name (e.g., "gpt-4o-mini", "gpt-4o")
-        """
+        """Switch the active model."""
         self.model = model
-        # Update provider model if available
-        if self.provider:
-            self.provider.model = model
-
-    def chat_with_provider(
-        self,
-        messages: List[Dict[str, str]],
-        system_prompt: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: float = 0.7,
-    ) -> str:
-        """Chat using the provider interface (model-agnostic).
-
-        This method routes through the LLMProvider abstraction,
-        allowing easy switching between models without code changes.
-
-        Args:
-            messages: Conversation history
-            system_prompt: System prompt
-            tools: Optional tool definitions
-            temperature: Sampling temperature
-
-        Returns:
-            Response text
-        """
-        if not self.provider:
-            return "Error: No LLM provider available"
-
-        try:
-            # Convert messages to provider format
-            provider_messages = [Message(role="system", content=system_prompt)]
-            for msg in messages:
-                provider_messages.append(Message(role=msg["role"], content=msg["content"]))
-
-            # Call through provider
-            return self.provider.chat(
-                messages=provider_messages,
-                tools=tools,
-                temperature=temperature
-            )
-        except Exception as e:
-            return f"Error calling provider: {str(e)}"
 
     def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         system_prompt: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> str:
-        """Unified chat interface - routes to OpenAI or Gemini with automatic fallback
+        """Send a conversation to OpenAI and return the reply text.
 
         Args:
             messages: List of {role, content} dicts
@@ -161,17 +73,6 @@ class Intelligence:
                     max_tokens=max_tokens,
                     tools=tools
                 )
-            elif self.use_gemini and self.gemini_client:
-                response = self._chat_gemini(
-                    messages=messages,
-                    system_prompt=system_prompt,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-                # Check if response is an error string
-                if response.startswith("Gemini API error:"):
-                    return response
-                return response
             else:
                 raise RuntimeError("No LLM client is configured")
 
@@ -184,94 +85,13 @@ class Intelligence:
             logger.error(f"LLM call failed: {e}")
             raise
 
-    def _chat_gemini(
-        self,
-        messages: List[Dict[str, str]],
-        system_prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1000,
-    ) -> str:
-        """Call Gemini 2.5 Flash API with proper system prompt support
-
-        Args:
-            messages: Conversation messages
-            system_prompt: System context (passed separately, not concatenated)
-            temperature: Sampling temperature
-            max_tokens: Response length limit
-
-        Returns:
-            Response text
-        """
-        try:
-            # Format messages for Gemini
-            conversation = []
-            for msg in messages:
-                if msg["role"] == "user":
-                    conversation.append({"role": "user", "parts": [msg["content"]]})
-                elif msg["role"] == "assistant":
-                    conversation.append({"role": "model", "parts": [msg["content"]]})
-
-            # Create generation config
-            generation_config = {
-                "temperature": temperature,
-                "max_output_tokens": max_tokens,
-                "top_p": 0.95,
-                "top_k": 40,
-            }
-
-            # Use system_instruction parameter (Gemini 2.5 Pro supports this natively)
-            # This avoids concatenating the system prompt with user message, which was triggering safety filters
-            gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
-            client_with_system = genai.GenerativeModel(
-                model_name=gemini_model,
-                system_instruction=system_prompt  # Pass system prompt separately
-            )
-
-            # Start chat session with full conversation history
-            chat_session = client_with_system.start_chat(history=conversation[:-1] if len(conversation) > 1 else [])
-
-            # Get the last user message
-            if conversation:
-                last_message = conversation[-1]["parts"][0]
-            else:
-                return "Error: No user message provided"
-
-            # Send message without concatenating system prompt
-            response = chat_session.send_message(
-                last_message,
-                generation_config=generation_config
-            )
-
-            # Handle response safely
-            try:
-                # Try direct .text accessor
-                return response.text
-            except (ValueError, AttributeError, RuntimeError) as e:
-                # If .text fails, try to get from candidates
-                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
-                    candidate = response.candidates[0]
-                    if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts:
-                        parts = candidate.content.parts
-                        if parts and hasattr(parts[0], 'text'):
-                            return parts[0].text
-                # If still no content, might be a safety block
-                if hasattr(response, 'candidates') and response.candidates:
-                    candidate = response.candidates[0]
-                    if hasattr(candidate, 'finish_reason'):
-                        finish_reason = candidate.finish_reason
-                        return f"Gemini API error: Response blocked (finish_reason: {finish_reason})"
-                return f"Gemini API error: {str(e)}"
-
-        except Exception as e:
-            return f"Gemini API error: {str(e)}"
-
     def _chat_openai(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         system_prompt: str,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> str:
         """Call OpenAI API (fallback)
 
@@ -315,13 +135,13 @@ class Intelligence:
                 return "[No response content]"
 
         except Exception as e:
-            return f"OpenAI API error: {str(e)}"
+            return f"OpenAI API error: {e!s}"
 
     async def chat_async(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         system_prompt: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
     ) -> str:
@@ -367,9 +187,9 @@ class Intelligence:
                 return "[No response content]"
 
         except Exception as e:
-            return f"Error calling API: {str(e)}"
+            return f"Error calling API: {e!s}"
 
-    def estimate_cost(self, messages: List[Dict[str, str]]) -> Dict[str, float]:
+    def estimate_cost(self, messages: list[dict[str, str]]) -> dict[str, float]:
         """Rough estimate of API cost
 
         GPT-4o-mini: $0.15 per 1M input tokens, $0.60 per 1M output tokens

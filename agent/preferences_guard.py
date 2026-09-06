@@ -13,8 +13,8 @@ Benefits:
 - Tests can mock the guard for different preference scenarios
 """
 
-from typing import Dict, Any, List, Optional, Set
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class PreferencesGuard:
         'enabled_engines': None,  # All engines enabled by default
     }
 
-    def __init__(self, user_id: int, prefs_dict: Optional[Dict[str, Any]] = None):
+    def __init__(self, user_id: int, prefs_dict: dict[str, Any] | None = None):
         """Initialize guard for a user.
 
         Args:
@@ -63,7 +63,7 @@ class PreferencesGuard:
         if not self.is_valid:
             logger.warning(f"User {user_id} has invalid preferences: {self.validation_errors}")
 
-    def _validate(self) -> tuple[bool, List[str]]:
+    def _validate(self) -> tuple[bool, list[str]]:
         """Validate the preference state.
 
         Returns:
@@ -113,7 +113,7 @@ class PreferencesGuard:
                 # Filter out this low-confidence insight
         """
         if not self.is_valid:
-            logger.warning(f"Guard has validation errors, allowing by default")
+            logger.warning("Guard has validation errors, allowing by default")
             return True  # Conservative: allow if guard is broken
 
         if gate_name == 'enablement':
@@ -179,7 +179,7 @@ class PreferencesGuard:
         """Get the maximum number of items to return."""
         return self.prefs.get('max_items', 5)
 
-    def get_enabled_engines(self) -> Optional[Set[str]]:
+    def get_enabled_engines(self) -> set[str] | None:
         """Get the set of enabled engines, or None if all are enabled."""
         enabled = self.prefs.get('enabled_engines')
         return set(enabled) if enabled else None
@@ -188,7 +188,7 @@ class PreferencesGuard:
         """Check if user wants to see suppressed insights."""
         return self.prefs.get('show_suppressed', False)
 
-    def get_validation_errors(self) -> List[str]:
+    def get_validation_errors(self) -> list[str]:
         """Get list of validation errors (empty if valid)."""
         return self.validation_errors.copy()
 
@@ -237,8 +237,8 @@ class PreferencesGate:
         """
         self.guard = guard
 
-    def filter_insights(self, insights: List[Dict[str, Any]],
-                       context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def filter_insights(self, insights: list[dict[str, Any]],
+                       context: dict[str, Any]) -> list[dict[str, Any]]:
         """Apply preferences-based filtering to insights.
 
         This gate combines multiple checks:

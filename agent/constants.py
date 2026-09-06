@@ -107,10 +107,10 @@ PRIORITY_NOVELTY_LOOKBACK_DAYS = 90
 
 # Note: Weights must sum to 1.0
 _priority_weights_sum = (
-    PRIORITY_CONFIDENCE_WEIGHT + 
-    PRIORITY_RECENCY_WEIGHT + 
-    PRIORITY_MAGNITUDE_WEIGHT + 
-    PRIORITY_NOVELTY_WEIGHT + 
+    PRIORITY_CONFIDENCE_WEIGHT +
+    PRIORITY_RECENCY_WEIGHT +
+    PRIORITY_MAGNITUDE_WEIGHT +
+    PRIORITY_NOVELTY_WEIGHT +
     PRIORITY_ENGINE_WEIGHT
 )
 assert abs(_priority_weights_sum - 1.0) < 1e-6, f"Priority weights must sum to 1.0, got {_priority_weights_sum}"

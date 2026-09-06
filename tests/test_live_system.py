@@ -1,18 +1,20 @@
 
-import pytest
-import time
 import logging
 import os
+import time
 from datetime import datetime, timedelta
+
+import pytest
+
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.persistence import PersistenceEngine
-from agent.trajectory import TrajectoryEngine
-from agent.tension import TensionEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
 from agent.decision_impact import DecisionImpactEngine
+from agent.leverage import LeverageEngine
+from agent.persistence import PersistenceEngine
 from agent.pipeline import run_processing_pipeline
+from agent.resolution import ResolutionEngine
+from agent.tension import TensionEngine
+from agent.trajectory import TrajectoryEngine
 
 # Setup logging
 logger = logging.getLogger("LiveSystemTest")
@@ -28,7 +30,7 @@ def test_live_system_flow(test_user):
     """
     user_id = test_user['id']
     now = datetime.now()
-    
+
     print("\n" + "═"*60)
     print(" STARTING LIVE SYSTEM INTEGRATION TEST ")
     print(" Using real OpenAI API keys and models ")
@@ -36,7 +38,7 @@ def test_live_system_flow(test_user):
 
     # 1. Ingest Data (Real Language)
     print("\n[1/5] Ingesting real-world journal entries...")
-    
+
     # Pattern: Intense coding leads to physical fatigue
     entries = [
         (now - timedelta(days=40), "Spent 10 hours today building a recursive descent parser in Rust. My brain is on fire but I love it.", "coding"),
@@ -57,7 +59,7 @@ def test_live_system_flow(test_user):
         with conn.cursor() as cur:
             cur.execute("UPDATE journal_entries SET created_at = %s WHERE id = %s", (dt, eid))
             conn.commit()
-        
+
         # Run real pipeline (Generates real OpenAI embeddings)
         run_processing_pipeline('journal_entry', eid)
 
@@ -79,7 +81,7 @@ def test_live_system_flow(test_user):
     # 4. Core Orchestration (Live Chat)
     print("\n[4/5] Calling IRIS for live pattern analysis...")
     companion = PersonalAICompanion(user_id=user_id, model="gpt-4o-mini")
-    
+
     start_time = time.time()
     response = companion.chat("I've been working on my Rust compiler again and I'm starting to feel that familiar exhaustion. What do you see in my patterns?")
     duration = time.time() - start_time
@@ -92,7 +94,7 @@ def test_live_system_flow(test_user):
 
     assert len(response) > 10
     assert "Rust" in response or "coding" in response.lower() or "exhaustion" in response.lower() or "fatigue" in response.lower()
-    
+
     print("\n" + "═"*60)
     print(" LIVE SYSTEM INTEGRITY TEST: SUCCESS ")
     print("═"*60 + "\n")

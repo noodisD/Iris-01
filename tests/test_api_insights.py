@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from iris_api import app, get_current_user_id
 from agent.database import db
+from iris_api import app, get_current_user_id
 
 
 @pytest.fixture

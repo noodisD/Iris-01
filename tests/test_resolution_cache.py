@@ -1,8 +1,8 @@
 """
 Test to verify resolution caching works correctly when manually forced.
 """
-import pytest
 from datetime import datetime, timedelta
+
 from agent.database import db
 from agent.resolution import ResolutionEngine
 
@@ -15,7 +15,7 @@ def test_resolution_cache_uses_forced_value(test_user):
     """
     user_id = test_user['id']
     now = datetime.now()
-    
+
     # Create theme
     theme_id = db.create_theme(
         user_id,
@@ -24,7 +24,7 @@ def test_resolution_cache_uses_forced_value(test_user):
         (now - timedelta(days=60)).isoformat(),
         now.isoformat()
     )
-    
+
     # Add some past occurrences
     for i in range(5):
         days_ago = 30 + (i * 5)
@@ -37,13 +37,13 @@ def test_resolution_cache_uses_forced_value(test_user):
             0.95,
             (now - timedelta(days=days_ago)).isoformat()
         )
-    
+
     # First analysis (should get 'dissipated')
     engine1 = ResolutionEngine(user_id)
     result1 = engine1.analyze_theme(theme_id, force_recompute=True)
     print(f"\nFirst analysis: {result1['resolution_label']}")
     assert result1['resolution_label'] == 'dissipated'
-    
+
     # Manually force to 'persisting' (opposite of what it should be)
     db.create_or_update_resolution(
         'theme', theme_id,
@@ -53,14 +53,14 @@ def test_resolution_cache_uses_forced_value(test_user):
         recent_count=10,  # Claim there are recent occurrences
         past_count=10
     )
-    print(f"Forced 'persisting' in cache")
-    
+    print("Forced 'persisting' in cache")
+
     # Second analysis (should use cache and return 'persisting')
     engine2 = ResolutionEngine(user_id)
     result2 = engine2.analyze_theme(theme_id, force_recompute=False)
     print(f"Second analysis (cached): {result2['resolution_label']}")
     assert result2['resolution_label'] == 'persisting', "Cache should be used"
-    
+
     # Now force back to 'dissipated'
     db.create_or_update_resolution(
         'theme', theme_id,
@@ -70,8 +70,8 @@ def test_resolution_cache_uses_forced_value(test_user):
         recent_count=0,
         past_count=20
     )
-    print(f"Forced back to 'dissipated' in cache")
-    
+    print("Forced back to 'dissipated' in cache")
+
     # Third analysis (should use cache and return 'dissipated')
     engine3 = ResolutionEngine(user_id)
     result3 = engine3.analyze_theme(theme_id, force_recompute=False)

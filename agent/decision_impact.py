@@ -13,21 +13,24 @@ The engine answers: "After pattern X appears, what other patterns tend to change
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Any
+
 import numpy as np
 
-# Import database and constants
-from .database import db, decision_impacts, themes, confidence as confidence_repo, evidence as evidence_repo
 from .confidence import ConfidenceEngine
-from .evidence import EvidenceEngine
 from .constants import (
-    DECISION_IMPACT_WINDOW_DAYS,
     DECISION_IMPACT_BASELINE_DAYS,
+    DECISION_IMPACT_BASELINE_EPSILON,
     DECISION_IMPACT_MIN_ANCHORS,
-    DECISION_IMPACT_MIN_DELTA,
     DECISION_IMPACT_MIN_DATA_POINTS,
-    DECISION_IMPACT_BASELINE_EPSILON
+    DECISION_IMPACT_MIN_DELTA,
+    DECISION_IMPACT_WINDOW_DAYS,
 )
+from .database import confidence as confidence_repo
+
+# Import database and constants
+from .database import decision_impacts, themes
+from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,7 @@ class DecisionImpactEngine:
         """Buffers evidence for later persistence."""
         self._evidence.append({"type": ev_type, "key": key, "value": value})
 
-    def analyze_all_anchors(self, force_recompute: bool = False) -> List[Dict]:
+    def analyze_all_anchors(self, force_recompute: bool = False) -> list[dict]:
         """
         Performs a scan for all active patterns to find notable downstream shifts.
         """
@@ -61,10 +64,10 @@ class DecisionImpactEngine:
         for anchor in active_themes:
             impacts = self.analyze_anchor('theme', anchor['id'])
             results.extend(impacts)
-        
+
         return results
 
-    def analyze_anchor(self, anchor_type: str, anchor_id: int) -> List[Dict]:
+    def analyze_anchor(self, anchor_type: str, anchor_id: int) -> list[dict]:
         """
         Computes shifts in all other patterns following instances of the anchor.
         """
@@ -75,12 +78,12 @@ class DecisionImpactEngine:
 
         # 2. Get all candidate targets (active themes)
         targets = themes.get_all_themes(self.user_id)
-        
+
         impacts = []
         for target in targets:
             if target['id'] == anchor_id:
                 continue
-            
+
             # 3. Compute Metrics
             result = self._calculate_impact(anchor_id, anchors, 'theme', target['id'])
             if result and result['effect_direction'] != 'none':
@@ -89,7 +92,7 @@ class DecisionImpactEngine:
                 result['anchor_summary'] = themes.get_theme(anchor_id)['summary']
                 result['target_summary'] = target['summary']
                 impacts.append(result)
-                
+
                 # 4. Store in DB
                 decision_impacts.create_or_update(
                     anchor_type=anchor_type,
@@ -102,7 +105,7 @@ class DecisionImpactEngine:
                     target_count=result['target_total_count'],
                     confidence_level=result['confidence_level']
                 )
-        
+
         return impacts
 
     def format_for_context(self, max_items: int = 3) -> str:
@@ -112,12 +115,12 @@ class DecisionImpactEngine:
         """
         # Get significant impacts (medium/high confidence)
         impacts = decision_impacts.get_significant_impacts(self.user_id, min_confidence='medium')
-        
+
         # Filter: High confidence only for context, and NO negative deltas (decreases)
         # to avoid negative narrative framing by the LLM.
         filtered = [
-            i for i in impacts 
-            if i['confidence_level'] == 'high' 
+            i for i in impacts
+            if i['confidence_level'] == 'high'
             and i['effect_direction'] in ['increase', 'emergence']
         ]
 
@@ -125,23 +128,23 @@ class DecisionImpactEngine:
             return ""
 
         filtered = filtered[:max_items]
-        
+
         lines = ["# Observed Temporal Sequences:"]
         for imp in filtered:
             anchor = imp['anchor_summary']
             target = imp['target_summary']
-            
+
             if imp['effect_direction'] == 'emergence':
                 lines.append(f"- Following occurrences of '{anchor}', the pattern '{target}' appeared recently where it was previously absent.")
             else:
                 lines.append(f"- Following occurrences of '{anchor}', the pattern '{target}' appeared more frequently in the subsequent {DECISION_IMPACT_WINDOW_DAYS} days.")
-                
+
         return "\n".join(lines)
 
     # --- Private Calculation Logic ---
 
-    def _calculate_impact(self, anchor_id: int, anchor_timestamps: List[datetime], 
-                          target_type: str, target_id: int) -> Optional[Dict]:
+    def _calculate_impact(self, anchor_id: int, anchor_timestamps: list[datetime],
+                          target_type: str, target_id: int) -> dict | None:
         """
         Computes the aggregate delta across all anchor events.
         """
@@ -160,15 +163,15 @@ class DecisionImpactEngine:
             b_start = t - timedelta(days=DECISION_IMPACT_BASELINE_DAYS)
             b_count = sum(1 for ts in all_target_occs if b_start <= ts < t)
             b_rate = b_count / DECISION_IMPACT_BASELINE_DAYS
-            
+
             # Post window: [t, t + 14]
             p_end = t + timedelta(days=DECISION_IMPACT_WINDOW_DAYS)
             p_count = sum(1 for ts in all_target_occs if t <= ts <= p_end)
             p_rate = p_count / DECISION_IMPACT_WINDOW_DAYS
-            
+
             baseline_rates.append(b_rate)
             post_rates.append(p_rate)
-            
+
             # Local direction
             if b_rate < DECISION_IMPACT_BASELINE_EPSILON:
                 directions.append('emergence' if p_rate > 0 else 'none')
@@ -183,7 +186,7 @@ class DecisionImpactEngine:
 
         avg_baseline = np.mean(baseline_rates)
         avg_post = np.mean(post_rates)
-        
+
         # Aggregate delta
         if avg_baseline < DECISION_IMPACT_BASELINE_EPSILON:
             delta = 1.0 if avg_post > 0 else 0.0
@@ -206,13 +209,13 @@ class DecisionImpactEngine:
         # We pass anchor timestamps as 'evidence' and directions as 'signal'
         self._evidence = [] # Clear buffer
         conf = self.conf_engine.compute_confidence('impact', anchor_id, anchor_timestamps, directions)
-        
+
         # Emit evidence
         self.emit_evidence('rate', 'avg_baseline_rate', avg_baseline)
         self.emit_evidence('rate', 'avg_post_rate', avg_post)
         self.emit_evidence('delta', 'delta_score', delta)
         self.emit_evidence('count', 'anchor_count', len(anchor_timestamps))
-        
+
         # Store in central registry
         confidence_repo.create_or_update(
             'impact', anchor_id,
@@ -220,7 +223,7 @@ class DecisionImpactEngine:
             conf['data_points_count'], conf['time_coverage_days'],
             conf['consistency_score'], conf['recency_score']
         )
-        
+
         # Store in evidence registry
         self.ev_engine.record_evidence('impact', 'theme', anchor_id, self._evidence)
 
@@ -234,16 +237,16 @@ class DecisionImpactEngine:
 
     # --- Helpers ---
 
-    def _get_candidate_anchors(self) -> List[Dict]:
+    def _get_candidate_anchors(self) -> list[dict]:
         """Returns themes with enough data to be anchors."""
         all_themes = themes.get_all_themes(self.user_id)
         # 1. Min count filter
         active = [t for t in all_themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
-        
+
         # 2. Dissipation filter (don't anchor on dead patterns)
         from .resolution import ResolutionEngine
         res_engine = ResolutionEngine(self.user_id)
-        
+
         refined = []
         for t in active:
             res = res_engine.analyze_theme(t['id'])
@@ -252,7 +255,7 @@ class DecisionImpactEngine:
             refined.append(t)
         return refined
 
-    def _get_anchor_events(self, a_type: str, a_id: int) -> List[datetime]:
+    def _get_anchor_events(self, a_type: str, a_id: int) -> list[datetime]:
         """Returns timestamps of anchor occurrences."""
         if a_type != 'theme': return []
         occs = themes.get_occurrences(a_id)
@@ -266,7 +269,7 @@ class DecisionImpactEngine:
             times.append(dt)
         return sorted(times)
 
-    def _get_all_occurrences(self, t_type: str, t_id: int) -> List[datetime]:
+    def _get_all_occurrences(self, t_type: str, t_id: int) -> list[datetime]:
         """Returns all timestamps for a target theme."""
         if t_type != 'theme': return []
         occs = themes.get_occurrences(t_id)

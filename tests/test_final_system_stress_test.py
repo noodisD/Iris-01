@@ -1,20 +1,16 @@
 
-import pytest
 import logging
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.persistence import PersistenceEngine
-from agent.trajectory import TrajectoryEngine
-from agent.tension import TensionEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
 from agent.decision_impact import DecisionImpactEngine
-from agent.confidence import ConfidenceEngine
 from agent.explanation import ExplanationEngine
-from agent.conflict import ConflictSuppressionEngine
+from agent.leverage import LeverageEngine
+from agent.resolution import ResolutionEngine
+from agent.tension import TensionEngine
+from agent.trajectory import TrajectoryEngine
 
 # Setup logging
 logger = logging.getLogger("FinalStressTest")
@@ -25,9 +21,9 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     """
     user_id = test_user['id']
     now = datetime.now()
-    
+
     logger.info("--- PHASE 1: COMPREHENSIVE DATA INGESTION ---")
-    
+
     # 1. Create Themes
     t_stress = db.create_theme(user_id, [0.1]*1536, "Work Stress", (now-timedelta(days=120)).isoformat(), now.isoformat())
     t_sleep = db.create_theme(user_id, [0.2]*1536, "Poor Sleep", (now-timedelta(days=120)).isoformat(), now.isoformat())
@@ -42,7 +38,7 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
         eid = db.create_journal_entry(user_id, f"Stress {i}", {})
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d_s.isoformat())
         db.update_theme_stats(t_stress, d_s.isoformat())
-        
+
         d_sl = d_s + timedelta(days=2)
         eid = db.create_journal_entry(user_id, f"Sleep {i}", {})
         db.add_theme_occurrence(t_sleep, 'journal_entry', eid, "sleep", 0.95, d_sl.isoformat())
@@ -103,17 +99,17 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     # For Stress theme:
     # Actual: Increasing (Trajectory)
     # Forced: Manually inject a 'dissipated' resolution
-    from agent.database import resolutions, confidence
+    from agent.database import confidence, resolutions
     resolutions.create_or_update('theme', t_stress, 'dissipated', 1.0, 'high', 0, 20)
     confidence.create_or_update('resolution', t_stress, 'high', 0.9, 20, 100, 1.0, 0.5)
 
     companion = PersonalAICompanion(user_id=user_id)
     companion.intelligence.chat = MagicMock(return_value="OK")
     companion.chat("Stress check.")
-    
+
     prompt = companion.intelligence.chat.call_args[1]['system_prompt']
-    
-    # Conflict: Trajectory(increasing) vs Resolution(dissipated). 
+
+    # Conflict: Trajectory(increasing) vs Resolution(dissipated).
     # Resolution has higher priority in constants.
     assert "Work Stress" in prompt
     assert "appeared frequently in the past but has not appeared recently" in prompt # Winner
@@ -152,7 +148,7 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     # Reset all to ensure clean slate
     companion.pref_service.reset()
     companion.pref_service.update_pref('max_items', 1)
-    
+
     # Force a brand new, high-confidence 'Resolution' theme that is guaranteed to show up
     # Scenario: Reappearing (was there 60 days ago, gone for 30, back now)
     t_budget = db.create_theme(user_id, [0.7]*1536, "Guaranteed Theme", (now-timedelta(days=100)).isoformat(), now.isoformat())
@@ -166,30 +162,30 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
         d_r = now - timedelta(days=2 + i)
         db.add_theme_occurrence(t_budget, 'journal_entry', 9000+i, "recent", 0.95, d_r.isoformat())
         db.update_theme_stats(t_budget, d_r.isoformat())
-    
+
     # Refresh analytical stack
     res_budget = ResolutionEngine(user_id).analyze_theme(t_budget)
     print(f"DEBUG: Budget Theme Label: {res_budget['resolution_label']} Conf: {res_budget['confidence_level']}")
-    
+
     companion.chat("Budget check.")
     budget_prompt = companion.intelligence.chat.call_args[1]['system_prompt']
-    
+
     # Debug suppression
     for k, v in companion.last_suppressed_insights.items():
         if str(t_budget) in k:
             print(f"DEBUG BUDGET SUPPRESSION: {k} -> {v['reason']}")
-    
+
     # Verify that the analytical section header is present
     header = "# Observed Structural Patterns & Observed Temporal Sequences:"
     assert header in budget_prompt
-    
+
     # Count bulleted lines in that section
     body = budget_prompt.split(header)[1]
     analytical_lines = [l for l in body.split('\n') if l.strip().startswith("-")]
     print(f"DEBUG: Analytical bulleted lines: {len(analytical_lines)}")
     if len(analytical_lines) == 0:
         print(f"DEBUG: FULL PROMPT BODY:\n{body}")
-    
+
     # Budget gate says max_items=1, so we expect exactly 1 bulleted line in the body
     # It might be 'Work Stress' or 'Guaranteed Theme' depending on prioritization score
     assert len(analytical_lines) == 1, f"Expected 1 line, got {len(analytical_lines)}. Body: {body}"

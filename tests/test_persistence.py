@@ -2,11 +2,12 @@
 Tests for the Persistence Engine.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
+
+import pytest
+
 from agent.persistence import PersistenceEngine
-import numpy as np
+
 
 @pytest.fixture
 def engine(test_user):
@@ -24,20 +25,20 @@ def test_check_persistence_match(engine, mocker):
         }
     ]
     mocker.patch("agent.database.db.get_themes", return_value=mock_themes)
-    
+
     # Mock update methods
     mock_add_occ = mocker.patch("agent.database.db.add_theme_occurrence")
     mock_update_stats = mocker.patch("agent.database.db.update_theme_stats")
-    
+
     # Input embedding (identical to centroid)
     embedding = [0.1] * 1536
     source_type = "journal_entry"
     source_id = 100
     content = "Recurring thought content"
     occurred_at = datetime.now()
-    
+
     matched_id = engine.check_persistence(embedding, source_type, source_id, content, occurred_at)
-    
+
     assert matched_id == 1
     mock_add_occ.assert_called_once()
     mock_update_stats.assert_called_once_with(1, occurred_at.isoformat())
@@ -54,15 +55,15 @@ def test_check_persistence_no_match(engine, mocker):
         }
     ]
     mocker.patch("agent.database.db.get_themes", return_value=mock_themes)
-    
+
     # Mock update methods
     mock_add_occ = mocker.patch("agent.database.db.add_theme_occurrence")
-    
+
     # Input embedding (orthogonal to centroid)
     embedding = [0.0, 1.0] + [0.0] * 1534
-    
+
     matched_id = engine.check_persistence(embedding, "journal_entry", 100, "content", datetime.now())
-    
+
     assert matched_id is None
     mock_add_occ.assert_not_called()
 
@@ -120,9 +121,9 @@ def test_format_for_context(engine, mocker):
         }
     ]
     mocker.patch.object(engine, "get_persistent_themes", return_value=mock_themes)
-    
+
     context = engine.format_for_context()
-    
+
     assert "# What Keeps Coming Back:" in context
     assert 'Theme A" (5 times, last: 2024-01-10)' in context
     assert 'Theme B" (2 times, last: 2024-01-06)' in context

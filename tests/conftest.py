@@ -14,11 +14,11 @@ import datetime
 import hashlib
 import logging
 import random
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import psycopg2
 import pytest
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 from agent.config import settings
 from agent.database import db
@@ -84,7 +84,7 @@ def offline_embeddings(monkeypatch):
         yield
         return
 
-    def fake_create(input, model=None, **kwargs):  # noqa: A002 - matches the SDK
+    def fake_create(input, model=None, **kwargs):
         text = input[0] if isinstance(input, (list, tuple)) else input
         return SimpleNamespace(data=[SimpleNamespace(embedding=_offline_embedding(text))])
 
@@ -116,7 +116,7 @@ def logging_setup(tmp_path_factory):
         if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
             handler.setLevel(logging.CRITICAL)
 
-    yield
+    return
     # Cleanup: handlers remain until session ends (pytest handles cleanup)
 
 @pytest.fixture(scope="session", autouse=True)
@@ -253,38 +253,38 @@ def freeze_time(monkeypatch):
     class TimeMachine:
         def __init__(self):
             self.now = datetime.datetime.now()
-        
+
         def set_time(self, new_time):
             self.now = new_time
-            
+
         def move_forward(self, days=0, hours=0):
             self.now += datetime.timedelta(days=days, hours=hours)
 
     machine = TimeMachine()
-    
+
     # We must patch everywhere datetime.now is used
     # This is broad, but necessary for the IRIS analytical stack
-    import agent.database
-    import agent.persistence
-    import agent.trajectory
-    import agent.tension
-    import agent.resolution
-    import agent.leverage
-    import agent.decision_impact
     import agent.confidence
-    import agent.prioritization
     import agent.core
+    import agent.database
+    import agent.decision_impact
+    import agent.leverage
+    import agent.persistence
+    import agent.prioritization
+    import agent.resolution
+    import agent.tension
+    import agent.trajectory
 
     modules = [
-        agent.database, agent.persistence, agent.trajectory, 
-        agent.tension, agent.resolution, agent.leverage, 
-        agent.decision_impact, agent.confidence, 
+        agent.database, agent.persistence, agent.trajectory,
+        agent.tension, agent.resolution, agent.leverage,
+        agent.decision_impact, agent.confidence,
         agent.prioritization, agent.core
     ]
 
     # Note: mocking datetime.datetime.now directly is hard because it's a built-in.
     # We patch the datetime reference in each module instead.
-    
+
     class MockDateTime(datetime.datetime):
         @classmethod
         def now(cls, tz=None):
@@ -303,6 +303,6 @@ def mock_llm(monkeypatch):
     """
     mock_intelligence = MagicMock()
     mock_intelligence.chat.return_value = "IRIS Mocked Response"
-    
+
     monkeypatch.setattr("agent.core.Intelligence", lambda *args, **kwargs: mock_intelligence)
     return mock_intelligence

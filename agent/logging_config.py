@@ -30,7 +30,7 @@ class AutoExcInfoFilter(logging.Filter):
 
 def configure_logging(
     log_dir: str | None = None,
-    log_level: int = logging.DEBUG
+    log_level: int | None = None
 ) -> None:
     """
     Initialize logging for IRIS: rotating file handlers + console + auto stack traces.
@@ -39,6 +39,13 @@ def configure_logging(
         log_dir: Directory for log files (default: <project_root>/logs)
         log_level: Minimum level for agent logger (default: DEBUG)
     """
+    # LOG_LEVEL was documented in .env.example but never read; the level was
+    # pinned to DEBUG, which is also why the log files carry every insight the
+    # engines considered.
+    if log_level is None:
+        from .config import settings
+        log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+
     # Determine log directory
     if log_dir is None:
         log_dir = Path(__file__).parent.parent / "logs"

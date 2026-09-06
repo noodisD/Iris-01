@@ -14,14 +14,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_no_undefined_names():
-    """ruff F821 — undefined name. These are runtime crashes waiting for a
-    branch to be taken, and they cost nothing to detect."""
+def test_lint_correctness_rules_are_clean():
+    """ruff's F (pyflakes) and E9 (syntax) families: undefined names, unused
+    imports and variables, redefinitions. Not style — these are bugs or the
+    residue of one. Style rules are reported in CI but do not gate."""
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", ".", "--select", "F821", "--quiet"],
+        [sys.executable, "-m", "ruff", "check", ".", "--select", "F,E9", "--quiet"],
         cwd=ROOT, capture_output=True, text=True,
     )
-    assert result.returncode == 0, f"undefined names found:\n{result.stdout}{result.stderr}"
+    assert result.returncode == 0, f"correctness lint failures:\n{result.stdout}{result.stderr}"
 
 
 def test_the_suite_can_run_without_a_funded_api_key():

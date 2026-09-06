@@ -13,8 +13,7 @@ The engine does not judge. It simply surfaces persistence.
 
 import logging
 from datetime import datetime
-from typing import Optional, List, Any
-import math
+from typing import Any
 
 # Attempt to import sklearn, but handle gracefully if unavailable
 try:
@@ -26,16 +25,18 @@ except ImportError:
 
 import numpy as np
 
-# Import repositories and constants
-from .database import themes, embeddings, confidence as confidence_repo
 from .confidence import ConfidenceEngine
-from .evidence import EvidenceEngine
 from .constants import (
-    PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_CLUSTER_THRESHOLD,
+    PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_MIN_CLUSTER_SIZE,
-    EVIDENCE_WEIGHTS
 )
+from .database import confidence as confidence_repo
+
+# Import repositories and constants
+from .database import embeddings, themes
+from .evidence import EvidenceEngine
+
 
 def cosine_similarity_manual(vec1, vec2):
     """
@@ -107,7 +108,7 @@ class PersistenceEngine:
     # === Real-time Detection ===
 
     def check_persistence(self, embedding: list, source_type: str,
-                         source_id: int, content: str, occurred_at: datetime) -> Optional[int]:
+                         source_id: int, content: str, occurred_at: datetime) -> int | None:
         """
         Called by pipeline for each new entry.
         Checks if this content matches any existing theme.
@@ -159,7 +160,7 @@ class PersistenceEngine:
 
     # === Theme Discovery ===
 
-    def discover_themes(self) -> List[dict]:
+    def discover_themes(self) -> list[dict]:
         """
         Clusters unassigned entries to find new themes.
         Run periodically or on-demand.
@@ -225,7 +226,7 @@ class PersistenceEngine:
                     # Ensure minimum eps based on cluster threshold
                     # Cosine distance = 1 - Cosine Similarity
                     # We want similarity > 0.78, so distance < 0.22
-                    eps = max(avg_kth_distance, 1.0 - PERSISTENCE_CLUSTER_THRESHOLD) 
+                    eps = max(avg_kth_distance, 1.0 - PERSISTENCE_CLUSTER_THRESHOLD)
                 else:
                     eps = 1.0 - PERSISTENCE_CLUSTER_THRESHOLD
 
@@ -266,7 +267,7 @@ class PersistenceEngine:
         return new_themes
 
     def _create_theme_from_cluster(self, vectors: np.ndarray,
-                                  entries: List[dict]) -> Optional[dict]:
+                                  entries: list[dict]) -> dict | None:
         """
         Creates a theme from a cluster of vectors.
 
@@ -342,7 +343,7 @@ class PersistenceEngine:
             logger.error(f"Failed to create theme: {e}")
             return None
 
-    def _generate_theme_summary(self, entries: List[dict]) -> str:
+    def _generate_theme_summary(self, entries: list[dict]) -> str:
         """
         Generate a brief, neutral summary of what a theme is about.
         Uses the LLM once per theme creation.
@@ -366,7 +367,7 @@ class PersistenceEngine:
 
         # Use LLM to summarize
         from .intelligence import Intelligence
-        intelligence = Intelligence(model="gpt-4o-mini")
+        intelligence = Intelligence()
 
         prompt = f"""These journal excerpts share a common semantic theme.
 Create a neutral, observational summary of the theme in 5-10 words.
@@ -395,11 +396,11 @@ Theme summary:"""
             logger.error(f"LLM summary generation failed: {e}")
             return self._get_best_fallback_summary(entries)
 
-    def _get_best_fallback_summary(self, entries: List[dict]) -> str:
+    def _get_best_fallback_summary(self, entries: list[dict]) -> str:
         """Pick the longest/most descriptive snippet as the title."""
         best_snippet = "Recurring theme"
         max_len = 0
-        
+
         for entry in entries[:5]:
             # Use updated snippet fetcher
             snippet = self._get_entry_snippet(entry["source_id"], entry["source_type"])
@@ -412,7 +413,7 @@ Theme summary:"""
                     clean_content = clean_content.replace("Notes:", "").strip()
                 elif "Reflection:" in clean_content:
                     clean_content = clean_content.replace("Reflection:", "").strip()
-                
+
                 if len(clean_content) > max_len:
                     max_len = len(clean_content)
                     best_snippet = clean_content
@@ -420,16 +421,16 @@ Theme summary:"""
                 if len(snippet) > max_len:
                     max_len = len(snippet)
                     best_snippet = snippet
-        
+
         # Truncate if too long for a title
         if len(best_snippet) > 100:
             best_snippet = best_snippet[:97] + "..."
-            
+
         return best_snippet
 
     # === Querying ===
 
-    def get_persistent_themes(self, min_occurrences: int = None) -> List[dict]:
+    def get_persistent_themes(self, min_occurrences: int = None) -> list[dict]:
         """
         Returns themes that have recurred, sorted by occurrence count.
         Also computes and caches confidence for each theme.
@@ -441,7 +442,7 @@ Theme summary:"""
             min_occurrences = self.min_cluster_size
 
         all_themes = self._get_user_themes()
-        
+
         # Debug logging
         logger.info(f"Checking {len(all_themes)} themes against min_occurrences {min_occurrences}")
         for t in all_themes[:3]:
@@ -450,33 +451,33 @@ Theme summary:"""
         # Filter 1: Occurrence Count (Proto-Theme Gate)
         candidates = [t for t in all_themes if t["occurrence_count"] >= min_occurrences]
         logger.info(f"Candidates passing proto-filter: {len(candidates)}")
-        
+
         persistent = []
         for t in candidates:
             # 1. Check cache first
             conf = confidence_repo.get_confidence('theme', t['id'])
-            
+
             # 2. Get Evidence (needed for temporal check anyway)
             occs = self.get_theme_evidence(t['id'])
-            
+
             # Filter 2: Temporal Density (Time-Awareness)
             # Require >= 3 occurrences in last 30 days
             recent_count = 0
             now = datetime.now()
             timestamps = []
             source_types = []
-            
+
             for o in occs:
                 dt = o['occurred_at']
                 if not isinstance(dt, datetime):
                     dt = datetime.fromisoformat(str(dt))
-                
+
                 # Make naive for comparison to be safe against naive/aware mix
                 if dt.tzinfo:
                     dt = dt.replace(tzinfo=None)
-                    
+
                 timestamps.append(dt)
-                
+
                 # Determine source type for weighting
                 st = o['source_type']
                 snippet = o.get('snippet', '')
@@ -489,7 +490,7 @@ Theme summary:"""
                 days_diff = (now - dt).days
                 if days_diff <= 30:
                     recent_count += 1
-            
+
             # Debug logging
             logger.info(f"Theme {t['id']}: Count {t['occurrence_count']}, Recent {recent_count}")
 
@@ -497,19 +498,19 @@ Theme summary:"""
             if recent_count < 3:
                 logger.info(f"Theme {t['id']} SKIPPED: Low temporal density ({recent_count} < 3)")
                 continue # Skip this theme, it's dormant or noise
-            
+
             # If confirmed, proceed to confidence
             if not conf or conf.get('last_computed_at') is None:
                 # Improved 5: Pass source_types for Evidence Tiering
                 conf = self.conf_engine.compute_confidence(
                     'theme', t['id'], timestamps, sources=source_types
                 )
-                
+
                 # Emit raw components as evidence
                 self.emit_evidence('count', 'occurrence_count', conf['data_points_count'])
                 self.emit_evidence('window', 'time_coverage_days', conf['time_coverage_days'])
                 self.emit_evidence('rate', 'recency_score', conf['recency_score'])
-                
+
                 # 3. Store in central registry
                 confidence_repo.create_or_update(
                     'theme', t['id'],
@@ -517,17 +518,17 @@ Theme summary:"""
                     conf['data_points_count'], conf['time_coverage_days'],
                     conf['consistency_score'], conf['recency_score']
                 )
-                
+
                 # 4. Record evidence bundle
                 self.ev_engine.record_evidence('persistence', 'theme', t['id'], self._evidence)
-            
+
             t['confidence'] = conf['confidence_level']
             t['confidence_score'] = conf['confidence_score']
             persistent.append(t)
-            
+
         return persistent
 
-    def get_theme_evidence(self, theme_id: int) -> List[dict]:
+    def get_theme_evidence(self, theme_id: int) -> list[dict]:
         """
         Returns all occurrences of a theme with chronological timeline.
 
@@ -592,12 +593,6 @@ Theme summary:"""
             summary = theme["summary"]
 
             # Handle both datetime objects and strings
-            first_seen = theme["first_seen_at"]
-            if isinstance(first_seen, datetime):
-                first = first_seen.strftime("%Y-%m-%d")
-            else:
-                first = str(first_seen).split("T")[0]
-
             last_seen = theme["last_seen_at"]
             if isinstance(last_seen, datetime):
                 last = last_seen.strftime("%Y-%m-%d")
@@ -610,7 +605,7 @@ Theme summary:"""
 
     # === Private Helpers ===
 
-    def _get_user_themes(self) -> List[dict]:
+    def _get_user_themes(self) -> list[dict]:
         """Retrieve all themes for this user."""
         return themes.get_all_themes(self.user_id)
 

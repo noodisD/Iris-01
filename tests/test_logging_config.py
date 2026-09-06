@@ -4,9 +4,6 @@ Verifies that configure_logging() sets up handlers, captures stack traces,
 and filters logs correctly.
 """
 import logging
-import tempfile
-from pathlib import Path
-import pytest
 
 
 def test_configure_logging_creates_handlers(tmp_path):

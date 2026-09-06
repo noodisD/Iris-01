@@ -1,8 +1,8 @@
 """
 Test that manually overridden resolutions in the DB are properly cached.
 """
-import pytest
 from datetime import datetime, timedelta
+
 from agent.database import db
 from agent.resolution import ResolutionEngine
 
@@ -47,7 +47,7 @@ def test_manual_resolution_override(test_user):
     engine = ResolutionEngine(user_id)
     result = engine.analyze_theme(theme, force_recompute=False)
 
-    print(f"\nDEBUG Manual Override Test:")
+    print("\nDEBUG Manual Override Test:")
     print(f"  Theme ID: {theme}")
     print(f"  Result label: {result['resolution_label']}")
     print(f"  Result confidence: {result['confidence_level']}")
@@ -94,7 +94,7 @@ def test_stress_theme_exact_scenario(test_user):
 
     # Get all occurrences
     occs = db.get_theme_occurrences(t_stress)
-    print(f"\nDEBUG Stress Theme Scenario:")
+    print("\nDEBUG Stress Theme Scenario:")
     print(f"  Total occurrences: {len(occs)}")
 
     # Show which are in recent window (last 21 days)
@@ -114,7 +114,7 @@ def test_stress_theme_exact_scenario(test_user):
 
     # Print actual occurrences
     occ_dates = sorted([_naive(o) for o in occs], reverse=True)
-    print(f"  Occurrence dates (days ago):")
+    print("  Occurrence dates (days ago):")
     for occ_dt in occ_dates[:10]:  # First 10
         days_ago = (now - occ_dt).days
         print(f"    - {days_ago} days ago")
@@ -123,7 +123,7 @@ def test_stress_theme_exact_scenario(test_user):
     engine = ResolutionEngine(user_id)
     result = engine.analyze_theme(t_stress, force_recompute=True)
 
-    print(f"\n  Natural analysis result:")
+    print("\n  Natural analysis result:")
     print(f"    Label: {result['resolution_label']}")
     print(f"    Confidence: {result['confidence_level']}")
     print(f"    Recent count: {result['recent_count']}")
@@ -142,7 +142,7 @@ def test_stress_theme_exact_scenario(test_user):
 
     # Analyze again - should get cached value
     result2 = engine.analyze_theme(t_stress, force_recompute=False)
-    print(f"\n  After override:")
+    print("\n  After override:")
     print(f"    Label: {result2['resolution_label']}")
     print(f"    Confidence: {result2['confidence_level']}")
 

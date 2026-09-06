@@ -6,7 +6,7 @@ Provides business logic for managing reflections and mood tracking.
 
 import logging
 from datetime import date, timedelta
-from typing import Dict, List, Optional
+
 from ..database import db
 from ..pipeline import run_processing_pipeline
 
@@ -22,20 +22,20 @@ class ReflectionService:
 
     # ========== CRUD Operations ==========
 
-    def _infer_mood(self, tags: List[str]) -> str:
+    def _infer_mood(self, tags: list[str]) -> str:
         """Infers a general mood from emotional tags."""
         if not tags:
             return "okay"
-        
+
         # Normalize tags
         tags = [t.lower() for t in tags]
-        
+
         positive = {"excited", "inspired", "proud", "content", "calm", "grateful", "hopeful", "great", "good"}
         negative = {"stressed", "anxious", "frustrated", "tired", "bad", "terrible", "sad"}
-        
+
         pos_count = sum(1 for t in tags if t in positive)
         neg_count = sum(1 for t in tags if t in negative)
-        
+
         if pos_count > 0 and neg_count == 0:
             return "great" if "excited" in tags or "inspired" in tags else "good"
         if neg_count > 0 and pos_count == 0:
@@ -45,10 +45,10 @@ class ReflectionService:
     def create_reflection(
         self,
         content: str,
-        reflection_date: Optional[date] = None,
-        energy_level: Optional[int] = None,
-        clarity_level: Optional[int] = None,
-        tags: Optional[List[str]] = None
+        reflection_date: date | None = None,
+        energy_level: int | None = None,
+        clarity_level: int | None = None,
+        tags: list[str] | None = None
     ) -> int:
         """Create a new reflection. Returns reflection ID."""
         if not content or not content.strip():
@@ -56,7 +56,7 @@ class ReflectionService:
 
         if energy_level and not (1 <= energy_level <= 10):
             raise ValueError("Energy level must be between 1 and 10")
-            
+
         if clarity_level and not (1 <= clarity_level <= 10):
             raise ValueError("Clarity level must be between 1 and 10")
 
@@ -83,17 +83,17 @@ class ReflectionService:
 
     def get_reflections(
         self,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         limit: int = 30,
-        before_id: Optional[int] = None
-    ) -> List[Dict]:
+        before_id: int | None = None
+    ) -> list[dict]:
         """Get this user's reflections, newest first, filtered in the database."""
         return db.get_reflections(
             self.user_id, limit, before_id, start_date=start_date, end_date=end_date
         )
 
-    def get_reflection(self, reflection_id: int) -> Optional[Dict]:
+    def get_reflection(self, reflection_id: int) -> dict | None:
         """Get a specific reflection by ID."""
         reflection = db.get_reflection(reflection_id)
         if reflection and reflection["user_id"] != self.user_id:
@@ -107,12 +107,12 @@ class ReflectionService:
             return False
 
         # Validate energy_level if being updated
-        if "energy_level" in updates and updates["energy_level"]:
+        if updates.get("energy_level"):
             if not (1 <= updates["energy_level"] <= 10):
                 raise ValueError("Energy level must be between 1 and 10")
-                
+
         # Validate clarity_level if being updated
-        if "clarity_level" in updates and updates["clarity_level"]:
+        if updates.get("clarity_level"):
             if not (1 <= updates["clarity_level"] <= 10):
                 raise ValueError("Clarity level must be between 1 and 10")
 
@@ -127,7 +127,7 @@ class ReflectionService:
 
     # ========== Analytics ==========
 
-    def get_recent_moods(self, days: int = 7) -> List[Dict]:
+    def get_recent_moods(self, days: int = 7) -> list[dict]:
         """Get mood data for the past N days."""
         start_date = date.today() - timedelta(days=days - 1)
         reflections = self.get_reflections(start_date=start_date)
@@ -144,7 +144,7 @@ class ReflectionService:
 
         return sorted(moods, key=lambda x: x["date"], reverse=True)
 
-    def get_mood_trend(self, days: int = 30) -> Dict:
+    def get_mood_trend(self, days: int = 30) -> dict:
         """Analyze mood and energy trends over a period."""
         start_date = date.today() - timedelta(days=days - 1)
         end_date = date.today()
@@ -188,7 +188,7 @@ class ReflectionService:
             )
         }
 
-    def get_tag_summary(self, days: int = 30) -> Dict:
+    def get_tag_summary(self, days: int = 30) -> dict:
         """Get a summary of tags used in reflections."""
         start_date = date.today() - timedelta(days=days - 1)
         reflections = self.get_reflections(start_date=start_date)
@@ -208,7 +208,7 @@ class ReflectionService:
             "tags": [{"tag": tag, "count": count} for tag, count in sorted_tags]
         }
 
-    def get_reflection_summary(self, days: int = 30) -> Dict:
+    def get_reflection_summary(self, days: int = 30) -> dict:
         """Get a comprehensive summary of reflections."""
         start_date = date.today() - timedelta(days=days - 1)
         reflections = self.get_reflections(start_date=start_date)

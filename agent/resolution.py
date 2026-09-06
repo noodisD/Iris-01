@@ -12,19 +12,20 @@ The engine does not judge. It simply observes direction and consistency.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple, Any
-import numpy as np
+from typing import Any
 
-# Import database and constants
-from .database import resolutions, themes, evidence as evidence_repo, confidence as confidence_repo
 from .confidence import ConfidenceEngine
-from .evidence import EvidenceEngine
 from .constants import (
-    RESOLUTION_RECENT_DAYS,
     RESOLUTION_BASELINE_DAYS,
     RESOLUTION_DELTA_EPSILON,
-    RESOLUTION_MIN_DATA_POINTS
+    RESOLUTION_MIN_DATA_POINTS,
+    RESOLUTION_RECENT_DAYS,
 )
+from .database import confidence as confidence_repo
+
+# Import database and constants
+from .database import resolutions, themes
+from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
 
@@ -113,28 +114,28 @@ class ResolutionEngine:
         # Calculate rates
         recent_rate = recent_count / RESOLUTION_RECENT_DAYS
         past_rate = past_count / RESOLUTION_BASELINE_DAYS
-        
+
         # Calculate attenuation score
         attenuation_score = self._calculate_attenuation_score(recent_rate, past_rate)
-        
+
         # Check for gap (reappearance logic)
         gap_detected = self._get_gap_detected(timestamps, recent_start)
-        
+
         # 2. Classification
         label = self._classify_resolution(past_count, recent_count, attenuation_score, gap_detected)
-        
+
         # 3. Confidence using central engine
         self._evidence = [] # Clear buffer
         conf = self.conf_engine.compute_confidence('resolution', theme_id, timestamps)
         confidence = conf['confidence_level']
-        
+
         # Emit evidence
         self.emit_evidence('count', 'recent_count', recent_count)
         self.emit_evidence('count', 'past_count', past_count)
         self.emit_evidence('delta', 'attenuation_score', attenuation_score)
         self.emit_evidence('rate', 'recent_rate', recent_rate)
         self.emit_evidence('rate', 'past_rate', past_rate)
-        
+
         # Store in central registry
         confidence_repo.create_or_update(
             'resolution', theme_id,
@@ -142,10 +143,10 @@ class ResolutionEngine:
             conf['data_points_count'], conf['time_coverage_days'],
             conf['consistency_score'], conf['recency_score']
         )
-        
+
         # Record evidence bundle
         self.ev_engine.record_evidence('resolution', 'theme', theme_id, self._evidence)
-        
+
         # Store in cache
         resolutions.create_or_update(
             pattern_type='theme',
@@ -156,7 +157,7 @@ class ResolutionEngine:
             recent_count=recent_count,
             past_count=past_count
         )
-        
+
         result = {
             "theme_id": theme_id,
             "summary": summary,
@@ -170,7 +171,7 @@ class ResolutionEngine:
         logger.debug(f"ResolutionEngine.analyze_theme returning: theme_id={theme_id}, label={label}, result={result}")
         return result
 
-    def analyze_all_themes(self) -> List[dict]:
+    def analyze_all_themes(self) -> list[dict]:
         """Analyzes all themes for the current user."""
         all_themes = themes.get_all_themes(self.user_id)
         return [self.analyze_theme(t['id']) for t in all_themes]
@@ -180,35 +181,35 @@ class ResolutionEngine:
         Formats resolution insights for LLM context injection.
         Only includes high/medium confidence dissipated or reappearing patterns.
         """
-        resolutions = self.analyze_all_themes() 
-        
+        resolutions = self.analyze_all_themes()
+
         # Filter for high/medium confidence and interesting labels
         significant = [
-            r for r in resolutions 
-            if r['confidence_level'] in ['high', 'medium'] 
+            r for r in resolutions
+            if r['confidence_level'] in ['high', 'medium']
             and r['resolution_label'] in ['dissipated', 'reappearing']
         ]
-        
+
         if not significant:
             return ""
-            
+
         significant = significant[:max_items]
-        
+
         lines = ["# Observed Patterns:"]
         for res in significant:
             summary = res['summary']
             label = res['resolution_label']
-            
+
             if label == 'dissipated':
                 lines.append(f"- The theme '{summary}' appeared frequently in the past but has not appeared in the last {RESOLUTION_RECENT_DAYS} days.")
             elif label == 'reappearing':
                 lines.append(f"- The theme '{summary}' has reappeared recently after a period of absence.")
-                
+
         return "\n".join(lines)
 
     # --- Private Helpers ---
 
-    def _get_time_windows(self) -> Tuple[datetime, datetime, datetime]:
+    def _get_time_windows(self) -> tuple[datetime, datetime, datetime]:
         """Calculates window boundaries for analysis."""
         now = datetime.now().replace(tzinfo=None)
         recent_start = now - timedelta(days=RESOLUTION_RECENT_DAYS)
@@ -223,48 +224,48 @@ class ResolutionEngine:
         """
         if past_rate == 0:
             return 0.0 if recent_rate == 0 else -1.0 # Strengthening if past was 0
-            
+
         score = 1.0 - (recent_rate / past_rate)
         return max(-1.0, min(1.0, score)) # Safety clamp
 
-    def _get_gap_detected(self, timestamps: List[datetime], recent_start: datetime) -> bool:
+    def _get_gap_detected(self, timestamps: list[datetime], recent_start: datetime) -> bool:
         """
         Gap Detected if there exists a silence at least as long as 
         RESOLUTION_RECENT_DAYS between baseline and recent activity.
         """
         if not timestamps:
             return False
-            
+
         timestamps.sort()
-        
+
         # Find the last occurrence before the recent window
         last_baseline_occ = None
         for ts in reversed(timestamps):
             if ts < recent_start:
                 last_baseline_occ = ts
                 break
-                
+
         if last_baseline_occ is None:
             return False
-            
+
         # Gap exists if last baseline occurrence was more than RESOLUTION_RECENT_DAYS before recent_start
         return last_baseline_occ <= (recent_start - timedelta(days=RESOLUTION_RECENT_DAYS))
 
-    def _classify_resolution(self, past_count: int, recent_count: int, 
+    def _classify_resolution(self, past_count: int, recent_count: int,
                             attenuation_score: float, gap_detected: bool) -> str:
         """Prioritized classification logic."""
         # 1. Dissipated: Was there, now gone
         if past_count >= RESOLUTION_MIN_DATA_POINTS and recent_count == 0:
             return 'dissipated'
-            
+
         # 2. Reappearing: Was there, gone for a bit, now back
         if past_count >= RESOLUTION_MIN_DATA_POINTS and recent_count > 0 and gap_detected:
             return 'reappearing'
-            
+
         # 3. Stabilized: Little change in rate
         if abs(attenuation_score) <= RESOLUTION_DELTA_EPSILON:
             return 'stabilized'
-            
+
         # 4. Persisting: Fallback
         return 'persisting'
 

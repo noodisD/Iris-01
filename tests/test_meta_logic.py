@@ -1,12 +1,13 @@
 
-import pytest
 from datetime import datetime, timedelta
-from agent.conflict import ConflictSuppressionEngine
+
 from agent.confidence import ConfidenceEngine
+from agent.conflict import ConflictSuppressionEngine
+
 
 def test_conflict_priority_and_confidence():
     engine = ConflictSuppressionEngine()
-    
+
     # 1. Tie-break by Confidence: High wins over Medium
     insights = [
         {
@@ -42,11 +43,11 @@ def test_confidence_consistency_collapse():
     engine = ConfidenceEngine()
     now = datetime.now()
     timestamps = [now - timedelta(days=i) for i in range(10)]
-    
+
     # Perfect consistency (10/10)
     res_high = engine.compute_confidence('theme', 1, timestamps, ['inc']*10)
     assert res_high['confidence_level'] == 'high'
-    
+
     # Total collapse (5/10)
     res_low = engine.compute_confidence('theme', 1, timestamps, ['inc']*5 + ['dec']*5)
     assert res_low['confidence_level'] in ['medium', 'low']
@@ -56,11 +57,11 @@ def test_directionless_confidence_normalization():
     engine = ConfidenceEngine()
     now = datetime.now()
     timestamps = [now - timedelta(days=i) for i in range(10)]
-    
+
     # No directions (Persistence theme)
     # Weights should re-normalize to split between sufficiency and recency
     result = engine.compute_confidence('theme', 1, timestamps, directions=None)
-    
+
     assert result['confidence_level'] == 'high'
     assert result['consistency_score'] == 0.0
     assert result['confidence_score'] > 0.7 # High score because sufficiency and recency are strong

@@ -1,23 +1,19 @@
 
-import pytest
-import time
 import logging
-import uuid
+import time
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
+
 from agent.core import PersonalAICompanion
 from agent.database import db
-from agent.persistence import PersistenceEngine
-from agent.trajectory import TrajectoryEngine
-from agent.tension import TensionEngine
-from agent.resolution import ResolutionEngine
-from agent.leverage import LeverageEngine
 from agent.decision_impact import DecisionImpactEngine
-from agent.confidence import ConfidenceEngine
-from agent.explanation import ExplanationEngine
-from agent.conflict import ConflictSuppressionEngine
+from agent.leverage import LeverageEngine
 from agent.prioritization import InsightPrioritizationEngine
+from agent.resolution import ResolutionEngine
+from agent.tension import TensionEngine
+from agent.trajectory import TrajectoryEngine
 
 # Setup logging
 logger = logging.getLogger("UltimateTest")
@@ -59,7 +55,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     report = SystemReport()
     user_id = test_user['id']
     now = datetime.now()
-    
+
     # --- STAGE 1: DATA INGESTION (90 Days) ---
     t0 = time.time()
     # Themes
@@ -117,20 +113,20 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     # Force a 'increasing' trajectory for Yoga which is actually 'stable'
     db.create_or_update_confidence('trajectory', t_yoga, 'medium', 0.6, 5, 20, 1.0, 0.5)
     # Actually Yoga is stable, but we force a fake conflict
-    
+
     # 2. Priority Ranking
     priority_engine = InsightPrioritizationEngine(user_id)
     # We will fetch raw from all engines and rank
     all_raw = []
     all_raw.extend(TrajectoryEngine(user_id).analyze_all_themes())
     all_raw.extend(ResolutionEngine(user_id).analyze_all_themes())
-    
+
     # Standardize them for ranker
     for i in all_raw:
         i['engine_name'] = i.get('engine_name') or ('trajectory' if 'trajectory_label' in i else 'resolution')
         i['pattern_type'] = 'theme'
         i['pattern_id'] = i.get('theme_id')
-    
+
     ranked = priority_engine.rank_insights(all_raw)
     report.add_stage("Meta-Control & Ranking", time.time() - t2)
 
@@ -139,7 +135,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     companion = PersonalAICompanion(user_id=user_id)
     companion.intelligence.chat = MagicMock(return_value="OK")
     companion.chat("Complete system check.")
-    
+
     prompt = companion.intelligence.chat.call_args[1]['system_prompt']
     report.add_stage("Full Context Enrichment", time.time() - t3)
 
@@ -147,7 +143,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     print("\n" + "─"*40)
     print(" SYSTEM INTEGRITY VALIDATION ")
     print("─"*40)
-    
+
     # 1. Confidence Registry Check
     conn = db.get_connection()
     with conn.cursor() as cur:
@@ -171,7 +167,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     # We verify that 'Old Habit' or 'Meditation' reached the prompt (they were prioritized)
     assert "Old Habit" in prompt or "Meditation" in prompt, "Prioritized themes missing from context"
     print("Prioritized context integrity verified [OK]")
-    
+
     # 5. Verify Conflict Suppression actually worked
     # 'Work Stress' should NOT have an 'increasing' trajectory because it was suppressed by our manual dissipated resolution
     assert "is increasing in frequency" not in prompt, "Conflict Suppression failed to silence contradictory insight"

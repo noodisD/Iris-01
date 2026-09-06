@@ -5,11 +5,10 @@ This module decouples analytics from explanation. It captures intermediate
 metrics from engines and persists them as historical snapshots.
 """
 
+import json
 import logging
 import uuid
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-import json
+from typing import Any
 
 # Import database
 from .database import evidence as evidence_repo
@@ -26,7 +25,7 @@ class EvidenceEngine:
         engine_name: str,
         pattern_type: str,
         pattern_id: int,
-        records: List[Dict[str, Any]]
+        records: list[dict[str, Any]]
     ) -> uuid.UUID:
         """
         Persists a list of metrics as a single computation snapshot.
@@ -37,7 +36,7 @@ class EvidenceEngine:
         - value: Any (JSON serializable)
         """
         comp_id = uuid.uuid4()
-        
+
         db_rows = [
             (
                 str(comp_id),
@@ -50,12 +49,12 @@ class EvidenceEngine:
             )
             for r in records
         ]
-        
+
         evidence_repo.add_records(db_rows)
         logger.info(f"Recorded {len(db_rows)} evidence rows for {engine_name} run {comp_id}")
         return comp_id
 
-    def get_latest_bundle(self, pattern_type: str, pattern_id: int, engine_name: Optional[str] = None) -> List[Dict]:
+    def get_latest_bundle(self, pattern_type: str, pattern_id: int, engine_name: str | None = None) -> list[dict]:
         """
         Fetches the evidence for the most recent computation.
         """

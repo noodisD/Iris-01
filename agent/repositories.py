@@ -7,8 +7,8 @@ Database singleton, creating seams where the backend can be adapted or
 tested independently.
 """
 
-from typing import Any, Optional, List, Dict
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
