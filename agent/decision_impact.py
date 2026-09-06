@@ -91,6 +91,8 @@ class DecisionImpactEngine:
                 result['target_id'] = target['id']
                 result['anchor_summary'] = themes.get_theme(anchor_id)['summary']
                 result['target_summary'] = target['summary']
+                # NarrativeFormatter reads `summary` for the pattern name.
+                result['summary'] = result['anchor_summary']
                 impacts.append(result)
 
                 # 4. Store in DB

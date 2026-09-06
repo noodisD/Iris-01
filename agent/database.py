@@ -1971,11 +1971,23 @@ class Database:
                 logger.error(f"Failed to get preferences for user {user_id}: {e}")
                 raise
 
+    # The only columns update_preference may write. `key` reaches SQL as an
+    # identifier, which cannot be parameterised, so it is checked against this
+    # set rather than trusted. Nothing user-facing calls this today; the check
+    # is here so that adding a preferences endpoint later cannot turn it into
+    # an injection.
+    _PREFERENCE_COLS = frozenset({
+        "min_confidence", "max_items", "enabled_engines", "show_suppressed",
+    })
+
     def update_preference(self, user_id: int, key: str, value: Any) -> None:
         """
         Updates a specific user preference and logs the change.
         Note: value must be JSON serializable if updating enabled_engines.
         """
+        if key not in self._PREFERENCE_COLS:
+            raise ValueError(f"Unknown preference: {key!r}")
+
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 # 1. Fetch old value for audit

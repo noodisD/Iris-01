@@ -64,10 +64,20 @@ def configure_logging(
     exc_filter = AutoExcInfoFilter()
 
     # Get agent package logger
-    agent_logger = logging.getLogger("agent")
+    # Both the analytical package and the HTTP layer. Only "agent" used to be
+    # configured, and it does not propagate, so every logger.info/error in
+    # iris_api.py went to stderr's last-resort handler and never reached
+    # logs/iris.log or logs/iris_errors.log — request-layer failures were
+    # invisible in the files people actually read.
+    logger_names = ("agent", "iris_api")
 
-    # Guard against duplicate handlers (idempotency)
-    if len(agent_logger.handlers) > 0:
+    # Idempotent per logger: configure only the ones not already wired, so
+    # re-running for one logger cannot be skipped because the other is set up.
+    loggers = [
+        lg for lg in (logging.getLogger(name) for name in logger_names)
+        if not lg.handlers
+    ]
+    if not loggers:
         return
 
     # 1. RotatingFileHandler for all logs (DEBUG+)
@@ -80,7 +90,8 @@ def configure_logging(
     all_handler.setLevel(logging.DEBUG)
     all_handler.setFormatter(formatter)
     all_handler.addFilter(exc_filter)
-    agent_logger.addHandler(all_handler)
+    for lg in loggers:
+        lg.addHandler(all_handler)
 
     # 2. RotatingFileHandler for errors only (ERROR+)
     error_log_path = log_dir / "iris_errors.log"
@@ -92,18 +103,20 @@ def configure_logging(
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
     error_handler.addFilter(exc_filter)
-    agent_logger.addHandler(error_handler)
+    for lg in loggers:
+        lg.addHandler(error_handler)
 
     # 3. StreamHandler for console (INFO+)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     console_handler.addFilter(exc_filter)
-    agent_logger.addHandler(console_handler)
+    for lg in loggers:
+        lg.addHandler(console_handler)
 
-    # Configure agent logger
-    agent_logger.setLevel(log_level)
-    agent_logger.propagate = False  # Don't propagate to root logger
+    for lg in loggers:
+        lg.setLevel(log_level)
+        lg.propagate = False  # Keep library chatter out of these files
 
     # Configure root logger to not spam with library logs
     root_logger = logging.getLogger()

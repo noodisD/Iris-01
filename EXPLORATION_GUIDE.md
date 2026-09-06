@@ -13,7 +13,7 @@ These modules establish the data layer and patterns used everywhere else.
 
 **Files to explore:**
 1. `agent/database.py` (110KB)
-   - Entry point: `DatabaseConnection` class
+   - Entry point: the `Database` singleton (`db`)
    - Learn: schema definition, connection pooling, query helpers
    - Key sections: `create_schema()`, the 25+ table schemas, `get_connection()`
 

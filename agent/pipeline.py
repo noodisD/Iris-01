@@ -68,6 +68,33 @@ def extract_entities(text: str) -> dict:
     ideas = [line.strip().lstrip('- ') for line in text.split('\n') if line.strip().startswith('- ')]
     return {"ideas": ideas}
 
+def _refresh_cross_theme_analyses(user_id: int) -> None:
+    """Recompute leverage and decision impact for a user, into their caches.
+
+    These two engines are pairwise (O(themes^2)) and, unlike the others, do not
+    cache on read — `force_recompute` is accepted and ignored, so every call
+    recomputes from occurrences. The chat path therefore reads their cache
+    tables directly, which stays fast but means nothing filled those tables on
+    the HTTP path: only the Insights screen and the CLI ever ran the engines, so
+    two of the six engines were silent in the chat context unless the user
+    happened to open Insights first.
+
+    Recomputing here, where an occurrence has just changed the theme graph (and
+    where add_theme_occurrence has just invalidated these very caches), keeps
+    the chat path reading warm data without paying O(n^2) per message.
+    """
+    from .decision_impact import DecisionImpactEngine
+    from .leverage import LeverageEngine
+
+    try:
+        LeverageEngine(user_id).analyze_all_leverage()
+        DecisionImpactEngine(user_id).analyze_all_anchors()
+    except Exception as e:
+        # Non-blocking: the entry is already stored, and a stale cross-theme
+        # cache is a worse-context problem, not a data problem.
+        logger.warning(f"Cross-theme refresh failed for user {user_id}: {e}")
+
+
 def run_processing_pipeline(source_type: str, source_id: int):
     """
     Runs the full processing pipeline for a given source item.
@@ -156,6 +183,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 )
                 if matched_theme_id:
                     logger.info(f"{source_type.capitalize()} {source_id} matched theme {matched_theme_id}")
+                    _refresh_cross_theme_analyses(user_id)
                 else:
                     # Nothing matched. Themes are only *born* from clustering,
                     # and discover_themes() used to be reachable only from the
@@ -171,6 +199,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
                             f"Discovery created {len(new_themes)} new theme(s) "
                             f"after {source_type} {source_id}"
                         )
+                        _refresh_cross_theme_analyses(user_id)
             except Exception as e:
                 logger.error(f"Persistence check failed for {source_type} ID {source_id}: {e}")
                 # Non-blocking: don't fail the pipeline if persistence fails

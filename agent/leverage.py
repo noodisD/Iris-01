@@ -67,6 +67,8 @@ class LeverageEngine:
                 if result and result['influence_score'] >= LEVERAGE_ASYMMETRY_THRESHOLD:
                     result['source_summary'] = source['summary']
                     result['target_summary'] = target['summary']
+                    # NarrativeFormatter reads `summary` for the pattern name.
+                    result['summary'] = source['summary']
                     results.append(result)
 
         return results

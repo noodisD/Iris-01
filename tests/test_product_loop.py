@@ -177,3 +177,59 @@ def test_date_ranged_reflections_are_filtered_in_the_database(test_user, mock_pi
         start_date=date.today() - timedelta(days=12), end_date=date.today() - timedelta(days=7)
     )
     assert [r["content"] for r in prior] == ["last week"]
+
+
+def test_cross_theme_engines_run_on_the_ingest_path(test_user, mock_pipeline_logic, monkeypatch):
+    """Leverage and decision impact are pairwise and do not cache on read, so
+    the chat path reads their cache tables directly. Nothing on the HTTP path
+    used to fill those tables — only the Insights screen and the CLI ran the
+    engines — so two of the six engines were silent in the chat context unless
+    the user happened to open Insights first.
+
+    They must now run when an occurrence changes the theme graph.
+    """
+    from agent.decision_impact import DecisionImpactEngine
+    from agent.leverage import LeverageEngine
+    from agent.trackers.reflections import ReflectionService
+
+    calls = {"leverage": 0, "impact": 0}
+    real_leverage = LeverageEngine.analyze_all_leverage
+    real_impact = DecisionImpactEngine.analyze_all_anchors
+
+    def spy_leverage(self, *a, **k):
+        calls["leverage"] += 1
+        return real_leverage(self, *a, **k)
+
+    def spy_impact(self, *a, **k):
+        calls["impact"] += 1
+        return real_impact(self, *a, **k)
+
+    monkeypatch.setattr(LeverageEngine, "analyze_all_leverage", spy_leverage)
+    monkeypatch.setattr(DecisionImpactEngine, "analyze_all_anchors", spy_impact)
+
+    svc = ReflectionService(test_user["id"])
+    for i in range(6):
+        svc.create_reflection(content=f"Work Stress is building again {i}", energy_level=3)
+
+    assert _themes_for(test_user["id"]), "precondition: the entries formed a theme"
+    assert calls["leverage"] > 0, "leverage never ran on the ingest path"
+    assert calls["impact"] > 0, "decision impact never ran on the ingest path"
+
+
+def test_cross_theme_refresh_never_breaks_ingestion(test_user, mock_pipeline_logic, monkeypatch):
+    """The refresh is an optimisation of the chat context, not part of storing
+    the entry. If it raises, the entry must still be saved and embedded."""
+    from agent.leverage import LeverageEngine
+    from agent.trackers.reflections import ReflectionService
+
+    monkeypatch.setattr(
+        LeverageEngine, "analyze_all_leverage",
+        lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("engine exploded")),
+    )
+
+    svc = ReflectionService(test_user["id"])
+    reflection_id = svc.create_reflection(content="Work Stress once more", energy_level=3)
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT processing_status FROM reflections WHERE id = %s;", (reflection_id,))
+        assert cur.fetchone()[0] == "complete", "ingestion must survive a failing refresh"

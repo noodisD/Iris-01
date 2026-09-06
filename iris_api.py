@@ -10,7 +10,9 @@ from agent.logging_config import configure_logging
 
 # Configure logging first, before any other imports
 configure_logging()
-logger = logging.getLogger(__name__)
+# Named explicitly: as __main__ this logger would miss the handlers that
+# configure_logging() attaches to "iris_api".
+logger = logging.getLogger("iris_api")
 
 import json
 import os
@@ -470,7 +472,7 @@ async def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depen
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
 
-    update_dict = updates.dict(exclude_none=True)
+    update_dict = updates.model_dump(exclude_none=True)
     tracker.update_habit(habit_id, **update_dict)
     return {"message": "Habit updated successfully"}
 
@@ -627,7 +629,7 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_
         raise HTTPException(status_code=404, detail="Reflection not found")
 
     try:
-        update_dict = updates.dict(exclude_none=True)
+        update_dict = updates.model_dump(exclude_none=True)
         service.update_reflection(reflection_id, **update_dict)
         return {"message": "Reflection updated successfully"}
     except ValueError as e:
