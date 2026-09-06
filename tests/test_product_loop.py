@@ -155,3 +155,25 @@ def test_journal_entry_service_creates_an_entry(test_user):
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM journal_entries WHERE user_id = %s;", (test_user["id"],))
         assert cur.fetchone()[0] == 1
+
+
+def test_date_ranged_reflections_are_filtered_in_the_database(test_user, mock_pipeline_logic):
+    """A date range used to be applied in Python *after* fetching only the most
+    recent rows, so any window outside them came back silently empty — which is
+    why the weekly review compared a week against nothing once the user had
+    written more than the fetch limit."""
+    from datetime import date, timedelta
+
+    from agent.trackers.reflections import ReflectionService
+
+    svc = ReflectionService(test_user["id"])
+    for i in range(35):
+        svc.create_reflection(content=f"this week {i}", energy_level=8)
+    svc.create_reflection(
+        content="last week", energy_level=3, reflection_date=date.today() - timedelta(days=9)
+    )
+
+    prior = svc.get_reflections(
+        start_date=date.today() - timedelta(days=12), end_date=date.today() - timedelta(days=7)
+    )
+    assert [r["content"] for r in prior] == ["last week"]

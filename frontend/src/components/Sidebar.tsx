@@ -7,7 +7,6 @@ import { useIrisStore, applyOrbVibe, type OrbVibe } from '@/hooks/useIrisState';
 const NAV = [
   { to: '/chat',      label: 'Chat' },
   { to: '/today',     label: 'Today' },
-  { to: '/body',      label: 'Body', badge: 'air' },
   { to: '/journal',   label: 'Journal' },
   { to: '/habits',    label: 'Habits' },
   { to: '/insights',  label: 'Insights', dot: true },
@@ -18,7 +17,7 @@ const NAV = [
 
 // Per-route default orb vibe
 const ROUTE_VIBE: Record<string, Exclude<OrbVibe, 'auto'>> = {
-  '/chat': 'calm', '/today': 'calm', '/body': 'cool', '/journal': 'high',
+  '/chat': 'calm', '/today': 'calm', '/journal': 'high',
   '/habits': 'high', '/insights': 'low', '/review': 'cool', '/mobile': 'calm', '/settings': 'dim',
 };
 
@@ -66,7 +65,6 @@ export function Sidebar() {
                 {isActive && <span style={{ position: 'absolute', left: -1, top: 8, bottom: 8, width: 2, background: 'var(--sage)', borderRadius: 2 }} />}
                 <span style={{ flex: 1 }}>{item.label}</span>
                 {item.dot && <span className="dot sage" />}
-                {item.badge && <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--sage)', letterSpacing: '0.06em' }}>● {item.badge}</span>}
               </>
             )}
           </NavLink>

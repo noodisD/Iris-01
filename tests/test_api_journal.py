@@ -46,3 +46,31 @@ def test_journal_mood_roundtrips(client):
     match = [e for e in entries if e["lines"] == ["a single line"]]
     assert match, "created entry not found in list"
     assert match[0]["mood"] == 9
+
+
+def test_journal_pagination_uses_the_cursor(client):
+    """The frontend has always sent ?cursor=; the backend used to ignore it and
+    return page one forever, while the contract advertised nextCursor."""
+    for i in range(5):
+        client.post("/api/journal", json={"lines": [f"entry {i}"], "mood": 5})
+
+    first = client.get("/api/journal?limit=2").json()
+    assert len(first["entries"]) == 2
+    assert "nextCursor" in first, "more entries exist, so a cursor must be offered"
+
+    second = client.get(f"/api/journal?limit=2&cursor={first['nextCursor']}").json()
+    assert len(second["entries"]) == 2
+
+    first_ids = {e["id"] for e in first["entries"]}
+    second_ids = {e["id"] for e in second["entries"]}
+    assert not (first_ids & second_ids), "pages must not overlap"
+
+
+def test_journal_last_page_offers_no_cursor(client):
+    client.post("/api/journal", json={"lines": ["only one"], "mood": 5})
+    page = client.get("/api/journal?limit=50").json()
+    assert "nextCursor" not in page
+
+
+def test_journal_rejects_a_bad_cursor(client):
+    assert client.get("/api/journal?cursor=not-a-number").status_code == 400

@@ -1,9 +1,7 @@
 import React from 'react';
-import { useBody } from '@/hooks/useData';
 import { useHabits } from '@/hooks/useHabits';
 import { useInsights } from '@/hooks/useInsights';
 import { useNavigate } from 'react-router-dom';
-import { Sparkline } from '@/components/primitives';
 
 /**
  * Today / dashboard — composed from multiple hooks.
@@ -13,12 +11,10 @@ import { Sparkline } from '@/components/primitives';
  * port remaining cards as the backend exposes those series.
  */
 export function TodayScreen() {
-  const { data: body } = useBody();
   const { data: habits } = useHabits();
   const { data: insights } = useInsights();
   const nav = useNavigate();
 
-  const latest = body?.recent[body.recent.length - 1];
   const featured = insights?.find(i => i.featured);
 
   return (
@@ -47,20 +43,6 @@ export function TodayScreen() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        {latest && (
-          <>
-            <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)', borderRadius: 10, padding: '18px 20px' }}>
-              <div className="kicker" style={{ marginBottom: 10 }}>Readiness · air</div>
-              <div className="numerals" style={{ fontSize: 56, color: 'var(--sage)' }}>{latest.readiness}<span style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-3)', marginLeft: 6 }}>/100</span></div>
-              <div style={{ marginTop: 10 }}><Sparkline data={body!.recent.map(d => d.readiness)} w={300} h={36} stroke="var(--sage)" fill /></div>
-            </div>
-            <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)', borderRadius: 10, padding: '18px 20px' }}>
-              <div className="kicker" style={{ marginBottom: 10 }}>HRV · last night</div>
-              <div className="numerals" style={{ fontSize: 56, color: 'var(--sage)' }}>{latest.hrvMs}<span style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-3)', marginLeft: 6 }}>MS</span></div>
-              <div style={{ marginTop: 10 }}><Sparkline data={body!.recent.map(d => d.hrvMs)} w={300} h={36} stroke="var(--sage)" fill /></div>
-            </div>
-          </>
-        )}
         {habits && (
           <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)', borderRadius: 10, padding: '18px 20px' }}>
             <div className="kicker" style={{ marginBottom: 10 }}>Habits · today</div>

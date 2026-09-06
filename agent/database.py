@@ -2413,8 +2413,20 @@ class Database:
                 logger.error(f"Failed to create reflection: {e}")
                 raise
 
-    def get_reflections(self, user_id: int, limit: int = 30) -> list:
-        """Retrieves recent reflections for a user."""
+    def get_reflections(self, user_id: int, limit: int = 30, before_id: int = None,
+                        start_date=None, end_date=None) -> list:
+        """Retrieves a user's reflections, newest first.
+
+        `before_id` is a keyset cursor: pass the id of the last row you saw to
+        get the page after it. Ordering is by id rather than reflection_date so
+        the cursor stays stable when several entries share a date.
+
+        `start_date`/`end_date` are applied in SQL. They used to be filtered in
+        Python *after* fetching only the most recent `limit` rows, so a date
+        range that fell outside those rows silently came back empty — which is
+        why the weekly review compared a week against nothing once a user had
+        more than `limit` entries.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
@@ -2422,10 +2434,14 @@ class Database:
                     SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at
                     FROM reflections
                     WHERE user_id = %s
-                    ORDER BY reflection_date DESC
+                      AND (%s::int IS NULL OR id < %s)
+                      AND (%s::date IS NULL OR reflection_date >= %s)
+                      AND (%s::date IS NULL OR reflection_date <= %s)
+                    ORDER BY id DESC
                     LIMIT %s;
                     """,
-                    (user_id, limit)
+                    (user_id, before_id, before_id, start_date, start_date,
+                     end_date, end_date, limit)
                 )
                 rows = cur.fetchall()
                 return [

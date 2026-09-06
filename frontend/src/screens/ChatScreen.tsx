@@ -23,16 +23,6 @@ function Bubble({ msg }: { msg: ChatMessage }) {
               ))}
             </div>
           )}
-          {msg.bio && (
-            <div className="row" style={{ gap: 14, marginTop: 4, padding: '8px 12px', border: '1px dashed var(--sage-dim)', borderRadius: 6, alignItems: 'center', width: 'fit-content' }}>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--sage)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>● from your air</span>
-              {Object.entries(msg.bio).filter(([, v]) => v).map(([k, v]) => (
-                <span key={k} style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-2)' }}>
-                  <span style={{ color: 'var(--ink-4)' }}>{k}</span> {String(v)}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );

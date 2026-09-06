@@ -71,8 +71,6 @@ export interface ChatMessage {
   createdAt: ISODateTime;
   /** Tag terms Iris "noticed" while writing this message. */
   noticed?: NoticedTag[];
-  /** Optional Fitbit Air signals quoted alongside Iris's reply. */
-  bio?: BioReference;
   /** Optional structured quick-reply options Iris is offering. */
   quickReplies?: QuickReply[];
   /** True while a partial reply is still streaming. */
@@ -84,16 +82,6 @@ export interface NoticedTag {
   key: string;
   label: string;
   confidence: Confidence;
-}
-
-export interface BioReference {
-  /** "+9 ms HRV", "−0.8 br/min". Pre-formatted; backend chooses units. */
-  hrv?: string;
-  breath?: string;
-  rhr?: string;
-  status?: string;
-  /** Free-form additional callouts. */
-  extra?: Record<string, string>;
 }
 
 export interface QuickReply {
@@ -201,62 +189,6 @@ export interface HabitToggleRequest {
 // ─────────────────────────────────────────────────────────────────────────────
 // Body — Fitbit Air / Health Connect / Apple Health
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface BodyDay {
-  date: ISODate;
-  /** 0..100 — Air's Readiness. */
-  readiness: number;
-  /** Heart rate variability in ms. */
-  hrvMs: number;
-  /** Resting heart rate, bpm. */
-  rhrBpm: number;
-  /** Breathing rate per minute (sleep). */
-  breathingRate: number;
-  /** Skin-temp variation from baseline, °F. */
-  skinTempDeltaF: number;
-  /** Cardio Load score (Air). */
-  cardioLoad: number;
-  sleep?: SleepNight;
-  rhythmFlags?: { afib: boolean };
-}
-
-export interface SleepNight {
-  /** When you fell asleep. */
-  startedAt: ISODateTime;
-  endedAt: ISODateTime;
-  totalMinutes: number;
-  stages: SleepStage[];           // ordered by time
-  awakenings: number;
-}
-
-export interface SleepStage {
-  stage: 'awake' | 'rem' | 'light' | 'deep';
-  startedAt: ISODateTime;
-  minutes: number;
-}
-
-export interface BodyOverviewResponse {
-  /** Last 14 days, newest last. */
-  recent: BodyDay[];
-  /** Quick rollups. */
-  rollups: {
-    hrvBaselineMs: number;
-    rhrBaselineBpm: number;
-    avgReadiness14d: number;
-  };
-  /** Whether a wearable is currently providing data. */
-  source: BodySource;
-}
-
-export interface BodySource {
-  kind: 'fitbit-air' | 'health-connect' | 'apple-health' | 'none';
-  /** Human label, e.g. "Fitbit Air · 12g". */
-  label: string;
-  connected: boolean;
-  lastSyncedAt?: ISODateTime;
-  batteryPct?: number;
-  daysBatteryLeft?: number;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Insights — patterns Iris found

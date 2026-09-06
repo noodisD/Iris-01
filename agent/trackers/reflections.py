@@ -85,24 +85,13 @@ class ReflectionService:
         self,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
-        limit: int = 30
+        limit: int = 30,
+        before_id: Optional[int] = None
     ) -> List[Dict]:
-        """Get recent reflections for this user."""
-        reflections = db.get_reflections(self.user_id, limit)
-
-        # Filter by date range if provided
-        if start_date or end_date:
-            filtered = []
-            for reflection in reflections:
-                refl_date = reflection["reflection_date"]
-                if start_date and refl_date < start_date:
-                    continue
-                if end_date and refl_date > end_date:
-                    continue
-                filtered.append(reflection)
-            return filtered
-
-        return reflections
+        """Get this user's reflections, newest first, filtered in the database."""
+        return db.get_reflections(
+            self.user_id, limit, before_id, start_date=start_date, end_date=end_date
+        )
 
     def get_reflection(self, reflection_id: int) -> Optional[Dict]:
         """Get a specific reflection by ID."""

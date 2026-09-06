@@ -10,9 +10,6 @@ import type { ApiError } from '@/types/api';
 
 const BASE = (import.meta.env.VITE_BACKEND_URL ?? '') as string;
 
-export const useMocks = (): boolean =>
-  String(import.meta.env.VITE_USE_MOCKS ?? '').toLowerCase() === 'true';
-
 class HttpError extends Error {
   status: number;
   api: ApiError;

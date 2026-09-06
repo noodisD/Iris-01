@@ -3,7 +3,6 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 import { AppLayout } from '@/components/AppLayout';
 import { ChatScreen } from '@/screens/ChatScreen';
 import { TodayScreen } from '@/screens/TodayScreen';
-import { BodyScreen } from '@/screens/BodyScreen';
 import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
 import { InsightsScreen } from '@/screens/InsightsScreen';
@@ -22,7 +21,6 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat', element: <ChatScreen /> },
       { path: 'today', element: <TodayScreen /> },
-      { path: 'body', element: <BodyScreen /> },
       { path: 'journal', element: <JournalScreen /> },
       { path: 'habits', element: <HabitsScreen /> },
       { path: 'insights', element: <InsightsScreen /> },

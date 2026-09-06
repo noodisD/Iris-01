@@ -652,14 +652,35 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
 
 
 @app.get("/api/journal")
-async def list_journal(user_id: int = Depends(get_current_user_id), limit: int = 50):
-    """Return reflections as the frontend `JournalListResponse` (newest first)."""
+async def list_journal(user_id: int = Depends(get_current_user_id),
+                       limit: int = 50, cursor: Optional[str] = None):
+    """Return reflections as the frontend `JournalListResponse` (newest first).
+
+    `cursor` is the id of the last entry of the previous page; `nextCursor` is
+    returned only when another page exists. The frontend has always sent this
+    parameter — it was previously ignored, so paging silently returned page one
+    forever.
+    """
+    before_id = None
+    if cursor:
+        try:
+            before_id = int(cursor)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+
     service = ReflectionService(user_id)
-    reflections = service.get_reflections(limit=limit)
-    return {
-        "entries": [_reflection_to_journal(r, user_id) for r in reflections],
+    # Fetch one extra row to learn whether a further page exists.
+    rows = service.get_reflections(limit=limit + 1, before_id=before_id)
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    body = {
+        "entries": [_reflection_to_journal(r, user_id) for r in rows],
         "recurringPhrases": [],
     }
+    if has_more and rows:
+        body["nextCursor"] = str(rows[-1]["id"])
+    return body
 
 
 @app.post("/api/journal")
@@ -1077,16 +1098,6 @@ async def get_review_week(start: str, user_id: int = Depends(get_current_user_id
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date (use YYYY-MM-DD)")
     return _build_review_week(user_id, week_start)
-
-
-# ============================================================================
-# BODY ENDPOINTS (single-user; honest "no source" — no wearable data exists)
-# ============================================================================
-
-@app.get("/api/body/source")
-async def get_body_source(user_id: int = Depends(get_current_user_id)):
-    """Report the body data source truthfully: none connected, no biometrics."""
-    return {"kind": "none", "label": "No device connected", "connected": False}
 
 
 # ============================================================================

@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
-import { getBodyOverview } from '@/api/body';
 import { getLatestWeek } from '@/api/review';
 import { listJournal } from '@/api/journal';
 import { getUser, getKnownFacts, getConnectors } from '@/api/settings';
+import { getOnboarding } from '@/api/onboarding';
 
-export const useBody       = () => useQuery({ queryKey: qk.body,       queryFn: getBodyOverview });
+export const useOnboarding = () => useQuery({ queryKey: qk.onboarding, queryFn: getOnboarding });
 export const useReview     = () => useQuery({ queryKey: qk.review,     queryFn: getLatestWeek   });
 export const useJournal    = () => useQuery({ queryKey: qk.journal,    queryFn: () => listJournal() });
 export const useUser       = () => useQuery({ queryKey: qk.user,       queryFn: getUser });
