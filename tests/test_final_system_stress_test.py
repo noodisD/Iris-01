@@ -17,7 +17,6 @@ from agent.explanation import ExplanationEngine
 from agent.conflict import ConflictSuppressionEngine
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("FinalStressTest")
 
 @pytest.fixture

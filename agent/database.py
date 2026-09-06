@@ -423,6 +423,44 @@ class Database:
                 """)
                 logger.info("Ensured preference_audit table exists.")
 
+                # App-level settings (frontend User/UserPreferences + onboarding +
+                # connector toggles). Kept separate from user_preferences, which is
+                # analytical engine config, not app/UI preferences.
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_app_settings (
+                        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                        name TEXT,
+                        timezone TEXT DEFAULT 'UTC',
+                        tone TEXT DEFAULT 'warm',
+                        density TEXT DEFAULT 'balanced',
+                        daily_checkin_time TEXT,
+                        weekly_review_time TEXT,
+                        max_nudges_per_day INTEGER DEFAULT 3,
+                        threads JSONB DEFAULT '[]',
+                        connectors JSONB DEFAULT '{}',
+                        onboarding_completed BOOLEAN DEFAULT FALSE,
+                        onboarding_answers JSONB DEFAULT '{}',
+                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                logger.info("Ensured user_app_settings table exists.")
+
+                # Insight status — persists snooze/resolve/seen over engine-derived
+                # insight IDs (insights are recomputed on the fly, not stored).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS insight_status (
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        insight_id TEXT NOT NULL,
+                        status TEXT,
+                        snoozed_until TIMESTAMPTZ,
+                        seen BOOLEAN DEFAULT FALSE,
+                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (user_id, insight_id)
+                    );
+                """)
+                logger.info("Ensured insight_status table exists.")
+
                 # Habits table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS habits (
@@ -916,6 +954,19 @@ class Database:
             except psycopg2.Error as e:
                 conn.rollback()
                 logger.error(f"Failed to update theme stats: {e}")
+                raise
+
+    def delete_theme(self, theme_id: int) -> bool:
+        """Deletes a theme. Occurrences/trajectories/tensions cascade automatically."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM themes WHERE id = %s;", (theme_id,))
+                deleted = cur.rowcount > 0
+                conn.commit()
+                return deleted
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to delete theme {theme_id}: {e}")
                 raise
 
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
@@ -1934,6 +1985,134 @@ class Database:
                 raise
 
     # ============================================================================
+    # App Settings Methods (frontend User/UserPreferences + onboarding)
+    # ============================================================================
+
+    # Columns stored as JSONB — values are wrapped in Json() on write.
+    _APP_SETTINGS_JSON_COLS = {"threads", "connectors", "onboarding_answers"}
+    _APP_SETTINGS_COLS = [
+        "name", "timezone", "tone", "density", "daily_checkin_time",
+        "weekly_review_time", "max_nudges_per_day", "threads", "connectors",
+        "onboarding_completed", "onboarding_answers",
+    ]
+
+    def get_app_settings(self, user_id: int) -> dict:
+        """Returns the user's app settings row (incl. users.created_at), or None."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    SELECT s.name, s.timezone, s.tone, s.density, s.daily_checkin_time,
+                           s.weekly_review_time, s.max_nudges_per_day, s.threads,
+                           s.connectors, s.onboarding_completed, s.onboarding_answers,
+                           u.created_at
+                    FROM users u
+                    LEFT JOIN user_app_settings s ON s.user_id = u.id
+                    WHERE u.id = %s;
+                """, (user_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "name": row[0],
+                    "timezone": row[1] or "UTC",
+                    "tone": row[2] or "warm",
+                    "density": row[3] or "balanced",
+                    "daily_checkin_time": row[4],
+                    "weekly_review_time": row[5],
+                    "max_nudges_per_day": row[6] if row[6] is not None else 3,
+                    "threads": row[7] if row[7] is not None else [],
+                    "connectors": row[8] if row[8] is not None else {},
+                    "onboarding_completed": bool(row[9]),
+                    "onboarding_answers": row[10] if row[10] is not None else {},
+                    "created_at": row[11],
+                }
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get app settings for user {user_id}: {e}")
+                raise
+
+    def upsert_app_settings(self, user_id: int, **fields) -> None:
+        """Upserts the given app-settings columns for the user."""
+        cols = [c for c in fields if c in self._APP_SETTINGS_COLS]
+        if not cols:
+            return
+        values = [
+            Json(fields[c]) if c in self._APP_SETTINGS_JSON_COLS else fields[c]
+            for c in cols
+        ]
+        insert_cols = ", ".join(["user_id"] + cols)
+        placeholders = ", ".join(["%s"] * (len(cols) + 1))
+        updates = ", ".join([f"{c} = EXCLUDED.{c}" for c in cols])
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(f"""
+                    INSERT INTO user_app_settings ({insert_cols}, updated_at)
+                    VALUES ({placeholders}, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET {updates}, updated_at = CURRENT_TIMESTAMP;
+                """, [user_id] + values)
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to upsert app settings for user {user_id}: {e}")
+                raise
+
+    # ============================================================================
+    # Insight Status Methods (snooze/resolve/seen for engine-derived insights)
+    # ============================================================================
+
+    def get_insight_statuses(self, user_id: int) -> dict:
+        """Returns {insight_id: {status, snoozed_until, seen}} for the user."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    SELECT insight_id, status, snoozed_until, seen
+                    FROM insight_status WHERE user_id = %s;
+                """, (user_id,))
+                return {
+                    r[0]: {"status": r[1], "snoozed_until": r[2], "seen": bool(r[3])}
+                    for r in cur.fetchall()
+                }
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to get insight statuses for user {user_id}: {e}")
+                raise
+
+    def set_insight_status(self, user_id: int, insight_id: str, status: str,
+                           snoozed_until=None) -> None:
+        """Upserts the status (and optional snooze expiry) for one insight."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO insight_status (user_id, insight_id, status, snoozed_until, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, insight_id) DO UPDATE
+                    SET status = EXCLUDED.status, snoozed_until = EXCLUDED.snoozed_until,
+                        updated_at = CURRENT_TIMESTAMP;
+                """, (user_id, insight_id, status, snoozed_until))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to set insight status for user {user_id}: {e}")
+                raise
+
+    def mark_insight_seen(self, user_id: int, insight_id: str) -> None:
+        """Marks one insight as seen for the user."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    INSERT INTO insight_status (user_id, insight_id, seen, updated_at)
+                    VALUES (%s, %s, TRUE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, insight_id) DO UPDATE
+                    SET seen = TRUE, updated_at = CURRENT_TIMESTAMP;
+                """, (user_id, insight_id))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to mark insight seen for user {user_id}: {e}")
+                raise
+
+    # ============================================================================
     # Habits Methods
     # ============================================================================
 
@@ -2093,6 +2272,25 @@ class Database:
             except psycopg2.Error as e:
                 conn.rollback()
                 logger.error(f"Failed to log habit completion: {e}")
+                raise
+
+    def uncomplete_habit(self, habit_id: int, completion_date=None) -> bool:
+        """Removes a habit's completion for a date (toggle off). Returns True if a row was deleted."""
+        if completion_date is None:
+            from datetime import date
+            completion_date = date.today()
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "DELETE FROM habit_completions WHERE habit_id = %s AND completion_date = %s;",
+                    (habit_id, completion_date)
+                )
+                deleted = cur.rowcount > 0
+                conn.commit()
+                return deleted
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to uncomplete habit {habit_id} on {completion_date}: {e}")
                 raise
 
     def log_habit_skip(self, habit_id: int, skip_date, reason: str = None) -> int:

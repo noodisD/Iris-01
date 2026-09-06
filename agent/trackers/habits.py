@@ -4,10 +4,13 @@ Habit Tracker Service Layer
 Provides business logic for managing habits, completions, and streaks.
 """
 
+import logging
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 from ..database import db
 from ..pipeline import run_processing_pipeline
+
+logger = logging.getLogger(__name__)
 
 class HabitTracker:
     """Manages habits for a user with streak tracking and completion logging."""

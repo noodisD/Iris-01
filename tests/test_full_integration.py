@@ -18,7 +18,6 @@ from agent.constants import (
 )
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @pytest.fixture

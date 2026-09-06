@@ -4,10 +4,13 @@ Reflection Service Layer
 Provides business logic for managing reflections and mood tracking.
 """
 
+import logging
 from datetime import date, timedelta
 from typing import Dict, List, Optional
 from ..database import db
 from ..pipeline import run_processing_pipeline
+
+logger = logging.getLogger(__name__)
 
 class ReflectionService:
     """Manages reflections and mood tracking for a user."""

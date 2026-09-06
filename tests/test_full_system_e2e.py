@@ -17,7 +17,6 @@ from agent.confidence import ConfidenceEngine
 from agent.explanation import ExplanationEngine
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("FullSystemTest")
 
 @pytest.fixture

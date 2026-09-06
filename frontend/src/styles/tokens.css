@@ -1,0 +1,234 @@
+/* ===========================================================
+   Iris — calm dark, editorial
+   =========================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@300;400;500&display=swap');
+
+:root {
+  /* Surfaces */
+  --bg-0: #0e0e0c;          /* page */
+  --bg-1: #14140f;          /* sidebar */
+  --bg-2: #1a1a14;          /* card */
+  --bg-3: #232318;          /* card raised */
+  --line: #2a2a1f;          /* hairlines */
+  --line-soft: #1f1f17;
+
+  /* Ink */
+  --ink: #e9e3d3;           /* primary */
+  --ink-2: #c2bba8;         /* secondary */
+  --ink-3: #807969;         /* muted */
+  --ink-4: #524d40;         /* very muted */
+
+  /* Accents */
+  --sage: #a9c8a3;          /* primary accent */
+  --sage-dim: #6f8c6a;
+  --amber: #d4a374;         /* warm accent */
+  --rose: #d48a8a;          /* anxiety / alert */
+  --indigo: #9aa3d4;        /* cool, sleep */
+
+  /* Type */
+  --serif: 'Instrument Serif', 'Times New Roman', serif;
+  --sans: 'Geist', system-ui, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* Density */
+  --pad: 24px;
+  --pad-sm: 14px;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.005em;
+}
+
+#root { min-height: 100vh; }
+
+/* Full-app shell */
+.app-shell { display: flex; height: 100vh; background: var(--bg-0); overflow: hidden; }
+.app-main  { flex: 1; overflow: auto; position: relative; }
+
+/* Scrollbars — slim editorial */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); background-clip: padding-box; border: 3px solid transparent; }
+
+/* ---- Common element styles ---- */
+.serif { font-family: var(--serif); font-weight: 400; }
+.mono  { font-family: var(--mono); }
+.ital  { font-style: italic; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.kicker {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.numerals {
+  font-family: var(--serif);
+  font-feature-settings: "lnum" 1, "tnum" 1;
+  letter-spacing: -0.02em;
+  line-height: 0.9;
+}
+
+.hairline {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+}
+
+.dotline {
+  border: 0;
+  border-top: 1px dashed var(--line);
+  margin: 0;
+}
+
+/* Card */
+.card {
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  position: relative;
+}
+.card.flush { background: transparent; border: none; }
+.card .head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.card .body { padding: 16px 18px 18px; }
+
+/* Buttons */
+.btn {
+  font-family: var(--sans);
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+}
+.btn:hover { color: var(--ink); border-color: var(--ink-4); }
+.btn.primary {
+  background: var(--sage);
+  color: #14140f;
+  border-color: var(--sage);
+}
+.btn.ghost { border: none; padding: 6px 8px; }
+
+/* Pill / tag */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+/* Dot indicator */
+.dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ink-3); display: inline-block; }
+.dot.sage  { background: var(--sage); }
+.dot.amber { background: var(--amber); }
+.dot.rose  { background: var(--rose); }
+.dot.indigo{ background: var(--indigo); }
+
+/* Big editorial number */
+.bignum {
+  font-family: var(--serif);
+  font-size: 88px;
+  line-height: 0.82;
+  letter-spacing: -0.03em;
+  font-feature-settings: "lnum" 1;
+}
+.bignum .suffix {
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  vertical-align: super;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+
+/* Layout helpers */
+.row { display: flex; }
+.col { display: flex; flex-direction: column; }
+.gap-4 { gap: 4px; } .gap-8 { gap: 8px; } .gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; } .gap-24 { gap: 24px; } .gap-32 { gap: 32px; }
+
+/* Focus utilities */
+.focus-ring:focus { outline: 1px solid var(--sage); outline-offset: 2px; }
+
+/* Subtle dotted grid background (used in some screens) */
+.dotgrid {
+  background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+/* Animations */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Iris avatar orb — reactive via CSS vars */
+:root {
+  --orb-hue-a: #d8efd2;
+  --orb-hue-b: #a9c8a3;
+  --orb-hue-c: #6f8c6a;
+  --orb-glow: rgba(169, 200, 163, 0.35);
+  --orb-rate: 4s;
+}
+.iris-orb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--orb-hue-a), var(--orb-hue-b) 55%, var(--orb-hue-c) 100%);
+  box-shadow: 0 0 12px var(--orb-glow);
+  animation: breathe var(--orb-rate) ease-in-out infinite;
+  flex-shrink: 0;
+  transition: background 0.8s ease, box-shadow 0.8s ease;
+}
+.iris-orb.lg { width: 56px; height: 56px; box-shadow: 0 0 28px var(--orb-glow); }
+.iris-orb.sm { width: 14px; height: 14px; }
+
+/* Sparkline svg defaults */
+svg { display: block; }

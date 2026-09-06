@@ -25,3 +25,15 @@ data/
 
 # Git Worktrees
 .worktrees/
+
+# Runtime logs (may contain user-derived content)
+logs/
+*.log
+
+# Build artifacts
+frontend/dist/
+frontend/node_modules/
+*.tsbuildinfo
+
+# Local agent tooling settings
+.claude/settings.local.json

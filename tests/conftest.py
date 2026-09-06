@@ -4,8 +4,28 @@ Pytest configuration and fixtures.
 
 import pytest
 import datetime
+import logging
 from unittest.mock import MagicMock
 from agent.database import db
+from agent.logging_config import configure_logging
+
+@pytest.fixture(scope="session", autouse=True)
+def logging_setup(tmp_path_factory):
+    """
+    Set up centralized logging for the entire test session.
+    Logs are written to a temporary directory and console output is suppressed.
+    """
+    log_dir = tmp_path_factory.mktemp("logs")
+    configure_logging(log_dir=str(log_dir))
+
+    # Suppress console output during tests (set console handler to CRITICAL)
+    agent_logger = logging.getLogger("agent")
+    for handler in agent_logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+            handler.setLevel(logging.CRITICAL)
+
+    yield
+    # Cleanup: handlers remain until session ends (pytest handles cleanup)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
@@ -18,7 +38,7 @@ def setup_test_database():
     db.create_schema()
     yield
     # Cleanup: In a real app we might drop the test schema/db.
-    print("Test session finished.")
+    logging.getLogger(__name__).info("Test session finished.")
 
 @pytest.fixture
 def test_user():

@@ -2,12 +2,15 @@
 Intelligence layer - Multi-model support (Gemini 2.5 Flash, OpenAI)
 """
 
+import logging
 import warnings
 import os
 from openai import AsyncOpenAI, OpenAI
 from typing import Optional, List, Dict, Any
 from .config import settings
 from .llm_provider import LLMProvider, OpenAIProvider, GeminiProvider, Message
+
+logger = logging.getLogger(__name__)
 
 try:
     # Suppress deprecation warning for google.generativeai (still works, just deprecated)

@@ -20,7 +20,6 @@ from agent.conflict import ConflictSuppressionEngine
 from agent.prioritization import InsightPrioritizationEngine
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("UltimateTest")
 
 class SystemReport:

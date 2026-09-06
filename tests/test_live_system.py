@@ -15,7 +15,6 @@ from agent.decision_impact import DecisionImpactEngine
 from agent.pipeline import run_processing_pipeline
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("LiveSystemTest")
 
 def test_live_system_flow(test_user):
