@@ -98,16 +98,22 @@ def test_stress_theme_exact_scenario(test_user):
     print(f"  Total occurrences: {len(occs)}")
 
     # Show which are in recent window (last 21 days)
-    recent = [o for o in occs if (now - datetime.fromisoformat(str(o['occurred_at']))).days <= 21]
+    # occurred_at is TIMESTAMPTZ; drop the offset before comparing against a
+    # naive 'now' rather than mixing aware and naive datetimes.
+    def _naive(o):
+        dt = datetime.fromisoformat(str(o['occurred_at']))
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
+    recent = [o for o in occs if (now - _naive(o)).days <= 21]
     baseline_start = now - timedelta(days=111)
     baseline_end = now - timedelta(days=21)
-    baseline = [o for o in occs if baseline_start <= datetime.fromisoformat(str(o['occurred_at'])) < baseline_end]
+    baseline = [o for o in occs if baseline_start <= _naive(o) < baseline_end]
 
     print(f"  Recent (0-21 days): {len(recent)}")
     print(f"  Baseline (21-111 days): {len(baseline)}")
 
     # Print actual occurrences
-    occ_dates = sorted([datetime.fromisoformat(str(o['occurred_at'])) for o in occs], reverse=True)
+    occ_dates = sorted([_naive(o) for o in occs], reverse=True)
     print(f"  Occurrence dates (days ago):")
     for occ_dt in occ_dates[:10]:  # First 10
         days_ago = (now - occ_dt).days

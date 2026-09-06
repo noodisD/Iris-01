@@ -65,6 +65,9 @@ def test_stress_theme_resolution_debug(test_user, mock_pipeline_logic):
         occ_dt = occ['occurred_at']
         if isinstance(occ_dt, str):
             occ_dt = datetime.fromisoformat(occ_dt)
+        # occurred_at is TIMESTAMPTZ; compare naive-to-naive.
+        if occ_dt.tzinfo:
+            occ_dt = occ_dt.replace(tzinfo=None)
         days_ago = (datetime.now() - occ_dt).total_seconds() / 86400
         in_recent = days_ago <= RESOLUTION_RECENT_DAYS
         print(f"  {days_ago:.1f} days ago | Recent: {in_recent}")

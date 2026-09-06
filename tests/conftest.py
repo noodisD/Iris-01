@@ -138,6 +138,29 @@ def _purge_user(user_id: int) -> None:
 
 
 @pytest.fixture
+def mock_pipeline_logic(monkeypatch):
+    """Deterministic embeddings keyed by keyword, shared by the stress tests.
+
+    Lived in test_final_system_stress_test.py, which meant
+    test_stress_theme_resolution_debug.py requested a fixture it could not
+    see and errored at setup on every run.
+    """
+    import random
+
+    def mock_embed(text, model=None):
+        if "Stress" in text: return [0.1] * 1536
+        if "Sleep" in text: return [0.2] * 1536
+        if "Yoga" in text: return [0.3] * 1536
+        if "Meditation" in text: return [0.4] * 1536
+        if "Habit" in text: return [0.5] * 1536
+        return [random.random() for _ in range(1536)]
+
+    monkeypatch.setattr("agent.pipeline.generate_embedding", mock_embed)
+    monkeypatch.setattr("agent.core.generate_embedding", mock_embed)
+    monkeypatch.setattr("agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "Dynamic Theme")
+
+
+@pytest.fixture
 def test_user():
     """
     Creates a unique test user for each test to ensure isolation.

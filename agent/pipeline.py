@@ -122,9 +122,15 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # 5. Check for persistence (what keeps coming back)
         # User messages participate in theme matching; assistant responses are excluded
         # to avoid amplifying theme signals with derivative content.
+        # Chat messages are embedded for semantic retrieval but are NOT theme
+        # occurrences. CONTEXT.md defines an occurrence as a journal entry,
+        # reflection or habit completion, and EVIDENCE_WEIGHTS has no entry for
+        # messages (they silently took the 0.5 default meant for a bare habit
+        # tick). Counting them let a theme resurrect itself mid-request:
+        # mentioning a dissipated pattern in chat created a fresh occurrence,
+        # which invalidated the resolution cache, so the label recomputed to
+        # 'persisting' before the narrative for that same turn was written.
         should_check_persistence = source_type in ['journal_entry', 'reflection', 'habit_completion']
-        if source_type == 'message' and item_data.get('role') == 'user':
-            should_check_persistence = True
         if should_check_persistence:
             try:
                 engine = PersistenceEngine(user_id)

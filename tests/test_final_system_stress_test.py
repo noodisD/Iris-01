@@ -19,21 +19,6 @@ from agent.conflict import ConflictSuppressionEngine
 # Setup logging
 logger = logging.getLogger("FinalStressTest")
 
-@pytest.fixture
-def mock_pipeline_logic(monkeypatch):
-    import random
-    def mock_embed(text, model=None):
-        if "Stress" in text: return [0.1] * 1536
-        if "Sleep" in text: return [0.2] * 1536
-        if "Yoga" in text: return [0.3] * 1536
-        if "Meditation" in text: return [0.4] * 1536
-        if "Habit" in text: return [0.5] * 1536
-        return [random.random() for _ in range(1536)]
-
-    monkeypatch.setattr("agent.pipeline.generate_embedding", mock_embed)
-    monkeypatch.setattr("agent.core.generate_embedding", mock_embed)
-    monkeypatch.setattr("agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "Dynamic Theme")
-
 def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     """
     MEGA E2E: Verifies all modules (Persistence -> ... -> Conflict Suppression)
