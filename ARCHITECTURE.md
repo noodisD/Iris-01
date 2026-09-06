@@ -1,72 +1,124 @@
-# IRIS System Architecture
+# IRIS Architecture
 
-This document details the multi-layer inference pipeline and data flow architecture of the IRIS Companion.
+How the system is built, as it actually stands. For domain vocabulary and
+invariants see `CONTEXT.md`; for the insight lifecycle contract see
+`docs/context_pipeline_contract.md`.
 
-## 1. Data Layer: The "Truth and Lenses" Pattern
+## 1. Shape
 
-IRIS follows a strict decoupling of canonical storage and query-optimized projections.
+One process, one datastore.
 
-### 1.1 Canonical Store (PostgreSQL)
-*   **Role**: Single Source of Truth.
-*   **Data**: User accounts, raw journal entries, chat history, and **canonical embeddings** (`pgvector`).
-*   **Integrity**: If all other databases are deleted, the entire system state can be reconstructed from Postgres.
+```
+uvicorn iris_api:app          serves /api/* and the built SPA, loopback only
+  └── agent/                  the analytical package
+        └── PostgreSQL 18 + pgvector
+```
 
-### 1.2 Specialized Lenses
-*   **Vector Lens (ChromaDB/FAISS)**: Optimized for sub-second semantic retrieval and nearest-neighbor lookups.
+There is no separate vector database and no graph database. Both existed once:
+ChromaDB/FAISS was replaced by pgvector in January 2026, and Neo4j was removed
+in September 2026 after it turned out to be write-only — every call into it was
+an insert, nothing in the product ever read from it, and because its driver
+connected at import time an outage took the whole API down.
 
-### 1.3 Web Infrastructure
-*   **API Layer (FastAPI)**: A multi-user HTTP gateway that orchestrates authentication, companion initialization, and **asynchronous background processing**.
-*   **Web Frontend (Vanilla JS)**: A high-performance, single-file interface using modern CSS tokens and Optimistic UI updates for sub-500ms perceived latency.
+### Storage
 
----
+PostgreSQL is the only store. Because pgvector is an extension rather than a
+service, an embedding is a column on an ordinary row:
 
-## 2. The Analytical Pipeline
+- `embeddings` — one canonical vector per source, `UNIQUE(source_type, source_id, model_name)`
+- `themes` — a relational row carrying `centroid_embedding`
+- `theme_occurrences` — theme ↔ source, `ON DELETE CASCADE`
+- plus the per-engine caches (`theme_trajectories`, `theme_tensions`,
+  `pattern_resolutions`, `pattern_leverage`, `decision_impacts`,
+  `pattern_confidence`, `pattern_evidence`, `insight_priorities`)
 
-Data flows through a series of deterministic engines, each answering a specific structural question.
+This is what lets a similarity search carry a relational constraint: nearest
+neighbours *and* `WHERE user_id = …` in one statement, one transaction. A
+standalone vector store cannot express the user-scoping invariant without
+duplicating ownership metadata and keeping it in sync.
 
-### 2.1 Data Enrichment Protocol (Anchoring)
-To ensure high-quality semantic clustering, all data is "anchored" before embedding:
-*   **Habit Anchor**: Combines Name + Category (Multi-select) + Intent + Metric.
-*   **Reflection Anchor**: Combines Mood (Inferred) + Energy (1-10) + Mental Clarity (1-10) + Text.
-*   **Effect**: This forces related but different data types (e.g., a "Yoga" habit completion and a "Focused" reflection) into the same semantic neighborhood.
+Both IVFFlat indexes are created with the schema. Note that an IVFFlat index
+built on an empty table has degenerate centroids; rebuild it once real data
+exists.
 
-### 2.2 Processing Engines
-| Engine | Question Answered | Metric Used |
-| :--- | :--- | :--- |
-| **Persistence** | What keeps appearing? | Semantic Clustering (WLS Weighted) |
-| **Trajectory** | What is changing over time? | Weighted Linear Regression (Slope) |
-| **Tension** | What co-exists uneasily? | Co-occurrence Asymmetry |
-| **Resolution** | What has settled or reappeared? | Temporal Window Deltas |
-| **Leverage** | What tends to precede? | Directional Lift |
-| **Decision Impact**| What tends to follow? | Sequence Analysis |
+## 2. Ingestion
 
----
+`agent/pipeline.py: run_processing_pipeline(source_type, source_id)`:
 
-## 3. Meta-Control Layer (The Gatekeepers)
+1. Mark the row `processing`.
+2. Read **that row** back by id. (It used to read back any row in that status,
+   so one entry's text could be embedded under another's id.)
+3. Embed it (`text-embedding-3-small`, 1536 dimensions), store the vector.
+4. Match against existing themes; when nothing matches, run clustering to see
+   whether a new theme has formed.
+5. Mark the row `complete`.
 
-Before an insight reaches the user, it must pass through the **Meta-Control Spine**.
+**What counts as evidence** is a deliberate boundary. Journal entries,
+reflections and completed habits do. Chat messages are embedded for recall but
+never become occurrences — otherwise talking about a pattern would create proof
+of it, and a dissipated theme would revive itself inside the very request that
+reported on it. Skipped habits are excluded for the same reason in reverse: a
+skip is evidence the pattern did *not* occur, but the embedded text is dominated
+by the habit's own name, so counting it made abandoning a habit look like
+practising it.
 
-1.  **Confidence & Reliability Engine**: Uses **Evidence Tiering** (Reflections=1.0, Journal=0.9, Habit Ticks=0.5) to calculate weighted reliability.
-2.  **Conflict Suppression Engine**: Deterministically silences contradictory signals.
-3.  **Background Processing**: Heavy computations (LLM Chat, Persistence Engine) are deferred to FastAPI **BackgroundTasks**, keeping the API response cycle < 100ms.
-4.  **Proto-Theme Gate**: Clusters with fewer than **5 occurrences** are suppressed as "noise" until they prove persistence.
-5.  **Temporal Density Gate**: Only themes with recent activity (>= 3 in last 30 days) are surfaced.
-6.  **Insight Prioritization Engine**: Ranks insights by confidence, magnitude, and novelty.
+## 3. Engines
 
----
+| Engine | Question | Method |
+| :-- | :-- | :-- |
+| Persistence | What keeps appearing? | Cosine matching (≥0.70) + DBSCAN clustering |
+| Trajectory | What is changing? | Weighted regression on frequency |
+| Tension | What co-exists uneasily? | Co-occurrence with divergent trends |
+| Resolution | What settled or came back? | Recent vs baseline window deltas |
+| Leverage | What tends to precede? | Directional lift |
+| Decision impact | What tends to follow? | Sequence analysis |
 
-## 4. Safety & Narrative Firewall
+Thresholds live in `agent/constants.py` and are documented in `CONTEXT.md`;
+a cluster needs 5 occurrences before it is a theme rather than a proto-theme.
+Clustering uses HDBSCAN when installed and falls back to scikit-learn DBSCAN,
+which is the configuration in practice.
 
-To prevent the LLM from generating harmful advice or assuming causality, IRIS employs a **Narrative Formatter**.
+## 4. Meta-control
 
-*   **Template-Based**: Facts are rendered into neutral language using strictly mechanical templates.
-*   **Regex Guardrail**: A zero-trust validator scans all generated text for forbidden causal/prescriptive verbs (e.g., *caused, should, means, triggered*).
-*   **Fail-Closed**: If a narrative violation is detected, the insight is suppressed entirely rather than allowing a risky phrasing to reach the user.
+Findings pass through gates in this order, which `CONTEXT.md` and the pipeline
+contract both specify:
 
----
+**enablement → confidence → conflict suppression → prioritisation → budget**
 
-## 5. Deployment & Lifecycle
+The budget slice is last for a reason: it truncates to `max_items`, so applying
+it before ranking discarded insights in engine-registration order and the
+highest-weighted engine could never reach the ranker.
 
-*   **Containerization**: Multi-stage Docker builds separate build-time dependencies (compilers) from the minimal runtime.
-*   **Process Management**: Systemd integration ensures IRIS operates as a resilient background service with auto-restart and graceful shutdown (SIGTERM) handling.
-*   **Audit Trail**: Every analytical run is logged in an immutable `pattern_evidence` registry for complete historical auditability.
+- **Confidence** weights evidence by source (reflection 1.0, journal 0.9, habit
+  with notes 0.8, bare tick 0.5) and scores sufficiency, consistency and recency
+  at 40/40/20.
+- **Conflict suppression** silences logically incompatible pairs.
+- **Prioritisation** ranks by confidence, recency, magnitude, novelty and engine
+  weight, then the budget keeps the top *k* (default 5).
+
+Every suppression is recorded with a reason, so what was hidden is auditable.
+
+## 5. Narrative firewall
+
+Insights are rendered by fixed templates in `agent/narrative_templates.py` — one
+per engine, with no free-text slots. Rendered output is then matched against a
+forbidden lexicon (`caused`, `should`, `means`, `implies`, `because`, `due to`,
+`triggered`…). A violation drops the insight rather than rephrasing it.
+
+## 6. Failure behaviour
+
+- **PostgreSQL unreachable** — the pool is built lazily, so the process still
+  starts; `/health` round-trips a `SELECT` and returns 503 `degraded`.
+- **OpenAI unreachable** — embedding uses bounded retry with exponential backoff
+  on transient errors only. Chat failures raise; they are never written into the
+  conversation as Iris's reply.
+- **Clustering or an engine fails** — logged and skipped; ingestion still
+  commits, because the entry itself is the thing that must not be lost.
+
+## 7. Lifecycle
+
+Run under systemd on one machine (`scripts/iris.service.example`), bound to
+loopback. The schema is created idempotently on first connection. There are no
+migrations: schema changes are `CREATE TABLE IF NOT EXISTS` plus additive
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, which cannot express a constraint
+change — a real migration tool is the outstanding piece of work here.

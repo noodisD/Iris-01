@@ -1,68 +1,143 @@
-# IRIS: The Epistemic Mirror
+# IRIS
 
-**A local-first, multi-user AI companion built on a deterministic analytical spine and a high-performance Vanilla JS interface.**
+A personal analytical companion. You write — journal entries, reflections, habit
+ticks — and IRIS looks for patterns that persist, drift, conflict or fade, then
+reports what it observed. It runs entirely on your machine, against your own
+database.
 
-IRIS is not a standard "chat-first" assistant. It is a sophisticated system designed to detect, verify, and prioritize long-term behavioral patterns. It operates under a strict **non-interpretive contract**: the system observes and reports evidence but never assumes causality or offers unsolicited advice.
-
----
-
-## 🧠 Cognitive Architecture
-
-IRIS follows a structured inference pipeline that moves from raw data to prioritized signals:
-
-1.  **Ingestion & Anchoring**: Every input (habit completion, reflection, message) is semantically "anchored" with context before being stored in **PostgreSQL**.
-2.  **Analysis**: Embedding and clustering run on ingest against PostgreSQL.
-3.  **Analytical Stack**:
-    *   **Persistence**: Clustering related thoughts into proven Themes (Threshold: 5).
-    *   **Trajectory**: Linear regression on theme frequency with **Evidence Tiering**.
-    *   **Tension**: Co-occurrence detection between conflicting patterns.
-    *   **Temporal Density**: Only surfacing themes active in the last 30 days.
-4.  **Meta-Control Layer**:
-    *   **Confidence Engine**: Weighted reliability scoring (Reflections > Habit Ticks).
-    *   **Conflict Suppression**: Deterministic silencing of logically incompatible insights.
-    *   **Prioritization**: Selecting the top 5 most critical signals for the LLM context.
+It is deliberately **not** a chat-first assistant. It operates under a
+non-interpretive contract: report the evidence, never assert causality, never
+give unsolicited advice. A pattern that appeared 12 times and then stopped is
+reported as exactly that.
 
 ---
 
-## 🛠 Tech Stack
+## What it is, concretely
 
-*   **Frontend**: Vanilla JavaScript + CSS Design Tokens (Optimized for Speed & Zero Dependencies)
-*   **Backend**: FastAPI + Uvicorn (Multi-user HTTP Gateway with Background Tasks)
-*   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store)
-*   **Vector DB**: ChromaDB / FAISS (Semantic Retrieval Lens)
+One Python process and one PostgreSQL database. That's the whole system.
 
----
-
-## 🚀 Quick Start
-
-### 1. Configure Environment
-```bash
-cp .env.example .env
-# Fill in your OPENAI_API_KEY and secure passwords
+```
+┌────────────────────────────────────────────────┐
+│  uvicorn iris_api:app   (127.0.0.1:8000)       │
+│    ├── /api/*        the HTTP API              │
+│    └── /             the built React SPA       │
+└───────────────────────┬────────────────────────┘
+                        │
+              PostgreSQL 18 + pgvector
+       (entries, embeddings, themes, insights)
 ```
 
-### 2. Deploy via Docker (Recommended)
-This will build the Python backend and serve the integrated frontend.
+- **Single user, loopback only.** No accounts, no login, no authentication. It
+  binds to `127.0.0.1` and must not be exposed to a network.
+- **One datastore.** pgvector is a PostgreSQL extension, so 1536-dimension
+  embeddings live in ordinary rows next to everything else and a similarity
+  search is a normal SQL query with a `WHERE user_id = …` on it.
+- **OpenAI** for chat (`gpt-4.1-mini`) and embeddings (`text-embedding-3-small`).
+  Nothing else leaves the machine.
+
+## Requirements
+
+- Python 3.11 (`.python-version`), managed with [uv](https://docs.astral.sh/uv/)
+- PostgreSQL 18 with pgvector
+- Node 20+ for the frontend build
+- An OpenAI API key
+
+## Setup
+
+**1. PostgreSQL with pgvector.** The stock database recipes use the plain
+`postgres` image, which has no pgvector — IRIS cannot create its schema without
+it. Use the pgvector image instead:
+
 ```bash
-docker-compose up --build -d
+sudo docker run -d --restart unless-stopped \
+  -p 127.0.0.1:5432:5432 \
+  -v iris_pgdata:/var/lib/postgresql \
+  --name postgres18 \
+  -e POSTGRES_HOST_AUTH_METHOD=trust \
+  -e POSTGRES_USER=iris_user -e POSTGRES_DB=iris_db \
+  pgvector/pgvector:pg18
 ```
-Access the app at **http://localhost:8000**
 
-### 3. Local Development
+Mount `/var/lib/postgresql`, **not** `/var/lib/postgresql/data`: PostgreSQL 18
+moved `PGDATA` to a version-specific subdirectory, and the old path looks
+correct while silently persisting nothing. If your container already exists,
+`scripts/setup_db.sh` creates the role and database inside it.
+
+**2. Configure and install.**
+
 ```bash
-# Terminal: Backend (serves frontend automatically)
-.venv/bin/python iris_api.py
+cp .env.example .env      # add OPENAI_API_KEY; check POSTGRES_* match the above
+uv sync
 ```
 
----
+**3. Build the frontend** (the API serves it from the same process):
 
-## ⌨️ Features & Interface
+```bash
+cd frontend && npm install && npm run build && cd ..
+```
 
-### **Habits & Consistency**
-Track your daily routines with multi-select categories and duration/count logging. IRIS uses **Relative Consistency** math to ensure new habits show 100% progress if completed every day since creation.
+**4. Run.**
 
-### **Reflections & Mental Clarity**
-Capture your state using high-resolution **1-10 scales** for Energy and Mental Clarity. Select multiple emotions to have IRIS automatically infer your general mood.
+```bash
+uv run uvicorn iris_api:app --host 127.0.0.1 --port 8000
+```
 
-### **Analytical Chat**
-Chat with IRIS to explore your patterns. IRIS uses the **Epistemic Framework** to differentiate between your current input and computed historical facts. Press **Enter** to send.
+Open http://127.0.0.1:8000. The schema is created on first connection; the
+single local user is created on first request.
+
+For frontend work, `cd frontend && npm run dev` serves on :5173 and proxies
+`/api` to :8000, so requests stay same-origin.
+
+## How the analysis works
+
+Every entry is embedded and stored. From there:
+
+1. **Persistence** — entries are matched to existing themes by cosine
+   similarity (≥ 0.70); when nothing matches, clustering looks for a new theme.
+   A cluster needs **5** occurrences before it counts as a theme rather than
+   noise.
+2. **Trajectory** — weighted regression over occurrence frequency: rising,
+   falling, emerging, fading, stable.
+3. **Tension** — themes that co-occur while trending in opposite directions.
+4. **Resolution** — dissipated, stabilised, persisting, reappearing.
+5. **Leverage / Decision impact** — what tends to precede and follow what.
+
+Findings then pass the **meta-control layer**, in this order: engine enablement
+→ confidence threshold → conflict suppression → prioritisation → budget. Only
+then are they rendered into language, by templates, through a regex firewall
+that rejects causal and prescriptive wording (`caused`, `should`, `because`,
+`means`…). A finding that cannot be phrased neutrally is dropped rather than
+softened.
+
+**Conversation is not evidence.** Chat messages are embedded so IRIS can recall
+them, but they never create or reinforce themes — otherwise mentioning a pattern
+would manufacture proof of it. Skipped habits are not evidence either.
+
+## Development
+
+```bash
+uv run pytest                  # offline, deterministic, no API spend
+uv run ruff check .
+cd frontend && npm run lint    # tsc --noEmit
+```
+
+The suite stubs OpenAI at the SDK boundary and runs against a separate
+`iris_test_db`, which it refuses to touch unless the database name contains
+"test". `IRIS_TEST_LIVE_OPENAI=1` opts into the real API for the tests that
+assert on live model output.
+
+## Deployment
+
+One machine, one service: see `scripts/iris.service.example`. There is no
+container image and no orchestration — a personal single-user app does not need
+either, and the previous Docker path had been broken and unused for months.
+
+## Deliberately not built
+
+- **Authentication and multi-user.** Removed on purpose; this is a local app.
+- **Wearables / biometrics.** There is no device integration. The UI previously
+  displayed invented HRV and sleep figures; that screen is gone rather than
+  faked.
+- **Data connectors** (calendar, Spotify, photos…). Listed in Settings as not
+  yet built; nothing reads them.
+- **Database migrations.** The schema is created idempotently at startup.

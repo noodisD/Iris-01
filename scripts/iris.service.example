@@ -1,23 +1,41 @@
+# IRIS — single-user local service.
+#
+#   sudo cp scripts/iris.service.example /etc/systemd/system/iris.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now iris
+#
+# Adjust User and the paths if your checkout lives elsewhere. IRIS binds to
+# loopback: it is a personal, single-user application with no authentication,
+# and must not be exposed to a network.
+
 [Unit]
-Description=IRIS Minimal Companion Service
-After=network.target postgresql.service
+Description=IRIS — personal analytical companion
+After=network.target
+# PostgreSQL runs in a container on this machine (see README), so wait for
+# Docker rather than a local postgresql.service.
+Wants=docker.service
+After=docker.service
 
 [Service]
 Type=simple
 User=noodis
 Group=noodis
-WorkingDirectory=/home/noodis/Myself/apps/personal_ai_agent_minimal
-EnvironmentFile=/home/noodis/Myself/apps/personal_ai_agent_minimal/.env
-# Use the virtual environment python
-ExecStart=/home/noodis/Myself/apps/personal_ai_agent_minimal/.venv/bin/python companion.py
+WorkingDirectory=/home/noodis/Iris-01
+EnvironmentFile=/home/noodis/Iris-01/.env
+ExecStart=/home/noodis/Iris-01/.venv/bin/uvicorn iris_api:app --host 127.0.0.1 --port 8000
 
-# Restart policy for robustness
-Restart=always
+Restart=on-failure
 RestartSec=5
 
-# Standard logging to journalctl
-StandardOutput=append:/var/log/iris/stdout.log
-StandardError=append:/var/log/iris/stderr.log
+# Logs go to the journal: journalctl -u iris -f
+StandardOutput=journal
+StandardError=journal
+
+# The process only needs its own checkout.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/noodis/Iris-01/logs
 
 [Install]
 WantedBy=multi-user.target

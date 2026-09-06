@@ -37,3 +37,4 @@ frontend/node_modules/
 
 # Local agent tooling settings
 .claude/settings.local.json
+/dist/
