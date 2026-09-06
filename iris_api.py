@@ -11,7 +11,7 @@ from agent.logging_config import configure_logging
 configure_logging()
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from starlette.concurrency import run_in_threadpool
@@ -32,7 +32,6 @@ try:
     from agent.database import db
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
-    from agent.pipeline import run_processing_pipeline
     from agent.insights_service import InsightsService
 
     COMPANION_AVAILABLE = True
@@ -189,8 +188,26 @@ async def root():
 # Health check
 @app.get("/health")
 async def health_check():
-    """Simple endpoint to check if the API is running"""
-    return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
+    """Liveness *and* readiness: an API that cannot reach PostgreSQL is not
+    healthy, and reporting ok regardless meant every data route returned 500
+    while monitoring saw a green service."""
+    checks = {"database": "down"}
+    try:
+        await run_in_threadpool(db.ping)
+        checks["database"] = "ok"
+    except Exception as e:
+        logger.error(f"Health check: database unreachable: {e}")
+
+    healthy = checks["database"] == "ok"
+    return Response(
+        content=json.dumps({
+            "status": "ok" if healthy else "degraded",
+            "checks": checks,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }),
+        media_type="application/json",
+        status_code=200 if healthy else 503,
+    )
 
 
 # ============================================================================
@@ -540,7 +557,7 @@ async def list_reflections(user_id: int = Depends(get_current_user_id), limit: i
     return {"reflections": reflections}
 
 @app.post("/api/reflections")
-async def create_reflection(reflection: ReflectionCreate, background_tasks: BackgroundTasks, user_id: int = Depends(get_current_user_id)):
+async def create_reflection(reflection: ReflectionCreate, user_id: int = Depends(get_current_user_id)):
     """Create a new reflection"""
     service = ReflectionService(user_id)
     
@@ -560,10 +577,10 @@ async def create_reflection(reflection: ReflectionCreate, background_tasks: Back
             clarity_level=reflection.clarity_level,
             tags=reflection.tags
         )
-        # Trigger pipeline in background
-        if background_tasks:
-            background_tasks.add_task(run_processing_pipeline, 'reflection', reflection_id)
-            
+        # No background task here: ReflectionService.create_reflection already
+        # runs the pipeline. Scheduling it again embedded every reflection twice,
+        # paying OpenAI twice and re-entering the window that made concurrent
+        # ingests mis-attribute each other's content.
         return {"reflection_id": reflection_id, "message": "Reflection saved successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

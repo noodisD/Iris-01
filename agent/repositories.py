@@ -77,8 +77,15 @@ class HabitRepository(Repository):
     """Manages habits and habit tracking."""
 
     def create_habit(self, user_id: int, name: str, description: str = None,
-                    categories: list = None, target_frequency: str = None) -> int:
-        return self.db.create_habit(user_id, name, description, categories, target_frequency)
+                    frequency_type: str = 'daily', habit_type: str = 'completion',
+                    weekly_target: float = 0, tracking_metric: str = 'completion',
+                    category: str = 'general') -> int:
+        # These used to be (categories, target_frequency) passed positionally
+        # into (frequency_type, habit_type) — both CHECK-constrained columns —
+        # so any caller would have written a list into a VARCHAR or violated
+        # the constraint.
+        return self.db.create_habit(user_id, name, description, frequency_type,
+                                    habit_type, weekly_target, tracking_metric, category)
 
     def get_habits(self, user_id: int, active_only: bool = True) -> list:
         return self.db.get_habits(user_id, active_only)

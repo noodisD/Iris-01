@@ -128,6 +128,12 @@ class Database:
             self._legacy_conn.close()
             self._legacy_conn = None
 
+    def ping(self) -> bool:
+        """Cheap liveness probe: check out a connection and round-trip a SELECT."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+            return cur.fetchone()[0] == 1
+
     def create_schema(self):
         """
         Creates the necessary tables and extensions in the database.
@@ -2526,9 +2532,23 @@ class Database:
                 raise
 
     def delete_reflection(self, reflection_id: int) -> bool:
-        """Deletes a reflection."""
+        """Deletes a reflection and everything derived from it.
+
+        embeddings and theme_occurrences reference sources by
+        (source_type, source_id) rather than by foreign key, so deleting the
+        row alone left an embedding that still matched semantic searches and an
+        occurrence that still counted as evidence for a theme.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
+                cur.execute(
+                    "DELETE FROM theme_occurrences WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
+                cur.execute(
+                    "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
                 cur.execute("DELETE FROM reflections WHERE id = %s;", (reflection_id,))
                 conn.commit()
                 return True

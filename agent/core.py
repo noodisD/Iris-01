@@ -22,7 +22,7 @@ from .database import (
 
 # New architecture components
 from .pipeline import generate_embedding
-from .pipeline_orchestrator import AnalysisPipeline, engine_enablement_gate, confidence_gate, budget_gate
+from .pipeline_orchestrator import AnalysisPipeline, engine_enablement_gate, confidence_gate
 from .persistence import PersistenceEngine
 from .trajectory import TrajectoryEngine
 from .tension import TensionEngine
@@ -110,10 +110,19 @@ class PersonalAICompanion:
             lambda: decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
         )
 
-        # Register gates in order
+        # Register gates in order. Budget is deliberately NOT registered here:
+        # budget_gate truncates to max_items and its own docstring says it
+        # "assumes insights are already ranked by priority", but this pipeline
+        # runs before conflict suppression and prioritisation. Registering it
+        # here cut the list down in engine-registration order, so whenever
+        # persistence and trajectory produced max_items insights between them,
+        # resolution — the highest-weighted engine at 1.0 — never reached the
+        # ranking step at all. The single budget slice now happens in
+        # _get_aggregated_context, after ranking, matching CONTEXT.md's
+        # documented order: enablement -> confidence -> conflict ->
+        # prioritisation -> budget.
         self.analysis_pipeline.register_gate('enablement', engine_enablement_gate, order=1)
         self.analysis_pipeline.register_gate('confidence', confidence_gate, order=2)
-        self.analysis_pipeline.register_gate('budget', budget_gate, order=3)
 
     def shutdown(self):
         """Gracefully closes all backing service connections."""

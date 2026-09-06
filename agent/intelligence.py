@@ -173,10 +173,16 @@ class Intelligence:
                     return response
                 return response
             else:
-                return "Error: No API client available"
+                raise RuntimeError("No LLM client is configured")
 
         except Exception as e:
-            return f"Error calling API: {str(e)}"
+            # Deliberately raised, not returned. Returning the message meant
+            # core.chat() persisted "Error calling API: ..." into
+            # conversation_messages as Iris's own reply — permanent history the
+            # user never said anything to provoke, and which was then re-fed as
+            # context on later turns.
+            logger.error(f"LLM call failed: {e}")
+            raise
 
     def _chat_gemini(
         self,
