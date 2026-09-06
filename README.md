@@ -11,7 +11,7 @@ IRIS is not a standard "chat-first" assistant. It is a sophisticated system desi
 IRIS follows a structured inference pipeline that moves from raw data to prioritized signals:
 
 1.  **Ingestion & Anchoring**: Every input (habit completion, reflection, message) is semantically "anchored" with context before being stored in **PostgreSQL**.
-2.  **Asynchronous Analysis**: Heavy analytical tasks (embeddings, graph linking) run in **background tasks**, ensuring sub-500ms UI responsiveness.
+2.  **Analysis**: Embedding and clustering run on ingest against PostgreSQL.
 3.  **Analytical Stack**:
     *   **Persistence**: Clustering related thoughts into proven Themes (Threshold: 5).
     *   **Trajectory**: Linear regression on theme frequency with **Evidence Tiering**.
@@ -29,7 +29,6 @@ IRIS follows a structured inference pipeline that moves from raw data to priorit
 *   **Frontend**: Vanilla JavaScript + CSS Design Tokens (Optimized for Speed & Zero Dependencies)
 *   **Backend**: FastAPI + Uvicorn (Multi-user HTTP Gateway with Background Tasks)
 *   **Primary DB**: PostgreSQL + `pgvector` (Canonical Store)
-*   **Graph DB**: Neo4j (Relationship Lens)
 *   **Vector DB**: ChromaDB / FAISS (Semantic Retrieval Lens)
 
 ---

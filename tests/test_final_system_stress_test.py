@@ -32,9 +32,6 @@ def mock_pipeline_logic(monkeypatch):
 
     monkeypatch.setattr("agent.pipeline.generate_embedding", mock_embed)
     monkeypatch.setattr("agent.core.generate_embedding", mock_embed)
-    monkeypatch.setattr("agent.pipeline.graph_db.add_journal_entry_node", lambda *a: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.add_idea_node", lambda *a: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.link_journal_to_idea", lambda *a: None)
     monkeypatch.setattr("agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "Dynamic Theme")
 
 def test_final_system_integrated_flow(test_user, mock_pipeline_logic):

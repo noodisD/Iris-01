@@ -1,24 +1,14 @@
 """
 End-to-end integration tests for the complete data flow.
-Tests the full pipeline: PostgreSQL → Embedding → Vector Store → Graph DB
+Tests the full pipeline: PostgreSQL → Embedding → pgvector → Themes
 """
 
 import pytest
 from agent.database import db
-from agent.graph_db import graph_db
 from agent.pipeline import run_processing_pipeline
 from unittest.mock import patch, MagicMock
 import shutil
 import os
-
-
-@pytest.fixture(autouse=True)
-def reset_graph_db_singleton():
-    """Reset GraphDB singleton to avoid interference between tests."""
-    from agent.graph_db import GraphDB
-    yield
-    # Reset after test
-    GraphDB._instance = None
 
 
 def test_complete_journal_entry_flow(test_user, mocker):
@@ -29,11 +19,6 @@ def test_complete_journal_entry_flow(test_user, mocker):
     mock_openai = mocker.patch("agent.pipeline.openai.embeddings.create")
     test_embedding = [0.3] * 1536
     mock_openai.return_value.data = [MagicMock(embedding=test_embedding)]
-
-    # Mock Neo4j to avoid connection issues
-    mock_graph_add = mocker.patch("agent.graph_db.GraphDB.add_journal_entry_node")
-    mock_graph_idea = mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mock_graph_link = mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # 2. Create a journal entry
     content = "Today I had an important realization:\n- Work-life balance is crucial\n- Self-care matters"
@@ -67,11 +52,6 @@ def test_complete_journal_entry_flow(test_user, mocker):
         cur.execute("SELECT processing_status FROM journal_entries WHERE id = %s;", (entry_id,))
         status = cur.fetchone()[0]
         assert status == 'complete'
-
-    # 7. Verify Neo4j was called
-    mock_graph_add.assert_called_once()
-    # Should have extracted two ideas
-    mock_graph_idea.assert_called()
 
 
 def test_conversation_message_flow(test_user, mocker):
@@ -125,9 +105,6 @@ def test_batch_processing_flow(test_user, mocker):
     mock_openai.return_value.data = [MagicMock(embedding=[0.5] * 1536)]
 
     # Mock graph operations
-    mocker.patch("agent.graph_db.GraphDB.add_journal_entry_node")
-    mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # Create multiple entries
     entry_ids = []
@@ -163,9 +140,6 @@ def test_error_handling_in_pipeline(test_user, mocker):
     mock_openai.side_effect = Exception("API Error")
 
     # Mock graph operations
-    mocker.patch("agent.graph_db.GraphDB.add_journal_entry_node")
-    mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # Create entry
     entry_id = db.create_journal_entry(
@@ -203,9 +177,6 @@ def test_idempotent_processing(test_user, mocker):
     mock_openai.return_value.data = [MagicMock(embedding=test_embedding)]
 
     # Mock graph operations
-    mocker.patch("agent.graph_db.GraphDB.add_journal_entry_node")
-    mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # Create entry
     entry_id = db.create_journal_entry(
@@ -248,9 +219,6 @@ def test_data_recovery_from_postgres(test_user, mocker):
     mock_openai.return_value.data = [MagicMock(embedding=test_embedding)]
 
     # Mock graph operations
-    mocker.patch("agent.graph_db.GraphDB.add_journal_entry_node")
-    mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # 1. Create and process data
     entry_id = db.create_journal_entry(

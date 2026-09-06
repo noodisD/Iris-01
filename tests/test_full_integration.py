@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @pytest.fixture
 def mock_pipeline_components(monkeypatch):
     """
-    Mock costly components like OpenAI embedding generation and Neo4j projection.
+    Mock costly components like OpenAI embedding generation.
     This allows us to test the logic flow without external dependencies.
     """
     # Mock embedding generation
@@ -31,10 +31,6 @@ def mock_pipeline_components(monkeypatch):
     
     
     # Mock Graph DB operations (add a simple mock if needed, but the original code 
-    # doesn't call a single 'project_to_graph' function, it calls methods on graph_db)
-    monkeypatch.setattr("agent.pipeline.graph_db.add_journal_entry_node", lambda *args: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.add_idea_node", lambda *args: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.link_journal_to_idea", lambda *args: None)
 
 def test_full_lifecycle_integration(test_user, mock_pipeline_components):
     """

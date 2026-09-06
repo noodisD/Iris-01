@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 # New architecture imports
 from agent.database import db
-from agent.graph_db import graph_db
 from agent.core import PersonalAICompanion
 from agent.persistence import PersistenceEngine
 from agent.trajectory import TrajectoryEngine
@@ -71,7 +70,6 @@ COMMANDS:
   /why <type> <id>     Explain why an insight was surfaced
   /hidden              Show insights suppressed in the last run
   /rebuild-vector      Rebuild the vector search index from the database
-  /rebuild-graph       Rebuild the knowledge graph from the database
   /help                Show this help
   /exit                Exit the application
 """)
@@ -906,9 +904,6 @@ def main_chat_loop(user_id: int):
             elif user_input.lower().startswith("/narrative_check "):
                 text = user_input[17:].strip().strip('"')
                 check_narrative_safety(text)
-            elif user_input.lower() == "/rebuild-graph":
-                print("Rebuilding graph...")
-                graph_db.rebuild_from_postgres()
             else:
                 print("\nCompanion: ", end="", flush=True)
                 response = companion.chat(user_input)
@@ -961,10 +956,6 @@ def main():
             db.close_connection()
         except Exception as e:
             print(f"Warning: Error closing database: {e}")
-        try:
-            graph_db.close()
-        except Exception as e:
-            print(f"Warning: Error closing graph database: {e}")
         print("Goodbye!\n")
 
 if __name__ == "__main__":

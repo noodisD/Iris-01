@@ -13,7 +13,6 @@ IRIS follows a strict decoupling of canonical storage and query-optimized projec
 
 ### 1.2 Specialized Lenses
 *   **Vector Lens (ChromaDB/FAISS)**: Optimized for sub-second semantic retrieval and nearest-neighbor lookups.
-*   **Graph Lens (Neo4j)**: Optimized for entity-relationship mapping and multi-hop discovery.
 
 ### 1.3 Web Infrastructure
 *   **API Layer (FastAPI)**: A multi-user HTTP gateway that orchestrates authentication, companion initialization, and **asynchronous background processing**.

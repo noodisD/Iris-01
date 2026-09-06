@@ -3,8 +3,7 @@ Processing Pipeline Layer
 
 This module orchestrates the expensive and potentially fallible processing
 of raw data after it has been safely stored in PostgreSQL. It's responsible
-for generating embeddings, extracting entities, and projecting data into the
-vector and graph database lenses.
+for generating embeddings and clustering entries into persistent themes.
 """
 
 import logging
@@ -20,7 +19,6 @@ from .config import settings
 
 # Import the data layer interfaces
 from .database import db, embeddings
-from .graph_db import graph_db
 from .persistence import PersistenceEngine
 
 logger = logging.getLogger(__name__)
@@ -121,44 +119,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # 4. Store the canonical embedding in PostgreSQL
         embeddings.add_embedding(source_type, source_id, model_name, embedding)
 
-        # 6. Extract entities and project into the Neo4j lens.
-        # Neo4j is a "disposable lens" — if it's down, ingestion must still succeed.
-        # Wrap all graph writes so a Neo4j outage can't orphan a PostgreSQL-committed embedding.
-        try:
-            if source_type == 'journal_entry':
-                entities = extract_entities(content)
-
-                graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
-                for idea in entities.get("ideas", []):
-                    graph_db.add_idea_node(idea)
-                    graph_db.link_journal_to_idea(source_id, idea)
-            elif source_type == 'reflection':
-                entities = extract_entities(content)
-
-                graph_db.add_journal_entry_node(source_id, user_id, occurred_at)
-                for idea in entities.get("ideas", []):
-                    graph_db.add_idea_node(idea)
-                    graph_db.link_journal_to_idea(source_id, idea)
-            elif source_type == 'habit':
-                name = item_data['name']
-                graph_db.add_habit_node(source_id, user_id, name, occurred_at)
-            elif source_type == 'habit_completion':
-                habit_id = item_data['habit_id']
-                graph_db.add_habit_completion_node(source_id, habit_id, user_id, occurred_at, notes=content)
-            elif source_type == 'message':
-                # Messages contribute through theme matching and vector search,
-                # not graph topology. No graph projection needed.
-                pass
-
-            # Link same-day events in Graph to increase connectivity
-            if source_type in ['journal_entry', 'reflection', 'habit_completion']:
-                graph_db.link_same_day_events(source_id, source_type, occurred_at)
-        except Exception as e:
-            logger.warning(
-                f"Neo4j projection skipped for {source_type} {source_id}: {e}"
-            )
-
-        # 7. Check for persistence (what keeps coming back)
+        # 5. Check for persistence (what keeps coming back)
         # User messages participate in theme matching; assistant responses are excluded
         # to avoid amplifying theme signals with derivative content.
         should_check_persistence = source_type in ['journal_entry', 'reflection', 'habit_completion']
@@ -180,7 +141,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 logger.error(f"Persistence check failed for {source_type} ID {source_id}: {e}")
                 # Non-blocking: don't fail the pipeline if persistence fails
 
-        # 8. Update status to 'complete'
+        # 6. Update status to 'complete'
         embeddings.update_processing_status(source_type, source_id, 'complete')
         logger.info(f"Successfully completed processing for {source_type} ID: {source_id}")
 

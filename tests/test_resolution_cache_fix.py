@@ -100,9 +100,6 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
     monkeypatch.setattr("agent.core.generate_embedding", lambda text, model=None: [0.1] * 1536)
 
     # Mock other graph operations
-    monkeypatch.setattr("agent.pipeline.graph_db.add_journal_entry_node", lambda *a, **k: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.add_idea_node", lambda *a, **k: None)
-    monkeypatch.setattr("agent.pipeline.graph_db.link_journal_to_idea", lambda *a, **k: None)
 
     # Mock the LLM
     companion = PersonalAICompanion(user_id=user_id)

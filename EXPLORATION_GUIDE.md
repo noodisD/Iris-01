@@ -291,7 +291,6 @@ These are utilities that other modules use.
 - `agent/evidence.py` — Evidence logging for audit trails
 - `agent/explanation.py` — Generating explanations for insights
 - `agent/memory.py` — In-session conversation memory
-- `agent/graph_db.py` — Neo4j integration (relationship lens)
 - `agent/preferences.py` — User preferences/settings
 - `agent/preferences_guard.py` — Preference validation
 - `agent/journal_entry.py` — Journal entry service

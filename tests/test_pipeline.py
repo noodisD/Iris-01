@@ -34,9 +34,6 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
     # 1. Mock external services
     mock_generate_embedding = mocker.patch("agent.pipeline.generate_embedding")
     mock_generate_embedding.return_value = [0.2] * 1536
-    
-    mock_graph_add_idea = mocker.patch("agent.graph_db.GraphDB.add_idea_node")
-    mock_graph_link_idea = mocker.patch("agent.graph_db.GraphDB.link_journal_to_idea")
 
     # 2. Create a source item in the database
     content = "This is a test with an idea:\n- A new social network."
@@ -64,7 +61,6 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
 
 
     
-    # Graph DB integration is tested separately in test_graph_db.py
     # Focus here is on embedding storage and pipeline execution
 
     # Assert processing status is 'complete'

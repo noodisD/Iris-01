@@ -1,6 +1,6 @@
 [Unit]
 Description=IRIS Minimal Companion Service
-After=network.target postgresql.service neo4j.service
+After=network.target postgresql.service
 
 [Service]
 Type=simple

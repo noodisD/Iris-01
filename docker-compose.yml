@@ -21,37 +21,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  neo4j:
-    image: neo4j:5
-    container_name: iris_neo4j_test
-    environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD is not set}
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_server_memory_heap_initial__size: 512m
-      NEO4J_server_memory_heap_max__size: 2G
-    volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
-    ports:
-      - "7475:7474"
-      - "7688:7687"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "cypher-shell",
-          "-u",
-          "${NEO4J_USER:-neo4j}",
-          "-p",
-          "${NEO4J_PASSWORD:-password}",
-          "RETURN 1;",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    restart: unless-stopped
-
   agent:
     build:
       context: .
@@ -60,8 +29,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      neo4j:
-        condition: service_healthy
     env_file:
       - .env
     ports:
@@ -69,11 +36,8 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      NEO4J_URI: bolt://neo4j:7687
     restart: unless-stopped
 
 volumes:
   postgres_data:
-  neo4j_data:
-  neo4j_logs:
   iris_data:

@@ -33,13 +33,6 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = Field(default="localhost")
     POSTGRES_PORT: int = Field(default=5433)
 
-    # Neo4j
-    # When using docker-compose, NEO4J_URI should use port 7688 (host port that maps to container's 7687)
-    # When connecting directly to container, use port 7687
-    NEO4J_URI: str = Field(default="bolt://localhost:7688")
-    NEO4J_USER: str = Field(default="neo4j")
-    NEO4J_PASSWORD: str = Field(default="testpassword")
-    
     # Analytical Defaults
     DEFAULT_MIN_CONFIDENCE: str = Field(default="medium")
     DEFAULT_MAX_CONTEXT_ITEMS: int = Field(default=5)
@@ -65,7 +58,7 @@ class Settings(BaseSettings):
     def sanitized_dict(self) -> dict:
         """Returns a dict of config with secrets masked for safe logging."""
         d = self.model_dump()
-        secrets = ["OPENAI_API_KEY", "POSTGRES_PASSWORD", "NEO4J_PASSWORD"]
+        secrets = ["OPENAI_API_KEY", "POSTGRES_PASSWORD"]
         for s in secrets:
             if d[s] and len(d[s]) > 8:
                 d[s] = f"{d[s][:4]}...{d[s][-4:]}"

@@ -120,9 +120,6 @@ class PersonalAICompanion:
         logger.info("Shutting down IRIS core services...")
         try:
             db.close_connection()
-            # Also close graph if active
-            from .graph_db import graph_db
-            graph_db.close()
             logger.info("Cleanup complete. Epistemic integrity preserved.")
         except Exception as e:
             logger.error(f"Error during shutdown cleanup: {e}")
