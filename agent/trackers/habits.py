@@ -5,7 +5,7 @@ Provides business logic for managing habits, completions, and streaks.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 from ..database import db
 from ..pipeline import run_processing_pipeline
@@ -99,12 +99,12 @@ class HabitTracker:
         if skip_date is None:
             skip_date = date.today()
         skip_id = db.log_habit_skip(habit_id, skip_date, reason)
-        
-        try:
-            run_processing_pipeline('habit_completion', skip_id)
-        except Exception as e:
-            print(f"Pipeline error for skip {skip_id}: {e}")
-            
+
+        # A skip is evidence the pattern did NOT occur, so it is deliberately
+        # not sent through the analytical pipeline. It used to be embedded as
+        # "Anchor: Yoga | ... | Action: Skipped", a vector dominated by the
+        # habit's own name, so skipping a habit reinforced its theme and could
+        # make trajectory report it as increasing while it was being abandoned.
         return skip_id
 
     # ========== Streak Management ==========

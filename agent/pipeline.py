@@ -77,13 +77,24 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # 1. Update status to 'processing'
         embeddings.update_processing_status(source_type, source_id, 'processing')
 
-        # 2. Fetch the raw content from PostgreSQL
-        item = embeddings.get_items_to_process(source_type, status='processing', limit=1)
+        # 2. Fetch the raw content from PostgreSQL — by id, not "any row in
+        # this status". Filtering on status alone let a concurrent write, or a
+        # row left behind by a crashed run, be picked up instead: that row's
+        # text was embedded under this source_id, carrying its user_id with it.
+        item = embeddings.get_items_to_process(
+            source_type, status='processing', limit=1, source_id=source_id
+        )
         if not item:
             logger.warning(f"Could not find {source_type} ID {source_id} to process.")
             return
-        
+
         item_data = item[0]
+        if item_data["id"] != source_id:
+            logger.error(
+                f"Refusing to process {source_type} {source_id}: fetched row "
+                f"{item_data['id']}. Aborting rather than mis-attributing content."
+            )
+            return
         content = item_data['content']
         user_id = item_data['user_id']
         occurred_at = item_data['occurred_at']
@@ -143,6 +154,21 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 )
                 if matched_theme_id:
                     logger.info(f"{source_type.capitalize()} {source_id} matched theme {matched_theme_id}")
+                else:
+                    # Nothing matched. Themes are only *born* from clustering,
+                    # and discover_themes() used to be reachable only from the
+                    # CLI — so a user of the web app never formed a first theme
+                    # and the whole analytical product (trajectories, tensions,
+                    # resolutions, insights) stayed permanently empty.
+                    # discover_themes() returns early when there is less
+                    # unassigned material than the proto-theme threshold, so
+                    # this costs one query on most writes.
+                    new_themes = engine.discover_themes()
+                    if new_themes:
+                        logger.info(
+                            f"Discovery created {len(new_themes)} new theme(s) "
+                            f"after {source_type} {source_id}"
+                        )
             except Exception as e:
                 logger.error(f"Persistence check failed for {source_type} ID {source_id}: {e}")
                 # Non-blocking: don't fail the pipeline if persistence fails

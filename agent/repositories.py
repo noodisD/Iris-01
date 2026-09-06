@@ -114,8 +114,9 @@ class EmbeddingRepository(Repository):
     def update_processing_status(self, source_type: str, source_id: int, status: str):
         return self.db.update_processing_status(source_type, source_id, status)
 
-    def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10) -> list:
-        return self.db.get_items_to_process(source_type, status, limit)
+    def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10,
+                             source_id: int = None) -> list:
+        return self.db.get_items_to_process(source_type, status, limit, source_id)
 
     def get_unassigned_embeddings(self, user_id: int) -> list:
         return self.db.get_unassigned_embeddings(user_id)

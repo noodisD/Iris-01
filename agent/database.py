@@ -761,8 +761,16 @@ class Database:
                 logger.error(f"Failed to update processing status for {source_type} ID {source_id}: {e}")
                 raise
 
-    def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10) -> list:
-        """Retrieves items that are pending processing, including necessary metadata."""
+    def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10,
+                             source_id: int = None) -> list:
+        """Retrieves items in a processing status, optionally narrowed to one id.
+
+        `source_id` is not cosmetic. The pipeline marks one row 'processing' and
+        then reads it back; filtering on status alone let it pick up a different
+        row that happened to share that status (a concurrent write, or one left
+        behind by a crashed run) and embed that row's text — and its user_id —
+        under the caller's id.
+        """
         table_map = {
             'journal_entry': 'journal_entries',
             'message': 'conversation_messages',
@@ -774,11 +782,15 @@ class Database:
             raise ValueError(f"Invalid source_type: {source_type}")
 
         table_name = table_map[source_type]
+        # Optional narrowing to a single row (see the docstring).
+        id_col = 'hc.id' if source_type == 'habit_completion' else 'id'
+        scope = f" AND {id_col} = %s" if source_id is not None else ""
+        params = (status, source_id, limit) if source_id is not None else (status, limit)
         with self.connection() as conn, conn.cursor() as cur:
             if source_type == 'journal_entry':
                 cur.execute(
-                    f"SELECT id, user_id, raw_text as content, created_at FROM {table_name} WHERE processing_status = %s LIMIT %s;",
-                    (status, limit)
+                    f"SELECT id, user_id, raw_text as content, created_at FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
+                    params
                 )
                 items = cur.fetchall()
                 return [
@@ -794,8 +806,8 @@ class Database:
             
             elif source_type == 'message':
                 cur.execute(
-                    f"SELECT id, user_id, content, created_at, role FROM {table_name} WHERE processing_status = %s LIMIT %s;",
-                    (status, limit)
+                    f"SELECT id, user_id, content, created_at, role FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
+                    params
                 )
                 items = cur.fetchall()
                 return [
@@ -812,8 +824,8 @@ class Database:
             
             elif source_type == 'reflection':
                 cur.execute(
-                    f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date FROM {table_name} WHERE processing_status = %s LIMIT %s;",
-                    (status, limit)
+                    f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
+                    params
                 )
                 items = cur.fetchall()
                 return [
@@ -829,8 +841,8 @@ class Database:
 
             elif source_type == 'habit':
                 cur.execute(
-                    f"SELECT id, user_id, name, description, created_at, category FROM {table_name} WHERE processing_status = %s LIMIT %s;",
-                    (status, limit)
+                    f"SELECT id, user_id, name, description, created_at, category FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
+                    params
                 )
                 items = cur.fetchall()
                 return [
@@ -851,9 +863,9 @@ class Database:
                     SELECT hc.id, h.user_id, h.name, hc.is_completed, hc.is_skipped, hc.skip_reason, hc.notes, hc.completed_at, hc.habit_id, h.description, hc.completion_date
                     FROM habit_completions hc
                     JOIN habits h ON hc.habit_id = h.id
-                    WHERE hc.processing_status = %s LIMIT %s;
+                    WHERE hc.processing_status = %s{scope} LIMIT %s;
                 """
-                cur.execute(query, (status, limit))
+                cur.execute(query, params)
                 items = cur.fetchall()
                 
                 results = []
@@ -1049,12 +1061,13 @@ class Database:
                     (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
                     (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s)) OR
                     (e.source_type = 'habit' AND e.source_id IN (SELECT id FROM habits WHERE user_id = %s)) OR
-                    (e.source_type = 'habit_completion' AND e.source_id IN (SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s)) OR
-                    (e.source_type = 'message' AND e.source_id IN (SELECT id FROM conversation_messages WHERE user_id = %s AND role = 'user'))
+                    (e.source_type = 'habit_completion' AND e.source_id IN (
+                        SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
+                        WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE))
                 )
                 ORDER BY e.created_at DESC;
                 """,
-                (user_id, user_id, user_id, user_id, user_id)
+                (user_id, user_id, user_id, user_id)
             )
             rows = cur.fetchall()
             return [
@@ -2310,10 +2323,12 @@ class Database:
             try:
                 cur.execute(
                     """
-                    INSERT INTO habit_completions (habit_id, completion_date, is_skipped, skip_reason)
-                    VALUES (%s, %s, TRUE, %s)
+                    INSERT INTO habit_completions
+                        (habit_id, completion_date, is_skipped, skip_reason, processing_status)
+                    VALUES (%s, %s, TRUE, %s, 'skipped')
                     ON CONFLICT (habit_id, completion_date) DO UPDATE
-                    SET is_skipped = TRUE, is_completed = FALSE, skip_reason = EXCLUDED.skip_reason
+                    SET is_skipped = TRUE, is_completed = FALSE,
+                        skip_reason = EXCLUDED.skip_reason, processing_status = 'skipped'
                     RETURNING id;
                     """,
                     (habit_id, skip_date, reason)

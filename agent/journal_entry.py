@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Optional
 
 # Import the new architecture's components
-from .database import db
+from .database import db, journals
 from .pipeline import run_processing_pipeline
 
 logger = logging.getLogger(__name__)
