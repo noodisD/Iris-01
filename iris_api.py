@@ -11,19 +11,16 @@ from agent.logging_config import configure_logging
 configure_logging()
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from datetime import datetime, timedelta, date, UTC
-from typing import Optional, Dict, List
+from typing import Optional, List
 import os
 import json
 from dotenv import load_dotenv
-from jose import JWTError, jwt
-import hashlib
 from contextlib import asynccontextmanager
 
 # Load environment variables
@@ -47,15 +44,8 @@ except Exception as e:
     COMPANION_AVAILABLE = False
     logger.error(f"Error importing PersonalAICompanion: {e}")
 
-# Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-# Path to the frontend files
-FRONTEND_PATH = os.getcwd()
-# Built single-page app (Vite output). Served in production when present; in dev
-# the Vite server on :5173 proxies /api here instead, so this stays unused.
+# Built single-page app (Vite output), served by this same process in production.
+# In dev the Vite server on :5173 proxies /api here instead, so this stays unused.
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
 
 @asynccontextmanager
@@ -73,56 +63,9 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ============================================================================
 # DATA MODELS
 # ============================================================================
-
-
-class UserSignup(BaseModel):
-    """What a user sends when creating an account"""
-
-    username: str
-    password: str
-
-
-class UserLogin(BaseModel):
-    """What a user sends when logging in"""
-
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """What the API sends back after successful login"""
-
-    access_token: str
-    token_type: str
-    username: str
-
-
-class ChatMessage(BaseModel):
-    """What a user sends when sending a chat message"""
-
-    message: str
-    token: str
-
-
-class ChatResponse(BaseModel):
-    """What the API sends back as a chat response"""
-
-    companion_name: str
-    message: str
-    timestamp: str
-    chat_id: str
 
 
 # ============================================================================
@@ -208,67 +151,13 @@ class ReflectionResponse(BaseModel):
 
 
 # ============================================================================
-# IN-MEMORY STORAGE (temporary - will be replaced with real databases later)
+# SINGLE-USER SEAM
 # ============================================================================
-
-# User companions (in memory for now - user_id -> companion_instance)
-# This is where we'll store the companion object for each user
-companions_db: Dict[str, object] = {}
-
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-
-def create_access_token(username: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT token for a user"""
-    if expires_delta is None:
-        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    expire = datetime.now(UTC) + expires_delta
-    to_encode = {"sub": username, "exp": expire}
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def verify_token(token: str) -> str:
-    """Verify a JWT token and return the username"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return username
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-async def get_current_user(token: str) -> str:
-    """Dependency to get the current user from the token in the request header"""
-    # In a real FastAPI app, you'd use:
-    # from fastapi.security import HTTPBearer, HTTPAuthCredentials
-    # But for now, we'll keep it simple
-    return verify_token(token)
-
-
-def get_user_id_from_token(token: str) -> int:
-    """Get user_id from username in token"""
-    username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user["id"]
-
-
-# ----------------------------------------------------------------------------
-# Single-user auth seam (for the integrated React/TS frontend)
-#
-# The new frontend has no login screen and sends no token; this app runs as a
-# personal, single-user local app. Endpoints used by that frontend depend on
-# get_current_user_id, which resolves (or lazily creates) one default user.
+# IRIS runs as a personal, single-user local app: one process, one database,
+# bound to loopback. There is no login and no token — every route resolves (or
+# lazily creates on first run) the one local user through get_current_user_id.
 # Tests override this dependency via app.dependency_overrides.
-# ----------------------------------------------------------------------------
+
 DEFAULT_USERNAME = os.getenv("IRIS_DEFAULT_USER", "local")
 DEFAULT_PASSWORD = os.getenv("IRIS_DEFAULT_PASSWORD", "local")
 
@@ -285,22 +174,17 @@ def get_current_user_id() -> int:
 # ROOT & STATIC ENDPOINTS
 # ============================================================================
 
-# Mount the built SPA's static assets (Vite emits /assets/*). Falls back to a
-# legacy ./assets directory if the SPA hasn't been built.
+# Mount the built SPA's static assets (Vite emits /assets/*).
 if os.path.isdir(os.path.join(FRONTEND_DIST, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
-elif os.path.exists(os.path.join(FRONTEND_PATH, "assets")):
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_PATH, "assets")), name="assets")
 
 @app.get("/")
 async def root():
-    """Serve the built SPA if present, else the legacy vanilla HTML."""
+    """Serve the built SPA. Run `npm run build` in frontend/ if this 404s."""
     spa_index = os.path.join(FRONTEND_DIST, "index.html")
     if os.path.exists(spa_index):
         return FileResponse(spa_index)
-    if os.path.exists(os.path.join(FRONTEND_PATH, "iris_frontend.html")):
-        return FileResponse(os.path.join(FRONTEND_PATH, "iris_frontend.html"))
-    return {"message": "IRIS API Online. Frontend file not found."}
+    return {"message": "IRIS API online. SPA not built — run `npm run build` in frontend/."}
 
 # Health check
 @app.get("/health")
@@ -310,163 +194,36 @@ async def health_check():
 
 
 # ============================================================================
-# AUTHENTICATION ENDPOINTS
-# ============================================================================
-
-
-@app.post("/api/auth/signup", response_model=TokenResponse)
-async def signup(user: UserSignup):
-    """Create a new user account"""
-    try:
-        # Store the user (hashed password hashing is handled inside db.create_user)
-        db.create_user(user.username, user.password)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-    # Create and return a token
-    token = create_access_token(user.username)
-
-    return TokenResponse(access_token=token, token_type="bearer", username=user.username)
-
-
-@app.post("/api/auth/login", response_model=TokenResponse)
-async def login(user: UserLogin):
-    """Log in an existing user"""
-    # Verify user credentials against the database
-    db_user = db.verify_user(user.username, user.password)
-    if not db_user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # Create and return a token
-    token = create_access_token(user.username)
-
-    return TokenResponse(access_token=token, token_type="bearer", username=user.username)
-
-
-# ============================================================================
 # CHAT ENDPOINTS
 # ============================================================================
 
 
-@app.post("/api/chat/message", response_model=ChatResponse)
-async def chat(message_data: ChatMessage):
-    """Send a message to the companion"""
-    # Verify the token and get the username
-    username = verify_token(message_data.token)
-
-    if not COMPANION_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Companion system not available")
-
-    try:
-        # Create a fresh companion for this user
-        # 1. Fetch the user object from the database to get the real user_id
-        user = db.get_user(username)
-        if not user:
-             raise HTTPException(status_code=404, detail="User not found")
-        
-        user_id = user['id']
-
-        # The companion will connect to the databases and load the user's data
-        companion = PersonalAICompanion(user_id=user_id)
-
-        # Process the message through the companion
-        iris_response = companion.chat(message_data.message)
-
-    except Exception as e:
-        logger.error(f"Error processing message: {e}")
-        iris_response = f"I encountered an error processing your message: {str(e)}"
-
-    # Return the response (messages already persisted by companion.chat() -> memory.add_message())
-    return ChatResponse(
-        companion_name="IRIS",
-        message=iris_response,
-        timestamp=datetime.now(UTC).isoformat(),
-        chat_id=username,
-    )
-
-
-@app.post("/api/chat/history")
-async def get_chat_history(request: dict):
-    """Get the user's chat history from the database."""
-    token = request.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
-    username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    messages = db.get_chat_history(user["id"], limit=50)
-
-    # Format as user/assistant pairs for frontend compatibility
-    formatted = []
-    i = 0
-    while i < len(messages):
-        msg = messages[i]
-        if msg["role"] == "user":
-            companion_response = ""
-            if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
-                companion_response = messages[i + 1]["content"]
-                i += 1
-            formatted.append({
-                "user_message": msg["content"],
-                "companion_response": companion_response,
-                "timestamp": msg["created_at"].isoformat() if hasattr(msg["created_at"], "isoformat") else str(msg["created_at"]),
-            })
-        elif msg["role"] == "assistant":
-            # Proactive message (no preceding user message)
-            formatted.append({
-                "user_message": "",
-                "companion_response": msg["content"],
-                "timestamp": msg["created_at"].isoformat() if hasattr(msg["created_at"], "isoformat") else str(msg["created_at"]),
-            })
-        i += 1
-
-    return {"username": username, "messages": formatted}
-
-
 @app.post("/api/chat/greeting")
-async def get_greeting(request: dict):
-    """Get a dynamic greeting for the user"""
-    token = request.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
-    username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+async def get_greeting(user_id: int = Depends(get_current_user_id)):
+    """Get a dynamic greeting for the user."""
     try:
-        companion = PersonalAICompanion(user_id=user['id'])
-        greeting = companion.generate_initial_greeting()
+        companion = PersonalAICompanion(user_id=user_id)
+        greeting = await run_in_threadpool(companion.generate_initial_greeting)
         return {"greeting": greeting}
     except Exception as e:
         logger.error(f"Greeting error: {e}")
-        return {"greeting": f"Hi {username}, I'm Iris. How are you today?"}
+        return {"greeting": "Hi, I'm Iris. How are you today?"}
 
 
 @app.post("/api/chat/proactive")
-async def proactive_chat(request: dict):
-    """Trigger a proactive comment from IRIS"""
-    token = request.get("token")
+async def proactive_chat(request: dict, user_id: int = Depends(get_current_user_id)):
+    """Trigger a proactive comment from IRIS."""
     action_type = request.get("action_type")
     details = request.get("details", {})
 
-    if not token or not action_type:
-        raise HTTPException(status_code=400, detail="Token and action_type required")
-
-    username = verify_token(token)
-    user = db.get_user(username)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not action_type:
+        raise HTTPException(status_code=400, detail="action_type required")
 
     try:
-        companion = PersonalAICompanion(user_id=user['id'])
-        iris_response = companion.generate_proactive_comment(action_type, details)
+        companion = PersonalAICompanion(user_id=user_id)
+        iris_response = await run_in_threadpool(
+            companion.generate_proactive_comment, action_type, details
+        )
         # Response already persisted by companion.generate_proactive_comment() -> memory.add_message()
         return {"message": iris_response}
     except Exception as e:
@@ -611,9 +368,8 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict
 
 
 @app.get("/api/habits")
-async def list_habits(token: str = Query(...)):
-    """List all active habits for the user (legacy token-based; superseded by /today)."""
-    user_id = get_user_id_from_token(token)
+async def list_habits(user_id: int = Depends(get_current_user_id)):
+    """List all active habits (raw tracker shape; /api/habits/today is the UI contract)."""
     tracker = HabitTracker(user_id)
     habits = tracker.get_habits(active_only=True)
     return {"habits": habits}
@@ -666,26 +422,23 @@ async def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depend
     return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
 @app.get("/api/habits/weekly")
-async def get_weekly_summary(token: str = Query(...)):
+async def get_weekly_summary(user_id: int = Depends(get_current_user_id)):
     """Get weekly habit summary"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     summary = tracker.get_weekly_summary()
     return summary
 
 @app.get("/api/habits/consistency/{days}")
-async def get_consistency_report(days: int = 30, token: str = Query(...)):
+async def get_consistency_report(days: int = 30, user_id: int = Depends(get_current_user_id)):
     """Get consistency report across all habits"""
     
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     report = tracker.get_consistency_report(days)
     return report
 
 @app.get("/api/habits/{habit_id}")
-async def get_habit(habit_id: int, token: str = Query(...)):
+async def get_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
     """Get details of a specific habit"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     habit = tracker.get_habit(habit_id)
     if not habit:
@@ -693,9 +446,8 @@ async def get_habit(habit_id: int, token: str = Query(...)):
     return habit
 
 @app.put("/api/habits/{habit_id}")
-async def update_habit(habit_id: int, updates: HabitUpdate, token: str = Query(...)):
+async def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depends(get_current_user_id)):
     """Update a habit's properties"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
@@ -705,9 +457,8 @@ async def update_habit(habit_id: int, updates: HabitUpdate, token: str = Query(.
     return {"message": "Habit updated successfully"}
 
 @app.delete("/api/habits/{habit_id}")
-async def delete_habit(habit_id: int, token: str = Query(...)):
+async def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
     """Delete a habit (soft-delete)"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
         raise HTTPException(status_code=404, detail="Habit not found")
@@ -716,9 +467,8 @@ async def delete_habit(habit_id: int, token: str = Query(...)):
     return {"message": "Habit deleted successfully"}
 
 @app.post("/api/habits/complete")
-async def log_completion(completion: HabitCompletion, token: str = Query(...)):
+async def log_completion(completion: HabitCompletion, user_id: int = Depends(get_current_user_id)):
     """Log a habit completion"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     
     if not tracker.get_habit(completion.habit_id):
@@ -741,9 +491,8 @@ async def log_completion(completion: HabitCompletion, token: str = Query(...)):
     }
 
 @app.post("/api/habits/skip")
-async def log_skip(skip: HabitSkip, token: str = Query(...)):
+async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id)):
     """Log a habit skip"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     
     if not tracker.get_habit(skip.habit_id):
@@ -761,9 +510,8 @@ async def log_skip(skip: HabitSkip, token: str = Query(...)):
     return {"message": "Skip logged successfully"}
 
 @app.get("/api/habits/{habit_id}/calendar")
-async def get_habit_calendar(habit_id: int, start: str, end: str, token: str = Query(...)):
+async def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int = Depends(get_current_user_id)):
     """Get a calendar view of habit completions in a date range"""
-    user_id = get_user_id_from_token(token)
     tracker = HabitTracker(user_id)
     
     if not tracker.get_habit(habit_id):
@@ -785,17 +533,15 @@ async def get_habit_calendar(habit_id: int, start: str, end: str, token: str = Q
 # ============================================================================
 
 @app.get("/api/reflections")
-async def list_reflections(token: str = Query(...), limit: int = 30):
+async def list_reflections(user_id: int = Depends(get_current_user_id), limit: int = 30):
     """List recent reflections"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     reflections = service.get_reflections(limit=limit)
     return {"reflections": reflections}
 
 @app.post("/api/reflections")
-async def create_reflection(reflection: ReflectionCreate, background_tasks: BackgroundTasks, token: str = Query(...)):
+async def create_reflection(reflection: ReflectionCreate, background_tasks: BackgroundTasks, user_id: int = Depends(get_current_user_id)):
     """Create a new reflection"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     
     # Parse date if provided
@@ -823,33 +569,29 @@ async def create_reflection(reflection: ReflectionCreate, background_tasks: Back
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/reflections/moods")
-async def get_mood_trend(token: str = Query(...), days: int = 30):
+async def get_mood_trend(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get mood trend data"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     trend = service.get_mood_trend(days)
     return trend
 
 @app.get("/api/reflections/summary")
-async def get_reflection_summary(token: str = Query(...), days: int = 30):
+async def get_reflection_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get comprehensive reflection summary"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     summary = service.get_reflection_summary(days)
     return summary
 
 @app.get("/api/reflections/tags")
-async def get_tags_summary(token: str = Query(...), days: int = 30):
+async def get_tags_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get tags summary from reflections"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     tags = service.get_tag_summary(days)
     return tags
 
 @app.get("/api/reflections/{reflection_id}")
-async def get_reflection(reflection_id: int, token: str = Query(...)):
+async def get_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
     """Get a specific reflection"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     reflection = service.get_reflection(reflection_id)
     
@@ -859,9 +601,8 @@ async def get_reflection(reflection_id: int, token: str = Query(...)):
     return reflection
 
 @app.put("/api/reflections/{reflection_id}")
-async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token: str = Query(...)):
+async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_id: int = Depends(get_current_user_id)):
     """Update a reflection"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     
     if not service.get_reflection(reflection_id):
@@ -875,9 +616,8 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, token
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/reflections/{reflection_id}")
-async def delete_reflection(reflection_id: int, token: str = Query(...)):
+async def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
     """Delete a reflection"""
-    user_id = get_user_id_from_token(token)
     service = ReflectionService(user_id)
     
     if not service.get_reflection(reflection_id):
@@ -1371,4 +1111,4 @@ if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
