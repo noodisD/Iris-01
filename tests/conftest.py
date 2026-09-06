@@ -2,12 +2,57 @@
 Pytest configuration and fixtures.
 """
 
-import pytest
+import os
+
+# The suite writes and deletes rows, so it must never touch the application
+# database. pydantic-settings resolves environment variables ahead of .env, so
+# setting POSTGRES_DB here — before agent.config is imported below — redirects
+# every connection in the process. Override with IRIS_TEST_POSTGRES_DB.
+os.environ["POSTGRES_DB"] = os.environ.get("IRIS_TEST_POSTGRES_DB", "iris_test_db")
+
 import datetime
 import logging
+
+import psycopg2
+import pytest
 from unittest.mock import MagicMock
+
+from agent.config import settings
 from agent.database import db
 from agent.logging_config import configure_logging
+
+
+def _ensure_test_database() -> None:
+    """Create the test database (and pgvector) if it does not exist yet."""
+    conn = psycopg2.connect(
+        dbname="postgres",
+        user=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+        host=settings.POSTGRES_HOST,
+        port=settings.POSTGRES_PORT,
+    )
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (settings.POSTGRES_DB,))
+            if cur.fetchone() is None:
+                cur.execute(f'CREATE DATABASE "{settings.POSTGRES_DB}";')
+    finally:
+        conn.close()
+
+    conn = psycopg2.connect(
+        dbname=settings.POSTGRES_DB,
+        user=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+        host=settings.POSTGRES_HOST,
+        port=settings.POSTGRES_PORT,
+    )
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    finally:
+        conn.close()
 
 @pytest.fixture(scope="session", autouse=True)
 def logging_setup(tmp_path_factory):
@@ -29,16 +74,68 @@ def logging_setup(tmp_path_factory):
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
-    """
-    Fixture to set up and tear down a test database for the session.
-    """
-    # For simplicity, we're using the same database as the main app,
-    # but in a real-world scenario, you'd use a dedicated test database.
-    # We ensure schema is up to date.
+    """Create the dedicated test database and its schema for the session."""
+    # Refuse to run against anything that is not clearly a test database, so a
+    # misconfigured environment cannot quietly point the suite at real data.
+    if "test" not in settings.POSTGRES_DB:
+        raise RuntimeError(
+            f"Refusing to run tests against database {settings.POSTGRES_DB!r}: "
+            "the name must contain 'test'. Set IRIS_TEST_POSTGRES_DB."
+        )
+    _ensure_test_database()
     db.create_schema()
     yield
-    # Cleanup: In a real app we might drop the test schema/db.
     logging.getLogger(__name__).info("Test session finished.")
+
+def _purge_user(user_id: int) -> None:
+    """Remove every row a test user can create.
+
+    Only habits, reflections, user_preferences, user_app_settings,
+    preference_audit and insight_status cascade from users; journal entries,
+    messages and themes do not, and embeddings and the pattern_* caches are
+    keyed by (source_type, source_id) / (pattern_type, pattern_id) rather than
+    by user, so they have to be matched explicitly and deleted first.
+    """
+    conn = db.get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM themes WHERE user_id = %s;", (user_id,))
+        theme_ids = [r[0] for r in cur.fetchall()]
+
+        # Embeddings, keyed by source rather than by user.
+        cur.execute(
+            """
+            DELETE FROM embeddings WHERE
+                (source_type = 'journal_entry' AND source_id IN (SELECT id FROM journal_entries WHERE user_id = %s))
+             OR (source_type = 'reflection'    AND source_id IN (SELECT id FROM reflections WHERE user_id = %s))
+             OR (source_type = 'message'       AND source_id IN (SELECT id FROM conversation_messages WHERE user_id = %s))
+             OR (source_type IN ('habit', 'habit_completion') AND source_id IN (
+                    SELECT c.id FROM habit_completions c
+                    JOIN habits h ON h.id = c.habit_id WHERE h.user_id = %s));
+            """,
+            (user_id, user_id, user_id, user_id),
+        )
+
+        # Analytical caches keyed by pattern, not by user.
+        if theme_ids:
+            for table, col in (
+                ("pattern_resolutions", "pattern_id"),
+                ("pattern_confidence", "pattern_id"),
+                ("pattern_evidence", "pattern_id"),
+                ("insight_priorities", "pattern_id"),
+            ):
+                cur.execute(f"DELETE FROM {table} WHERE pattern_type = 'theme' AND {col} = ANY(%s);", (theme_ids,))
+            cur.execute("DELETE FROM pattern_leverage WHERE source_id = ANY(%s) OR target_id = ANY(%s);", (theme_ids, theme_ids))
+            cur.execute("DELETE FROM decision_impacts WHERE anchor_id = ANY(%s) OR target_id = ANY(%s);", (theme_ids, theme_ids))
+
+        # Rows that do not cascade from users.
+        cur.execute("DELETE FROM theme_occurrences WHERE theme_id = ANY(%s);", (theme_ids,))
+        cur.execute("DELETE FROM themes WHERE user_id = %s;", (user_id,))
+        cur.execute("DELETE FROM journal_entries WHERE user_id = %s;", (user_id,))
+        cur.execute("DELETE FROM conversation_messages WHERE user_id = %s;", (user_id,))
+        # habits -> habit_completions and reflections cascade with the user.
+        cur.execute("DELETE FROM users WHERE id = %s;", (user_id,))
+        conn.commit()
+
 
 @pytest.fixture
 def test_user():
@@ -50,15 +147,7 @@ def test_user():
     user_id = db.create_user(username, "testpassword")
     user = {"id": user_id, "username": username}
     yield user
-    # Cleanup user data
-    conn = db.get_connection()
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM theme_occurrences WHERE theme_id IN (SELECT id FROM themes WHERE user_id = %s);", (user['id'],))
-        cur.execute("DELETE FROM themes WHERE user_id = %s;", (user['id'],))
-        cur.execute("DELETE FROM journal_entries WHERE user_id = %s;", (user['id'],))
-        cur.execute("DELETE FROM conversation_messages WHERE user_id = %s;", (user['id'],))
-        cur.execute("DELETE FROM users WHERE id = %s;", (user['id'],))
-        conn.commit()
+    _purge_user(user["id"])
 
 @pytest.fixture
 def freeze_time(monkeypatch):

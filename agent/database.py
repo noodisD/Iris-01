@@ -61,10 +61,18 @@ class Database:
                 host=settings.POSTGRES_HOST,
                 port=settings.POSTGRES_PORT,
             )
-            with self.connection() as conn:
+            # Install pgvector on a raw pooled connection, NOT through
+            # self.connection(): that helper calls register_vector(), which
+            # needs the vector type to already exist. Going through it here
+            # meant a brand-new database could never be bootstrapped — the
+            # statement that creates the extension required the extension.
+            conn = self._pool.getconn()
+            try:
                 with conn.cursor() as cur:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-                    conn.commit()
+                conn.commit()
+            finally:
+                self._pool.putconn(conn)
             logger.info("PostgreSQL connection pool ready.")
         except psycopg2.OperationalError as e:
             logger.error(f"Failed to create PostgreSQL pool: {e}")
