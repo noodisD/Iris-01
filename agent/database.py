@@ -36,8 +36,11 @@ class Database:
             cls._instance = super(Database, cls).__new__(cls)
             cls._instance._pool = None
             cls._instance._legacy_conn = None
-            cls._instance._init_pool()
         return cls._instance
+
+    # The pool is created lazily on first use, not here: constructing this
+    # singleton happens at import time, and connecting there made an unreachable
+    # database an import error for the whole app rather than a runtime one.
 
     def _init_pool(self):
         """Create the ThreadedConnectionPool and ensure pgvector is installed."""
