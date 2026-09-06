@@ -17,6 +17,11 @@ from agent.pipeline import run_processing_pipeline
 # Setup logging
 logger = logging.getLogger("LiveSystemTest")
 
+@pytest.mark.skipif(
+    os.environ.get("IRIS_TEST_LIVE_OPENAI") != "1",
+    reason="calls the real OpenAI API and asserts on the model's own words; "
+           "run deliberately with IRIS_TEST_LIVE_OPENAI=1",
+)
 def test_live_system_flow(test_user):
     """
     LIVE E2E: Uses real OpenAI API for embeddings and chat.

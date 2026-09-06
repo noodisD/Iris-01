@@ -11,10 +11,13 @@ import os
 os.environ["POSTGRES_DB"] = os.environ.get("IRIS_TEST_POSTGRES_DB", "iris_test_db")
 
 import datetime
+import hashlib
 import logging
+import random
 
 import psycopg2
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agent.config import settings
@@ -54,6 +57,50 @@ def _ensure_test_database() -> None:
     finally:
         conn.close()
 
+def _offline_embedding(text: str, model: str = None) -> list:
+    """A deterministic stand-in for OpenAI embeddings.
+
+    Same text in, same vector out, so repeated entries still cluster and
+    unrelated ones stay apart. Tests that need particular semantic
+    relationships override this with mock_pipeline_logic.
+    """
+    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16], 16)
+    rng = random.Random(seed)
+    return [rng.uniform(-1.0, 1.0) for _ in range(1536)]
+
+
+@pytest.fixture(autouse=True)
+def offline_embeddings(monkeypatch):
+    """Keep the suite free, deterministic and runnable with no network.
+
+    Several tests reach the embedding call through the ingest pipeline, so
+    without this the suite silently required a funded OPENAI_API_KEY: with a
+    dummy key the embeddings 401, no themes form, and
+    test_system_health_invariant failed with `assert 0 == 1`. A green run was
+    therefore not an offline fact. Set IRIS_TEST_LIVE_OPENAI=1 to exercise the
+    real API deliberately.
+    """
+    if os.environ.get("IRIS_TEST_LIVE_OPENAI") == "1":
+        yield
+        return
+
+    def fake_create(input, model=None, **kwargs):  # noqa: A002 - matches the SDK
+        text = input[0] if isinstance(input, (list, tuple)) else input
+        return SimpleNamespace(data=[SimpleNamespace(embedding=_offline_embedding(text))])
+
+    # Patched at the SDK boundary rather than at generate_embedding, so the
+    # retry/backoff logic above it still runs and tests that drive failures
+    # through this same call can override it.
+    monkeypatch.setattr("agent.pipeline.openai.embeddings.create", fake_create)
+    # Theme discovery names its clusters with the LLM. That call fails soft,
+    # but it is still a real request made from a test.
+    monkeypatch.setattr(
+        "agent.persistence.PersistenceEngine._generate_theme_summary",
+        lambda self, entries: "Offline Theme",
+    )
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def logging_setup(tmp_path_factory):
     """
@@ -84,8 +131,30 @@ def setup_test_database():
         )
     _ensure_test_database()
     db.create_schema()
+    _truncate_all()
     yield
     logging.getLogger(__name__).info("Test session finished.")
+
+def _truncate_all() -> None:
+    """Empty every table before the session runs.
+
+    Per-test cleanup only covers users created through the test_user fixture;
+    tests that call db.create_user() directly left rows behind, and they
+    accumulated across runs (16 users / 54 reflections / 41 embeddings were
+    found in iris_test_db during the independent audit). Leftovers are not just
+    untidy: stale rows in a pending state used to change what the ingest
+    pipeline picked up, so runs influenced each other.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT string_agg(quote_ident(tablename), ', ')
+            FROM pg_tables WHERE schemaname = 'public';
+        """)
+        tables = cur.fetchone()[0]
+        if tables:
+            cur.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE;")
+        conn.commit()
+
 
 def _purge_user(user_id: int) -> None:
     """Remove every row a test user can create.
