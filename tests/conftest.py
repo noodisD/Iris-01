@@ -251,11 +251,25 @@ def freeze_time(monkeypatch):
             ...
     """
     class TimeMachine:
+        """Frozen clock for the sliding-window engines.
+
+        Everything it hands out is timezone-aware UTC, matching what the
+        database returns and what the engines now compare against. A naive
+        datetime passed to set_time() is interpreted as UTC rather than
+        silently producing a naive/aware comparison deep inside an engine.
+        """
+
         def __init__(self):
-            self.now = datetime.datetime.now()
+            self.now = datetime.datetime.now(datetime.UTC)
+
+        @staticmethod
+        def _aware(value):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=datetime.UTC)
+            return value.astimezone(datetime.UTC)
 
         def set_time(self, new_time):
-            self.now = new_time
+            self.now = self._aware(new_time)
 
         def move_forward(self, days=0, hours=0):
             self.now += datetime.timedelta(days=days, hours=hours)
@@ -288,11 +302,19 @@ def freeze_time(monkeypatch):
     class MockDateTime(datetime.datetime):
         @classmethod
         def now(cls, tz=None):
-            return machine.now
+            return machine.now.astimezone(tz) if tz else machine.now
 
     for mod in modules:
         if hasattr(mod, 'datetime'):
             monkeypatch.setattr(mod, "datetime", MockDateTime)
+
+    # The engines take "now" from agent.timeutils.utc_now, not from their own
+    # datetime reference, so the time machine has to move that too — otherwise
+    # frozen tests would silently compare frozen occurrences against real time.
+    monkeypatch.setattr("agent.timeutils.utc_now", lambda: machine.now)
+    for mod in modules:
+        if hasattr(mod, "utc_now"):
+            monkeypatch.setattr(mod, "utc_now", lambda: machine.now)
 
     return machine
 

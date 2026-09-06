@@ -26,6 +26,7 @@ except ImportError:
 import numpy as np
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc, utc_now
 from .constants import (
     PERSISTENCE_CLUSTER_THRESHOLD,
     PERSISTENCE_MATCH_THRESHOLD,
@@ -463,18 +464,14 @@ Theme summary:"""
             # Filter 2: Temporal Density (Time-Awareness)
             # Require >= 3 occurrences in last 30 days
             recent_count = 0
-            now = datetime.now()
+            now = utc_now()
             timestamps = []
             source_types = []
 
             for o in occs:
                 dt = o['occurred_at']
                 if not isinstance(dt, datetime):
-                    dt = datetime.fromisoformat(str(dt))
-
-                # Make naive for comparison to be safe against naive/aware mix
-                if dt.tzinfo:
-                    dt = dt.replace(tzinfo=None)
+                    dt = to_utc(dt)
 
                 timestamps.append(dt)
 

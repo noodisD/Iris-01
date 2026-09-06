@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc
 from .constants import (
     DECISION_IMPACT_BASELINE_DAYS,
     DECISION_IMPACT_BASELINE_EPSILON,
@@ -263,11 +264,7 @@ class DecisionImpactEngine:
         occs = themes.get_occurrences(a_id)
         times = []
         for o in occs:
-            dt = o['occurred_at']
-            if not isinstance(dt, datetime):
-                dt = datetime.fromisoformat(str(dt))
-            if dt.tzinfo is not None:
-                dt = dt.replace(tzinfo=None)
+            dt = to_utc(o['occurred_at'])
             times.append(dt)
         return sorted(times)
 
@@ -277,10 +274,5 @@ class DecisionImpactEngine:
         occs = themes.get_occurrences(t_id)
         times = []
         for o in occs:
-            dt = o['occurred_at']
-            if not isinstance(dt, datetime):
-                dt = datetime.fromisoformat(str(dt))
-            if dt.tzinfo is not None:
-                dt = dt.replace(tzinfo=None)
-            times.append(dt)
+            times.append(to_utc(o['occurred_at']))
         return sorted(times)

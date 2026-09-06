@@ -8,11 +8,11 @@ It runs after all engines compute and follow deterministic priority rules.
 """
 
 import logging
-from datetime import datetime
 from typing import Any
 
 # Import rules and constants
 from .conflicts import CONFLICT_RULES
+from .timeutils import utc_now
 from .constants import CONFLICT_MIN_CONFIDENCE, ENGINE_PRIORITY
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class ConflictSuppressionEngine:
         return {
             "visible": visible,
             "suppressed": suppressed,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_now().isoformat()
         }
 
     def _resolve_group(self, insights: list[dict]) -> tuple[list[dict], list[dict]]:

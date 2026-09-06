@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc, utc_now
 from .constants import (
     TENSION_BASELINE_DAYS,
     TENSION_MAX_THEMES_FOR_PAIRS,
@@ -53,7 +54,7 @@ class TensionEngine:
         Define all time windows in one place to prevent mismatches.
         Returns: (recent_start, baseline_end, baseline_start)
         """
-        recent_start = datetime.now() - timedelta(days=TENSION_RECENT_DAYS)
+        recent_start = utc_now() - timedelta(days=TENSION_RECENT_DAYS)
         baseline_end = recent_start
         baseline_start = baseline_end - timedelta(days=TENSION_BASELINE_DAYS)
         return recent_start, baseline_end, baseline_start
@@ -64,7 +65,7 @@ class TensionEngine:
         Uses weekly buckets for stability assessment.
         """
         # Stability windows use weekly buckets for consistent time slices
-        now = datetime.now()
+        now = utc_now()
         return now
 
     def _get_active_themes(self) -> list[dict]:
@@ -131,11 +132,7 @@ class TensionEngine:
             if isinstance(occurred_at, datetime):
                 dt_occurred = occurred_at
             else:
-                dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-            # Ensure offset-naive for comparison
-            if dt_occurred.tzinfo is not None:
-                dt_occurred = dt_occurred.replace(tzinfo=None)
+                dt_occurred = to_utc(occurred_at)
 
             if dt_occurred >= recent_start:
                 recent_cooccurrences.append(coocc)
@@ -201,10 +198,7 @@ class TensionEngine:
             if isinstance(occurred_at, datetime):
                 dt_occurred = occurred_at
             else:
-                dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-            if dt_occurred.tzinfo is not None:
-                dt_occurred = dt_occurred.replace(tzinfo=None)
+                dt_occurred = to_utc(occurred_at)
 
             if dt_occurred >= recent_start:
                 recent_a += 1
@@ -219,10 +213,7 @@ class TensionEngine:
             if isinstance(occurred_at, datetime):
                 dt_occurred = occurred_at
             else:
-                dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-            if dt_occurred.tzinfo is not None:
-                dt_occurred = dt_occurred.replace(tzinfo=None)
+                dt_occurred = to_utc(occurred_at)
 
             if dt_occurred >= recent_start:
                 recent_b += 1
@@ -252,10 +243,7 @@ class TensionEngine:
             if isinstance(occurred_at, datetime):
                 dt_occurred = occurred_at
             else:
-                dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-            if dt_occurred.tzinfo is not None:
-                dt_occurred = dt_occurred.replace(tzinfo=None)
+                dt_occurred = to_utc(occurred_at)
 
             occurrence_times.append(dt_occurred)
 

@@ -5,12 +5,12 @@ all the different services (intelligence, memory, journal, etc.).
 """
 
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # Main services
 from .conflict import ConflictSuppressionEngine
+from .timeutils import utc_now
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .database import (
     db,
@@ -57,7 +57,7 @@ class PersonalAICompanion:
             raise ValueError("PersonalAICompanion requires a valid user_id.")
 
         self.user_id = user_id
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = utc_now().strftime("%Y%m%d_%H%M%S")
 
         # Initialize the core services for this user/session
         self.intelligence = Intelligence(model=model)
@@ -295,7 +295,7 @@ class PersonalAICompanion:
         self.last_suppressed_insights[key] = {
             "insight": insight,
             "reason": reason,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": utc_now().isoformat()
         }
 
     def _filter_by_confidence(self, items: list[dict], min_level: str = "medium") -> list[dict]:

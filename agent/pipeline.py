@@ -17,6 +17,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from .timeutils import to_utc, utc_now
 from .config import settings
 
 # Import the data layer interfaces
@@ -128,27 +129,12 @@ def run_processing_pipeline(source_type: str, source_id: int):
         user_id = item_data['user_id']
         occurred_at = item_data['occurred_at']
 
-        # Backfill detection logging
+        # Backfill detection logging. to_utc() handles strings, dates and both
+        # flavours of datetime, so the branching this used to need is gone.
         try:
-            from datetime import datetime
-            if isinstance(occurred_at, str):
-                dt_occ = datetime.fromisoformat(occurred_at)
-            else:
-                dt_occ = occurred_at
-
-            # Use hasattr to safely check for tzinfo (date objects don't have it)
-            if dt_occ and hasattr(dt_occ, 'tzinfo') and dt_occ.tzinfo:
-                dt_occ = dt_occ.replace(tzinfo=None)
-
-            # Convert date to datetime for comparison if needed
-            from datetime import date
-            if isinstance(dt_occ, date) and not isinstance(dt_occ, datetime):
-                dt_comp = datetime.combine(dt_occ, datetime.min.time())
-            else:
-                dt_comp = dt_occ
-
-            if dt_comp and (datetime.now() - dt_comp).days > 1:
-                logger.info(f"Processing historical item from {dt_comp} (Backfill detected)")
+            dt_occ = to_utc(occurred_at)
+            if dt_occ and (utc_now() - dt_occ).days > 1:
+                logger.info(f"Processing historical item from {dt_occ} (Backfill detected)")
         except Exception as e:
             logger.warning(f"Timestamp check failed: {e}")
 

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc, utc_now
 from .constants import (
     RESOLUTION_BASELINE_DAYS,
     RESOLUTION_DELTA_EPSILON,
@@ -96,11 +97,7 @@ class ResolutionEngine:
 
         for occ in occurrences:
             occ_at = occ["occurred_at"]
-            dt_occ = occ_at if isinstance(occ_at, datetime) else datetime.fromisoformat(str(occ_at))
-
-            # Ensure offset-naive for comparison
-            if dt_occ.tzinfo is not None:
-                dt_occ = dt_occ.replace(tzinfo=None)
+            dt_occ = to_utc(occ_at)
 
             timestamps.append(dt_occ)
 
@@ -166,7 +163,7 @@ class ResolutionEngine:
             "confidence_level": confidence,
             "recent_count": recent_count,
             "past_count": past_count,
-            "last_computed_at": datetime.now()
+            "last_computed_at": utc_now()
         }
         logger.debug(f"ResolutionEngine.analyze_theme returning: theme_id={theme_id}, label={label}, result={result}")
         return result
@@ -211,7 +208,7 @@ class ResolutionEngine:
 
     def _get_time_windows(self) -> tuple[datetime, datetime, datetime]:
         """Calculates window boundaries for analysis."""
-        now = datetime.now().replace(tzinfo=None)
+        now = utc_now()
         recent_start = now - timedelta(days=RESOLUTION_RECENT_DAYS)
         baseline_end = recent_start
         baseline_start = baseline_end - timedelta(days=RESOLUTION_BASELINE_DAYS)
@@ -287,5 +284,5 @@ class ResolutionEngine:
             "confidence_level": "low",
             "recent_count": 0,
             "past_count": 0,
-            "last_computed_at": datetime.now()
+            "last_computed_at": utc_now()
         }

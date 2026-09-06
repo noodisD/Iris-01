@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 # Import constants
+from .timeutils import to_utc, utc_now
 from .constants import (
     CONF_CONSISTENCY_THRESHOLD,
     CONF_HIGH_POINTS,
@@ -83,11 +84,11 @@ class ConfidenceEngine:
         sufficiency = min(1.0, math.log(effective_count + 1) / math.log(CONF_HIGH_POINTS + 1))
 
         # 2. Time Coverage
-        sorted_ts = sorted([ts.replace(tzinfo=None) if ts.tzinfo else ts for ts in timestamps])
+        sorted_ts = sorted(to_utc(ts) for ts in timestamps)
         coverage_days = (sorted_ts[-1] - sorted_ts[0]).days
 
         # 3. Recency Score (Exponential decay)
-        now = datetime.now().replace(tzinfo=None)
+        now = utc_now()
         days_since_last = (now - sorted_ts[-1]).days
         # Score = exp(-days / tau)
         recency = math.exp(-max(0, days_since_last) / CONF_RECENCY_DAYS)

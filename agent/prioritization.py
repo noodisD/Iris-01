@@ -15,6 +15,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from .timeutils import to_utc, utc_now
 from .constants import (
     ENGINE_BASE_WEIGHTS,
     ENGINE_PRIORITY,
@@ -70,7 +71,7 @@ class InsightPrioritizationEngine:
                 last_at = datetime.fromisoformat(str(last_at))
 
             # Ensure naive for timestamp calculation
-            last_at = last_at.replace(tzinfo=None)
+            last_at = to_utc(last_at)
 
             engine_prio = self.engine_tiebreak_prio.get(i.get('engine_name'), -1)
 
@@ -125,7 +126,7 @@ class InsightPrioritizationEngine:
         else:
             if not isinstance(last_at, datetime):
                 last_at = datetime.fromisoformat(str(last_at))
-            days_since = (datetime.now().replace(tzinfo=None) - last_at.replace(tzinfo=None)).days
+            days_since = (utc_now() - to_utc(last_at)).days
             s_recency = math.exp(-max(0, days_since) / PRIORITY_RECENT_DECAY_DAYS)
 
         # C. Magnitude (20%)

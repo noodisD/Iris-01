@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc, utc_now
 from .constants import (
     LEVERAGE_ASYMMETRY_THRESHOLD,
     LEVERAGE_MIN_CO_OCCURRENCES,
@@ -79,7 +80,7 @@ class LeverageEngine:
         Calculates directional lift and influence for a specific pair.
         """
         # 1. Gather occurrences within window
-        recent_start = datetime.now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
+        recent_start = utc_now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
 
         source_occs = self._get_occurrences(source_type, source_id, recent_start)
         target_occs = self._get_occurrences(target_type, target_id, recent_start)
@@ -200,7 +201,7 @@ class LeverageEngine:
         all_themes = themes.get_all_themes(self.user_id)
         active = [t for t in all_themes if t['occurrence_count'] >= LEVERAGE_MIN_OCCURRENCES]
 
-        recent_start = datetime.now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
+        recent_start = utc_now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
         refined = []
         for t in active:
             occs = self._get_occurrences('theme', t['id'], recent_start)
@@ -219,11 +220,7 @@ class LeverageEngine:
 
         times = []
         for o in occs:
-            dt = o['occurred_at']
-            if not isinstance(dt, datetime):
-                dt = datetime.fromisoformat(str(dt))
-            if dt.tzinfo is not None:
-                dt = dt.replace(tzinfo=None)
+            dt = to_utc(o['occurred_at'])
 
             if dt >= since:
                 times.append(dt)

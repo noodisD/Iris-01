@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from .confidence import ConfidenceEngine
+from .timeutils import to_utc, utc_now
 from .constants import (
     EVIDENCE_WEIGHTS,
     TRAJECTORY_BASELINE_DAYS,
@@ -81,7 +82,7 @@ class TrajectoryEngine:
             }
 
         # Calculate time windows
-        recent_window_start = datetime.now() - timedelta(days=TRAJECTORY_RECENT_DAYS)
+        recent_window_start = utc_now() - timedelta(days=TRAJECTORY_RECENT_DAYS)
         baseline_window_end = recent_window_start
         baseline_window_start = baseline_window_end - timedelta(days=TRAJECTORY_BASELINE_DAYS)
 
@@ -96,11 +97,7 @@ class TrajectoryEngine:
                 dt_occurred = occurred_at
             else:
                 # If it's a string, parse it
-                dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-            # Ensure both datetimes are offset-naive for comparison
-            if dt_occurred.tzinfo is not None:
-                dt_occurred = dt_occurred.replace(tzinfo=None)
+                dt_occurred = to_utc(occurred_at)
 
             if dt_occurred >= recent_window_start:
                 recent_occurrences.append(occ)
@@ -355,17 +352,13 @@ class TrajectoryEngine:
                     dt_occurred = occurred_at
                 else:
                     # If it's a string, parse it
-                    dt_occurred = datetime.fromisoformat(str(occurred_at))
-
-                # Ensure offset-naive for comparison
-                if dt_occurred.tzinfo is not None:
-                    dt_occurred = dt_occurred.replace(tzinfo=None)
+                    dt_occurred = to_utc(occurred_at)
 
                 timestamps.append(dt_occurred)
 
             timestamps.sort()
             first_occurrence = timestamps[0]
-            days_since_first = (datetime.now().replace(tzinfo=None) - first_occurrence).days
+            days_since_first = (utc_now() - first_occurrence).days
 
             # If first occurrence was in last 30 days and has recent activity, it's emerging
             recent_activity = False
@@ -374,13 +367,9 @@ class TrajectoryEngine:
                 if isinstance(occurred_at, datetime):
                     dt_occurred = occurred_at
                 else:
-                    dt_occurred = datetime.fromisoformat(str(occurred_at))
+                    dt_occurred = to_utc(occurred_at)
 
-                # Ensure offset-naive for comparison
-                if dt_occurred.tzinfo is not None:
-                    dt_occurred = dt_occurred.replace(tzinfo=None)
-
-                if dt_occurred >= datetime.now().replace(tzinfo=None) - timedelta(days=TRAJECTORY_RECENT_DAYS):
+                if dt_occurred >= utc_now() - timedelta(days=TRAJECTORY_RECENT_DAYS):
                     recent_activity = True
                     break
 
