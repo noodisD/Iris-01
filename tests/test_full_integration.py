@@ -121,9 +121,16 @@ def test_full_lifecycle_integration(test_user, mock_pipeline_components):
         print(f"Theme {t['id']}: {t['summary']} (Count: {t['occurrence_count']})")
 
     db.get_significant_tensions(user_id)
-    # Depending on thresholds, it might not be 'significant' yet, but let's check raw
-    all_tensions = db.get_all_tensions(user_id)
-    assert len(all_tensions) > 0, "Tension should have been detected between Anxiety and Work"
+    # At this point the two themes have *identical* histories: the same six
+    # days, nothing else. CONTEXT.md defines a tension as themes whose
+    # trajectory directions differ, so two themes moving in lockstep are a
+    # correlation, not a tension, and none should be recorded yet. This used to
+    # assert the opposite and passed only because divergence_score was computed
+    # and never read — Step 2 below, titled "Trajectory Divergence", is where
+    # the divergence this pair needs actually appears.
+    assert db.get_all_tensions(user_id) == [], (
+        "themes with identical histories are not in tension"
+    )
 
     logger.info("--- Step 2: The Middle (Trajectory Divergence) ---")
     # Anxiety stops. Work continues.
@@ -164,7 +171,11 @@ def test_full_lifecycle_integration(test_user, mock_pipeline_components):
         occurred_at=recent_date.isoformat()
     )
 
-    # Work continues recently too
+    # Work continues recently too — and picks up, so the two themes genuinely
+    # move in different directions. The fixture used to leave Work with a single
+    # recent occurrence, which made *both* themes 'fading' by the trajectory
+    # engine's own classification; "Anxiety stops while Work continues" was the
+    # narrative but not what the data said.
     db.add_theme_occurrence(
         theme_id=theme_b_id,
         source_type='journal_entry',
@@ -173,8 +184,29 @@ def test_full_lifecycle_integration(test_user, mock_pipeline_components):
         similarity_score=0.9,
         occurred_at=recent_date.isoformat()
     )
+    for i in range(6):
+        busy = now - timedelta(days=1 + i)
+        busy_id = db.create_journal_entry(user_id, f"Work is ramping up {i}", {})
+        db.add_theme_occurrence(
+            theme_id=theme_b_id,
+            source_type='journal_entry',
+            source_id=busy_id,
+            snippet="ramping up",
+            similarity_score=0.9,
+            occurred_at=busy.isoformat()
+        )
+        db.update_theme_stats(theme_b_id, busy.isoformat())
 
     logger.info("--- Step 4: Verification ---")
+
+    # 4.0 Now that the trajectories have diverged — Anxiety stopped and came
+    # back while Work ran continuously — the pair is a tension.
+    TensionEngine(user_id).analyze_all_tensions()
+    tensions_after_divergence = db.get_all_tensions(user_id)
+    assert len(tensions_after_divergence) > 0, (
+        "once the two themes move differently, the tension must be detected"
+    )
+
 
     # 4.1 Check Resolution Engine
     # Expectation:

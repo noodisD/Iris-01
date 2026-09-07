@@ -30,6 +30,10 @@ TENSION_MIN_COOCCURRENCE = 3
 TENSION_RECENT_DAYS = 14
 TENSION_BASELINE_DAYS = 60
 TENSION_MIN_STABILITY = 0.3
+# CONTEXT.md: "Themes must show divergence (trajectory directions differ)". A
+# dead zone, so noise around zero is not read as a direction: below this the two
+# themes are treated as moving together, which is correlation, not tension.
+TENSION_MIN_DIVERGENCE = 0.05
 TENSION_MIN_OCCURRENCES = 5  # Minimum occurrences for a theme to be considered
 TENSION_MAX_THEMES_FOR_PAIRS = 20  # Soft upper bound on theme pairs to consider
 

@@ -22,6 +22,7 @@ from .constants import (
     TENSION_BASELINE_DAYS,
     TENSION_MAX_THEMES_FOR_PAIRS,
     TENSION_MIN_COOCCURRENCE,
+    TENSION_MIN_DIVERGENCE,
     TENSION_MIN_OCCURRENCES,
     TENSION_MIN_STABILITY,
     TENSION_RECENT_DAYS,
@@ -32,6 +33,22 @@ from .database import tensions, themes
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
+
+
+#: Trajectory labels collapsed to a direction. 'emerging' and 'increasing' are
+#: both upward, so a pair carrying one of each is not diverging; 'insufficient
+#: data' is not a direction at all and must not be treated as one.
+_TRAJECTORY_DIRECTIONS = {
+    "increasing": "up",
+    "emerging": "up",
+    "stable": "flat",
+    "fading": "down",
+}
+
+
+def _direction_of(label: str | None) -> str | None:
+    """The direction a trajectory label represents, or None if it has none."""
+    return _TRAJECTORY_DIRECTIONS.get(label) if label else None
 
 
 class TensionEngine:
@@ -173,9 +190,16 @@ class TensionEngine:
             "cooccurrences": cooccurrences
         }
 
-    def _calculate_divergence_metrics(self, theme_a_id: int, theme_b_id: int) -> float:
+    def _calculate_divergence_metrics(self, theme_a_id: int, theme_b_id: int) -> tuple[float, float, float]:
         """
-        Calculate divergence score between two themes.
+        Calculate divergence between two themes.
+
+        Returns (divergence_score, signal_a, signal_b). The signals are signed —
+        positive means the theme is rising, negative falling — because
+        CONTEXT.md defines a tension as themes whose *directions* differ, and
+        the magnitude alone cannot say that: two themes both climbing, at +0.1
+        and +0.9, have a divergence of 0.8 while moving the same way.
+
         Uses trajectory information if available, otherwise frequency imbalance.
         """
         try:
@@ -189,9 +213,18 @@ class TensionEngine:
 
             # If both have trajectory data, use trend scores
             if analysis_a and analysis_b:
-                # Calculate divergence as absolute difference in trend scores
-                divergence_score = abs(analysis_a.get("trend_score", 0) - analysis_b.get("trend_score", 0))
-                return divergence_score
+                trend_a = analysis_a.get("trend_score", 0)
+                trend_b = analysis_b.get("trend_score", 0)
+                # Direction is the trajectory engine's own classification, not
+                # the sign of the score: it is the thing that already decides
+                # what "increasing" and "fading" mean, and reading the raw sign
+                # would claim a direction where that engine reports
+                # 'insufficient data'.
+                self._last_directions = (
+                    analysis_a.get("trajectory_label"),
+                    analysis_b.get("trajectory_label"),
+                )
+                return abs(trend_a - trend_b), trend_a, trend_b
         except Exception:
             # If trajectory engine is not available or fails, use frequency-based divergence
             pass
@@ -238,9 +271,11 @@ class TensionEngine:
         ratio_a = recent_a / (past_a + 1)  # +1 to avoid division by zero
         ratio_b = recent_b / (past_b + 1)
 
-        # Divergence is the absolute difference in ratios
-        divergence_score = abs(ratio_a - ratio_b)
-        return divergence_score
+        # Fallback path: no trajectory labels are available, so direction is
+        # taken from the ratios, centred on 1.0 where the recent window matches
+        # the baseline.
+        self._last_directions = (None, None)
+        return abs(ratio_a - ratio_b), ratio_a - 1.0, ratio_b - 1.0
 
     def _calculate_stability_metrics(self, cooccurrences: list[dict]) -> float:
         """
@@ -290,12 +325,47 @@ class TensionEngine:
         return min(stability_score, 1.0)  # Ensure it's not greater than 1
 
     def _classify_tension(self, cooccurrence_count: int, recent_count: int, past_count: int,
-                         stability_score: float, divergence_score: float) -> str:
+                         stability_score: float, divergence_score: float,
+                         signal_a: float = 0.0, signal_b: float = 0.0) -> str | None:
         """
-        Classify the tension based on calculated metrics.
+        Classify the tension, or return None when there is no tension to report.
+
+        CONTEXT.md states two invariants this used to ignore:
+
+        - "Must have >= TENSION_MIN_COOCCURRENCE (3) overlapping windows". Below
+          that this returned "intermittent", so a pair that had *never* been
+          logged together was labelled as occasionally occurring together — an
+          assertion about the user with zero evidence behind it.
+        - "Themes must show divergence (trajectory directions differ)".
+          divergence_score was accepted as a parameter and never read, so two
+          themes rising in step were reported as being in tension.
         """
         if cooccurrence_count < TENSION_MIN_COOCCURRENCE:
-            return "intermittent"  # Not enough co-occurrences to be significant
+            return None  # Not enough co-occurrences to say anything
+
+        # Same direction is correlation, not tension.
+        direction_a = _direction_of(getattr(self, "_last_directions", (None, None))[0])
+        direction_b = _direction_of(getattr(self, "_last_directions", (None, None))[1])
+
+        if direction_a is not None and direction_b is not None:
+            # The trajectory engine owns what "increasing" and "fading" mean, so
+            # when it has classified both themes its labels *are* the divergence
+            # test. Adding a magnitude threshold on top second-guesses it with an
+            # arbitrary constant, and did so wrongly: a genuine fading/increasing
+            # pair scored 0.026 on |trend_a - trend_b| and would have been thrown
+            # away, because trend_score is not comparable across labels.
+            if direction_a == direction_b:
+                return None
+        else:
+            # One or both trajectories are unclassified ('insufficient data', or
+            # the engine was unavailable). Fall back to the signed frequency
+            # ratios, with a dead zone so noise around zero is not a direction.
+            moving = (abs(signal_a) >= TENSION_MIN_DIVERGENCE
+                      or abs(signal_b) >= TENSION_MIN_DIVERGENCE)
+            if divergence_score < TENSION_MIN_DIVERGENCE:
+                return None
+            if not (moving and (signal_a > 0) != (signal_b > 0)):
+                return None
 
         # Calculate time-based classification
         has_recent_activity = recent_count > 0
@@ -336,7 +406,9 @@ class TensionEngine:
         cooccurrence_metrics = self._calculate_cooccurrence_metrics(theme_a_id, theme_b_id)
 
         # Calculate divergence metrics
-        divergence_score = self._calculate_divergence_metrics(theme_a_id, theme_b_id)
+        divergence_score, signal_a, signal_b = self._calculate_divergence_metrics(
+            theme_a_id, theme_b_id
+        )
 
         # Calculate stability metrics
         stability_score = self._calculate_stability_metrics(cooccurrence_metrics["cooccurrences"])
@@ -347,8 +419,12 @@ class TensionEngine:
             cooccurrence_metrics["recent_cooccurrence_count"],
             cooccurrence_metrics["past_cooccurrence_count"],
             stability_score,
-            divergence_score
+            divergence_score,
+            signal_a,
+            signal_b,
         )
+        if tension_label is None:
+            return None
 
         # Calculate confidence using central engine
         self._evidence = [] # Clear buffer
@@ -431,6 +507,11 @@ class TensionEngine:
             theme_b = pair["theme_b"]
 
             analysis = self.analyze_tension(theme_a["id"], theme_b["id"])
+            if analysis is None:
+                # No co-occurrence, or the two move together. Either way there
+                # is nothing to report about this pair; it used to be returned
+                # anyway, labelled "intermittent".
+                continue
             analysis["theme_a_summary"] = theme_a["summary"]
             analysis["theme_b_summary"] = theme_b["summary"]
             results.append(analysis)

@@ -83,3 +83,81 @@ def test_a_busy_day_counts_once(test_user):
     assert metrics["cooccurrence_count"] == 1, (
         f"one shared day is one co-occurrence, got {metrics['cooccurrence_count']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CONTEXT.md states two invariants for a tension that the classifier ignored:
+#
+#   "Must have >= TENSION_MIN_COOCCURRENCE (3) overlapping windows"
+#   "Themes must show divergence (trajectory directions differ)"
+#
+# Below the minimum it returned "intermittent" — a label meaning "these
+# sometimes occur together" — for pairs that had *never* occurred together.
+# And divergence_score was a parameter the classifier accepted and never read,
+# so two themes rising in step were reported as being in tension with each
+# other.
+# ---------------------------------------------------------------------------
+
+
+def test_a_pair_that_never_co_occurred_is_not_labelled(test_user):
+    """Zero evidence must produce no tension, not the mildest label."""
+    engine = TensionEngine(test_user["id"])
+    # Distinct weeks, so the two themes never share a day.
+    a = _theme(test_user["id"], "Alpha", 0.11, [40, 39, 38, 37, 36, 3])
+    b = _theme(test_user["id"], "Beta", 0.77, [30, 29, 28, 27, 26, 8])
+
+    metrics = engine._calculate_cooccurrence_metrics(a, b)
+    assert metrics["cooccurrence_count"] == 0, "precondition: they never overlap"
+
+    assert engine.analyze_tension(a, b) is None, (
+        "a pair with no shared days must not be given a tension label"
+    )
+
+
+def test_below_the_minimum_is_not_enough_to_be_labelled(test_user):
+    """One shared day is evidence, but not the three CONTEXT.md requires."""
+    engine = TensionEngine(test_user["id"])
+    a = _theme(test_user["id"], "Gamma", 0.13, [40, 39, 38, 37, 36, 5])
+    b = _theme(test_user["id"], "Delta", 0.79, [30, 29, 28, 27, 26, 5])
+
+    metrics = engine._calculate_cooccurrence_metrics(a, b)
+    assert metrics["cooccurrence_count"] == 1, "precondition: exactly one shared day"
+
+    assert engine.analyze_tension(a, b) is None
+
+
+def test_two_themes_moving_together_are_not_in_tension(test_user):
+    """Identical histories are a correlation. This used to be reported as a
+    tension because divergence was computed and then ignored."""
+    engine = TensionEngine(test_user["id"])
+    days = [40, 39, 38, 37, 36, 20, 6, 5, 4]
+    a = _theme(test_user["id"], "Epsilon", 0.15, days)
+    b = _theme(test_user["id"], "Zeta", 0.81, days)
+
+    metrics = engine._calculate_cooccurrence_metrics(a, b)
+    assert metrics["cooccurrence_count"] >= 3, "precondition: plenty of overlap"
+
+    assert engine.analyze_tension(a, b) is None, (
+        "themes with identical trajectories are correlated, not in tension"
+    )
+
+
+def test_themes_that_overlap_and_diverge_are_a_tension(test_user):
+    """The case that must still be reported: shared days, opposite directions —
+    one winding down while the other picks up."""
+    engine = TensionEngine(test_user["id"])
+    user_id = test_user["id"]
+    # Shared days early on; then Eta stops while Theta accelerates.
+    shared = [50, 49, 48, 47, 46]
+    fading = _theme(user_id, "Eta", 0.17, shared + [45, 44])
+    rising = _theme(user_id, "Theta", 0.83, shared + [6, 5, 4, 3, 2, 1])
+
+    metrics = engine._calculate_cooccurrence_metrics(fading, rising)
+    assert metrics["cooccurrence_count"] >= 3, "precondition: enough overlap"
+
+    result = engine.analyze_tension(fading, rising)
+    assert result is not None, (
+        "two themes that overlap and then move in opposite directions are the "
+        "case tension exists to describe"
+    )
+    assert result["tension_label"] in {"persistent", "emerging", "fading", "intermittent"}
