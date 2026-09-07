@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    // import.meta.url rather than __dirname: the config is ESM ("type":
+    // "module"), and Vite 6 onward loads it natively instead of bundling it to
+    // CJS, so __dirname is not defined at that point.
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
     port: 5173,
