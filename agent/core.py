@@ -343,7 +343,9 @@ class PersonalAICompanion:
             messages=messages,
             system_prompt=system_prompt,
             temperature=DEFAULT_TEMPERATURE,
-            max_tokens=100
+            # Brevity is asked for in the prompt above; the cap only has to
+            # leave room for the answer after a reasoning model has thought.
+            max_tokens=600
         )
 
         return response_text

@@ -386,7 +386,10 @@ Theme summary:"""
                 messages=messages,
                 system_prompt="You are a neutral observer. Describe patterns without judgment.",
                 temperature=0.5,
-                max_tokens=20
+                # Not 20. A reasoning model spends its budget thinking first and
+                # returned an empty summary at that cap; the prompt asks for
+                # 5-10 words, so brevity comes from the instruction, not the cap.
+                max_tokens=400
             )
             # Improved 6: Check for generic fallback in LLM response too
             clean_summary = summary.strip()

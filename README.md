@@ -32,7 +32,11 @@ One Python process and one PostgreSQL database. That's the whole system.
 - **One datastore.** pgvector is a PostgreSQL extension, so 1536-dimension
   embeddings live in ordinary rows next to everything else and a similarity
   search is a normal SQL query with a `WHERE user_id = …` on it.
-- **OpenAI** for chat (`gpt-4.1-mini`) and embeddings (`text-embedding-3-small`).
+- **OpenAI** for chat (`gpt-5.5`, set with `OPENAI_MODEL`) and embeddings
+  (`text-embedding-3-small`). The chat model is a one-line change; the embedding
+  model is not — the vector column is fixed at 1536 dimensions and the IVFFlat
+  indexes are built for it, so changing it means a migration and re-embedding
+  everything.
   Nothing else leaves the machine.
 
 ## Requirements

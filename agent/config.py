@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # API Keys (Required in Prod)
     OPENAI_API_KEY: str = Field(default="your_openai_api_key_here")
-    OPENAI_MODEL: str = Field(default="gpt-4.1-mini")
+    OPENAI_MODEL: str = Field(default="gpt-5.5")
 
     # PostgreSQL
     # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)

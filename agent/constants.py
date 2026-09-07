@@ -1,8 +1,12 @@
 """Minimal configuration constants for IRIS Companion (Essential Only)"""
 
 # LLM Settings
-DEFAULT_TEMPERATURE = 0.7
-DEFAULT_MAX_TOKENS = 1000
+DEFAULT_TEMPERATURE = 0.7  # Ignored by models that accept only their default
+# A cap, not a reservation: you pay for tokens generated, not for headroom. On a
+# reasoning model the thinking is drawn from this same budget, so a cap that
+# looks generous for the visible answer can leave nothing for it — the call
+# still succeeds and returns "". These are sized so that cannot happen.
+DEFAULT_MAX_TOKENS = 2000
 
 # Persistence Engine Configuration
 PERSISTENCE_MATCH_THRESHOLD = 0.70    # Loose threshold for matching new entries to EXISTING themes
