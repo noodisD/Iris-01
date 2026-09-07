@@ -11,7 +11,6 @@ The engine does not judge. It simply observes direction, rate, and recency.
 """
 
 import logging
-import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -249,81 +248,71 @@ class TrajectoryEngine:
 
         return "\n".join(lines)
 
+    #: Occurrences are bucketed this wide before the rate is regressed. A week
+    #: is the natural cadence for habits and reflections.
+    TREND_BIN_DAYS = 7
+
     def _calculate_trend_slope(self, occurrences: list[dict]) -> float:
-        """
-        Calculate the trend slope using weighted linear regression.
-        Weights are determined by Evidence Tiering (reflection > habit).
-        
-        Args:
-            occurrences: List of theme occurrences with timestamps
-            
-        Returns:
-            Slope of the trend line (positive = increasing, negative = decreasing)
+        """Slope of the occurrence *rate*, as a relative change per week.
+
+        This used to regress cumulative count against time. A cumulative count
+        only ever rises, so the slope was positive for every real series — a
+        constant cadence of one entry a day scored +1.0 — and since the
+        classifier falls through to the slope precisely when the recent
+        frequency matches the baseline, "stable" was unreachable and steady
+        patterns were reported as increasing.
+
+        Binning by week and regressing the weighted count per week measures
+        whether the rate itself is changing. Dividing by the mean weekly weight
+        makes the result a fraction of the usual rate, so a threshold means the
+        same thing for a daily habit and a monthly one.
+
+        Returns 0.0 when the history is too short to span two buckets: no
+        direction can honestly be claimed from a single week.
         """
         if len(occurrences) < 2:
             return 0.0
 
-        # Convert timestamps to days since first occurrence
-        timestamps = []
-        weights = []
-
+        # Evidence tiering: a reflection counts for more than a bare habit tick.
+        weighted = []
         for occ in occurrences:
-            occurred_at = occ["occurred_at"]
-            if isinstance(occurred_at, datetime):
-                timestamps.append(occurred_at)
+            occurred_at = to_utc(occ["occurred_at"])
+            source_type = occ.get("source_type")
+            snippet = occ.get("snippet", "") or ""
+            if source_type == "habit_completion" and ("Notes:" in snippet or "Reason:" in snippet):
+                weight = EVIDENCE_WEIGHTS.get("habit_completion_with_notes", 0.8)
             else:
-                timestamps.append(datetime.fromisoformat(str(occurred_at)))
+                weight = EVIDENCE_WEIGHTS.get(source_type, 0.5)
+            weighted.append((occurred_at, weight))
 
-            # Determine weight
-            st = occ['source_type']
-            snippet = occ.get('snippet', '')
-            if st == 'habit_completion' and ("Notes:" in snippet or "Reason:" in snippet):
-                weights.append(EVIDENCE_WEIGHTS.get('habit_completion_with_notes', 0.8))
-            else:
-                weights.append(EVIDENCE_WEIGHTS.get(st, 0.5)) # Default 0.5
+        weighted.sort(key=lambda pair: pair[0])
+        first = weighted[0][0]
 
-        if not timestamps:
+        # Sum the evidence falling in each week, including the empty weeks —
+        # a gap is a fall in rate and has to be represented as one.
+        bin_totals: dict[int, float] = {}
+        for occurred_at, weight in weighted:
+            index = (occurred_at - first).days // self.TREND_BIN_DAYS
+            bin_totals[index] = bin_totals.get(index, 0.0) + weight
+
+        last_index = max(bin_totals)
+        if last_index < 1:
             return 0.0
 
-        # Sort together
-        paired = sorted(zip(timestamps, weights), key=lambda x: x[0])
-        timestamps = [p[0] for p in paired]
-        weights = [p[1] for p in paired]
+        x_values = np.arange(last_index + 1, dtype=float)
+        y_values = np.array([bin_totals.get(i, 0.0) for i in range(last_index + 1)], dtype=float)
 
-        first_date = timestamps[0]
-
-        # X = days since first occurrence, Y = cumulative count
-        x_values = []
-        y_values = []
-        w_values = []
-
-        for i, timestamp in enumerate(timestamps):
-            days_since_first = (timestamp - first_date).days
-            x_values.append(days_since_first)
-            y_values.append(i + 1)  # cumulative count
-            w_values.append(math.sqrt(weights[i])) # Sqrt for WLS transformation
-
-        # Perform weighted linear regression
-        if len(x_values) > 1:
-            # Construct Weighted A and y
-            # A = [x, 1]
-            # WA = W * A
-            # Wy = W * y
-            X = np.array(x_values)
-            Y = np.array(y_values)
-            W = np.array(w_values)
-
-            # Weighted X matrix (column of weighted xs, column of weights)
-            A_w = np.vstack([X * W, W]).T
-            y_w = Y * W
-
-            try:
-                slope, _ = np.linalg.lstsq(A_w, y_w, rcond=None)[0]
-                return float(slope)
-            except:
-                return 0.0
-        else:
+        mean_rate = float(y_values.mean())
+        if mean_rate <= 0:
             return 0.0
+
+        try:
+            design = np.vstack([x_values, np.ones_like(x_values)]).T
+            slope, _ = np.linalg.lstsq(design, y_values, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            return 0.0
+
+        return float(slope) / mean_rate
 
     def _classify_trajectory(self, total_occurrences: int, frequency_delta: float,
                            trend_slope: float, occurrences: list[dict]) -> str:
@@ -382,8 +371,10 @@ class TrajectoryEngine:
         elif frequency_delta < -TRAJECTORY_DELTA_THRESHOLD:
             return "fading"
         else:
-            # If frequency delta is within threshold, use slope as secondary classifier
-            if abs(trend_slope) > 0.01:  # Small threshold to avoid noise
+            # The frequency delta is flat, so the finer-grained signal decides.
+            # trend_slope is a relative change per week, which is the same kind
+            # of quantity as the delta, so it uses the same threshold.
+            if abs(trend_slope) > TRAJECTORY_DELTA_THRESHOLD:
                 if trend_slope > 0:
                     return "increasing"
                 else:
