@@ -412,8 +412,17 @@ async def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_cur
 async def get_today_habits(user_id: int = Depends(get_current_user_id)):
     """Today's habits + aggregates as the frontend `HabitsTodayResponse` shape."""
     tracker = HabitTracker(user_id)
-    habits = [_habit_to_contract(h, user_id) for h in tracker.get_habits(active_only=True)]
-    rates = [sum(h["recentDays"][-30:]) / 30 for h in habits]
+    raw_habits = tracker.get_habits(active_only=True)
+    habits = [_habit_to_contract(h, user_id) for h in raw_habits]
+    # Divide by the habit's life so far, not a flat 30 days. A habit created
+    # and kept today is 100% consistent, not 3% — which is both what the user
+    # means and what /api/habits/consistency already answers. The two endpoints
+    # used to give different answers to the same question.
+    rates = []
+    for row, contract in zip(raw_habits, habits, strict=True):
+        age_days = _age_days(row.get("created_at")) + 1
+        window = max(1, min(30, age_days))
+        rates.append(sum(contract["recentDays"][-window:]) / window)
     return {
         "habits": habits,
         "doneCount": sum(1 for h in habits if h["doneToday"]),

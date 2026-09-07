@@ -2342,8 +2342,13 @@ class Database:
                 cur.execute(
                     """
                     INSERT INTO habit_completions
-                        (habit_id, completion_date, is_skipped, skip_reason, processing_status)
-                    VALUES (%s, %s, TRUE, %s, 'skipped')
+                        (habit_id, completion_date, is_completed, is_skipped, skip_reason,
+                         processing_status)
+                    -- is_completed must be set explicitly: the column defaults to
+                    -- TRUE, so a first skip used to be stored as completed *and*
+                    -- skipped, and everything counting completions counted it.
+                    -- Only the ON CONFLICT branch below ever corrected it.
+                    VALUES (%s, %s, FALSE, TRUE, %s, 'skipped')
                     ON CONFLICT (habit_id, completion_date) DO UPDATE
                     SET is_skipped = TRUE, is_completed = FALSE,
                         skip_reason = EXCLUDED.skip_reason, processing_status = 'skipped'
