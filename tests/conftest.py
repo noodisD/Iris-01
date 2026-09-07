@@ -242,6 +242,21 @@ def _purge_user(user_id: int) -> None:
 
 
 @pytest.fixture
+def process_queue():
+    """Run queued ingest work to completion, returning how many items ran.
+
+    Writes only enqueue now (ADR-0011): embedding, theme matching and the
+    cross-theme refresh happen in the background worker, not in the request. A
+    test that asserts on derived state has to say where it waits for that, so
+    this is deliberately explicit rather than an autouse fixture — the point of
+    the queue is that the work is decoupled, and a test that hid the decoupling
+    would stop testing it.
+    """
+    from agent.work_queue import drain
+    return drain
+
+
+@pytest.fixture
 def mock_pipeline_logic(monkeypatch):
     """Deterministic embeddings keyed by keyword, shared by the stress tests.
 

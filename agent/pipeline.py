@@ -197,5 +197,9 @@ def run_processing_pipeline(source_type: str, source_id: int):
     except Exception as e:
         logger.error(f"Processing pipeline failed for {source_type} ID {source_id}: {e}")
         embeddings.update_processing_status(source_type, source_id, 'failed')
-        # Optionally, re-raise the exception if the caller needs to handle it
-        # raise
+        # Re-raised, not swallowed. The caller is the ingest queue, which uses
+        # the exception to decide whether to retry; swallowing it here reported
+        # success for work that had not happened, and the queue would then have
+        # deleted the item — turning a recoverable outage back into silent,
+        # permanent loss, which is the exact failure the queue exists to stop.
+        raise

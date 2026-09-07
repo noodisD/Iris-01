@@ -48,6 +48,10 @@ def test_system_health_invariant():
     for _ in range(5):
         refl_b.create_reflection(text_b, energy_level=8)
 
+    # Writes only enqueue; run the queued embedding work before discovery.
+    from agent.work_queue import drain
+    drain()
+
     # 3. Trigger Discovery
     print("\n> Running Discovery...")
     PersistenceEngine(id_a).discover_themes()

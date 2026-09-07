@@ -558,6 +558,29 @@ class Database:
                     );
                 """)
                 logger.info("Ensured reflections table exists.")
+
+                # Durable ingest queue. An entry is stored and acknowledged
+                # immediately; embedding and analysis happen here, so a provider
+                # outage delays work rather than losing it. A row's presence
+                # means "not yet processed" — success deletes it.
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS processing_queue (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        source_type VARCHAR(50) NOT NULL,
+                        source_id INTEGER NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (source_type, source_id)
+                    );
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_processing_queue_due
+                    ON processing_queue (next_attempt_at);
+                """)
+                logger.info("Ensured processing_queue table exists.")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON reflections(user_id, reflection_date DESC);")
                 # Optimization 1: Composite index for pipeline processing
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_reflections_status_date ON reflections(processing_status, reflection_date);")

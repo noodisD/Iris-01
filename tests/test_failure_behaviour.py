@@ -92,12 +92,13 @@ def test_provider_errors_are_raised_not_returned(monkeypatch):
         intelligence.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
 
 
-def test_deleting_a_reflection_removes_its_evidence(test_user, mock_pipeline_logic):
+def test_deleting_a_reflection_removes_its_evidence(test_user, mock_pipeline_logic, process_queue):
     """embeddings and theme_occurrences reference sources by (type, id) rather
     than by foreign key, so a deleted entry used to leave an embedding that
     still matched searches and an occurrence that still counted as evidence."""
     service = ReflectionService(test_user["id"])
     reflection_id = service.create_reflection(content="Work Stress today", energy_level=4)
+    process_queue()
 
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -221,12 +222,13 @@ def _occurrence_count(source_type, source_id):
         return cur.fetchone()[0]
 
 
-def test_editing_an_entry_refreshes_what_was_derived_from_it(test_user, mock_pipeline_logic):
+def test_editing_an_entry_refreshes_what_was_derived_from_it(test_user, mock_pipeline_logic, process_queue):
     """An edit used to change only the row. The embedding still described the
     original text and the theme occurrence still quoted it, so a sentence the
     user had removed remained searchable and quotable."""
     service = ReflectionService(test_user["id"])
     reflection_id = service.create_reflection(content="Work Stress about the merger", energy_level=4)
+    process_queue()
 
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -236,6 +238,7 @@ def test_editing_an_entry_refreshes_what_was_derived_from_it(test_user, mock_pip
         before = cur.fetchone()[0]
 
     service.update_reflection(reflection_id, content="Poor Sleep, nothing about work")
+    process_queue()
 
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -249,12 +252,13 @@ def test_editing_an_entry_refreshes_what_was_derived_from_it(test_user, mock_pip
     )
 
 
-def test_undoing_a_habit_tick_removes_its_evidence(test_user, mock_pipeline_logic):
+def test_undoing_a_habit_tick_removes_its_evidence(test_user, mock_pipeline_logic, process_queue):
     """Un-ticking deleted the completion row but left its embedding and theme
     occurrence, so a day the user took back still counted towards the pattern."""
     tracker = HabitTracker(test_user["id"])
     habit_id = tracker.create_habit(name="Yoga", description="unwind", category="health")
     completion_id = tracker.log_completion(habit_id)
+    process_queue()
 
     assert _embedding_count("habit_completion", completion_id) == 1
 

@@ -8,7 +8,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from ..database import db
-from ..pipeline import run_processing_pipeline
+from ..work_queue import enqueue
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,7 @@ class HabitTracker:
             self.user_id, name, description, frequency_type,
             habit_type, weekly_target, tracking_metric, category
         )
-        try:
-            run_processing_pipeline('habit', habit_id)
-        except Exception as e:
-            print(f"Pipeline error for habit {habit_id}: {e}")
+        enqueue('habit', habit_id, self.user_id)
         return habit_id
 
     def get_habits(self, active_only: bool = True) -> list[dict]:
@@ -82,10 +79,7 @@ class HabitTracker:
             completion_date = date.today()
         completion_id = db.log_habit_completion(habit_id, completion_date, value, notes)
 
-        try:
-            run_processing_pipeline('habit_completion', completion_id)
-        except Exception as e:
-            print(f"Pipeline error for completion {completion_id}: {e}")
+        enqueue('habit_completion', completion_id, self.user_id)
 
         return completion_id
 

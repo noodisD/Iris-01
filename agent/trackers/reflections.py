@@ -8,7 +8,7 @@ import logging
 from datetime import date, timedelta
 
 from ..database import db
-from ..pipeline import run_processing_pipeline
+from ..work_queue import enqueue
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,9 @@ class ReflectionService:
             tags
         )
 
-        # Trigger analytical pipeline
-        try:
-            run_processing_pipeline('reflection', reflection_id)
-        except Exception as e:
-            print(f"Pipeline error for reflection {reflection_id}: {e}")
+        # The reflection is stored. Turning it into evidence is queued, so a
+        # provider outage delays that work instead of losing it.
+        enqueue('reflection', reflection_id, self.user_id)
 
         return reflection_id
 
@@ -134,10 +132,9 @@ class ReflectionService:
                     (reflection_id,)
                 )
                 conn.commit()
-            try:
-                run_processing_pipeline('reflection', reflection_id)
-            except Exception as e:
-                logger.error(f"Re-processing failed after editing reflection {reflection_id}: {e}")
+            # Derived rows for the old wording were just deleted; queue the
+            # re-analysis of the new wording.
+            enqueue('reflection', reflection_id, self.user_id)
 
         return updated
 

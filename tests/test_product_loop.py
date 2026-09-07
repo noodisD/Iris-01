@@ -47,7 +47,7 @@ def _occurrences_for(user_id):
         return cur.fetchall()
 
 
-def test_journal_entries_through_the_api_produce_a_theme(client, test_user, mock_pipeline_logic):
+def test_journal_entries_through_the_api_produce_a_theme(client, test_user, mock_pipeline_logic, process_queue):
     """THE product-loop test: write through the HTTP API, get a theme out.
 
     Before discovery was wired into the pipeline this failed at zero themes no
@@ -61,6 +61,8 @@ def test_journal_entries_through_the_api_produce_a_theme(client, test_user, mock
     for i in range(5):
         r = client.post("/api/journal", json={"lines": [f"Work Stress keeps building, day {i}"], "energy": 4})
         assert r.status_code == 200, r.text
+    # The POST only stores and enqueues; analysis is the worker's job.
+    process_queue()
 
     themes = _themes_for(user_id)
     assert themes, "five related journal entries must produce at least one theme"
@@ -202,7 +204,7 @@ def test_date_ranged_reflections_are_filtered_in_the_database(test_user, mock_pi
     assert [r["content"] for r in prior] == ["last week"]
 
 
-def test_cross_theme_engines_run_on_the_ingest_path(test_user, mock_pipeline_logic, monkeypatch):
+def test_cross_theme_engines_run_on_the_ingest_path(test_user, mock_pipeline_logic, monkeypatch, process_queue):
     """Leverage and decision impact are pairwise and do not cache on read, so
     the chat path reads their cache tables directly. Nothing on the HTTP path
     used to fill those tables — only the Insights screen and the CLI ran the
@@ -233,13 +235,14 @@ def test_cross_theme_engines_run_on_the_ingest_path(test_user, mock_pipeline_log
     svc = ReflectionService(test_user["id"])
     for i in range(6):
         svc.create_reflection(content=f"Work Stress is building again {i}", energy_level=3)
+    process_queue()
 
     assert _themes_for(test_user["id"]), "precondition: the entries formed a theme"
     assert calls["leverage"] > 0, "leverage never ran on the ingest path"
     assert calls["impact"] > 0, "decision impact never ran on the ingest path"
 
 
-def test_cross_theme_refresh_never_breaks_ingestion(test_user, mock_pipeline_logic, monkeypatch):
+def test_cross_theme_refresh_never_breaks_ingestion(test_user, mock_pipeline_logic, monkeypatch, process_queue):
     """The refresh is an optimisation of the chat context, not part of storing
     the entry. If it raises, the entry must still be saved and embedded."""
     from agent.leverage import LeverageEngine
@@ -252,6 +255,7 @@ def test_cross_theme_refresh_never_breaks_ingestion(test_user, mock_pipeline_log
 
     svc = ReflectionService(test_user["id"])
     reflection_id = svc.create_reflection(content="Work Stress once more", energy_level=3)
+    process_queue()
 
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT processing_status FROM reflections WHERE id = %s;", (reflection_id,))

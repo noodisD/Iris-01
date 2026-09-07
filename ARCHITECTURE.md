@@ -43,7 +43,14 @@ exists.
 
 ## 2. Ingestion
 
-`agent/pipeline.py: run_processing_pipeline(source_type, source_id)`:
+Writing is separated from analysing. A write stores the row, enqueues it in
+`processing_queue`, and returns; a background worker (`agent/work_queue.py`,
+started by the API's lifespan and by the CLI) does the rest. So an embedding
+provider outage delays the work rather than losing it — the queue row survives
+the outage and the process, and retries on a widening backoff.
+
+`agent/pipeline.py: run_processing_pipeline(source_type, source_id)` is what the
+worker runs:
 
 1. Mark the row `processing`.
 2. Read **that row** back by id. (It used to read back any row in that status,
@@ -110,8 +117,12 @@ forbidden lexicon (`caused`, `should`, `means`, `implies`, `because`, `due to`,
 - **PostgreSQL unreachable** — the pool is built lazily, so the process still
   starts; `/health` round-trips a `SELECT` and returns 503 `degraded`.
 - **OpenAI unreachable** — embedding uses bounded retry with exponential backoff
-  on transient errors only. Chat failures raise; they are never written into the
-  conversation as Iris's reply.
+  on transient errors only. Beyond that the pipeline raises, and the ingest
+  queue keeps the item and retries it later, so an entry written during an
+  outage becomes evidence once the outage clears. After the backoff schedule is
+  exhausted the item stays queued with its last error rather than being dropped.
+  Chat failures raise; they are never written into the conversation as Iris's
+  reply.
 - **Clustering or an engine fails** — logged and skipped; ingestion still
   commits, because the entry itself is the thing that must not be lost.
 

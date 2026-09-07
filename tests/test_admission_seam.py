@@ -43,11 +43,12 @@ def test_an_insight_naming_its_confidence_differently_is_not_silently_dropped():
     )
 
 
-def test_persistence_output_carries_the_field_the_gate_reads(test_user, mock_pipeline_logic):
+def test_persistence_output_carries_the_field_the_gate_reads(test_user, mock_pipeline_logic, process_queue):
     """Persistence, end to end: seed entries, form a theme, check the contract."""
     service = ReflectionService(test_user["id"])
     for i in range(5):
         service.create_reflection(content=f"Work Stress keeps building {i}", energy_level=3)
+    process_queue()
 
     themes = PersistenceEngine(test_user["id"]).get_persistent_themes()
     assert themes, "precondition: the entries formed a persistent theme"
@@ -62,12 +63,13 @@ def test_persistence_output_carries_the_field_the_gate_reads(test_user, mock_pip
 
 
 @pytest.mark.parametrize("min_confidence", ["low", "medium", "high"])
-def test_persistence_respects_the_threshold_it_is_given(min_confidence, test_user, mock_pipeline_logic):
+def test_persistence_respects_the_threshold_it_is_given(min_confidence, test_user, mock_pipeline_logic, process_queue):
     """Whatever the outcome, it must be decided by the level, never by a
     missing field."""
     service = ReflectionService(test_user["id"])
     for i in range(5):
         service.create_reflection(content=f"Poor Sleep again {i}", energy_level=3)
+    process_queue()
 
     themes = PersistenceEngine(test_user["id"]).get_persistent_themes()
     levels = {t["confidence_level"] for t in themes}

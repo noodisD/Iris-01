@@ -48,6 +48,7 @@ from agent.persistence import PersistenceEngine
 from agent.resolution import ResolutionEngine
 from agent.tension import TensionEngine
 from agent.trajectory import TrajectoryEngine
+from agent.work_queue import worker as queue_worker
 
 
 def show_help():
@@ -943,7 +944,14 @@ def main():
 
         # If user is logged in, start the main chat loop
         if user_data:
-            main_chat_loop(user_id=user_data['id'])
+            # Writes enqueue rather than embedding inline (ADR-0011), so the
+            # CLI runs the same worker the API does — otherwise entries made
+            # here would sit unprocessed until the API happened to start.
+            queue_worker.start()
+            try:
+                main_chat_loop(user_id=user_data['id'])
+            finally:
+                queue_worker.stop()
 
     except KeyboardInterrupt:
         print("\n\n(!) Interrupted by user.")

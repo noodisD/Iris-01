@@ -611,6 +611,48 @@
         "type": "integer"
       }
     },
+    "processing_queue": {
+      "attempts": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "next_attempt_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "source_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "reflections": {
       "clarity_level": {
         "default": null,
@@ -1320,6 +1362,48 @@
         "type": "n"
       }
     },
+    "processing_queue": {
+      "processing_queue_attempts_not_null": {
+        "definition": "NOT NULL attempts",
+        "type": "n"
+      },
+      "processing_queue_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "processing_queue_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "processing_queue_next_attempt_at_not_null": {
+        "definition": "NOT NULL next_attempt_at",
+        "type": "n"
+      },
+      "processing_queue_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "processing_queue_source_id_not_null": {
+        "definition": "NOT NULL source_id",
+        "type": "n"
+      },
+      "processing_queue_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      },
+      "processing_queue_source_type_source_id_key": {
+        "definition": "UNIQUE (source_type, source_id)",
+        "type": "u"
+      },
+      "processing_queue_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "processing_queue_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "reflections": {
       "reflections_clarity_level_check": {
         "definition": "CHECK (((clarity_level >= 1) AND (clarity_level <= 10)))",
@@ -1565,6 +1649,11 @@
     },
     "preference_audit": {
       "preference_audit_pkey": "CREATE UNIQUE INDEX preference_audit_pkey ON public.preference_audit USING btree (id)"
+    },
+    "processing_queue": {
+      "idx_processing_queue_due": "CREATE INDEX idx_processing_queue_due ON public.processing_queue USING btree (next_attempt_at)",
+      "processing_queue_pkey": "CREATE UNIQUE INDEX processing_queue_pkey ON public.processing_queue USING btree (id)",
+      "processing_queue_source_type_source_id_key": "CREATE UNIQUE INDEX processing_queue_source_type_source_id_key ON public.processing_queue USING btree (source_type, source_id)"
     },
     "reflections": {
       "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",

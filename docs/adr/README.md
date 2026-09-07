@@ -16,6 +16,7 @@ re-litigated by accident, only deliberately.
 | [0008](ADR-0008-schema-ownership.md) | `create_schema()` owns the schema; a snapshot catches drift | Why there is no alembic yet |
 | [0009](ADR-0009-analytical-measures.md) | Measures must mean what they are named | The bounds every engine's arithmetic must hold |
 | [0010](ADR-0010-one-journal-store.md) | A journal entry is a reflection | Why the CLI writes through ReflectionService |
+| [0011](ADR-0011-durable-ingest-queue.md) | Writing is separated from analysing | Why analysis is eventually consistent |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

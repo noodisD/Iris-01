@@ -11,7 +11,7 @@ import logging
 
 # Import the new architecture's components
 from .database import journals
-from .pipeline import run_processing_pipeline
+from .work_queue import enqueue
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,9 @@ class ConversationMemory:
 
             self.history.append({"role": role, "content": content})
 
-            # Pipeline failures are logged but do not roll back the message.
-            # The message is durable; embedding/theme processing can retry later.
-            try:
-                run_processing_pipeline(source_type='message', source_id=message_id)
-            except Exception as pipeline_err:
-                logger.error(
-                    f"Pipeline failed for message {message_id} (message persisted): {pipeline_err}"
-                )
+            # The message is durable regardless; embedding is queued so it
+            # actually does retry later rather than only claiming to.
+            enqueue('message', message_id, self.user_id)
 
         except Exception as e:
             logger.error(f"Failed to save message for user {self.user_id}: {e}")

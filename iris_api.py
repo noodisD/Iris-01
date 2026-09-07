@@ -36,6 +36,7 @@ try:
     from agent.insights_service import InsightsService
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
+    from agent.work_queue import worker as queue_worker
 
     COMPANION_AVAILABLE = True
     logger.info("PersonalAICompanion and db imported successfully")
@@ -60,7 +61,13 @@ async def lifespan(app: FastAPI):
             logger.info("Database schema initialized")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+
+        # Ingest work is queued rather than run in the request. Starting the
+        # worker here also picks up anything the previous process left behind.
+        queue_worker.start()
     yield
+    if COMPANION_AVAILABLE:
+        queue_worker.stop()
 
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)

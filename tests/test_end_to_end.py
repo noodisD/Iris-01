@@ -3,6 +3,8 @@ End-to-end integration tests for the complete data flow.
 Tests the full pipeline: PostgreSQL → Embedding → pgvector → Themes
 """
 
+import pytest
+
 from unittest.mock import MagicMock
 
 from agent.database import db
@@ -130,8 +132,13 @@ def test_batch_processing_flow(test_user, mocker):
 
 
 def test_error_handling_in_pipeline(test_user, mocker):
-    """
-    Test that pipeline handles errors gracefully and marks items as failed.
+    """A provider failure marks the item failed, writes no embedding, and
+    propagates.
+
+    It used to be swallowed, which was fine while the caller ignored the result
+    and wrong the moment the ingest queue started using it to decide whether to
+    retry: reporting success for work that had not happened would have had the
+    queue delete the item.
     """
     # Mock OpenAI to fail
     mock_openai = mocker.patch("agent.pipeline.openai.embeddings.create")
@@ -146,8 +153,9 @@ def test_error_handling_in_pipeline(test_user, mocker):
         wellbeing_data={"mood": 5}
     )
 
-    # Run pipeline - should handle the error
-    run_processing_pipeline('journal_entry', entry_id)
+    # Run pipeline - the failure must reach the caller.
+    with pytest.raises(Exception, match="API Error"):
+        run_processing_pipeline('journal_entry', entry_id)
 
     # Verify status is failed
     conn = db.get_connection()
