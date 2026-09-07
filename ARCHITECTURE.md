@@ -129,7 +129,16 @@ forbidden lexicon (`caused`, `should`, `means`, `implies`, `because`, `due to`,
 ## 7. Lifecycle
 
 Run under systemd on one machine (`scripts/iris.service.example`), bound to
-loopback. The schema is created idempotently on first connection. There are no
-migrations: schema changes are `CREATE TABLE IF NOT EXISTS` plus additive
-`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, which cannot express a constraint
-change — a real migration tool is the outstanding piece of work here.
+loopback. The schema is owned by `migrations/NNNN_*.sql`, applied in numeric
+order by `agent/migrations.py: upgrade()` at startup — from the API's lifespan
+and from the CLI — each in one transaction and recorded in `schema_migrations`
+with the checksum of the file that ran. Editing a migration that has already
+been applied is an error; fix forward with a new one.
+
+Migrations are forward-only. A single-user local application recovers by
+restoring a dump, and a rollback path that is never exercised is one that does
+not work.
+
+Two tests keep this honest: one builds a scratch database from migrations alone
+and diffs it against `tests/schema_snapshot.json`, and the snapshot test itself
+turns any drift into a reviewable diff.

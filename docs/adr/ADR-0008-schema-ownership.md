@@ -1,7 +1,10 @@
 # ADR-0008: `create_schema()` owns the schema; drift is caught by snapshot
 
 ## Status
-Accepted — 2026-09-06. Revisit when a migration tool is chosen.
+Superseded by [ADR-0012](ADR-0012-migrations.md) — 2026-09-07.
+
+Kept because it records *why* alembic was rejected, which ADR-0012 builds on:
+the objection was to a second schema owner, not to migrations.
 
 ## Context
 The schema is created idempotently at startup with `CREATE TABLE IF NOT EXISTS`

@@ -49,6 +49,7 @@ from agent.resolution import ResolutionEngine
 from agent.tension import TensionEngine
 from agent.trajectory import TrajectoryEngine
 from agent.work_queue import worker as queue_worker
+from agent import migrations
 
 
 def show_help():
@@ -922,11 +923,11 @@ def main():
     print("="*50)
 
     try:
-        # Initialize database schema
+        # Bring the schema up to date before anything touches it.
         try:
-            db.create_schema()
+            migrations.upgrade()
         except Exception as e:
-            print(f"✗ CRITICAL: Could not connect to or initialize database: {e}")
+            print(f"✗ CRITICAL: Could not connect to or migrate database: {e}")
             sys.exit(1)
 
         # User Authentication Loop

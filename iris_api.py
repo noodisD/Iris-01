@@ -37,6 +37,7 @@ try:
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.work_queue import worker as queue_worker
+    from agent import migrations
 
     COMPANION_AVAILABLE = True
     logger.info("PersonalAICompanion and db imported successfully")
@@ -55,12 +56,11 @@ FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fronte
 async def lifespan(app: FastAPI):
     """Lifespan handler for app startup/shutdown"""
     if COMPANION_AVAILABLE:
-        logger.info("Initializing database schema...")
+        logger.info("Applying schema migrations...")
         try:
-            db.create_schema()
-            logger.info("Database schema initialized")
+            migrations.upgrade()
         except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error(f"Failed to migrate database: {e}")
 
         # Ingest work is queued rather than run in the request. Starting the
         # worker here also picks up anything the previous process left behind.

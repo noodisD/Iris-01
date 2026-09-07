@@ -105,6 +105,7 @@ if __name__ == "__main__":
     import sys
 
     if "--update" in sys.argv:
-        db.create_schema()
+        from agent import migrations
+        migrations.upgrade()
         SNAPSHOT.write_text(json.dumps(_live_schema(), indent=2, sort_keys=True) + "\n")
         print(f"wrote {SNAPSHOT}")

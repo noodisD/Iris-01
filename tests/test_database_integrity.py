@@ -5,9 +5,13 @@ from agent.database import db
 
 
 def test_schema_idempotency():
-    # Should be able to run create_schema multiple times without error
-    db.create_schema()
-    db.create_schema()
+    """Migrating an already-migrated database changes nothing and applies
+    nothing, rather than re-running DDL."""
+    from agent import migrations
+
+    before = migrations.current_version()
+    assert migrations.upgrade() == [], "a second upgrade must be a no-op"
+    assert migrations.current_version() == before
 
 def test_invalidation_propagation(test_user):
     user_id = test_user['id']

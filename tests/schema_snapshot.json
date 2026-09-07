@@ -710,6 +710,28 @@
         "type": "integer"
       }
     },
+    "schema_migrations": {
+      "applied_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "checksum": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "version": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
     "theme_occurrences": {
       "id": {
         "default": "nextval(...)",
@@ -1438,6 +1460,28 @@
         "type": "n"
       }
     },
+    "schema_migrations": {
+      "schema_migrations_applied_at_not_null": {
+        "definition": "NOT NULL applied_at",
+        "type": "n"
+      },
+      "schema_migrations_checksum_not_null": {
+        "definition": "NOT NULL checksum",
+        "type": "n"
+      },
+      "schema_migrations_name_not_null": {
+        "definition": "NOT NULL name",
+        "type": "n"
+      },
+      "schema_migrations_pkey": {
+        "definition": "PRIMARY KEY (version)",
+        "type": "p"
+      },
+      "schema_migrations_version_not_null": {
+        "definition": "NOT NULL version",
+        "type": "n"
+      }
+    },
     "theme_occurrences": {
       "theme_occurrences_id_not_null": {
         "definition": "NOT NULL id",
@@ -1659,6 +1703,9 @@
       "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",
       "idx_reflections_user_date": "CREATE INDEX idx_reflections_user_date ON public.reflections USING btree (user_id, reflection_date DESC)",
       "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)"
+    },
+    "schema_migrations": {
+      "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"
     },
     "theme_occurrences": {
       "idx_occurrences_source": "CREATE INDEX idx_occurrences_source ON public.theme_occurrences USING btree (source_type, source_id)",

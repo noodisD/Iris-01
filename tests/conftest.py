@@ -165,7 +165,8 @@ def setup_test_database():
             "the name must contain 'test'. Set IRIS_TEST_POSTGRES_DB."
         )
     _ensure_test_database()
-    db.create_schema()
+    from agent import migrations
+    migrations.upgrade()
     _truncate_all()
     yield
     logging.getLogger(__name__).info("Test session finished.")
@@ -181,9 +182,13 @@ def _truncate_all() -> None:
     pipeline picked up, so runs influenced each other.
     """
     with db.connection() as conn, conn.cursor() as cur:
+        # schema_migrations is the migration ledger, not test data. Truncating
+        # it would make an already-migrated database claim it had never been
+        # migrated, and the next upgrade() would re-apply everything.
         cur.execute("""
             SELECT string_agg(quote_ident(tablename), ', ')
-            FROM pg_tables WHERE schemaname = 'public';
+            FROM pg_tables
+            WHERE schemaname = 'public' AND tablename <> 'schema_migrations';
         """)
         tables = cur.fetchone()[0]
         if tables:
