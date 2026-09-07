@@ -129,7 +129,7 @@ def create_journal_entry(companion: PersonalAICompanion):
         print(response)
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to create journal entry: {e}")
 
 def show_themes(companion: PersonalAICompanion):
     """Show all persistent themes (what keeps coming back)."""
@@ -151,7 +151,7 @@ def show_themes(companion: PersonalAICompanion):
             print(f"   {count} times | First: {first} | Last: {last}")
             print()
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to list themes: {e}")
 
 def show_theme_detail(companion: PersonalAICompanion, theme_id: str):
     """Show detailed timeline for a specific theme."""
@@ -178,7 +178,7 @@ def show_theme_detail(companion: PersonalAICompanion, theme_id: str):
     except ValueError:
         print("✗ Invalid theme ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show theme detail: {e}")
 
 def discover_themes(companion: PersonalAICompanion):
     """Discover new themes from recent journal entries."""
@@ -196,7 +196,7 @@ def discover_themes(companion: PersonalAICompanion):
             print(f"  - \"{theme['summary']}\" ({theme['occurrence_count']} entries)")
         print()
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Theme discovery failed: {e}")
 
 def show_trajectory(companion: PersonalAICompanion):
     """Show all themes with their trajectory (what is changing)."""
@@ -236,7 +236,7 @@ def show_trajectory(companion: PersonalAICompanion):
                 print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show trajectories: {e}")
 
 def show_trend_detail(companion: PersonalAICompanion, theme_id: str):
     """Show detailed trend analysis for a specific theme."""
@@ -263,7 +263,7 @@ def show_trend_detail(companion: PersonalAICompanion, theme_id: str):
     except ValueError:
         print("✗ Invalid theme ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show trend detail: {e}")
 
 def show_tensions(companion: PersonalAICompanion):
     """Show all significant tensions between themes."""
@@ -315,7 +315,7 @@ def show_tensions(companion: PersonalAICompanion):
                 print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to list tensions: {e}")
 
 def show_tension_detail(companion: PersonalAICompanion, tension_id: str):
     """Show detailed tension analysis for a specific pair of themes."""
@@ -329,7 +329,7 @@ def show_tension_detail(companion: PersonalAICompanion, tension_id: str):
     except ValueError:
         print("✗ Invalid tension ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show tension detail: {e}")
 
 def show_resolutions(companion: PersonalAICompanion):
     """Show all themes with their resolution status (what has settled or reappeared)."""
@@ -375,7 +375,7 @@ def show_resolutions(companion: PersonalAICompanion):
                 print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to list resolutions: {e}")
 
 def show_resolution_detail(companion: PersonalAICompanion, theme_id: str):
     """Show detailed resolution analysis for a specific theme."""
@@ -397,7 +397,7 @@ def show_resolution_detail(companion: PersonalAICompanion, theme_id: str):
     except ValueError:
         print("✗ Invalid theme ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show resolution detail: {e}")
 
 def show_leverage(companion: PersonalAICompanion):
     """Show patterns that act as upstream drivers."""
@@ -419,7 +419,7 @@ def show_leverage(companion: PersonalAICompanion):
             print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to list leverage relationships: {e}")
 
 def show_leverage_detail(companion: PersonalAICompanion, theme_id: str):
     """Show detailed influence analysis for a specific pattern."""
@@ -449,7 +449,7 @@ def show_leverage_detail(companion: PersonalAICompanion, theme_id: str):
     except ValueError:
         print("✗ Invalid theme ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show leverage detail: {e}")
 
 def show_impact(companion: PersonalAICompanion):
     """Show anchors with notable downstream effects."""
@@ -479,7 +479,7 @@ def show_impact(companion: PersonalAICompanion):
             print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to list decision impacts: {e}")
 
 def show_impact_detail(companion: PersonalAICompanion, anchor_id: str):
     """Show detailed impact analysis for a specific anchor."""
@@ -507,7 +507,7 @@ def show_impact_detail(companion: PersonalAICompanion, anchor_id: str):
     except ValueError:
         print("✗ Invalid anchor ID.")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show decision impact detail: {e}")
 
 def show_confidence(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Show detailed reliability audit for a pattern."""
@@ -535,7 +535,7 @@ def show_confidence(companion: PersonalAICompanion, p_type: str, p_id: str):
     except ValueError:
         print("✗ Invalid ID format. Use: /confidence <type> <id>")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show confidence registry: {e}")
 
 def show_explanation(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Show human-friendly explanation for an observation."""
@@ -560,7 +560,7 @@ def show_explanation(companion: PersonalAICompanion, p_type: str, p_id: str):
             print(f"\nLast calculated: {bundle['computed_at']}")
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to build explanation: {e}")
 
 def show_raw_evidence(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Show raw machine-readable evidence for audit."""
@@ -580,7 +580,7 @@ def show_raw_evidence(companion: PersonalAICompanion, p_type: str, p_id: str):
             print(f"{rec['engine_name']:<15} | {rec['evidence_key']:<25} | {rec['evidence_value']}")
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show raw evidence: {e}")
 
 def show_priorities(companion: PersonalAICompanion):
     """Show current insight leaderboard."""
@@ -623,7 +623,7 @@ def show_priorities(companion: PersonalAICompanion):
             print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show insight priorities: {e}")
 
 def show_narrative(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Show how an insight is rendered into natural language."""
@@ -659,7 +659,7 @@ def show_narrative(companion: PersonalAICompanion, p_type: str, p_id: str):
         print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to render narrative: {e}")
 
 def show_settings(companion: PersonalAICompanion):
     """Show current analytical gates and preferences."""
@@ -672,7 +672,7 @@ def show_settings(companion: PersonalAICompanion):
         print(f"Show Suppressed:  {prefs['show_suppressed']}")
         print("\nTo change a setting: /settings set <key> <value>")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show settings: {e}")
 
 def update_setting(companion: PersonalAICompanion, key: str, value: str):
     """Update a specific user preference."""
@@ -696,7 +696,7 @@ def update_setting(companion: PersonalAICompanion, key: str, value: str):
             print("(!) IRIS is now in Exploratory Mode (Confidence: Low)")
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to update setting: {e}")
 
 def show_why(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Explains why an insight was surfaced (Score/Confidence)."""
@@ -729,7 +729,7 @@ def show_why(companion: PersonalAICompanion, p_type: str, p_id: str):
             print("\nReason: High relevance score and passed analytical gates.")
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to explain the last response: {e}")
 
 def show_hidden(companion: PersonalAICompanion):
     """Lists suppressed insights from the last run."""
@@ -789,7 +789,7 @@ def show_conflicts(companion: PersonalAICompanion, p_type: str, p_id: str):
             print()
 
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to show conflicts: {e}")
 
 def main_chat_loop(user_id: int):
     """The main loop for chatting with the companion."""
@@ -807,7 +807,7 @@ def main_chat_loop(user_id: int):
 
         print("\n✓ Companion initialized. Type '/help' for commands or start chatting!\n")
     except Exception as e:
-        logger.error(f"\1: {e}")
+        logger.error(f"Failed to initialize the companion: {e}")
         return
 
     while True:
