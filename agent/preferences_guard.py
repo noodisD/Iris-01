@@ -32,7 +32,10 @@ class PreferencesGuard:
     # Valid values for each preference
     VALID_PREFERENCES = {
         'min_confidence': {'low', 'medium', 'high'},
-        'max_items': {n for n in range(1, 21)},  # 1-20 items
+        # 1-10, matching UserPreferencesService._validate. These two used to
+        # disagree (this said 1-20), so the guard would accept at runtime a
+        # value the write path refuses — a range that could never occur.
+        'max_items': {n for n in range(1, 11)},
         'show_suppressed': {True, False},
         'enabled_engines': None,  # None = all enabled, or a set of engine names
     }

@@ -6,10 +6,13 @@
  *   DELETE /api/knowledge/:id               → forget a fact (deletes the theme)
  *   GET    /api/connectors                  → DataConnector[]   (static catalog)
  *   POST   /api/connectors/:id/:action      → DataConnector     (connect|pause|disconnect)
+ *   GET    /api/user/analysis               → AnalysisPreferences
+ *   PATCH  /api/user/analysis               → AnalysisPreferences
+ *   POST   /api/user/analysis/reset         → AnalysisPreferences
  */
 
 import { api } from './client';
-import type { User, UserPreferences, KnownFact, DataConnector } from '@/types/api';
+import type { User, UserPreferences, AnalysisPreferences, KnownFact, DataConnector } from '@/types/api';
 
 export async function getUser(): Promise<User> {
   return api.get('/user');
@@ -33,4 +36,18 @@ export async function getConnectors(): Promise<DataConnector[]> {
 
 export async function setConnectorState(id: string, action: 'connect' | 'pause' | 'disconnect'): Promise<DataConnector> {
   return api.post(`/connectors/${id}/${action}`);
+}
+
+export async function getAnalysisPreferences(): Promise<AnalysisPreferences> {
+  return api.get('/user/analysis');
+}
+
+export async function updateAnalysisPreferences(
+  prefs: Partial<Omit<AnalysisPreferences, 'availableEngines'>>,
+): Promise<AnalysisPreferences> {
+  return api.patch('/user/analysis', prefs);
+}
+
+export async function resetAnalysisPreferences(): Promise<AnalysisPreferences> {
+  return api.post('/user/analysis/reset');
 }

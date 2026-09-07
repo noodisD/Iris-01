@@ -278,6 +278,22 @@ export interface DataConnector {
 // Review — weekly / monthly
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The analytical gates: what Iris is *willing to claim*, as opposed to
+ * UserPreferences, which is how she says it.
+ */
+export interface AnalysisPreferences {
+  /** Findings below this confidence are not surfaced. */
+  minConfidence: 'low' | 'medium' | 'high';
+  /** Cap on findings carried into a single conversation. 1-10. */
+  maxItems: number;
+  /** null means every engine — which is not the same as an empty list. */
+  enabledEngines: string[] | null;
+  showSuppressed: boolean;
+  /** Server-supplied, so the UI does not keep its own copy of the engine list. */
+  availableEngines: string[];
+}
+
 export interface ReviewWeek {
   weekStart: ISODate;
   weekEnd: ISODate;

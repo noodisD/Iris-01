@@ -105,6 +105,14 @@ highest-weighted engine could never reach the ranker.
 
 Every suppression is recorded with a reason, so what was hidden is auditable.
 
+The gates are the user's, not the system's: `min_confidence`, `max_items` and
+which engines run are read from `user_preferences` on every analysis, and are
+set from Settings in the app (`/api/user/analysis`) or `/settings` in the CLI.
+Both write the same store, so the two surfaces cannot disagree about what IRIS
+is allowed to say. These are deliberately separate from `/api/user/preferences`,
+which is tone, density and nudges — those change how IRIS speaks; these change
+what it is willing to claim.
+
 ## 5. Narrative firewall
 
 Insights are rendered by fixed templates in `agent/narrative_templates.py` — one

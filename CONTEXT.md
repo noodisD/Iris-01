@@ -179,7 +179,9 @@ System of gates and filters that prevent inappropriate insights from reaching th
 **Invariants:**
 - Gates are applied in order (enablement → confidence → conflict → prioritization → budget)
 - Each gate logs its suppressions for transparency
-- User preferences override all gates (can enable disabled engines, raise/lower confidence thresholds)
+- User preferences override all gates (can enable disabled engines, raise/lower confidence thresholds).
+  Set from Settings in the app or `/settings` in the CLI — both write `user_preferences`,
+  so the two surfaces cannot disagree about what IRIS is allowed to say
 - No gate is allowed to modify insight data; only filter or re-order
 
 ### Narrative

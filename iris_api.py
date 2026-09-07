@@ -36,6 +36,7 @@ try:
     from agent.insights_service import InsightsService
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
+    from agent.preferences import UserPreferencesService
     from agent.work_queue import worker as queue_worker
     from agent import migrations
 
@@ -842,6 +843,77 @@ def update_app_preferences(prefs: dict, user_id: int = Depends(get_current_user_
     if fields:
         db.upsert_app_settings(user_id, **fields)
     return _user_to_contract(user_id)
+
+
+# ---------------------------------------------------------------------------
+# Analytical gates.
+#
+# CONTEXT.md: "User preferences override all gates". They always have, in the
+# engines — the confidence threshold, the item budget and engine enablement are
+# read from user_preferences on every analysis. What was missing was any way to
+# set them outside the CLI, so the documented control existed for a user with a
+# terminal and not for the one using the app.
+#
+# These are deliberately separate from /api/user/preferences, which is tone,
+# density and nudges: those change how IRIS speaks, these change what it is
+# willing to claim.
+# ---------------------------------------------------------------------------
+
+_ANALYSIS_KEY_MAP = {
+    "minConfidence": "min_confidence",
+    "maxItems": "max_items",
+    "enabledEngines": "enabled_engines",
+    "showSuppressed": "show_suppressed",
+}
+
+#: Every engine the pipeline can run, so the UI does not carry its own copy.
+ALL_ENGINES = ["persistence", "trajectory", "tension", "resolution",
+               "leverage", "decision_impact"]
+
+
+def _analysis_to_contract(prefs: dict) -> dict:
+    return {
+        "minConfidence": prefs.get("min_confidence", "medium"),
+        "maxItems": prefs.get("max_items", 5),
+        # null means "every engine", which is not the same as "none of them";
+        # the UI needs to tell those apart to render the toggles.
+        "enabledEngines": prefs.get("enabled_engines"),
+        "showSuppressed": bool(prefs.get("show_suppressed", False)),
+        "availableEngines": ALL_ENGINES,
+    }
+
+
+@app.get("/api/user/analysis")
+def get_analysis_preferences(user_id: int = Depends(get_current_user_id)):
+    """The gates that decide what IRIS is willing to say."""
+    return _analysis_to_contract(UserPreferencesService(user_id).get_prefs())
+
+
+@app.patch("/api/user/analysis")
+def update_analysis_preferences(prefs: dict, user_id: int = Depends(get_current_user_id)):
+    """Merge a partial set of gates. Rejects invalid values rather than
+    silently ignoring them, so a control that appears to work does."""
+    service = UserPreferencesService(user_id)
+    unknown = set(prefs) - set(_ANALYSIS_KEY_MAP)
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown setting(s): {', '.join(sorted(unknown))}",
+        )
+
+    for wire_key, value in prefs.items():
+        try:
+            service.update_pref(_ANALYSIS_KEY_MAP[wire_key], value)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return _analysis_to_contract(service.get_prefs())
+
+
+@app.post("/api/user/analysis/reset")
+def reset_analysis_preferences(user_id: int = Depends(get_current_user_id)):
+    """Restore the defaults."""
+    return _analysis_to_contract(UserPreferencesService(user_id).reset())
 
 
 @app.get("/api/knowledge")

@@ -22,5 +22,6 @@ export const qk = {
   user: ['user'] as const,
   knowledge: ['knowledge'] as const,
   connectors: ['connectors'] as const,
+  analysis: ['user', 'analysis'] as const,
   review: ['review', 'latest'] as const,
 };
