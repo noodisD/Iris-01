@@ -747,88 +747,9 @@ class Database:
     # Trajectory Methods (Trajectory Engine)
     # ============================================================================
 
-    def create_theme_trajectory(self, theme_id: int, trajectory_label: str,
-                               trend_score: float, recent_count: int, past_count: int,
-                               confidence_level: str, data_points_count: int) -> None:
-        """Creates or updates a theme trajectory record."""
-        with self.connection() as conn, conn.cursor() as cur:
-            try:
-                cur.execute("""
-                    INSERT INTO theme_trajectories
-                    (theme_id, trajectory_label, trend_score, recent_count, past_count,
-                     confidence_level, data_points_count)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (theme_id) DO UPDATE
-                    SET trajectory_label = EXCLUDED.trajectory_label,
-                        trend_score = EXCLUDED.trend_score,
-                        recent_count = EXCLUDED.recent_count,
-                        past_count = EXCLUDED.past_count,
-                        confidence_level = EXCLUDED.confidence_level,
-                        data_points_count = EXCLUDED.data_points_count,
-                        last_computed_at = CURRENT_TIMESTAMP;
-                """, (theme_id, trajectory_label, trend_score, recent_count, past_count,
-                      confidence_level, data_points_count))
-                conn.commit()
-            except psycopg2.Error as e:
-                conn.rollback()
-                logger.error(f"Failed to create/update theme trajectory: {e}")
-                raise
 
-    def get_theme_trajectory(self, theme_id: int) -> dict:
-        """Retrieves trajectory information for a specific theme."""
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT trajectory_label, trend_score, recent_count, past_count,
-                       confidence_level, data_points_count, last_computed_at
-                FROM theme_trajectories WHERE theme_id = %s;
-            """, (theme_id,))
-            row = cur.fetchone()
-            if row:
-                return {
-                    "trajectory_label": row[0],
-                    "trend_score": row[1],
-                    "recent_count": row[2],
-                    "past_count": row[3],
-                    "confidence_level": row[4],
-                    "data_points_count": row[5],
-                    "last_computed_at": row[6]
-                }
-            return None
 
-    def update_theme_trajectory(self, theme_id: int, trajectory_label: str,
-                               trend_score: float, recent_count: int, past_count: int,
-                               confidence_level: str, data_points_count: int) -> None:
-        """Updates a theme trajectory record."""
-        self.create_theme_trajectory(theme_id, trajectory_label, trend_score,
-                                   recent_count, past_count, confidence_level, data_points_count)
 
-    def get_all_theme_trajectories(self, user_id: int) -> list:
-        """Retrieves all theme trajectories for a user."""
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT tt.theme_id, tt.trajectory_label, tt.trend_score, tt.recent_count,
-                       tt.past_count, tt.confidence_level, tt.data_points_count,
-                       tt.last_computed_at, t.summary
-                FROM theme_trajectories tt
-                JOIN themes t ON tt.theme_id = t.id
-                WHERE t.user_id = %s
-                ORDER BY ABS(tt.trend_score) DESC;
-            """, (user_id,))
-            rows = cur.fetchall()
-            return [
-                {
-                    "theme_id": row[0],
-                    "trajectory_label": row[1],
-                    "trend_score": row[2],
-                    "recent_count": row[3],
-                    "past_count": row[4],
-                    "confidence_level": row[5],
-                    "data_points_count": row[6],
-                    "last_computed_at": row[7],
-                    "theme_summary": row[8]
-                }
-                for row in rows
-            ]
 
     # ============================================================================
     # Tension Methods (Tension Engine)
@@ -2210,7 +2131,6 @@ journals = _repos['journals']
 habits = _repos['habits']
 embeddings = _repos['embeddings']
 themes = _repos['themes']
-trajectories = _repos['trajectories']
 tensions = _repos['tensions']
 resolutions = _repos['resolutions']
 leverage = _repos['leverage']

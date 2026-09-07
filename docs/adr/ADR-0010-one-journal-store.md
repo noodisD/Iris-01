@@ -36,8 +36,11 @@ Existing `embeddings` and `theme_occurrences` rows still reference
 evidence, correctly attributed to the row that produced them, and rewriting
 their source would silently change conclusions the engines have already drawn.
 
-The table therefore cannot be dropped yet — that needs a migration tool
-(ADR-0008) — so `journal_entry` remains a valid source type in the data layer
-and in test fixtures, and `EVIDENCE_WEIGHTS` keeps its entry. Nothing in the
-product writes it. Code that adds a *new* write to `journal_entries` is a
-regression against this ADR.
+The table therefore stays. This ADR originally gave the missing migration tool
+as the reason; that was only half right, and ADR-0012 has since removed it. The
+reason that actually holds is the evidence references above: dropping the table
+would orphan occurrences that are correctly attributed to the rows that produced
+them. So `journal_entry` remains a valid source type in the data layer and in
+test fixtures, and `EVIDENCE_WEIGHTS` keeps its entry. Nothing in the product
+writes it. Code that adds a *new* write to `journal_entries` is a regression
+against this ADR.

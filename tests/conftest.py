@@ -239,6 +239,9 @@ def _purge_user(user_id: int) -> None:
         # Rows that do not cascade from users.
         cur.execute("DELETE FROM theme_occurrences WHERE theme_id = ANY(%s);", (theme_ids,))
         cur.execute("DELETE FROM themes WHERE user_id = %s;", (user_id,))
+        # Since migration 0003 these three cascade from users, so the
+        # explicit deletes are belt-and-braces rather than load-bearing;
+        # they also keep the ordering obvious for the caches below.
         cur.execute("DELETE FROM journal_entries WHERE user_id = %s;", (user_id,))
         cur.execute("DELETE FROM conversation_messages WHERE user_id = %s;", (user_id,))
         # habits -> habit_completions and reflections cascade with the user.

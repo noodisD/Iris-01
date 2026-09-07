@@ -26,6 +26,6 @@ O(n²) scan on the path where the user is waiting.
 No analytical answer can outlive the question it answered. Adding a cache
 requires naming its reader and its expiry.
 
-`theme_trajectories` remains as an empty table until there is a migration tool
-to drop it, which is recorded here so the next reader knows it is deliberate
-rather than forgotten.
+`theme_trajectories` was kept as an empty table while there was no way to drop
+it; migration 0004 removed it, along with its two accessors and the repository
+class that wrapped them, once ADR-0012 made dropping possible.

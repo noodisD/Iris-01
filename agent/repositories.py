@@ -165,32 +165,6 @@ class ThemeRepository(Repository):
         return self.db.get_theme_pair_occurrences(theme_a_id, theme_b_id)
 
 
-class TrajectoryRepository(Repository):
-    """Manages theme trajectory analysis."""
-
-    def create_or_update(self, theme_id: int, trajectory_label: str,
-                        trend_score: float, recent_count: int, past_count: int,
-                        confidence_level: str, data_points_count: int):
-        return self.db.create_theme_trajectory(theme_id, trajectory_label,
-                                              trend_score, recent_count, past_count,
-                                              confidence_level, data_points_count)
-
-    def get_trajectory(self, theme_id: int) -> dict:
-        return self.db.get_theme_trajectory(theme_id)
-
-    def update_trajectory(self, theme_id: int, trajectory_label: str, analysis_date: str = None,
-                         slope: float = None, r_squared: float = None, trend_score: float = None, **kwargs):
-        if slope is not None:
-            return self.db.update_theme_trajectory(theme_id, trajectory_label, analysis_date,
-                                                  slope, r_squared)
-        else:
-            return self.db.update_theme_trajectory(theme_id, trajectory_label, analysis_date,
-                                                  trend_score or 0, 0)
-
-    def get_all_trajectories(self, user_id: int) -> list:
-        return self.db.get_all_theme_trajectories(user_id)
-
-
 class TensionRepository(Repository):
     """Manages tension analysis between theme pairs."""
 
@@ -352,7 +326,6 @@ def initialize_repositories(db):
         'habits': HabitRepository(db),
         'embeddings': EmbeddingRepository(db),
         'themes': ThemeRepository(db),
-        'trajectories': TrajectoryRepository(db),
         'tensions': TensionRepository(db),
         'resolutions': ResolutionRepository(db),
         'leverage': LeverageRepository(db),

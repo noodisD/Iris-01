@@ -831,48 +831,6 @@
         "type": "integer"
       }
     },
-    "theme_trajectories": {
-      "confidence_level": {
-        "default": null,
-        "nullable": "YES",
-        "type": "character varying"
-      },
-      "data_points_count": {
-        "default": null,
-        "nullable": "YES",
-        "type": "integer"
-      },
-      "last_computed_at": {
-        "default": "CURRENT_TIMESTAMP",
-        "nullable": "YES",
-        "type": "timestamp with time zone"
-      },
-      "past_count": {
-        "default": null,
-        "nullable": "YES",
-        "type": "integer"
-      },
-      "recent_count": {
-        "default": null,
-        "nullable": "YES",
-        "type": "integer"
-      },
-      "theme_id": {
-        "default": null,
-        "nullable": "NO",
-        "type": "integer"
-      },
-      "trajectory_label": {
-        "default": null,
-        "nullable": "YES",
-        "type": "character varying"
-      },
-      "trend_score": {
-        "default": null,
-        "nullable": "YES",
-        "type": "double precision"
-      }
-    },
     "themes": {
       "centroid_embedding": {
         "default": null,
@@ -1065,7 +1023,7 @@
         "type": "n"
       },
       "conversation_messages_user_id_fkey": {
-        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
         "type": "f"
       },
       "conversation_messages_user_id_not_null": {
@@ -1247,7 +1205,7 @@
         "type": "n"
       },
       "journal_entries_user_id_fkey": {
-        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
         "type": "f"
       },
       "journal_entries_user_id_not_null": {
@@ -1547,20 +1505,6 @@
         "type": "f"
       }
     },
-    "theme_trajectories": {
-      "theme_trajectories_pkey": {
-        "definition": "PRIMARY KEY (theme_id)",
-        "type": "p"
-      },
-      "theme_trajectories_theme_id_fkey": {
-        "definition": "FOREIGN KEY (theme_id) REFERENCES themes(id) ON DELETE CASCADE",
-        "type": "f"
-      },
-      "theme_trajectories_theme_id_not_null": {
-        "definition": "NOT NULL theme_id",
-        "type": "n"
-      }
-    },
     "themes": {
       "themes_centroid_embedding_not_null": {
         "definition": "NOT NULL centroid_embedding",
@@ -1583,7 +1527,7 @@
         "type": "p"
       },
       "themes_user_id_fkey": {
-        "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
         "type": "f"
       },
       "themes_user_id_not_null": {
@@ -1721,9 +1665,6 @@
     "theme_tensions": {
       "theme_tensions_pkey": "CREATE UNIQUE INDEX theme_tensions_pkey ON public.theme_tensions USING btree (id)",
       "theme_tensions_theme_a_id_theme_b_id_key": "CREATE UNIQUE INDEX theme_tensions_theme_a_id_theme_b_id_key ON public.theme_tensions USING btree (theme_a_id, theme_b_id)"
-    },
-    "theme_trajectories": {
-      "theme_trajectories_pkey": "CREATE UNIQUE INDEX theme_trajectories_pkey ON public.theme_trajectories USING btree (theme_id)"
     },
     "themes": {
       "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
