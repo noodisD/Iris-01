@@ -2317,12 +2317,33 @@ class Database:
                 raise
 
     def uncomplete_habit(self, habit_id: int, completion_date=None) -> bool:
-        """Removes a habit's completion for a date (toggle off). Returns True if a row was deleted."""
+        """Removes a habit's completion for a date, and everything derived from it.
+
+        embeddings and theme_occurrences reference their source by
+        (source_type, source_id) rather than by foreign key, so deleting the
+        completion alone left a day the user had taken back still counting as
+        evidence for the theme, and still reachable by semantic search.
+        """
         if completion_date is None:
             from datetime import date
             completion_date = date.today()
         with self.connection() as conn, conn.cursor() as cur:
             try:
+                cur.execute(
+                    "SELECT id FROM habit_completions WHERE habit_id = %s AND completion_date = %s;",
+                    (habit_id, completion_date)
+                )
+                row = cur.fetchone()
+                if row:
+                    completion_id = row[0]
+                    cur.execute(
+                        "DELETE FROM theme_occurrences WHERE source_type = 'habit_completion' AND source_id = %s;",
+                        (completion_id,)
+                    )
+                    cur.execute(
+                        "DELETE FROM embeddings WHERE source_type = 'habit_completion' AND source_id = %s;",
+                        (completion_id,)
+                    )
                 cur.execute(
                     "DELETE FROM habit_completions WHERE habit_id = %s AND completion_date = %s;",
                     (habit_id, completion_date)

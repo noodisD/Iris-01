@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import iris_api
 from agent.core import PersonalAICompanion
 from agent.database import db
+from agent.trackers.habits import HabitTracker
 from agent.trackers.reflections import ReflectionService
 from iris_api import app, get_current_user_id
 
@@ -198,3 +199,70 @@ def test_a_recent_resolution_verdict_is_still_served(test_user, mock_pipeline_lo
         conn.commit()
 
     assert engine.analyze_theme(theme_id)["resolution_label"] == "CACHED-VALUE"
+
+
+# --- corrections must propagate to everything derived from the entry ---------
+
+def _embedding_count(source_type, source_id):
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM embeddings WHERE source_type = %s AND source_id = %s;",
+            (source_type, source_id),
+        )
+        return cur.fetchone()[0]
+
+
+def _occurrence_count(source_type, source_id):
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM theme_occurrences WHERE source_type = %s AND source_id = %s;",
+            (source_type, source_id),
+        )
+        return cur.fetchone()[0]
+
+
+def test_editing_an_entry_refreshes_what_was_derived_from_it(test_user, mock_pipeline_logic):
+    """An edit used to change only the row. The embedding still described the
+    original text and the theme occurrence still quoted it, so a sentence the
+    user had removed remained searchable and quotable."""
+    service = ReflectionService(test_user["id"])
+    reflection_id = service.create_reflection(content="Work Stress about the merger", energy_level=4)
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vector FROM embeddings WHERE source_type='reflection' AND source_id=%s;",
+            (reflection_id,),
+        )
+        before = cur.fetchone()[0]
+
+    service.update_reflection(reflection_id, content="Poor Sleep, nothing about work")
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vector FROM embeddings WHERE source_type='reflection' AND source_id=%s;",
+            (reflection_id,),
+        )
+        row = cur.fetchone()
+    assert row is not None, "the edited entry must still be searchable"
+    assert list(row[0]) != list(before), (
+        "the embedding must describe the corrected text, not the original"
+    )
+
+
+def test_undoing_a_habit_tick_removes_its_evidence(test_user, mock_pipeline_logic):
+    """Un-ticking deleted the completion row but left its embedding and theme
+    occurrence, so a day the user took back still counted towards the pattern."""
+    tracker = HabitTracker(test_user["id"])
+    habit_id = tracker.create_habit(name="Yoga", description="unwind", category="health")
+    completion_id = tracker.log_completion(habit_id)
+
+    assert _embedding_count("habit_completion", completion_id) == 1
+
+    db.uncomplete_habit(habit_id)
+
+    assert _embedding_count("habit_completion", completion_id) == 0, (
+        "an undone completion must not leave an embedding behind"
+    )
+    assert _occurrence_count("habit_completion", completion_id) == 0, (
+        "an undone completion must not keep counting as evidence"
+    )

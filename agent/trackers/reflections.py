@@ -116,7 +116,30 @@ class ReflectionService:
             if not (1 <= updates["clarity_level"] <= 10):
                 raise ValueError("Clarity level must be between 1 and 10")
 
-        return db.update_reflection(reflection_id, **updates)
+        updated = db.update_reflection(reflection_id, **updates)
+
+        # An edit to the text invalidates everything derived from it. Without
+        # this, the embedding still described the original wording and the theme
+        # occurrence still quoted it, so a sentence the user had removed stayed
+        # searchable and could still be quoted back at them. Re-running the
+        # pipeline recomputes both from the corrected text.
+        if updated and "content" in updates:
+            with db.connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM theme_occurrences WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
+                cur.execute(
+                    "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
+                conn.commit()
+            try:
+                run_processing_pipeline('reflection', reflection_id)
+            except Exception as e:
+                logger.error(f"Re-processing failed after editing reflection {reflection_id}: {e}")
+
+        return updated
 
     def delete_reflection(self, reflection_id: int) -> bool:
         """Delete a reflection."""
