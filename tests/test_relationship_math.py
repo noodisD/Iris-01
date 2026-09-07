@@ -43,7 +43,6 @@ def engine(monkeypatch):
     eng._evidence = []
     eng.conf_engine = _StubConfidence()
     eng.ev_engine = _StubEvidence()
-    monkeypatch.setattr("agent.leverage.confidence_repo.create_or_update", lambda *a, **k: None)
     monkeypatch.setattr("agent.leverage.leverage_repo.create_or_update_pair", lambda *a, **k: None)
     return eng
 
@@ -125,7 +124,6 @@ def impact_engine(monkeypatch):
     eng._evidence = []
     eng.conf_engine = _StubImpactConfidence()
     eng.ev_engine = type("E", (), {"record_evidence": staticmethod(lambda *a, **k: None)})()
-    monkeypatch.setattr("agent.decision_impact.confidence_repo.create_or_update", lambda *a, **k: None)
     return eng
 
 
@@ -167,3 +165,46 @@ def test_an_elapsed_anchor_over_a_steady_target_shows_no_effect(impact_engine, m
     assert result["effect_direction"] == "none", (
         f"a steady target should show no effect, got {result['effect_direction']}"
     )
+
+
+# --- a relation's confidence must describe the relation ---------------------
+
+def test_leverage_confidence_reflects_the_pair_not_just_the_source(engine, monkeypatch):
+    """Confidence came from compute_confidence over the *source's* occurrences
+    alone, so it did not depend on the target at all: a reliable relation and a
+    coincidental one scored identically, because both were really measuring how
+    much data the source theme had."""
+    dense_source = _at(60, 52, 44, 36, 28, 20, 12, 4)
+
+    # Same source, two targets: one that follows it every time, one that barely
+    # co-occurs at all.
+    always = _at(59, 51, 43, 35, 27, 19, 11, 3)
+    rarely = _at(59, 51, 43, 2, 1, 0)
+
+    monkeypatch.setattr(engine, "_get_occurrences",
+                        lambda kind, ident, since: dense_source if ident == 1 else always)
+    strong = engine.analyze_pair("theme", 1, "theme", 2)
+
+    monkeypatch.setattr(engine, "_get_occurrences",
+                        lambda kind, ident, since: dense_source if ident == 1 else rarely)
+    weak = engine.analyze_pair("theme", 1, "theme", 3)
+
+    levels = {"low": 0, "medium": 1, "high": 2}
+    assert levels[strong["confidence_level"]] >= levels[weak["confidence_level"]], (
+        f"a relation with more shared evidence cannot be less confident: "
+        f"strong={strong['confidence_level']} weak={weak['confidence_level']}"
+    )
+
+
+def test_a_pair_bundle_names_its_target(engine, monkeypatch):
+    """Evidence is stored under the source alone, so every target of the same
+    source shared a key. A bundle must at least say which pair it describes."""
+    source = _at(45, 36, 27, 18, 9)
+    target = _at(44, 35, 26, 17, 8)
+    monkeypatch.setattr(engine, "_get_occurrences",
+                        lambda kind, ident, since: source if ident == 1 else target)
+
+    engine._evidence = []
+    engine.analyze_pair("theme", 1, "theme", 2)
+    keys = {record["key"] for record in engine._evidence}
+    assert "target_id" in keys, f"the bundle does not identify its target: {keys}"

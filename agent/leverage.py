@@ -23,7 +23,6 @@ from .constants import (
     LEVERAGE_TIME_LAG_DAYS,
     LEVERAGE_WINDOW_DAYS,
 )
-from .database import confidence as confidence_repo
 from .database import leverage as leverage_repo
 
 # Import database and constants
@@ -125,24 +124,31 @@ class LeverageEngine:
 
         # 4. Confidence level using central engine
         # For leverage, the 'timestamps' are the co-occurrences
-        self._evidence = [] # Clear buffer
-        conf = self.conf_engine.compute_confidence('leverage', source_id, source_occs)
-        confidence = conf['confidence_level']
+        # Confidence in a *relation* has to come from the relation's own
+        # evidence. This used to call compute_confidence with only the source's
+        # occurrences, so the answer did not depend on the target at all: a
+        # reliable relation and a coincidental one scored identically, because
+        # both were really measuring how much data the source theme had.
+        # _calculate_confidence weighs the co-occurrences against both sides and
+        # was already written here, unused.
+        self._evidence = []  # Clear buffer
+        confidence = self._calculate_confidence(
+            total_cooccurrence, len(source_occs), len(target_occs)
+        )
 
-        # Emit evidence
+        # Emit evidence, including the target: a bundle has to say which pair it
+        # describes, since it is stored under the source alone.
+        self.emit_evidence('count', 'target_id', target_id)
         self.emit_evidence('count', 'forward_count', forward_count)
         self.emit_evidence('count', 'backward_count', backward_count)
         self.emit_evidence('count', 'simultaneous_count', simultaneous_count)
         self.emit_evidence('delta', 'directional_lift', lift)
         self.emit_evidence('rate', 'p_target_given_source', p_b_given_a)
 
-        # Store in central registry
-        confidence_repo.create_or_update(
-            'leverage', source_id,
-            conf['confidence_level'], conf['confidence_score'],
-            conf['data_points_count'], conf['time_coverage_days'],
-            conf['consistency_score'], conf['recency_score']
-        )
+        # Deliberately not written to pattern_confidence: that registry is keyed
+        # by (pattern_type, pattern_id), which cannot express a pair, so every
+        # target of the same source overwrote the last. The pair's confidence
+        # belongs on the pair row below, which is uniquely keyed by both ends.
 
         # Store in evidence registry
         self.ev_engine.record_evidence('leverage', 'theme', source_id, self._evidence)

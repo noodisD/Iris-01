@@ -27,7 +27,6 @@ from .constants import (
     DECISION_IMPACT_MIN_DELTA,
     DECISION_IMPACT_WINDOW_DAYS,
 )
-from .database import confidence as confidence_repo
 
 # Import database and constants
 from .database import decision_impacts, themes
@@ -231,14 +230,15 @@ class DecisionImpactEngine:
         self.emit_evidence('rate', 'avg_post_rate', avg_post)
         self.emit_evidence('delta', 'delta_score', delta)
         self.emit_evidence('count', 'anchor_count', len(elapsed_anchors))
+        # A bundle is stored under the anchor alone, so it has to name the target
+        # it describes.
+        self.emit_evidence('count', 'target_id', target_id)
 
-        # Store in central registry
-        confidence_repo.create_or_update(
-            'impact', anchor_id,
-            conf['confidence_level'], conf['confidence_score'],
-            conf['data_points_count'], conf['time_coverage_days'],
-            conf['consistency_score'], conf['recency_score']
-        )
+        # Deliberately not written to pattern_confidence: that registry is keyed
+        # by (pattern_type, pattern_id) and cannot express an (anchor, target)
+        # pair, so every target of the same anchor overwrote the last. The
+        # authoritative value is on the decision_impacts row below, which is
+        # keyed by both ends.
 
         # Store in evidence registry
         self.ev_engine.record_evidence('impact', 'theme', anchor_id, self._evidence)
