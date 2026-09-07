@@ -1,6 +1,14 @@
 {
   "compilerOptions": {
     "composite": true,
+    // A referenced project may not disable emit (TS6310), so send the output
+    // somewhere harmless. Left at the default it lands beside the source as
+    // vite.config.js — and Vite resolves vite.config.js *before*
+    // vite.config.ts, so the generated file silently became the real config:
+    // an edit to the .ts had no effect on `npm run dev` until someone happened
+    // to run a build.
+    "outDir": "./node_modules/.tmp/config",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
