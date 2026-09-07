@@ -1,21 +1,23 @@
 """
 Journal Entry Service Layer
 
-This module provides a high-level interface for interacting with journal entries.
-It acts as a service layer, delegating persistence to the database layer and
-orchestrating post-processing via the pipeline layer.
+A journal entry *is* a reflection. This module only formats the CLI's
+structured prompts (wellbeing / ideas / goals / execution) into the text of one,
+then hands it to ReflectionService — the same seam the HTTP API writes through.
+
+It used to write its own `journal_entries` rows instead, so an entry made in the
+CLI and an entry made in the UI lived in different tables under different source
+types, and neither surface could see the other's. See ADR-0010.
 """
 
 import logging
 
-# Import the new architecture's components
-from .database import journals
-from .pipeline import run_processing_pipeline
+from .trackers.reflections import ReflectionService
 
 logger = logging.getLogger(__name__)
 
 class JournalEntry:
-    """Manages the business logic for journal entries."""
+    """Formats structured journal input and stores it as a reflection."""
 
     def __init__(self, user_id: int):
         """
@@ -27,6 +29,7 @@ class JournalEntry:
         if user_id is None:
             raise ValueError("JournalEntry service requires a valid user_id.")
         self.user_id = user_id
+        self._reflections = ReflectionService(user_id)
 
     def create_entry(
         self,
@@ -37,11 +40,10 @@ class JournalEntry:
         reflections: str | None = None
     ) -> str:
         """
-        Creates a new journal entry, saves it to the database,
-        and triggers the processing pipeline.
+        Creates a journal entry as a reflection and triggers the pipeline.
 
         Args:
-            wellbeing: Dict with mood, energy, sleep, etc.
+            wellbeing: Dict with notes, and optionally energy/clarity (1-10).
             ideas: List of insights and ideas.
             goals: List of goal-related items.
             execution: List of accomplishments.
@@ -52,29 +54,22 @@ class JournalEntry:
         """
         logger.info(f"Creating new journal entry for user {self.user_id}")
 
-        # 1. Construct the raw text for embedding and future NLP
-        raw_text = self._format_raw_text(wellbeing, ideas, goals, execution, reflections)
+        content = self._format_raw_text(wellbeing, ideas, goals, execution, reflections)
 
         try:
-            # 2. Save the raw data to PostgreSQL (Source of Truth)
-            entry_id = journals.create_entry(
-                user_id=self.user_id,
-                raw_text=raw_text,
-                wellbeing_data=wellbeing
+            # ReflectionService owns mood inference and the pipeline call, so a
+            # CLI entry and a UI entry are indistinguishable downstream.
+            entry_id = self._reflections.create_reflection(
+                content=content,
+                energy_level=wellbeing.get('energy'),
+                clarity_level=wellbeing.get('clarity'),
+                tags=wellbeing.get('tags'),
             )
-            logger.info(f"Journal entry {entry_id} saved to database for user {self.user_id}.")
-
-            # 3. Trigger the asynchronous processing pipeline
-            # In a production app, this would be a message queue (e.g., Celery, RQ)
-            # For this project, we'll call it synchronously for simplicity.
-            run_processing_pipeline(source_type='journal_entry', source_id=entry_id)
-
-            # 4. Return a success message to the user
+            logger.info(f"Journal entry {entry_id} saved as a reflection for user {self.user_id}.")
             return f"✓ Journal Entry Created (ID: {entry_id}). Processing has started."
 
         except Exception as e:
             logger.error(f"Failed to create journal entry for user {self.user_id}: {e}")
-            # In a real app, you'd have more specific error handling
             return "✗ Failed to create journal entry. Please check the logs."
 
     def _format_raw_text(
@@ -111,7 +106,3 @@ class JournalEntry:
             parts.append(f"\nReflections:\n{reflections}")
 
         return "\n".join(parts)
-
-    # NOTE: Read methods (get_entry, get_daily_summary, etc.) would be added here.
-    # They would query the PostgreSQL database via the `db` object.
-    # For now, we are focusing on the write path.

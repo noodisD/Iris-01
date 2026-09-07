@@ -184,10 +184,10 @@ class PersonalAICompanion:
         # 1. Fetch relevant memories (vector search)
         memories = self._get_relevant_context(user_message)
 
-        # 2. Fetch Habits, Reflections, and recent Journal context
+        # 2. Fetch Habits and Reflections context. Journal entries are
+        # reflections (ADR-0010), so there is one builder, not two.
         habits_context = self._get_habits_context()
         reflections_context = self._get_reflections_context()
-        journal_context = self._get_recent_journal_entries_context()
 
         # 3. Run analysis pipeline with enablement and confidence gates
         gated_insights = self.analysis_pipeline.run(prefs=prefs)
@@ -233,7 +233,7 @@ class PersonalAICompanion:
         bulleted_narratives = [f"- {n}" for n in narratives]
         body = "\n".join(bulleted_narratives) if narratives else "No significant patterns observed recently."
 
-        return f"# Recent Journal Entries:\n{journal_context}\n\n# Relevant Long-Term Memory:\n{memories}\n\n# Recent Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
+        return f"# Relevant Long-Term Memory:\n{memories}\n\n# Recent Journal Entries & Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
 
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""
@@ -265,29 +265,6 @@ class PersonalAICompanion:
         except Exception as e:
             logger.error(f"Error fetching reflections context: {e}")
             return "Could not retrieve reflections context."
-
-    def _get_recent_journal_entries_context(self, limit: int = 3, max_chars: int = 1200) -> str:
-        """Retrieves the most recent journal entries so meta-queries about 'my journal'
-        can surface them even when vector search misses on wording."""
-        try:
-            entries = journals.get_recent_entries(self.user_id, limit=limit)
-            if not entries:
-                return "No journal entries yet."
-
-            parts = []
-            for e in entries:
-                date_str = e['created_at'].strftime("%Y-%m-%d") if hasattr(e['created_at'], 'strftime') else str(e['created_at'])
-                wb = e.get('wellbeing_data') or {}
-                wb_bits = [f"{k}: {v}" for k, v in wb.items() if v not in (None, "")]
-                wb_line = f" ({', '.join(wb_bits)})" if wb_bits else ""
-                text = (e['raw_text'] or "").strip()
-                if len(text) > max_chars:
-                    text = text[:max_chars].rstrip() + "..."
-                parts.append(f"- [{date_str}]{wb_line}\n  {text}")
-            return "\n".join(parts)
-        except Exception as e:
-            logger.error(f"Error fetching recent journal entries context: {e}")
-            return "Could not retrieve recent journal entries."
 
     def _record_suppression(self, insight: dict, reason: str):
         """Buffers a suppressed insight for transparency audit."""

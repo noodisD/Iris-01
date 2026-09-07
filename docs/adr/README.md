@@ -15,6 +15,7 @@ re-litigated by accident, only deliberately.
 | [0007](ADR-0007-one-admission-policy.md) | Chat and Insights answer with one policy | Why `InsightsService` routes through the gates |
 | [0008](ADR-0008-schema-ownership.md) | `create_schema()` owns the schema; a snapshot catches drift | Why there is no alembic yet |
 | [0009](ADR-0009-analytical-measures.md) | Measures must mean what they are named | The bounds every engine's arithmetic must hold |
+| [0010](ADR-0010-one-journal-store.md) | A journal entry is a reflection | Why the CLI writes through ReflectionService |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

@@ -144,17 +144,40 @@ def test_skipping_a_habit_is_not_evidence_for_it(test_user, mock_pipeline_logic)
         assert cur.fetchone()[0] == 0, "a skip must not be embedded as evidence"
 
 
-def test_journal_entry_service_creates_an_entry(test_user):
+def test_journal_entry_service_creates_an_entry(test_user, mock_pipeline_logic):
     """Regression: `journals` was used but never imported, so this raised
     NameError and the broad except reported a friendly failure to the user."""
     out = JournalEntry(test_user["id"]).create_entry(
-        wellbeing={"mood": 7}, ideas=["- an idea"], goals=[], execution=[]
+        wellbeing={"notes": "steady", "energy": 7}, ideas=["- an idea"], goals=[], execution=[]
     )
     assert "Journal Entry Created" in out, out
 
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM journal_entries WHERE user_id = %s;", (test_user["id"],))
-        assert cur.fetchone()[0] == 1
+        assert cur.fetchone()[0] == 0, "the CLI must no longer write the legacy table"
+        cur.execute(
+            "SELECT content, energy_level FROM reflections WHERE user_id = %s;",
+            (test_user["id"],),
+        )
+        rows = cur.fetchall()
+    assert len(rows) == 1, "a CLI journal entry is stored as one reflection"
+    assert "an idea" in rows[0][0]
+    assert rows[0][1] == 7, "wellbeing energy carries onto the reflection"
+
+
+def test_cli_and_api_journal_entries_share_one_store(client, test_user, mock_pipeline_logic):
+    """ADR-0010: an entry written through the CLI and one written through the
+    API must be visible to each other. They used to land in `journal_entries`
+    and `reflections` respectively, so neither surface could see the other's."""
+    JournalEntry(test_user["id"]).create_entry(
+        wellbeing={"notes": "written from the CLI"}, ideas=[], goals=[], execution=[]
+    )
+    client.post("/api/journal", json={"lines": ["written from the API"], "energy": 6})
+
+    listed = client.get("/api/journal").json()["entries"]
+    text = " ".join(" ".join(i["lines"]) for i in listed)
+    assert "written from the CLI" in text, "the API cannot see the CLI's entry"
+    assert "written from the API" in text
 
 
 def test_date_ranged_reflections_are_filtered_in_the_database(test_user, mock_pipeline_logic):
