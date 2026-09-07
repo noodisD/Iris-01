@@ -15,7 +15,8 @@ These modules establish the data layer and patterns used everywhere else.
 1. `agent/database.py` (110KB)
    - Entry point: the `Database` singleton (`db`)
    - Learn: schema definition, connection pooling, query helpers
-   - Key sections: `create_schema()`, the 25+ table schemas, `get_connection()`
+   - Key sections: `get_connection()`, the repositories, and the pooling in `_init_pool()`.
+     The schema itself lives in `migrations/`, not here
 
 2. `CONTEXT.md` — Domain glossary
    - Read the entire "Glossary" section (Theme, Occurrence, Source, Resolution, etc.)

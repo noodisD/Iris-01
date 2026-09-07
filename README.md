@@ -82,8 +82,8 @@ cd frontend && npm install && npm run build && cd ..
 uv run uvicorn iris_api:app --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000. The schema is created on first connection; the
-single local user is created on first request.
+Open http://127.0.0.1:8000. Schema migrations run at startup; the single local
+user is created on first request.
 
 For frontend work, `cd frontend && npm run dev` serves on :5173 and proxies
 `/api` to :8000, so requests stay same-origin.
@@ -132,6 +132,23 @@ One machine, one service: see `scripts/iris.service.example`. There is no
 container image and no orchestration — a personal single-user app does not need
 either, and the previous Docker path had been broken and unused for months.
 
+### Schema changes
+
+The schema is owned by `migrations/NNNN_*.sql`, applied in numeric order at
+startup and recorded in `schema_migrations` with a checksum. To change it, add a
+migration — editing one that has already run is refused, because databases that
+already applied it would keep the old definition.
+
+`tests/test_schema_snapshot.py` compares the live schema against a committed
+snapshot, so any change also lands as a reviewable diff; regenerate it with
+`python -m tests.test_schema_snapshot --update`.
+
+### What IRIS is allowed to say
+
+Settings carries the analytical gates: the confidence a finding needs before it
+is raised, how many can reach one conversation, and which of the six engines
+run. They are the same preferences the CLI's `/settings` writes.
+
 ## Deliberately not built
 
 - **Authentication and multi-user.** Removed on purpose; this is a local app.
@@ -140,4 +157,3 @@ either, and the previous Docker path had been broken and unused for months.
   faked.
 - **Data connectors** (calendar, Spotify, photos…). Listed in Settings as not
   yet built; nothing reads them.
-- **Database migrations.** The schema is created idempotently at startup.
