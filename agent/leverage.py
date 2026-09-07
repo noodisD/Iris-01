@@ -88,32 +88,35 @@ class LeverageEngine:
         if len(source_occs) < LEVERAGE_MIN_OCCURRENCES or len(target_occs) < LEVERAGE_MIN_OCCURRENCES:
             return None
 
-        # 2. Window Scan for directional evidence
-        forward_count = 0  # A -> B
-        backward_count = 0 # B -> A
-        simultaneous_count = 0
+        # 2. Window scan for directional evidence
+        # Count *events*, not pairs. This used to increment per matching
+        # (source, target) pair and then divide by the number of source events,
+        # so one source followed by three targets contributed 3 to the numerator
+        # and 1 to the denominator — a "conditional probability" above 1, and the
+        # denser the target theme the more inflated the association looked.
+        # P(target | source) is: of the times this theme occurred, how often was
+        # it followed by the other within the lag.
+        lag = timedelta(days=LEVERAGE_TIME_LAG_DAYS)
 
-        for s_at in source_occs:
-            for t_at in target_occs:
-                if self._is_simultaneous(s_at, t_at):
-                    simultaneous_count += 1
-                    continue
+        def _follows(earlier, later_times):
+            # Compared as a duration, not via timedelta.days: truncation made a
+            # gap of eight days minus a microsecond register as seven, so a pair
+            # just outside the window counted as inside it.
+            return any(timedelta(0) < (later - earlier) <= lag for later in later_times)
 
-                delta = (t_at - s_at).days
-                if 0 < delta <= LEVERAGE_TIME_LAG_DAYS:
-                    forward_count += 1
-
-                delta_back = (s_at - t_at).days
-                if 0 < delta_back <= LEVERAGE_TIME_LAG_DAYS:
-                    backward_count += 1
+        forward_count = sum(1 for s_at in source_occs if _follows(s_at, target_occs))
+        backward_count = sum(1 for t_at in target_occs if _follows(t_at, source_occs))
+        simultaneous_count = sum(
+            1 for s_at in source_occs
+            if any(self._is_simultaneous(s_at, t_at) for t_at in target_occs)
+        )
 
         total_cooccurrence = forward_count + backward_count + simultaneous_count
         if total_cooccurrence < LEVERAGE_MIN_CO_OCCURRENCES:
             return None
 
-        # 3. Calculate Directional Lift
-        # P(B|A) = Forward / Total(A)
-        # P(A|B) = Backward / Total(B)
+        # 3. Directional lift: both terms are now genuine probabilities in
+        # [0, 1], so the difference lies in [-1, 1].
         p_b_given_a = forward_count / len(source_occs)
         p_a_given_b = backward_count / len(target_occs)
 

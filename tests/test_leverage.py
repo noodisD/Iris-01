@@ -31,9 +31,17 @@ def test_asymmetric_influence_detected(test_user, leverage_engine):
         last_seen_at=now.isoformat()
     )
 
-    # Add 5 pairs where A happens, then B happens 2 days later
+    # Add 5 pairs where A happens, then B happens 2 days later.
+    #
+    # The pairs are spaced 10 days apart, which is wider than
+    # LEVERAGE_TIME_LAG_DAYS (7). At the original 5-day spacing the data was not
+    # actually asymmetric: B followed A by 2 days, but the *next* A followed B
+    # by 3 days, and both fall inside the lag window — so the correct lift for
+    # that data is ~0.2, not the >0.5 asserted below. It only ever passed
+    # because the old implementation counted (source, target) pairs and divided
+    # by the number of source events, which inflated the ratio above 1.
     for i in range(5):
-        a_date = now - timedelta(days=30 + i*5)
+        a_date = now - timedelta(days=50 - i*10)
         b_date = a_date + timedelta(days=2)
 
         # Add occurrences and update stats
