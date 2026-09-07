@@ -13,9 +13,11 @@ status survives the on-the-fly recomputation.
 import logging
 from datetime import UTC, datetime
 
+from .conflict import ConflictSuppressionEngine
 from .database import db
 from .decision_impact import DecisionImpactEngine
 from .leverage import LeverageEngine
+from .preferences import UserPreferencesService
 from .resolution import ResolutionEngine
 from .tension import TensionEngine
 from .trajectory import TrajectoryEngine
@@ -135,6 +137,48 @@ class InsightsService:
 
         return out
 
+    # --- admission policy --------------------------------------------------
+
+    def _apply_policy(self, raw: list[dict]) -> list[dict]:
+        """Apply the admission policy the chat context uses.
+
+        The Insights screen and the chat context are two answers to the same
+        question — what has IRIS noticed — and they must not disagree. This
+        service called the engines directly with no gating at all, so a finding
+        suppressed in chat as low-confidence or self-contradictory was still
+        presented on screen as something IRIS believed.
+
+        The user's own preferences apply: disabled engines and anything below
+        their confidence threshold are dropped, then conflict suppression
+        removes contradictions. The budget is deliberately *not* applied — that
+        is a limit on how much fits in an LLM prompt, not a statement about what
+        is true, and this screen is a list the user scrolls. Ordering by
+        strength replaces truncation.
+        """
+        prefs = UserPreferencesService(self.user_id).get_prefs()
+        levels = {"low": 0, "medium": 1, "high": 2}
+        minimum = levels.get(prefs.get("min_confidence", "medium"), 1)
+        enabled = prefs.get("enabled_engines")
+
+        admitted = []
+        for item in raw:
+            if enabled is not None and item["engine"] not in enabled:
+                continue
+            if levels.get(item.get("confidence_level", "low"), 0) < minimum:
+                continue
+            admitted.append(item)
+
+        # Conflict suppression reads the pipeline's field names.
+        for item in admitted:
+            item.setdefault("pattern_type", "theme")
+            item.setdefault("pattern_id", item.get("theme_id"))
+            item.setdefault("engine_name", item["engine"])
+            item.setdefault(f"{item['engine']}_label", item.get("label"))
+
+        visible = ConflictSuppressionEngine().suppress(admitted)["visible"]
+        visible.sort(key=lambda i: levels.get(i.get("confidence_level", "low"), 0), reverse=True)
+        return visible
+
     # --- contract building -------------------------------------------------
 
     def _summary(self, raw: dict, idx: int, status_row: dict | None, detected_at: str) -> dict:
@@ -165,7 +209,10 @@ class InsightsService:
         detected = now.isoformat()
         summaries = []
         idx = 0
-        for raw in self._normalize():
+        # get_summary/get_detail deliberately do not filter: policy governs what
+        # is *surfaced*, not what is *addressable* — following a link to one
+        # specific insight should still show it.
+        for raw in self._apply_policy(self._normalize()):
             iid = f"{raw['engine']}:{raw['pattern_key']}"
             s = statuses.get(iid)
             if s:
