@@ -31,9 +31,11 @@ export function OnboardingScreen() {
         Hi. I'm <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>Iris</span>.
       </h1>
       <p style={{ maxWidth: 460, fontSize: 16, color: 'var(--ink-2)', lineHeight: 1.55, fontFamily: 'var(--serif)' }}>
-        Three things before we start: I run on this machine and your writing stays in your own
-        database, I need about a week of entries before I notice anything worth saying, and
-        everything I come to believe about you is visible and removable in Settings.
+        Three things before we start. I run on this machine and everything I store stays in
+        your own database — though what you write is sent to OpenAI to be turned into
+        embeddings and replies. I need about a week of entries before I notice anything worth
+        saying. And everything I come to believe about you is visible, and removable, in
+        Settings.
       </p>
       <button className="btn primary" onClick={start} disabled={busy}>
         {busy ? 'One moment…' : "Yes — let's start →"}

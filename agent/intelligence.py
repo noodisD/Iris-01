@@ -134,8 +134,15 @@ class Intelligence:
             else:
                 return "[No response content]"
 
-        except Exception as e:
-            return f"OpenAI API error: {e!s}"
+        except Exception:
+            # Deliberately propagated. Returning the message as a string made it
+            # indistinguishable from a real reply: core.chat() persisted
+            # "OpenAI API error: ..." into conversation_messages as Iris's own
+            # words, and fed it back as context on later turns. The outer
+            # handler in chat() could never see these, because this one caught
+            # them first.
+            logger.error("OpenAI chat call failed", exc_info=True)
+            raise
 
     async def chat_async(
         self,

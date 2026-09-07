@@ -46,25 +46,49 @@ def test_health_reports_503_when_the_database_is_unreachable(client, monkeypatch
 
 
 def test_an_llm_outage_is_not_persisted_as_iris_speaking(test_user, monkeypatch):
-    """Intelligence.chat used to *return* "Error calling API: ..." on failure,
-    which core.chat then stored in conversation_messages as the assistant's
-    reply — permanent history, re-fed as context on later turns."""
-    monkeypatch.setattr("agent.pipeline.generate_embedding", lambda t, model=None: [0.3] * 1536)
+    """A provider failure must not become conversation history.
+
+    The first version of this test mocked Intelligence.chat to raise, so it
+    asserted the behaviour of its own mock and passed while the real path was
+    still broken: _chat_openai() caught the exception and returned
+    "OpenAI API error: ..." as an ordinary string, which core.chat() then stored
+    as the assistant's reply and re-fed as context on later turns. It now fails
+    at the SDK boundary, which is where a real outage occurs.
+    """
     monkeypatch.setattr(
         "agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "T"
     )
 
     companion = PersonalAICompanion(user_id=test_user["id"])
-    companion.intelligence.chat = MagicMock(side_effect=RuntimeError("provider is down"))
+    companion.intelligence.openai_client = MagicMock()
+    companion.intelligence.openai_client.chat.completions.create.side_effect = TimeoutError(
+        "synthetic provider timeout"
+    )
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(Exception) as caught:
         companion.chat("are you there?")
+    assert "synthetic provider timeout" in str(caught.value)
 
     history = db.get_chat_history(test_user["id"], limit=50)
     assert [m["content"] for m in history] == ["are you there?"], (
         "the user's message is kept, but no assistant turn should be invented"
     )
-    assert not any("Error calling API" in m["content"] for m in history)
+    assert not any("API error" in m["content"] for m in history), (
+        "an error string must never be persisted as Iris speaking"
+    )
+
+
+def test_provider_errors_are_raised_not_returned(monkeypatch):
+    """The narrow version of the above, at the seam itself — no database needed."""
+    from agent.intelligence import Intelligence
+
+    intelligence = Intelligence.__new__(Intelligence)
+    intelligence.model = "gpt-4.1-mini"
+    intelligence.openai_client = MagicMock()
+    intelligence.openai_client.chat.completions.create.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        intelligence.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
 
 
 def test_deleting_a_reflection_removes_its_evidence(test_user, mock_pipeline_logic):

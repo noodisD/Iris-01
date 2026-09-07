@@ -71,7 +71,7 @@ export function SettingsScreen() {
               <span className="kicker">iris's note</span>
             </div>
             <div className="serif ital" style={{ fontSize: 15, lineHeight: 1.4, color: 'var(--ink-2)' }}>
-              "Everything I know about you lives on this device, in your own Postgres. Every note above is something I inferred from what you wrote — remove any of them with the ×, and it's gone."
+              "Everything I know about you is stored on this machine, in your own Postgres — nothing is kept anywhere else. What you write is sent to OpenAI to be turned into embeddings and replies, and nowhere else. Every note above is something I inferred from your own words; remove any of them with the ×, and it's gone."
             </div>
           </section>
         </aside>

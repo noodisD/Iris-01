@@ -23,6 +23,10 @@ from agent.database import db
 
 SNAPSHOT = Path(__file__).parent / "schema_snapshot.json"
 
+#: Created by conftest to mark a database this suite owns. It is test
+#: infrastructure, not application schema, so it stays out of the snapshot.
+INFRASTRUCTURE_TABLES = {"_iris_test_database"}
+
 
 def _live_schema() -> dict:
     with db.connection() as conn, conn.cursor() as cur:
@@ -34,6 +38,8 @@ def _live_schema() -> dict:
         """)
         columns = {}
         for table, column, dtype, nullable, default in cur.fetchall():
+            if table in INFRASTRUCTURE_TABLES:
+                continue
             # Sequence defaults embed the table name and are noise here.
             if default and default.startswith("nextval("):
                 default = "nextval(...)"
@@ -51,6 +57,8 @@ def _live_schema() -> dict:
         """)
         constraints = {}
         for table, name, ctype, definition in cur.fetchall():
+            if table in INFRASTRUCTURE_TABLES:
+                continue
             constraints.setdefault(table, {})[name] = {"type": ctype, "definition": definition}
 
         cur.execute("""
@@ -59,6 +67,8 @@ def _live_schema() -> dict:
         """)
         indexes = {}
         for table, name, definition in cur.fetchall():
+            if table in INFRASTRUCTURE_TABLES:
+                continue
             indexes.setdefault(table, {})[name] = definition
 
     return {"columns": columns, "constraints": constraints, "indexes": indexes}

@@ -25,8 +25,18 @@ from agent.database import db
 from agent.logging_config import configure_logging
 
 
+#: Written into any database this suite creates. The session truncates every
+#: table before it runs, and a name check alone cannot tell our scratch database
+#: from someone's important one that merely has "test" in its name — so we only
+#: ever truncate a database carrying this marker.
+_MARKER_TABLE = "_iris_test_database"
+
+
 def _ensure_test_database() -> None:
-    """Create the test database (and pgvector) if it does not exist yet."""
+    """Create the test database, its pgvector extension and its marker.
+
+    Refuses to proceed against an existing database that we did not create.
+    """
     conn = psycopg2.connect(
         dbname="postgres",
         user=settings.POSTGRES_USER,
@@ -35,11 +45,13 @@ def _ensure_test_database() -> None:
         port=settings.POSTGRES_PORT,
     )
     conn.autocommit = True
+    created = False
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (settings.POSTGRES_DB,))
             if cur.fetchone() is None:
                 cur.execute(f'CREATE DATABASE "{settings.POSTGRES_DB}";')
+                created = True
     finally:
         conn.close()
 
@@ -54,8 +66,31 @@ def _ensure_test_database() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            cur.execute("SELECT to_regclass(%s);", (f"public.{_MARKER_TABLE}",))
+            has_marker = cur.fetchone()[0] is not None
+
+            if created or not has_marker:
+                # A database that already had tables but no marker is not ours.
+                cur.execute("""
+                    SELECT count(*) FROM pg_tables WHERE schemaname = 'public';
+                """)
+                table_count = cur.fetchone()[0]
+                if not created and table_count > 0:
+                    raise RuntimeError(
+                        f"Refusing to use database {settings.POSTGRES_DB!r}: it already "
+                        f"contains {table_count} tables and was not created by this test "
+                        f"suite (no {_MARKER_TABLE!r} marker). The suite truncates every "
+                        "table before running. Point IRIS_TEST_POSTGRES_DB at a database "
+                        "this suite may own, or drop that one first."
+                    )
+                cur.execute(
+                    f"CREATE TABLE IF NOT EXISTS {_MARKER_TABLE} "
+                    "(created_at TIMESTAMPTZ NOT NULL DEFAULT now());"
+                )
+                cur.execute(f"INSERT INTO {_MARKER_TABLE} DEFAULT VALUES;")
     finally:
         conn.close()
+
 
 def _offline_embedding(text: str, model: str = None) -> list:
     """A deterministic stand-in for OpenAI embeddings.

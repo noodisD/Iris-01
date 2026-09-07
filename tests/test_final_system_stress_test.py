@@ -133,10 +133,13 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     # Stress is high, Habit is medium
     companion.chat("Strict check.")
     assert "Old Habit" not in companion.intelligence.chat.call_args[1]['system_prompt']
-    # Check suppression buffer
-    keys = companion.last_suppressed_insights.keys()
-    habit_suppressed = any("resolution:theme" in k and companion.last_suppressed_insights[k]['reason'] == 'low_confidence' for k in keys)
-    assert habit_suppressed or True # Depending on exact ID mapping, we just verify the mechanism
+    # This asserted `habit_suppressed or True`, which cannot fail. What the
+    # test can honestly check is that suppression is *recorded* with a reason,
+    # since which insight wins depends on the seeded ids.
+    suppressed = companion.last_suppressed_insights
+    assert isinstance(suppressed, dict)
+    for reason in suppressed.values():
+        assert reason, "every suppression must carry a reason"
 
     # 2. Muzzle Engine: Disable Decision Impact
     companion.pref_service.update_pref('enabled_engines', ['persistence', 'trajectory', 'resolution'])

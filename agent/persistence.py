@@ -519,6 +519,12 @@ Theme summary:"""
                 # 4. Record evidence bundle
                 self.ev_engine.record_evidence('persistence', 'theme', t['id'], self._evidence)
 
+            # `confidence_level` is the key the pipeline's admission gate reads.
+            # Emitting only `confidence` meant the orchestrator filled the
+            # missing field with "unknown", which the gate scores below any
+            # threshold — so persistence insights, however strong, were dropped
+            # before reaching the LLM. `confidence` is kept for existing readers.
+            t['confidence_level'] = conf['confidence_level']
             t['confidence'] = conf['confidence_level']
             t['confidence_score'] = conf['confidence_score']
             persistent.append(t)
