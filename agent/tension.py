@@ -369,8 +369,12 @@ class TensionEngine:
         self.emit_evidence('delta', 'divergence_score', divergence_score)
         self.emit_evidence('delta', 'stability_score', stability_score)
 
-        # Record evidence bundle (using the first theme as primary ID for registry)
-        self.ev_engine.record_evidence('tension', 'theme', theme_a_id, self._evidence)
+        # Tension is pairwise too, so the bundle carries the other theme. Keyed
+        # by theme_a alone, every pair involving A overwrote the last.
+        self.ev_engine.record_evidence(
+            'tension', 'theme', theme_a_id, self._evidence,
+            related_pattern_id=theme_b_id,
+        )
 
         # Create result (convert numpy types to Python native types)
         result = {

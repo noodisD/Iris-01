@@ -151,7 +151,13 @@ class LeverageEngine:
         # belongs on the pair row below, which is uniquely keyed by both ends.
 
         # Store in evidence registry
-        self.ev_engine.record_evidence('leverage', 'theme', source_id, self._evidence)
+        # The bundle names the relation it describes. Stored under the source
+        # alone, one source's two targets shared a key and the bundle returned
+        # for a pair could be another pair's.
+        self.ev_engine.record_evidence(
+            'leverage', 'theme', source_id, self._evidence,
+            related_pattern_id=target_id,
+        )
 
         # 5. Store in DB
         leverage_repo.create_or_update_pair(

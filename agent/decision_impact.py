@@ -241,7 +241,10 @@ class DecisionImpactEngine:
         # keyed by both ends.
 
         # Store in evidence registry
-        self.ev_engine.record_evidence('impact', 'theme', anchor_id, self._evidence)
+        self.ev_engine.record_evidence(
+            'impact', 'theme', anchor_id, self._evidence,
+            related_pattern_id=target_id,
+        )
 
         return {
             "effect_direction": direction,

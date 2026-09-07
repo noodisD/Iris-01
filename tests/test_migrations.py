@@ -78,7 +78,10 @@ def test_a_fresh_database_ends_up_exactly_where_the_snapshot_says(setup_test_dat
             cur.execute("SELECT current_database();")
             assert cur.fetchone()[0] == name
 
-        assert migrations.upgrade() == ["0001"]
+        expected = [v for v, _ in migrations.discover()]
+        assert migrations.upgrade() == expected, (
+            "every migration on disk must apply to an empty database"
+        )
         live = _live_schema()
     finally:
         # The scratch pool holds open connections; DROP DATABASE fails while

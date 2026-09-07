@@ -478,6 +478,11 @@
         "default": null,
         "nullable": "NO",
         "type": "character varying"
+      },
+      "related_pattern_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
       }
     },
     "pattern_leverage": {
@@ -1680,7 +1685,7 @@
       "pattern_confidence_pkey": "CREATE UNIQUE INDEX pattern_confidence_pkey ON public.pattern_confidence USING btree (id)"
     },
     "pattern_evidence": {
-      "idx_evidence_pattern": "CREATE INDEX idx_evidence_pattern ON public.pattern_evidence USING btree (pattern_type, pattern_id, created_at DESC)",
+      "idx_evidence_pattern": "CREATE INDEX idx_evidence_pattern ON public.pattern_evidence USING btree (pattern_type, pattern_id, related_pattern_id, engine_name, created_at DESC)",
       "pattern_evidence_pkey": "CREATE UNIQUE INDEX pattern_evidence_pkey ON public.pattern_evidence USING btree (id)"
     },
     "pattern_leverage": {

@@ -1412,7 +1412,8 @@ class Database:
         """
         Batch inserts evidence records.
         Each record should be a tuple/dict containing:
-        (computation_id, pattern_type, pattern_id, engine_name, evidence_type, evidence_key, evidence_value)
+        (computation_id, pattern_type, pattern_id, related_pattern_id,
+         engine_name, evidence_type, evidence_key, evidence_value)
         """
         if not records:
             return
@@ -1422,8 +1423,9 @@ class Database:
                 # evidence_value is stored as JSONB
                 from psycopg2.extras import execute_values
                 execute_values(cur, """
-                    INSERT INTO pattern_evidence 
-                    (computation_id, pattern_type, pattern_id, engine_name, evidence_type, evidence_key, evidence_value)
+                    INSERT INTO pattern_evidence
+                    (computation_id, pattern_type, pattern_id, related_pattern_id,
+                     engine_name, evidence_type, evidence_key, evidence_value)
                     VALUES %s
                 """, records)
                 conn.commit()
@@ -1432,31 +1434,42 @@ class Database:
                 logger.error(f"Failed to batch insert evidence: {e}")
                 raise
 
-    def get_latest_evidence_bundle(self, pattern_type: str, pattern_id: int, engine_name: str = None) -> list:
+    def get_latest_evidence_bundle(self, pattern_type: str, pattern_id: int,
+                                   engine_name: str = None,
+                                   related_pattern_id: int = None) -> list:
         """
         Retrieves evidence records for a pattern.
         If engine_name is provided, gets the latest snapshot for THAT engine.
-        If NO engine_name provided, gets the latest snapshots for ALL engines 
+        If NO engine_name provided, gets the latest snapshots for ALL engines
         associated with this pattern.
+
+        `related_pattern_id` addresses one side of a pairwise relation. It is
+        matched with IS NOT DISTINCT FROM so that passing None selects the
+        single-pattern engines' bundles (where the column is NULL) rather than
+        matching nothing, which is what `= NULL` would have done.
         """
         with self.connection() as conn, conn.cursor() as cur:
             if engine_name:
                 # 1. Find latest computation for specific engine
                 cur.execute("""
-                    SELECT computation_id FROM pattern_evidence 
+                    SELECT computation_id FROM pattern_evidence
                     WHERE pattern_type = %s AND pattern_id = %s AND engine_name = %s
+                      AND related_pattern_id IS NOT DISTINCT FROM %s
                     ORDER BY created_at DESC LIMIT 1
-                """, (pattern_type, pattern_id, engine_name))
+                """, (pattern_type, pattern_id, engine_name, related_pattern_id))
                 row = cur.fetchone()
                 if not row: return []
                 comp_ids = [row[0]]
             else:
                 # 2. Find the latest computation_id for EACH engine associated with this pattern
+                # DISTINCT ON includes related_pattern_id, so a source theme
+                # with several targets contributes each relation's latest bundle
+                # instead of one of them standing in for all.
                 cur.execute("""
-                    SELECT DISTINCT ON (engine_name) computation_id
+                    SELECT DISTINCT ON (engine_name, related_pattern_id) computation_id
                     FROM pattern_evidence
                     WHERE pattern_type = %s AND pattern_id = %s
-                    ORDER BY engine_name, created_at DESC
+                    ORDER BY engine_name, related_pattern_id, created_at DESC
                 """, (pattern_type, pattern_id))
                 rows = cur.fetchall()
                 if not rows: return []

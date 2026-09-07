@@ -310,8 +310,12 @@ class EvidenceRepository(Repository):
     def add_records(self, records: list):
         return self.db.add_evidence_records(records)
 
-    def get_latest_bundle(self, pattern_type: str, pattern_id: int, engine_name: str = None) -> list:
-        return self.db.get_latest_evidence_bundle(pattern_type, pattern_id, engine_name)
+    def get_latest_bundle(self, pattern_type: str, pattern_id: int,
+                          engine_name: str = None,
+                          related_pattern_id: int = None) -> list:
+        return self.db.get_latest_evidence_bundle(
+            pattern_type, pattern_id, engine_name, related_pattern_id
+        )
 
 
 class PrioritizationRepository(Repository):
