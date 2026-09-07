@@ -65,6 +65,19 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 
+# A note on `def` versus `async def` below.
+#
+# Almost everything these handlers do is blocking: psycopg2 queries, embedding
+# calls, the analytical engines, and in the review endpoint an LLM request.
+# Declared `async def`, that work runs *on the event loop* and stalls every
+# other request for its duration — including the SSE chat stream. Declared
+# `def`, FastAPI runs the handler in a threadpool, which is the correct home
+# for blocking work.
+#
+# So handlers are `def` unless they genuinely await something. The four that do
+# — the health probe, the greeting, the proactive comment and the chat stream —
+# stay `async def` and push their blocking parts through run_in_threadpool.
+
 # ============================================================================
 # DATA MODELS
 # ============================================================================
@@ -181,7 +194,7 @@ if os.path.isdir(os.path.join(FRONTEND_DIST, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
 @app.get("/")
-async def root():
+def root():
     """Serve the built SPA. Run `npm run build` in frontend/ if this 404s."""
     spa_index = os.path.join(FRONTEND_DIST, "index.html")
     if os.path.exists(spa_index):
@@ -265,7 +278,7 @@ def _iso(ts) -> str:
 
 
 @app.get("/api/conversations/current")
-async def get_current_conversation(user_id: int = Depends(get_current_user_id)):
+def get_current_conversation(user_id: int = Depends(get_current_user_id)):
     """Return the user's single rolling conversation (Conversation contract shape)."""
     history = db.get_chat_history(user_id, limit=200)
     now_iso = datetime.now(UTC).isoformat()
@@ -280,7 +293,7 @@ async def get_current_conversation(user_id: int = Depends(get_current_user_id)):
 
 
 @app.get("/api/conversations/{conversation_id}/messages")
-async def get_conversation_messages(conversation_id: str, user_id: int = Depends(get_current_user_id)):
+def get_conversation_messages(conversation_id: str, user_id: int = Depends(get_current_user_id)):
     """Return the conversation's messages as ChatMessage[] (role assistant→iris)."""
     history = db.get_chat_history(user_id, limit=200)
     return [
@@ -296,7 +309,7 @@ async def get_conversation_messages(conversation_id: str, user_id: int = Depends
 
 
 @app.get("/api/conversations/{conversation_id}/inferred")
-async def get_conversation_inferred(conversation_id: str, user_id: int = Depends(get_current_user_id)):
+def get_conversation_inferred(conversation_id: str, user_id: int = Depends(get_current_user_id)):
     """Inferred tags for the chat rail. Stubbed empty until wired to insights."""
     return []
 
@@ -388,14 +401,14 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict
 
 
 @app.get("/api/habits")
-async def list_habits(user_id: int = Depends(get_current_user_id)):
+def list_habits(user_id: int = Depends(get_current_user_id)):
     """List all active habits (raw tracker shape; /api/habits/today is the UI contract)."""
     tracker = HabitTracker(user_id)
     habits = tracker.get_habits(active_only=True)
     return {"habits": habits}
 
 @app.post("/api/habits")
-async def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_current_user_id)):
+def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_current_user_id)):
     """Create a habit and return it in the frontend `Habit` contract shape."""
     tracker = HabitTracker(user_id)
     habit_id = tracker.create_habit(
@@ -409,7 +422,7 @@ async def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_cur
     return contract
 
 @app.get("/api/habits/today")
-async def get_today_habits(user_id: int = Depends(get_current_user_id)):
+def get_today_habits(user_id: int = Depends(get_current_user_id)):
     """Today's habits + aggregates as the frontend `HabitsTodayResponse` shape."""
     tracker = HabitTracker(user_id)
     raw_habits = tracker.get_habits(active_only=True)
@@ -432,7 +445,7 @@ async def get_today_habits(user_id: int = Depends(get_current_user_id)):
     }
 
 @app.post("/api/habits/{habit_id}/toggle")
-async def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depends(get_current_user_id)):
+def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depends(get_current_user_id)):
     """Mark a habit done/undone for a date and return the updated `Habit`."""
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
@@ -451,14 +464,14 @@ async def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depend
     return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
 @app.get("/api/habits/weekly")
-async def get_weekly_summary(user_id: int = Depends(get_current_user_id)):
+def get_weekly_summary(user_id: int = Depends(get_current_user_id)):
     """Get weekly habit summary"""
     tracker = HabitTracker(user_id)
     summary = tracker.get_weekly_summary()
     return summary
 
 @app.get("/api/habits/consistency/{days}")
-async def get_consistency_report(days: int = 30, user_id: int = Depends(get_current_user_id)):
+def get_consistency_report(days: int = 30, user_id: int = Depends(get_current_user_id)):
     """Get consistency report across all habits"""
 
     tracker = HabitTracker(user_id)
@@ -466,7 +479,7 @@ async def get_consistency_report(days: int = 30, user_id: int = Depends(get_curr
     return report
 
 @app.get("/api/habits/{habit_id}")
-async def get_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
+def get_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
     """Get details of a specific habit"""
     tracker = HabitTracker(user_id)
     habit = tracker.get_habit(habit_id)
@@ -475,7 +488,7 @@ async def get_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
     return habit
 
 @app.put("/api/habits/{habit_id}")
-async def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depends(get_current_user_id)):
+def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depends(get_current_user_id)):
     """Update a habit's properties"""
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
@@ -486,7 +499,7 @@ async def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depen
     return {"message": "Habit updated successfully"}
 
 @app.delete("/api/habits/{habit_id}")
-async def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
+def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
     """Delete a habit (soft-delete)"""
     tracker = HabitTracker(user_id)
     if not tracker.get_habit(habit_id):
@@ -496,7 +509,7 @@ async def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id
     return {"message": "Habit deleted successfully"}
 
 @app.post("/api/habits/complete")
-async def log_completion(completion: HabitCompletion, user_id: int = Depends(get_current_user_id)):
+def log_completion(completion: HabitCompletion, user_id: int = Depends(get_current_user_id)):
     """Log a habit completion"""
     tracker = HabitTracker(user_id)
 
@@ -520,7 +533,7 @@ async def log_completion(completion: HabitCompletion, user_id: int = Depends(get
     }
 
 @app.post("/api/habits/skip")
-async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id)):
+def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id)):
     """Log a habit skip"""
     tracker = HabitTracker(user_id)
 
@@ -539,7 +552,7 @@ async def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id))
     return {"message": "Skip logged successfully"}
 
 @app.get("/api/habits/{habit_id}/calendar")
-async def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int = Depends(get_current_user_id)):
+def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int = Depends(get_current_user_id)):
     """Get a calendar view of habit completions in a date range"""
     tracker = HabitTracker(user_id)
 
@@ -562,14 +575,14 @@ async def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int =
 # ============================================================================
 
 @app.get("/api/reflections")
-async def list_reflections(user_id: int = Depends(get_current_user_id), limit: int = 30):
+def list_reflections(user_id: int = Depends(get_current_user_id), limit: int = 30):
     """List recent reflections"""
     service = ReflectionService(user_id)
     reflections = service.get_reflections(limit=limit)
     return {"reflections": reflections}
 
 @app.post("/api/reflections")
-async def create_reflection(reflection: ReflectionCreate, user_id: int = Depends(get_current_user_id)):
+def create_reflection(reflection: ReflectionCreate, user_id: int = Depends(get_current_user_id)):
     """Create a new reflection"""
     service = ReflectionService(user_id)
 
@@ -598,28 +611,28 @@ async def create_reflection(reflection: ReflectionCreate, user_id: int = Depends
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/reflections/moods")
-async def get_mood_trend(user_id: int = Depends(get_current_user_id), days: int = 30):
+def get_mood_trend(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get mood trend data"""
     service = ReflectionService(user_id)
     trend = service.get_mood_trend(days)
     return trend
 
 @app.get("/api/reflections/summary")
-async def get_reflection_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
+def get_reflection_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get comprehensive reflection summary"""
     service = ReflectionService(user_id)
     summary = service.get_reflection_summary(days)
     return summary
 
 @app.get("/api/reflections/tags")
-async def get_tags_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
+def get_tags_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
     """Get tags summary from reflections"""
     service = ReflectionService(user_id)
     tags = service.get_tag_summary(days)
     return tags
 
 @app.get("/api/reflections/{reflection_id}")
-async def get_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
+def get_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
     """Get a specific reflection"""
     service = ReflectionService(user_id)
     reflection = service.get_reflection(reflection_id)
@@ -630,7 +643,7 @@ async def get_reflection(reflection_id: int, user_id: int = Depends(get_current_
     return reflection
 
 @app.put("/api/reflections/{reflection_id}")
-async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_id: int = Depends(get_current_user_id)):
+def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_id: int = Depends(get_current_user_id)):
     """Update a reflection"""
     service = ReflectionService(user_id)
 
@@ -645,7 +658,7 @@ async def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/reflections/{reflection_id}")
-async def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
+def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
     """Delete a reflection"""
     service = ReflectionService(user_id)
 
@@ -681,7 +694,7 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
 
 
 @app.get("/api/journal")
-async def list_journal(user_id: int = Depends(get_current_user_id),
+def list_journal(user_id: int = Depends(get_current_user_id),
                        limit: int = 50, cursor: str | None = None):
     """Return reflections as the frontend `JournalListResponse` (newest first).
 
@@ -713,7 +726,7 @@ async def list_journal(user_id: int = Depends(get_current_user_id),
 
 
 @app.post("/api/journal")
-async def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_current_user_id)):
+def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_current_user_id)):
     """Create a reflection from journal lines/mood and return the `JournalEntry`."""
     service = ReflectionService(user_id)
     content = "\n".join(entry.lines).strip()
@@ -807,13 +820,13 @@ def _connectors_for(user_id: int) -> list:
 
 
 @app.get("/api/user")
-async def get_app_user(user_id: int = Depends(get_current_user_id)):
+def get_app_user(user_id: int = Depends(get_current_user_id)):
     """Return the frontend `User` (profile + app preferences)."""
     return _user_to_contract(user_id)
 
 
 @app.patch("/api/user/preferences")
-async def update_app_preferences(prefs: dict, user_id: int = Depends(get_current_user_id)):
+def update_app_preferences(prefs: dict, user_id: int = Depends(get_current_user_id)):
     """Merge a Partial<UserPreferences> into the app-settings store; return `User`."""
     fields = {_PREF_KEY_MAP[k]: v for k, v in prefs.items() if k in _PREF_KEY_MAP}
     if fields:
@@ -822,7 +835,7 @@ async def update_app_preferences(prefs: dict, user_id: int = Depends(get_current
 
 
 @app.get("/api/knowledge")
-async def list_knowledge(user_id: int = Depends(get_current_user_id)):
+def list_knowledge(user_id: int = Depends(get_current_user_id)):
     """Return the user's themes as the frontend `KnownFact[]`."""
     return [
         {
@@ -837,7 +850,7 @@ async def list_knowledge(user_id: int = Depends(get_current_user_id)):
 
 
 @app.delete("/api/knowledge/{fact_id}")
-async def forget_knowledge(fact_id: int, user_id: int = Depends(get_current_user_id)):
+def forget_knowledge(fact_id: int, user_id: int = Depends(get_current_user_id)):
     """Forget a fact (delete the underlying theme), guarding ownership."""
     theme = db.get_theme_by_id(fact_id)
     if not theme or theme.get("user_id") != user_id:
@@ -847,13 +860,13 @@ async def forget_knowledge(fact_id: int, user_id: int = Depends(get_current_user
 
 
 @app.get("/api/connectors")
-async def list_connectors(user_id: int = Depends(get_current_user_id)):
+def list_connectors(user_id: int = Depends(get_current_user_id)):
     """Return the static connector catalog with persisted per-user states."""
     return _connectors_for(user_id)
 
 
 @app.post("/api/connectors/{connector_id}/{action}")
-async def set_connector_state(connector_id: str, action: str, user_id: int = Depends(get_current_user_id)):
+def set_connector_state(connector_id: str, action: str, user_id: int = Depends(get_current_user_id)):
     """Toggle a connector's state (connect|pause|disconnect) and persist it."""
     if connector_id not in _CONNECTOR_IDS:
         raise HTTPException(status_code=404, detail="Connector not found")
@@ -898,13 +911,13 @@ class OnboardingAnswer(BaseModel):
 
 
 @app.get("/api/onboarding/state")
-async def get_onboarding_state(user_id: int = Depends(get_current_user_id)):
+def get_onboarding_state(user_id: int = Depends(get_current_user_id)):
     """Return the current OnboardingState (step + merged answers)."""
     return _onboarding_state(user_id)
 
 
 @app.post("/api/onboarding/answer")
-async def answer_onboarding(payload: OnboardingAnswer, user_id: int = Depends(get_current_user_id)):
+def answer_onboarding(payload: OnboardingAnswer, user_id: int = Depends(get_current_user_id)):
     """Merge an answer into the stored answers, mirroring name/threads to prefs."""
     s = db.get_app_settings(user_id) or {}
     answers = dict(s.get("onboarding_answers") or {})
@@ -919,7 +932,7 @@ async def answer_onboarding(payload: OnboardingAnswer, user_id: int = Depends(ge
 
 
 @app.post("/api/onboarding/complete")
-async def complete_onboarding(user_id: int = Depends(get_current_user_id)):
+def complete_onboarding(user_id: int = Depends(get_current_user_id)):
     """Mark onboarding complete and return the configured `User`."""
     db.upsert_app_settings(user_id, onboarding_completed=True)
     return _user_to_contract(user_id)
@@ -935,13 +948,13 @@ class InsightSnooze(BaseModel):
 
 
 @app.get("/api/insights")
-async def list_insights(user_id: int = Depends(get_current_user_id)):
+def list_insights(user_id: int = Depends(get_current_user_id)):
     """Return InsightSummary[] from the analytical engines (snoozed/resolved hidden)."""
     return InsightsService(user_id).list_summaries()
 
 
 @app.get("/api/insights/{insight_id}")
-async def get_insight_detail(insight_id: str, user_id: int = Depends(get_current_user_id)):
+def get_insight_detail(insight_id: str, user_id: int = Depends(get_current_user_id)):
     """Return the InsightDetail for one engine-derived insight."""
     detail = InsightsService(user_id).get_detail(insight_id)
     if detail is None:
@@ -951,7 +964,7 @@ async def get_insight_detail(insight_id: str, user_id: int = Depends(get_current
 
 
 @app.post("/api/insights/{insight_id}/snooze")
-async def snooze_insight(insight_id: str, body: InsightSnooze, user_id: int = Depends(get_current_user_id)):
+def snooze_insight(insight_id: str, body: InsightSnooze, user_id: int = Depends(get_current_user_id)):
     """Snooze an insight for N days; returns the updated InsightSummary."""
     service = InsightsService(user_id)
     summary = service.get_summary(insight_id, force_status="snoozed")
@@ -963,7 +976,7 @@ async def snooze_insight(insight_id: str, body: InsightSnooze, user_id: int = De
 
 
 @app.post("/api/insights/{insight_id}/resolve")
-async def resolve_insight(insight_id: str, user_id: int = Depends(get_current_user_id)):
+def resolve_insight(insight_id: str, user_id: int = Depends(get_current_user_id)):
     """Resolve (dismiss) an insight; returns the updated InsightSummary."""
     service = InsightsService(user_id)
     summary = service.get_summary(insight_id, force_status="resolved")
@@ -974,7 +987,7 @@ async def resolve_insight(insight_id: str, user_id: int = Depends(get_current_us
 
 
 @app.post("/api/insights/{insight_id}/suggestions/{suggestion_id}/accept")
-async def accept_insight_suggestion(insight_id: str, suggestion_id: str,
+def accept_insight_suggestion(insight_id: str, suggestion_id: str,
                                     user_id: int = Depends(get_current_user_id)):
     """Accept a suggestion. No server-side action wired this pass (no-op, 204)."""
     return Response(status_code=204)
@@ -1113,14 +1126,14 @@ def _generate_review_letter(user_id, week_start, week_end, mood_avg, mood_delta,
 
 
 @app.get("/api/review/latest")
-async def get_latest_review(user_id: int = Depends(get_current_user_id)):
+def get_latest_review(user_id: int = Depends(get_current_user_id)):
     """ReviewWeek for the most recent 7-day window ending today."""
     week_start = date.today() - timedelta(days=6)
     return _build_review_week(user_id, week_start)
 
 
 @app.get("/api/review/week/{start}")
-async def get_review_week(start: str, user_id: int = Depends(get_current_user_id)):
+def get_review_week(start: str, user_id: int = Depends(get_current_user_id)):
     """ReviewWeek for the 7-day window beginning on the given ISO date."""
     try:
         week_start = date.fromisoformat(start)
@@ -1137,7 +1150,7 @@ async def get_review_week(start: str, user_id: int = Depends(get_current_user_id
 if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
 
     @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
+    def spa_fallback(full_path: str):
         """Return index.html for unknown non-API paths so React Router can route."""
         if full_path.startswith(("api/", "assets/")) or full_path == "health":
             raise HTTPException(status_code=404, detail="Not found")

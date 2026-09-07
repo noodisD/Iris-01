@@ -55,7 +55,11 @@ class Database:
         try:
             self._pool = psycopg2_pool.ThreadedConnectionPool(
                 minconn=1,
-                maxconn=5,
+                # Blocking handlers run in FastAPI's threadpool (40 workers by
+                # default), and a single ingest can hold one connection while
+                # its cache invalidations check out others — so a ceiling of 5
+                # exhausted the pool under very little concurrency.
+                maxconn=20,
                 dbname=settings.POSTGRES_DB,
                 user=settings.POSTGRES_USER,
                 password=settings.POSTGRES_PASSWORD,
