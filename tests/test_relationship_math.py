@@ -105,3 +105,65 @@ def test_a_symmetric_relation_has_no_direction(engine, monkeypatch):
     assert forward == pytest.approx(-backward), (
         f"swapping source and target must invert the lift, got {forward} and {backward}"
     )
+
+
+# --- decision impact must not judge a decision before its window elapses -----
+
+class _StubImpactConfidence:
+    @staticmethod
+    def compute_confidence(*_a, **_k):
+        return {"confidence_level": "high", "confidence_score": 0.9, "data_points_count": 5,
+                "time_coverage_days": 40, "consistency_score": 0.9, "recency_score": 0.9}
+
+
+@pytest.fixture
+def impact_engine(monkeypatch):
+    from agent.decision_impact import DecisionImpactEngine
+
+    eng = DecisionImpactEngine.__new__(DecisionImpactEngine)
+    eng.user_id = 1
+    eng._evidence = []
+    eng.conf_engine = _StubImpactConfidence()
+    eng.ev_engine = type("E", (), {"record_evidence": staticmethod(lambda *a, **k: None)})()
+    monkeypatch.setattr("agent.decision_impact.confidence_repo.create_or_update", lambda *a, **k: None)
+    return eng
+
+
+def test_an_anchor_whose_follow_up_window_has_not_elapsed_is_not_judged(impact_engine, monkeypatch):
+    """The post-anchor rate divided by the full window regardless of how much of
+    it had passed. An anchor from three days ago had 3 days of evidence scored
+    over 14, understating the rate roughly fivefold — so a decision made this
+    week reliably looked like it had reduced the pattern, when nothing had had
+    time to happen yet."""
+    now = utc_now()
+    # A steady target: one occurrence every two days for the last 80 days.
+    # 140 days of history: long enough that the 60-day baseline window of the
+    # oldest anchor is fully covered, otherwise the baseline rate is diluted by
+    # history that does not exist and a steady series looks like a rise.
+    target = [now - timedelta(days=d) for d in range(0, 140, 2)]
+    monkeypatch.setattr(impact_engine, "_get_all_occurrences", lambda *_a: target)
+
+    recent_anchors = [now - timedelta(days=d) for d in (1, 2, 3)]
+    result = impact_engine._calculate_impact(1, recent_anchors, "theme", 2)
+
+    assert result is None or result["effect_direction"] == "none", (
+        f"a decision whose window has not elapsed cannot show an effect, got {result}"
+    )
+
+
+def test_an_elapsed_anchor_over_a_steady_target_shows_no_effect(impact_engine, monkeypatch):
+    """The control: same steady target, anchors old enough to judge."""
+    now = utc_now()
+    # 140 days of history: long enough that the 60-day baseline window of the
+    # oldest anchor is fully covered, otherwise the baseline rate is diluted by
+    # history that does not exist and a steady series looks like a rise.
+    target = [now - timedelta(days=d) for d in range(0, 140, 2)]
+    monkeypatch.setattr(impact_engine, "_get_all_occurrences", lambda *_a: target)
+
+    old_anchors = [now - timedelta(days=d) for d in (40, 50, 60)]
+    result = impact_engine._calculate_impact(1, old_anchors, "theme", 2)
+
+    assert result is not None
+    assert result["effect_direction"] == "none", (
+        f"a steady target should show no effect, got {result['effect_direction']}"
+    )

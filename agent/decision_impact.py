@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from .confidence import ConfidenceEngine
-from .timeutils import to_utc
+from .timeutils import to_utc, utc_now
 from .constants import (
     DECISION_IMPACT_BASELINE_DAYS,
     DECISION_IMPACT_BASELINE_EPSILON,
@@ -156,12 +156,25 @@ class DecisionImpactEngine:
         if len(all_target_occs) < DECISION_IMPACT_MIN_DATA_POINTS:
             return None
 
+        # Only anchors whose follow-up window has fully elapsed can be judged.
+        # The post-anchor rate divides by the whole window, so an anchor from
+        # three days ago had three days of evidence scored over fourteen —
+        # understating the rate roughly fivefold and making almost any recent
+        # decision look like it had reduced the pattern. Right-censored anchors
+        # are excluded rather than estimated from a partial window: with one or
+        # two days elapsed the estimate is noise, and this system's contract is
+        # to report evidence rather than to guess ahead of it.
+        cutoff = utc_now() - timedelta(days=DECISION_IMPACT_WINDOW_DAYS)
+        elapsed_anchors = [t for t in anchor_timestamps if t <= cutoff]
+        if len(elapsed_anchors) < DECISION_IMPACT_MIN_ANCHORS:
+            return None
+
         baseline_rates = []
         post_rates = []
         directions = []
 
         # For each anchor event, compute local delta
-        for t in anchor_timestamps:
+        for t in elapsed_anchors:
             # Baseline window: [t - 60, t)
             b_start = t - timedelta(days=DECISION_IMPACT_BASELINE_DAYS)
             b_count = sum(1 for ts in all_target_occs if b_start <= ts < t)
@@ -211,13 +224,13 @@ class DecisionImpactEngine:
         # Confidence Signal using central engine
         # We pass anchor timestamps as 'evidence' and directions as 'signal'
         self._evidence = [] # Clear buffer
-        conf = self.conf_engine.compute_confidence('impact', anchor_id, anchor_timestamps, directions)
+        conf = self.conf_engine.compute_confidence('impact', anchor_id, elapsed_anchors, directions)
 
         # Emit evidence
         self.emit_evidence('rate', 'avg_baseline_rate', avg_baseline)
         self.emit_evidence('rate', 'avg_post_rate', avg_post)
         self.emit_evidence('delta', 'delta_score', delta)
-        self.emit_evidence('count', 'anchor_count', len(anchor_timestamps))
+        self.emit_evidence('count', 'anchor_count', len(elapsed_anchors))
 
         # Store in central registry
         confidence_repo.create_or_update(

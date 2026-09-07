@@ -58,8 +58,17 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
         db.add_theme_occurrence(t_habit, 'journal_entry', eh, "habit", 0.9, dh.isoformat())
         db.update_theme_stats(t_habit, dh.isoformat())
 
-    # Ensure Stress and Sleep are still ACTIVE (last one at day 105)
-    d_act = start_time + timedelta(days=105)
+    # Ensure Stress and Sleep are still ACTIVE.
+    #
+    # Day 92, not 105. "Now" is day 110, and an anchor occurrence inside the
+    # 14-day follow-up window cannot be judged — its effect has not had time to
+    # appear — so it is excluded from decision-impact analysis. At day 105 this
+    # marker was the newest occurrence, and excluding it dropped the recency of
+    # the *usable* evidence far enough to take those impacts from medium
+    # confidence to low, below the default admission threshold. Day 92 is
+    # outside the follow-up window but still inside the 21-day resolution
+    # window, so the themes remain active for the assertions below.
+    d_act = start_time + timedelta(days=92)
     db.add_theme_occurrence(t_stress, 'journal_entry', 8888, "stress", 0.9, d_act.isoformat())
     db.update_theme_stats(t_stress, d_act.isoformat())
     db.add_theme_occurrence(t_sleep, 'journal_entry', 9999, "sleep", 0.9, d_act.isoformat())
