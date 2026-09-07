@@ -11,7 +11,7 @@ export function JournalScreen() {
   const { data, isLoading, isError, refetch } = useJournal();
   const qc = useQueryClient();
   const [lines, setLines] = React.useState(['', '', '']);
-  const [mood, setMood] = React.useState(6);
+  const [energy, setEnergy] = React.useState(6);
   const [saving, setSaving] = React.useState(false);
 
   if (isLoading) return <LoadingState label="Iris is opening your journal…" />;
@@ -20,7 +20,7 @@ export function JournalScreen() {
   const save = async () => {
     setSaving(true);
     try {
-      await createEntry({ lines: lines.filter(Boolean), mood });
+      await createEntry({ lines: lines.filter(Boolean), energy });
       setLines(['', '', '']);
       qc.invalidateQueries({ queryKey: qk.journal });
     } finally { setSaving(false); }
@@ -40,7 +40,7 @@ export function JournalScreen() {
             <span className="kicker">how is today?</span>
             <div className="row" style={{ gap: 4 }}>
               {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                <button key={n} onClick={() => setMood(n)} style={{ width: 22, height: 22, borderRadius: '50%', border: `1px solid ${n === mood ? 'var(--sage)' : 'var(--line)'}`, background: n === mood ? 'var(--sage)' : 'transparent', color: n === mood ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer', padding: 0 }}>{n}</button>
+                <button key={n} onClick={() => setEnergy(n)} style={{ width: 22, height: 22, borderRadius: '50%', border: `1px solid ${n === energy ? 'var(--sage)' : 'var(--line)'}`, background: n === energy ? 'var(--sage)' : 'transparent', color: n === energy ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer', padding: 0 }}>{n}</button>
               ))}
             </div>
           </div>

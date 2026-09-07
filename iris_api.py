@@ -674,9 +674,12 @@ def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_use
 # ============================================================================
 
 class JournalCreate(BaseModel):
-    """Journal create payload from the frontend (Pick<JournalEntry,'lines'|'mood'>)."""
+    """Journal create payload from the frontend (Pick<JournalEntry,'lines'|'energy'>)."""
     lines: list[str]
-    mood: int | None = None  # 1-10, stored as the reflection's energy_level
+    # Named for what it is. This field used to be called "mood" while carrying
+    # energy_level, so the weekly review reported average energy as "mood" while
+    # reflections.mood — a categorical value inferred from tags — went unsent.
+    energy: int | None = None  # 1-10, stored as the reflection's energy_level
 
 
 def _reflection_to_journal(r: dict, user_id: int) -> dict:
@@ -687,7 +690,7 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         "id": str(r["id"]),
         "userId": str(user_id),
         "lines": content.split("\n"),
-        "mood": r.get("energy_level"),
+        "energy": r.get("energy_level"),
         "tags": r.get("tags") or [],
         "createdAt": _iso(created),
     }
@@ -735,7 +738,7 @@ def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_curren
     try:
         reflection_id = service.create_reflection(
             content=content,
-            energy_level=entry.mood,
+            energy_level=entry.energy,
             tags=[],
         )
     except ValueError as e:
@@ -997,15 +1000,15 @@ def accept_insight_suggestion(insight_id: str, suggestion_id: str,
 # REVIEW ENDPOINTS (single-user; weekly aggregation + LLM letter)
 # ============================================================================
 
-def _mood_word(mood) -> str:
-    """A single-word descriptor for a day's mood (1-10)."""
-    if not mood:
+def _energy_word(energy) -> str:
+    """A single-word descriptor for a day's energy (1-10)."""
+    if not energy:
         return "quiet"
-    if mood >= 8:
+    if energy >= 8:
         return "bright"
-    if mood >= 6:
+    if energy >= 6:
         return "steady"
-    if mood >= 4:
+    if energy >= 4:
         return "mixed"
     return "heavy"
 
@@ -1018,7 +1021,7 @@ def _avg_energy(reflections) -> float:
 def _build_review_week(user_id: int, week_start: date) -> dict:
     """Assemble the frontend `ReviewWeek` from reflections, habits, and themes.
 
-    Sleep/HRV metrics are 0/omitted — there is no body data source (by design)."""
+    Sleep/HRV metrics are absent — there is no body data source (by design)."""
     week_end = week_start + timedelta(days=6)
     service = ReflectionService(user_id)
 
@@ -1027,11 +1030,11 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
         start_date=week_start - timedelta(days=7),
         end_date=week_start - timedelta(days=1),
     )
-    mood_avg = _avg_energy(this_week)
-    mood_delta = round(mood_avg - _avg_energy(prev_week), 1)
+    energy_avg = _avg_energy(this_week)
+    energy_delta = round(energy_avg - _avg_energy(prev_week), 1)
     wins = sum(1 for r in this_week if (r.get("energy_level") or 0) >= 7)
 
-    # Daily mood by date (latest reflection's energy that day).
+    # Daily energy by date (latest reflection's energy that day).
     by_date = {}
     for r in this_week:
         d = r["reflection_date"]
@@ -1040,13 +1043,12 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
     days = []
     for i in range(7):
         d = week_start + timedelta(days=i)
-        mood = by_date.get(d, 0)
+        energy = by_date.get(d, 0)
         days.append({
             "date": d.isoformat(),
             "shortName": d.strftime("%a").lower(),
-            "mood": mood,
-            "sleepHours": 0,
-            "word": _mood_word(mood),
+            "energy": energy,
+            "word": _energy_word(energy),
         })
 
     # Habits hit this week.
@@ -1069,7 +1071,7 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
         lookahead.append({"when": f"Daily {settings['daily_checkin_time']}", "what": "Check-in"})
 
     letter = _generate_review_letter(
-        user_id, week_start, week_end, mood_avg, mood_delta,
+        user_id, week_start, week_end, energy_avg, energy_delta,
         habits_hit, len(habits), wins, themes_list, days,
     )
 
@@ -1078,10 +1080,11 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
         "weekEnd": week_end.isoformat(),
         "letter": letter,
         "metrics": {
-            "moodAvg": mood_avg,
-            "moodDelta": mood_delta,
-            "sleepHoursAvg": 0,
-            "sleepDeltaMin": 0,
+            "energyAvg": energy_avg,
+            "energyDelta": energy_delta,
+            # No sleep or HRV metrics: there is no body data source, and a
+            # metric hardcoded to 0 reads as a measurement of zero rather than
+            # as an absence.
             "habitsHit": habits_hit,
             "habitsTotal": len(habits),
             "winsLogged": wins,
@@ -1095,7 +1098,7 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
     return week
 
 
-def _generate_review_letter(user_id, week_start, week_end, mood_avg, mood_delta,
+def _generate_review_letter(user_id, week_start, week_end, energy_avg, energy_delta,
                             habits_hit, habits_total, wins, themes_list, days) -> str:
     """Write IRIS's weekly letter via the LLM (mocked in tests)."""
     import agent.core as core_module
@@ -1104,12 +1107,12 @@ def _generate_review_letter(user_id, week_start, week_end, mood_avg, mood_delta,
         "user. Write 2-3 warm, grounded paragraphs in second person. Use only the data "
         "provided — do not invent events. No bullet points, no headings."
     )
-    daily = ", ".join(f"{d['shortName']}:{d['mood']}" for d in days)
+    daily = ", ".join(f"{d['shortName']}:{d['energy']}" for d in days)
     prompt = (
         f"Week {week_start.isoformat()} to {week_end.isoformat()}.\n"
-        f"Average mood (1-10): {mood_avg} (change vs last week: {mood_delta}).\n"
+        f"Average energy (1-10): {energy_avg} (change vs last week: {energy_delta}).\n"
         f"Habits hit: {habits_hit} of {habits_total}. Wins logged: {wins}.\n"
-        f"Daily mood: {daily}.\n"
+        f"Daily energy: {daily}.\n"
         f"Recurring themes: {'; '.join(themes_list) if themes_list else 'none yet'}.\n"
         "Write the letter."
     )

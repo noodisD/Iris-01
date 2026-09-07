@@ -117,8 +117,8 @@ export interface JournalEntry {
   userId: ID;
   /** "Three-line" prompts; UI shows 3 but backend should accept N. */
   lines: string[];
-  /** 1–10 self-rated mood at time of entry. */
-  mood?: number;
+  /** 1–10 self-rated energy at time of entry. */
+  energy?: number;
   /** Server-extracted tags; frontend never invents these. */
   tags?: string[];
   irisNote?: string;        // What Iris observed about this entry
@@ -284,14 +284,12 @@ export interface ReviewWeek {
   /** Iris's longform letter, rendered as serif paragraphs in the UI. */
   letter: string;
   metrics: {
-    moodAvg: number;
-    moodDelta: number;
-    sleepHoursAvg: number;
-    sleepDeltaMin: number;
+    energyAvg: number;
+    /** Signed change vs the previous week; render the sign, don't assume "+". */
+    energyDelta: number;
     habitsHit: number;
     habitsTotal: number;
     winsLogged: number;
-    hrvDeltaMs?: number;
   };
   days: ReviewDay[];
   themes: string[];               // up to 3
@@ -303,8 +301,7 @@ export interface ReviewWeek {
 export interface ReviewDay {
   date: ISODate;
   shortName: string;              // "mon"
-  mood: number;                   // 1..10
-  sleepHours: number;
+  energy: number;                 // 1..10
   /** A single word for the day — Iris's choice. */
   word: string;
   /** Optional one-line headline (used in dense layout). */

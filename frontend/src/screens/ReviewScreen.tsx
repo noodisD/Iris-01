@@ -2,6 +2,9 @@ import React from 'react';
 import { useReview } from '@/hooks/useData';
 import { LoadingState, ErrorState } from '@/components/states';
 
+/** Render a delta with its real sign — a hardcoded '+' turned -1.2 into '+-1.2'. */
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+
 /** Cinematic weekly review — Iris's letter + numbers + word-poem. */
 export function ReviewScreen() {
   const { data, isLoading, isError, refetch } = useReview();
@@ -31,11 +34,9 @@ export function ReviewScreen() {
 
         <div className="row" style={{ gap: 48, marginTop: 64, padding: '32px 56px 0', borderTop: '1px dashed var(--line)', maxWidth: 760, width: '100%' }}>
           {[
-            { v: m.moodAvg.toFixed(1), l: `mood · +${m.moodDelta}`, c: 'var(--sage)' },
-            { v: m.sleepHoursAvg.toFixed(1) + 'h', l: `sleep · +${m.sleepDeltaMin}m`, c: 'var(--indigo)' },
+            { v: m.energyAvg.toFixed(1), l: `energy · ${signed(m.energyDelta)}`, c: 'var(--sage)' },
             { v: `${m.habitsHit}/${m.habitsTotal}`, l: 'habits hit', c: 'var(--ink)' },
             { v: String(m.winsLogged), l: 'wins logged', c: 'var(--amber)' },
-            ...(m.hrvDeltaMs != null ? [{ v: `+${m.hrvDeltaMs}ms`, l: 'hrv · air', c: 'var(--sage)' }] : []),
           ].map((s, i) => (
             <div key={i} className="col" style={{ gap: 2 }}>
               <span className="numerals" style={{ fontSize: 40, color: s.c }}>{s.v}</span>
@@ -49,7 +50,7 @@ export function ReviewScreen() {
         <div className="kicker" style={{ marginBottom: 24, textAlign: 'center' }}>· seven words for seven days ·</div>
         <div className="row" style={{ justifyContent: 'space-between', gap: 14, maxWidth: 1080, margin: '0 auto', alignItems: 'flex-end' }}>
           {data.days.map((d, i) => {
-            const intensity = d.mood / 10;
+            const intensity = d.energy / 10;
             return (
               <div key={i} className="col" style={{ alignItems: 'center', gap: 10, flex: 1 }}>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{d.shortName}</span>

@@ -1,7 +1,7 @@
 """
 API contract tests for the review slice.
 
-Seeds reflections (mood) + a habit completion in the current week, then asserts
+Seeds reflections (energy) + a habit completion in the current week, then asserts
 the frontend's ReviewWeek shape. The longform letter is LLM-generated, so tests
 run under mock_llm (the letter is asserted as a non-empty string, not by content)
 to stay deterministic and cost-free. Single-user auth overridden to test_user.
@@ -40,7 +40,7 @@ def test_review_latest_returns_contract(client, seeded_week):
     for key in ("weekStart", "weekEnd", "letter", "metrics", "days", "themes", "lookahead"):
         assert key in week, f"missing {key}"
     assert isinstance(week["letter"], str) and week["letter"]
-    for key in ("moodAvg", "moodDelta", "sleepHoursAvg", "sleepDeltaMin",
+    for key in ("energyAvg", "energyDelta",
                 "habitsHit", "habitsTotal", "winsLogged"):
         assert key in week["metrics"], f"missing metric {key}"
 
@@ -49,7 +49,7 @@ def test_review_days_and_themes_shape(client, seeded_week):
     week = client.get("/api/review/latest").json()
     assert len(week["days"]) == 7
     for d in week["days"]:
-        for key in ("date", "shortName", "mood", "sleepHours", "word"):
+        for key in ("date", "shortName", "energy", "word"):
             assert key in d, f"missing day field {key}"
     assert isinstance(week["themes"], list)
     assert len(week["themes"]) <= 3

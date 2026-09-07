@@ -59,7 +59,7 @@ def test_journal_entries_through_the_api_produce_a_theme(client, test_user, mock
     # PERSISTENCE_MIN_CLUSTER_SIZE is 5, so five related entries is the floor
     # at which a proto-theme may form.
     for i in range(5):
-        r = client.post("/api/journal", json={"lines": [f"Work Stress keeps building, day {i}"], "mood": 4})
+        r = client.post("/api/journal", json={"lines": [f"Work Stress keeps building, day {i}"], "energy": 4})
         assert r.status_code == 200, r.text
 
     themes = _themes_for(user_id)

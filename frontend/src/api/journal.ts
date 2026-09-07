@@ -11,6 +11,6 @@ export async function listJournal(cursor?: string): Promise<JournalListResponse>
   return api.get(`/journal${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
 }
 
-export async function createEntry(input: Pick<JournalEntry, 'lines' | 'mood'>): Promise<JournalEntry> {
+export async function createEntry(input: Pick<JournalEntry, 'lines' | 'energy'>): Promise<JournalEntry> {
   return api.post('/journal', input);
 }
