@@ -107,18 +107,32 @@ class TensionEngine:
         occurrences_a = themes.get_occurrences(theme_a_id)
         occurrences_b = themes.get_occurrences(theme_b_id)
 
-        # Find co-occurrences (same source_id means same journal entry)
+        # Co-occurrence means the two themes were both active in the same
+        # period — one day here.
+        #
+        # This used to require the same *entry* to belong to both themes, which
+        # cannot happen: check_persistence stops at the first theme above
+        # threshold ("one entry -> one theme max") and discovery assigns each
+        # embedding to exactly one cluster. The count was therefore always zero
+        # and the tension engine could never fire. Every other statement of what
+        # tension means already said period: CONTEXT.md defines
+        # co_occurrence_count as "# of overlapping windows", and the narrative
+        # this engine prints reads "appeared during the same periods".
+        #
+        # A day is counted once however busy it was, so a single dense day
+        # cannot stand in for a sustained pattern.
+        days_b = {to_utc(occ["occurred_at"]).date() for occ in occurrences_b}
+        seen_days = set()
         cooccurrences = []
         for occ_a in occurrences_a:
-            for occ_b in occurrences_b:
-                if (occ_a["source_type"] == occ_b["source_type"] and
-                    occ_a["source_id"] == occ_b["source_id"]):
-                    # Same entry, so they co-occur
-                    cooccurrences.append({
-                        "occurred_at": occ_a["occurred_at"],
-                        "source_type": occ_a["source_type"],
-                        "source_id": occ_a["source_id"]
-                    })
+            day = to_utc(occ_a["occurred_at"]).date()
+            if day in days_b and day not in seen_days:
+                seen_days.add(day)
+                cooccurrences.append({
+                    "occurred_at": occ_a["occurred_at"],
+                    "source_type": occ_a["source_type"],
+                    "source_id": occ_a["source_id"],
+                })
 
         # Calculate time windows
         recent_start, baseline_end, baseline_start = self._get_time_windows()
