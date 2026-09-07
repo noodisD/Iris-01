@@ -60,12 +60,11 @@ When a design decision affects multiple modules or represents a long-term choice
 - Architectural reviews don't re-litigate settled decisions
 - New contributors understand the project's philosophy
 
-## Getting started
+## Current state
 
-1. Create `CONTEXT.md` at the repo root with a glossary of IRIS's domain terms (themes, resolutions, tensions, etc.)
-2. Create `docs/adr/` directory
-3. Create `docs/adr/ADR-0000-TEMPLATE.md` (see sample below)
-4. Document any architectural decisions as ADRs
+Both inputs exist: `CONTEXT.md` at the repo root holds the domain glossary, and
+`docs/adr/` holds the template plus ADR-0001 onward. Read `docs/adr/README.md`
+for the index.
 
 ### Sample ADR-0000-TEMPLATE.md
 
