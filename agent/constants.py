@@ -39,6 +39,12 @@ RESOLUTION_RECENT_DAYS = 21         # Longer window (3 weeks) to confirm silence
 RESOLUTION_BASELINE_DAYS = 90       # Look back 3 months to establish a baseline
 RESOLUTION_DELTA_EPSILON = 0.05     # Threshold for "stable" vs "changing" (5% deviation)
 RESOLUTION_MIN_DATA_POINTS = 3      # Minimum occurrences to even attempt classification
+# Resolution compares a rolling recent window against a rolling baseline, so the
+# answer changes as time passes even when no new data arrives — a theme goes
+# quiet and becomes 'dissipated' by the calendar alone. A cached verdict is
+# therefore only good for a day; without this, a non-null computation timestamp
+# counted as fresh forever and a 2020 verdict could be served in 2026.
+RESOLUTION_CACHE_TTL_HOURS = 24
 
 # Leverage Engine Configuration
 LEVERAGE_WINDOW_DAYS = 60          # Timeframe to analyze influence (last 2 months)

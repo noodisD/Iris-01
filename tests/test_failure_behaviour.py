@@ -118,3 +118,83 @@ def test_deleting_a_reflection_removes_its_evidence(test_user, mock_pipeline_log
             (reflection_id,),
         )
         assert cur.fetchone()[0] == 0, "the occurrence must go with the entry"
+
+
+# --- caches must not outlive the question they answer -----------------------
+
+def test_a_stale_resolution_verdict_is_recomputed(test_user, mock_pipeline_logic):
+    """Resolution compares a rolling recent window against a rolling baseline,
+    so the same data yields a different answer as weeks pass. A cached verdict
+    used to count as fresh forever if its timestamp was non-null, so a verdict
+    computed years ago could still be served today."""
+    from datetime import timedelta
+
+    from agent.database import themes
+    from agent.resolution import ResolutionEngine
+    from agent.timeutils import utc_now
+
+    now = utc_now()
+    theme_id = themes.create_theme(
+        user_id=test_user["id"], centroid_embedding=[0.2] * 1536, summary="TTL Theme",
+        first_seen_at=(now - timedelta(days=80)).isoformat(), last_seen_at=now.isoformat(),
+        occurrence_count=0,
+    )
+    for i in range(6):
+        themes.add_occurrence(
+            theme_id=theme_id, source_type="reflection", source_id=950000 + i,
+            snippet=f"x{i}", similarity_score=0.9,
+            occurred_at=(now - timedelta(days=40 + i)).isoformat(),
+        )
+
+    engine = ResolutionEngine(test_user["id"])
+    fresh = engine.analyze_theme(theme_id, force_recompute=True)
+
+    # Backdate the cache far past its TTL and corrupt the label, so serving it
+    # would be unmistakable.
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE pattern_resolutions SET resolution_label = 'STALE-VERDICT',
+               last_computed_at = now() - interval '400 days'
+               WHERE pattern_type = 'theme' AND pattern_id = %s;""",
+            (theme_id,),
+        )
+        conn.commit()
+
+    assert engine.analyze_theme(theme_id)["resolution_label"] == fresh["resolution_label"], (
+        "a cache older than its TTL must be recomputed, not served"
+    )
+
+
+def test_a_recent_resolution_verdict_is_still_served(test_user, mock_pipeline_logic):
+    """The TTL must not turn the cache off altogether."""
+    from datetime import timedelta
+
+    from agent.database import themes
+    from agent.resolution import ResolutionEngine
+    from agent.timeutils import utc_now
+
+    now = utc_now()
+    theme_id = themes.create_theme(
+        user_id=test_user["id"], centroid_embedding=[0.3] * 1536, summary="Warm Theme",
+        first_seen_at=(now - timedelta(days=80)).isoformat(), last_seen_at=now.isoformat(),
+        occurrence_count=0,
+    )
+    for i in range(6):
+        themes.add_occurrence(
+            theme_id=theme_id, source_type="reflection", source_id=960000 + i,
+            snippet=f"y{i}", similarity_score=0.9,
+            occurred_at=(now - timedelta(days=40 + i)).isoformat(),
+        )
+
+    engine = ResolutionEngine(test_user["id"])
+    engine.analyze_theme(theme_id, force_recompute=True)
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE pattern_resolutions SET resolution_label = 'CACHED-VALUE'
+               WHERE pattern_type = 'theme' AND pattern_id = %s;""",
+            (theme_id,),
+        )
+        conn.commit()
+
+    assert engine.analyze_theme(theme_id)["resolution_label"] == "CACHED-VALUE"

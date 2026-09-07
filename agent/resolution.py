@@ -18,6 +18,7 @@ from .confidence import ConfidenceEngine
 from .timeutils import to_utc, utc_now
 from .constants import (
     RESOLUTION_BASELINE_DAYS,
+    RESOLUTION_CACHE_TTL_HOURS,
     RESOLUTION_DELTA_EPSILON,
     RESOLUTION_MIN_DATA_POINTS,
     RESOLUTION_RECENT_DAYS,
@@ -41,6 +42,20 @@ class ResolutionEngine:
         self.conf_engine = ConfidenceEngine()
         self.ev_engine = EvidenceEngine()
         self._evidence = []
+
+    @staticmethod
+    def _cache_is_fresh(last_computed_at) -> bool:
+        """A cached verdict is valid only for RESOLUTION_CACHE_TTL_HOURS.
+
+        A null timestamp means explicitly invalidated. Any other value used to
+        count as fresh indefinitely, which is wrong for a rolling window: the
+        same data yields a different answer tomorrow, so a verdict that is never
+        recomputed stops describing the present.
+        """
+        if last_computed_at is None:
+            return False
+        age = utc_now() - to_utc(last_computed_at)
+        return age <= timedelta(hours=RESOLUTION_CACHE_TTL_HOURS)
 
     def emit_evidence(self, ev_type: str, key: str, value: Any):
         """Buffers evidence for later persistence."""
@@ -66,7 +81,7 @@ class ResolutionEngine:
                 logger.debug(f"  last_computed_at value: {cached.get('last_computed_at')}")
                 logger.debug(f"  last_computed_at is not None: {cached.get('last_computed_at') is not None}")
 
-            if cached and cached.get('last_computed_at') is not None:
+            if cached and self._cache_is_fresh(cached.get('last_computed_at')):
                 logger.debug(f"Resolution cache HIT for theme {theme_id}: label={cached.get('resolution_label')}")
                 # Add theme summary for convenience
                 theme = themes.get_theme(theme_id)

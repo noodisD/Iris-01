@@ -28,7 +28,7 @@ from .constants import (
 from .database import confidence as confidence_repo
 
 # Import database and constants
-from .database import themes, trajectories
+from .database import themes
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -159,16 +159,14 @@ class TrajectoryEngine:
         # Store in evidence registry
         self.ev_engine.record_evidence('trajectory', 'theme', theme_id, self._evidence)
 
-        # Store in theme_trajectories cache
-        trajectories.create_or_update(
-            theme_id=theme_id,
-            trajectory_label=trajectory_label,
-            trend_score=trend_slope,
-            recent_count=len(recent_occurrences),
-            past_count=len(past_occurrences),
-            confidence_level=confidence_level,
-            data_points_count=len(occurrences)
-        )
+        # theme_trajectories is deliberately not written. Nothing read it —
+        # analyze_theme always recomputes, and no other caller exists — so every
+        # analysis paid for a write whose result was never used, while the
+        # table's presence implied a caching model the engine did not have. The
+        # rule now is: cache only where there is a reader, and never without an
+        # expiry. Resolution keeps its cache (it is read, and now expires);
+        # trajectory has none. The empty table stays until there is a migration
+        # tool to drop it.
 
         return {
             "theme_id": theme_id,
