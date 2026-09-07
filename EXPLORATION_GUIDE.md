@@ -118,7 +118,8 @@ These 6 modules answer specific questions about patterns. Study them in this ord
 
 **Files:**
 1. `agent/resolution.py` (290 lines)
-   - Entry point: `ResolutionEngine.analyze_theme(theme_id)` and `format_for_context()`
+   - Entry point: `ResolutionEngine.analyze_theme(theme_id)`; the LLM context is
+     assembled by `NarrativeFormatter.format_all` in `core.py`, not by the engines
    - Learn: gap detection, attenuation scoring
    - Key logic in `_classify_resolution()`:
      - Dissipated: past_count ≥ 3, recent_count == 0

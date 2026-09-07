@@ -577,38 +577,6 @@ Theme summary:"""
 
     # === Context for LLM ===
 
-    def format_for_context(self, max_themes: int = 5) -> str:
-        """
-        Formats recurring themes for injection into LLM context.
-
-        Args:
-            max_themes: Maximum themes to include
-
-        Returns:
-            Formatted string for system prompt injection, or empty if no themes
-        """
-        themes = self.get_persistent_themes(min_occurrences=2)
-        if not themes:
-            return ""
-
-        themes = themes[:max_themes]
-
-        lines = ["# What Keeps Coming Back:"]
-        for theme in themes:
-            count = theme["occurrence_count"]
-            summary = theme["summary"]
-
-            # Handle both datetime objects and strings
-            last_seen = theme["last_seen_at"]
-            if isinstance(last_seen, datetime):
-                last = last_seen.strftime("%Y-%m-%d")
-            else:
-                last = str(last_seen).split("T")[0]
-
-            lines.append(f'- "{summary}" ({count} times, last: {last})')
-
-        return "\n".join(lines)
-
     # === Private Helpers ===
 
     def _get_user_themes(self) -> list[dict]:

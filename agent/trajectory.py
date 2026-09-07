@@ -217,35 +217,6 @@ class TrajectoryEngine:
         significant.sort(key=lambda x: abs(x["trend_score"]), reverse=True)
         return significant
 
-    def format_for_context(self, max_items: int = 5) -> str:
-        """
-        Formats trajectory insights for LLM context injection.
-        
-        Args:
-            max_items: Maximum number of items to include
-            
-        Returns:
-            Formatted string for system prompt injection
-        """
-        significant = self.get_significant_changes()[:max_items]
-
-        if not significant:
-            return ""
-
-        lines = ["# Long-Term Trends:"]
-        for item in significant:
-            summary = item["theme_summary"]
-            label = item["trajectory_label"]
-
-            if label == "increasing":
-                lines.append(f"- \"{summary}\" is increasing in frequency")
-            elif label == "fading":
-                lines.append(f"- \"{summary}\" is fading")
-            elif label == "emerging":
-                lines.append(f"- \"{summary}\" is emerging recently")
-
-        return "\n".join(lines)
-
     #: Occurrences are bucketed this wide before the rate is regressed. A week
     #: is the natural cadence for habits and reflections.
     TREND_BIN_DAYS = 7

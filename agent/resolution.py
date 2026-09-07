@@ -188,37 +188,6 @@ class ResolutionEngine:
         all_themes = themes.get_all_themes(self.user_id)
         return [self.analyze_theme(t['id']) for t in all_themes]
 
-    def format_for_context(self, max_items: int = 3) -> str:
-        """
-        Formats resolution insights for LLM context injection.
-        Only includes high/medium confidence dissipated or reappearing patterns.
-        """
-        resolutions = self.analyze_all_themes()
-
-        # Filter for high/medium confidence and interesting labels
-        significant = [
-            r for r in resolutions
-            if r['confidence_level'] in ['high', 'medium']
-            and r['resolution_label'] in ['dissipated', 'reappearing']
-        ]
-
-        if not significant:
-            return ""
-
-        significant = significant[:max_items]
-
-        lines = ["# Observed Patterns:"]
-        for res in significant:
-            summary = res['summary']
-            label = res['resolution_label']
-
-            if label == 'dissipated':
-                lines.append(f"- The theme '{summary}' appeared frequently in the past but has not appeared in the last {RESOLUTION_RECENT_DAYS} days.")
-            elif label == 'reappearing':
-                lines.append(f"- The theme '{summary}' has reappeared recently after a period of absence.")
-
-        return "\n".join(lines)
-
     # --- Private Helpers ---
 
     def _get_time_windows(self) -> tuple[datetime, datetime, datetime]:

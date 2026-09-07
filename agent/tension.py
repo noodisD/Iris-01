@@ -533,27 +533,3 @@ class TensionEngine:
         # Sort by stability and co-occurrence count
         significant.sort(key=lambda x: (x["stability_score"], x["cooccurrence_count"]), reverse=True)
         return significant
-
-    def format_for_context(self, max_items: int = 3) -> str:
-        """
-        Format significant tensions for LLM context injection.
-        
-        Args:
-            max_items: Maximum number of items to include
-            
-        Returns:
-            Formatted string for system prompt injection
-        """
-        significant = self.get_significant_tensions()[:max_items]
-
-        if not significant:
-            return ""
-
-        lines = ["# Theme Tensions:"]
-        for item in significant:
-            summary_a = item["theme_a_summary"]
-            summary_b = item["theme_b_summary"]
-
-            lines.append(f"- \"{summary_a}\" and \"{summary_b}\" frequently appear together and show different recent activity patterns")
-
-        return "\n".join(lines)

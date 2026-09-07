@@ -180,35 +180,6 @@ class LeverageEngine:
             "confidence_level": confidence
         }
 
-    def format_for_context(self, max_items: int = 3) -> str:
-        """
-        Formats top high-leverage patterns for LLM context injection.
-        """
-        from .resolution import ResolutionEngine
-        res_engine = ResolutionEngine(self.user_id)
-        resolutions = {r['theme_id']: r for r in res_engine.analyze_all_themes()}
-
-        sources = leverage_repo.get_high_leverage_sources(self.user_id, min_confidence='medium')
-
-        filtered_sources = []
-        for s in sources:
-            res = resolutions.get(s['source_id'])
-            if res and res['resolution_label'] == 'dissipated' and res['confidence_level'] == 'high':
-                continue
-            filtered_sources.append(s)
-
-        if not filtered_sources:
-            return ""
-
-        filtered_sources = filtered_sources[:max_items]
-
-        lines = ["# Observed Structural Drivers:"]
-        for s in filtered_sources:
-            summary = s['summary']
-            lines.append(f"- Pattern '{summary}' frequently precedes several other patterns in your recent history.")
-
-        return "\n".join(lines)
-
     # --- Private Helpers ---
 
     def _get_active_themes(self) -> list[dict]:

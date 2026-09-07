@@ -229,11 +229,55 @@ class PersonalAICompanion:
 
         # 7. Final Assembly
         header = "# Observed Structural Patterns & Observed Temporal Sequences:"
-        # Ensure bulleted list
-        bulleted_narratives = [f"- {n}" for n in narratives]
-        body = "\n".join(bulleted_narratives) if narratives else "No significant patterns observed recently."
+        body = self._format_pattern_body(narratives, suppression_log, prefs)
 
         return f"# Relevant Long-Term Memory:\n{memories}\n\n# Recent Journal Entries & Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
+
+    @staticmethod
+    def _format_pattern_body(narratives: list[str], suppression_log: dict, prefs: dict) -> str:
+        """Render the patterns block, distinguishing *nothing to say* from
+        *something was filtered out*.
+
+        This block used to read "No significant patterns observed recently."
+        whenever it was empty — whether the engines had found nothing or the
+        user's own confidence threshold had removed everything. Those are
+        different facts and the model could not tell them apart, so it would
+        tell someone nothing was happening when IRIS had observations their own
+        setting had hidden. That became reachable the moment the gates were
+        exposed in Settings.
+
+        Only the user's own filters are reported. The budget cut and conflict
+        suppression are the system's own limits, not a claim about what is true
+        (ADR-0007), so mentioning them would invite IRIS to talk about its
+        plumbing.
+        """
+        by_user = (
+            len(suppression_log.get("low_confidence", []))
+            + len(suppression_log.get("engine_disabled", []))
+        )
+
+        noun = "observation" if by_user == 1 else "observations"
+        verb = "was" if by_user == 1 else "were"
+
+        if narratives:
+            body = "\n".join(f"- {n}" for n in narratives)
+            if by_user:
+                body += (
+                    f"\n(Also: {by_user} further {noun} {verb} held back by the user's "
+                    "own settings, so this list is not everything IRIS has.)"
+                )
+            return body
+
+        if by_user:
+            return (
+                f"No observations passed the user's own filters: {by_user} {noun} {verb} "
+                f"held back by their minimum-confidence setting "
+                f"('{prefs.get('min_confidence')}') or by an engine they switched off. "
+                "This is not the same as there being nothing to report — do not tell "
+                "them nothing is happening."
+            )
+
+        return "No patterns observed yet — there is not enough logged history."
 
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""

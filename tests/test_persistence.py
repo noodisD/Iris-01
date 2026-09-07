@@ -101,29 +101,3 @@ def test_discover_themes(engine, mocker):
     assert new_themes[0]["summary"] == "Discovered Theme"
     # The occurrence count depends on how many vectors were clustered together
     assert new_themes[0]["occurrence_count"] > 0, "Should have at least one occurrence"
-
-def test_format_for_context(engine, mocker):
-    """Test formatting themes for LLM context."""
-    mock_themes = [
-        {
-            "id": 1,
-            "summary": "Theme A",
-            "occurrence_count": 5,
-            "first_seen_at": "2024-01-01T00:00:00Z",
-            "last_seen_at": "2024-01-10T00:00:00Z"
-        },
-        {
-            "id": 2,
-            "summary": "Theme B",
-            "occurrence_count": 2,
-            "first_seen_at": "2024-01-05T00:00:00Z",
-            "last_seen_at": "2024-01-06T00:00:00Z"
-        }
-    ]
-    mocker.patch.object(engine, "get_persistent_themes", return_value=mock_themes)
-
-    context = engine.format_for_context()
-
-    assert "# What Keeps Coming Back:" in context
-    assert 'Theme A" (5 times, last: 2024-01-10)' in context
-    assert 'Theme B" (2 times, last: 2024-01-06)' in context

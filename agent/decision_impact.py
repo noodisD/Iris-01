@@ -110,39 +110,6 @@ class DecisionImpactEngine:
 
         return impacts
 
-    def format_for_context(self, max_items: int = 3) -> str:
-        """
-        Formats high-confidence positive impacts for LLM context.
-        Strictly descriptive language.
-        """
-        # Get significant impacts (medium/high confidence)
-        impacts = decision_impacts.get_significant_impacts(self.user_id, min_confidence='medium')
-
-        # Filter: High confidence only for context, and NO negative deltas (decreases)
-        # to avoid negative narrative framing by the LLM.
-        filtered = [
-            i for i in impacts
-            if i['confidence_level'] == 'high'
-            and i['effect_direction'] in ['increase', 'emergence']
-        ]
-
-        if not filtered:
-            return ""
-
-        filtered = filtered[:max_items]
-
-        lines = ["# Observed Temporal Sequences:"]
-        for imp in filtered:
-            anchor = imp['anchor_summary']
-            target = imp['target_summary']
-
-            if imp['effect_direction'] == 'emergence':
-                lines.append(f"- Following occurrences of '{anchor}', the pattern '{target}' appeared recently where it was previously absent.")
-            else:
-                lines.append(f"- Following occurrences of '{anchor}', the pattern '{target}' appeared more frequently in the subsequent {DECISION_IMPACT_WINDOW_DAYS} days.")
-
-        return "\n".join(lines)
-
     # --- Private Calculation Logic ---
 
     def _calculate_impact(self, anchor_id: int, anchor_timestamps: list[datetime],
