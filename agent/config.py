@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     # System
     LOG_LEVEL: str = Field(default="INFO")
+    # Uploads, extracted exports and kept audio. Relative paths resolve against
+    # the project root; `data/` is already gitignored.
+    DATA_DIR: str = Field(default="data")
 
     # API Keys (Required in Prod)
     OPENAI_API_KEY: str = Field(default="your_openai_api_key_here")

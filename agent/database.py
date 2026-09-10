@@ -2062,8 +2062,16 @@ class Database:
     # ============================================================================
 
     def create_reflection(self, user_id: int, content: str, reflection_date = None,
-                         mood: str = None, energy_level: int = None, clarity_level: int = None, tags: list = None) -> int:
-        """Creates a new reflection and returns its ID."""
+                         mood: str = None, energy_level: int = None, clarity_level: int = None,
+                         tags: list = None, source: str = 'app',
+                         content_hash: str = None, audio_path: str = None) -> int:
+        """Creates a new reflection and returns its ID.
+
+        `source`, `content_hash` and `audio_path` carry provenance for entries
+        that did not originate in the app. They default so the existing callers
+        are unaffected — in particular content_hash stays NULL for anything
+        typed here, which keeps those rows outside the de-duplication index.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 from datetime import date
@@ -2072,10 +2080,13 @@ class Database:
 
                 cur.execute(
                     """
-                    INSERT INTO reflections (user_id, reflection_date, content, mood, energy_level, clarity_level, tags)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                    INSERT INTO reflections (user_id, reflection_date, content, mood,
+                                             energy_level, clarity_level, tags,
+                                             source, content_hash, audio_path)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
-                    (user_id, reflection_date, content, mood, energy_level, clarity_level, Json(tags) if tags else None)
+                    (user_id, reflection_date, content, mood, energy_level, clarity_level,
+                     Json(tags) if tags else None, source, content_hash, audio_path)
                 )
                 reflection_id = cur.fetchone()[0]
                 conn.commit()

@@ -48,7 +48,10 @@ class ReflectionService:
         reflection_date: date | None = None,
         energy_level: int | None = None,
         clarity_level: int | None = None,
-        tags: list[str] | None = None
+        tags: list[str] | None = None,
+        source: str = 'app',
+        content_hash: str | None = None,
+        audio_path: str | None = None,
     ) -> int:
         """Create a new reflection. Returns reflection ID."""
         if not content or not content.strip():
@@ -70,7 +73,10 @@ class ReflectionService:
             mood,
             energy_level,
             clarity_level,
-            tags
+            tags,
+            source,
+            content_hash,
+            audio_path,
         )
 
         # The reflection is stored. Turning it into evidence is queued, so a

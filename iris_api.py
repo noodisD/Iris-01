@@ -16,11 +16,14 @@ logger = logging.getLogger("iris_api")
 
 import json
 import os
+import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,6 +40,7 @@ try:
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
+    from agent.importing.service import ImportError_, ImportService
     from agent.work_queue import worker as queue_worker
     from agent import migrations
 
@@ -52,6 +56,10 @@ except Exception as e:
 # Built single-page app (Vite output), served by this same process in production.
 # In dev the Vite server on :5173 proxies /api here instead, so this stays unused.
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+
+# Matches the archive extractor's own budget, so an upload that could never be
+# unpacked is refused before it is written to disk rather than after.
+MAX_IMPORT_UPLOAD_BYTES = 2 * 1024**3
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -843,6 +851,211 @@ def update_app_preferences(prefs: dict, user_id: int = Depends(get_current_user_
     if fields:
         db.upsert_app_settings(user_id, **fields)
     return _user_to_contract(user_id)
+
+
+# ============================================================================
+# IMPORT ENDPOINTS (bringing existing writing in from other tools)
+# ============================================================================
+
+
+def _batch_to_contract(batch: dict) -> dict:
+    counts = batch.get("counts") or {}
+    return {
+        "id": str(batch["id"]),
+        "kind": batch["kind"],
+        "adapter": batch.get("adapter"),
+        "detected": batch.get("detected") or [],
+        "originalFilename": batch.get("original_filename"),
+        "status": batch["status"],
+        "error": batch.get("error"),
+        "entryCount": batch.get("entry_count") or 0,
+        "committedCount": batch.get("committed_count") or 0,
+        "createdAt": _iso(batch["created_at"]),
+        "counts": {
+            "total": counts.get("total", 0),
+            "staged": counts.get("staged", 0),
+            "excluded": counts.get("excluded", 0),
+            "duplicate": counts.get("duplicate", 0),
+            "imported": counts.get("imported", 0),
+            "failed": counts.get("failed", 0),
+            # The number that decides whether a commit is allowed at all.
+            "needsDate": counts.get("needs_date", 0),
+            "earliest": counts["earliest"].isoformat() if counts.get("earliest") else None,
+            "latest": counts["latest"].isoformat() if counts.get("latest") else None,
+        },
+    }
+
+
+def _item_to_contract(item: dict) -> dict:
+    return {
+        "id": str(item["id"]),
+        "sourceName": item.get("source_name"),
+        "title": item.get("title"),
+        # Enough to recognise the entry in a list without shipping the archive.
+        "excerpt": (item.get("content") or "")[:280],
+        "occurredOn": item["entry_date"].isoformat() if item.get("entry_date") else None,
+        "dateSource": item.get("date_source"),
+        "dateConfidence": item.get("date_confidence"),
+        "status": item["status"],
+        "warnings": item.get("warnings") or [],
+        "hasAudio": bool(item.get("audio_path")),
+        "error": item.get("error"),
+    }
+
+
+@app.get("/api/import/adapters")
+def list_import_adapters(user_id: int = Depends(get_current_user_id)):
+    """The formats IRIS can read. Served from the registry so the UI cannot
+    drift from what actually exists."""
+    from agent.importing import REGISTRY
+
+    return [{"name": a.name, "label": a.label, "description": a.description}
+            for a in REGISTRY]
+
+
+@app.post("/api/import/batches")
+async def create_import_batch(
+    file: UploadFile = File(...),
+    adapter: str | None = Form(None),
+    kind: str = Form("text"),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Accept an upload and stage what it contains for review.
+
+    Async because it genuinely awaits the upload. Streamed to disk in chunks
+    rather than `await file.read()`, which would hold an entire export in memory.
+    Everything after the bytes land is blocking, so it goes to the threadpool.
+    """
+    staging = Path(tempfile.mkdtemp(prefix="iris-upload-"))
+    destination = staging / (Path(file.filename or "upload").name or "upload")
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_IMPORT_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="That file is larger than the import limit (2 GB).",
+                    )
+                out.write(chunk)
+
+        service = ImportService(user_id)
+        batch = await run_in_threadpool(
+            service.create_batch, destination, file.filename or "upload", kind, adapter
+        )
+        return _batch_to_contract(batch)
+    except ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+@app.get("/api/import/batches")
+def list_import_batches(user_id: int = Depends(get_current_user_id)):
+    return [_batch_to_contract(b) for b in ImportService(user_id).list_batches()]
+
+
+@app.get("/api/import/batches/{batch_id}")
+def get_import_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+    try:
+        return _batch_to_contract(ImportService(user_id).get_batch(batch_id))
+    except ImportError_ as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/import/batches/{batch_id}/entries")
+def list_import_entries(batch_id: int, status: str | None = None,
+                        limit: int = 500, offset: int = 0,
+                        user_id: int = Depends(get_current_user_id)):
+    try:
+        items = ImportService(user_id).list_items(batch_id, status, limit, offset)
+    except ImportError_ as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"entries": [_item_to_contract(i) for i in items]}
+
+
+class ImportEntryUpdate(BaseModel):
+    """Corrections the owner makes during review."""
+    occurredOn: str | None = None
+    status: str | None = None
+    content: str | None = None
+
+
+@app.patch("/api/import/entries/{entry_id}")
+def update_import_entry(entry_id: int, update: ImportEntryUpdate,
+                        user_id: int = Depends(get_current_user_id)):
+    occurred = None
+    if update.occurredOn:
+        try:
+            occurred = date.fromisoformat(update.occurredOn)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD.")
+    try:
+        item = ImportService(user_id).update_item(
+            entry_id, entry_date=occurred, status=update.status, content=update.content
+        )
+    except ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _item_to_contract(item)
+
+
+class ImportBulk(BaseModel):
+    ids: list[int]
+    op: str                       # 'exclude' | 'include' | 'set_date'
+    occurredOn: str | None = None
+
+
+@app.post("/api/import/entries/bulk")
+def bulk_update_import_entries(payload: ImportBulk,
+                               user_id: int = Depends(get_current_user_id)):
+    occurred = None
+    if payload.occurredOn:
+        try:
+            occurred = date.fromisoformat(payload.occurredOn)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD.")
+    try:
+        updated = ImportService(user_id).bulk(payload.ids, payload.op, occurred)
+    except ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"updated": updated}
+
+
+class ImportReparse(BaseModel):
+    adapter: str
+
+
+@app.post("/api/import/batches/{batch_id}/reparse")
+def reparse_import_batch(batch_id: int, payload: ImportReparse,
+                         user_id: int = Depends(get_current_user_id)):
+    """Read the upload again as a different format. Detection is a guess; this
+    is how it is overruled."""
+    try:
+        return _batch_to_contract(ImportService(user_id).reparse(batch_id, payload.adapter))
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Unknown format: {e}")
+    except ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/import/batches/{batch_id}/commit")
+def commit_import_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+    """Create the reflections. Refused while any included entry has no date."""
+    try:
+        return ImportService(user_id).commit(batch_id)
+    except ImportError_ as e:
+        # 409: the request is well formed, the batch is simply not ready.
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.delete("/api/import/batches/{batch_id}")
+def delete_import_batch(batch_id: int, withReflections: bool = False,
+                        user_id: int = Depends(get_current_user_id)):
+    try:
+        return ImportService(user_id).delete_batch(batch_id, withReflections)
+    except ImportError_ as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

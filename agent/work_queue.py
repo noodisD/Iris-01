@@ -176,6 +176,7 @@ class QueueWorker:
     def __init__(self, poll_seconds: int = WORKER_POLL_SECONDS):
         self.poll_seconds = poll_seconds
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -187,8 +188,24 @@ class QueueWorker:
         self._thread.start()
         logger.info(f"Ingest queue worker started (every {self.poll_seconds}s)")
 
+    def wake(self) -> None:
+        """Ask for a pass now rather than at the next poll.
+
+        For work that arrives in a burst — an import committing several hundred
+        entries — where waiting out a 30-second interval would leave the page
+        saying nothing is happening. A no-op when no worker is running, which is
+        the case in tests: there, whoever wants the work done drains explicitly.
+
+        Deliberately not a second thread doing the draining. One did exist here
+        first, and it raced: it claimed items under a ten-minute lease, so a
+        caller that then drained itself found nothing due and concluded the
+        entries had never been queued.
+        """
+        self._wake.set()
+
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
             self._thread = None
@@ -208,8 +225,11 @@ class QueueWorker:
                 # A worker that dies leaves every future entry unprocessed, so
                 # it must survive anything a single pass can raise.
                 logger.error(f"Ingest queue worker pass failed: {e}")
-            if self._stop.wait(self.poll_seconds):
+            if self._stop.is_set():
                 return
+            # Wait out the interval, unless someone asks for a pass sooner.
+            self._wake.wait(self.poll_seconds)
+            self._wake.clear()
 
 
 worker = QueueWorker()
