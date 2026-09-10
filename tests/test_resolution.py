@@ -96,7 +96,11 @@ def test_stabilized_pattern(test_user, resolution_engine):
         last_seen_at=now.isoformat()
     )
 
-    # Baseline (21 to 111 days ago)
+    # Baseline (21 to 111 days ago), spread across the window rather than
+    # bunched. The occurrences used to sit together at 40-48 days ago, leaving a
+    # 34-day silence before the recent pair — which is a reappearance, not
+    # stability. The gap only went unnoticed because it was measured to the
+    # window boundary instead of to the returning event.
     for i in range(9):
         db.add_theme_occurrence(
             theme_id=theme_id,
@@ -104,10 +108,10 @@ def test_stabilized_pattern(test_user, resolution_engine):
             source_id=300+i,
             snippet="past",
             similarity_score=0.9,
-            occurred_at=(now - timedelta(days=40+i)).isoformat()
+            occurred_at=(now - timedelta(days=25 + i * 10)).isoformat()
         )
 
-    # Recent (last 21 days)
+    # Recent (last 21 days), continuing the same cadence
     for i in range(2):
         db.add_theme_occurrence(
             theme_id=theme_id,
@@ -115,7 +119,7 @@ def test_stabilized_pattern(test_user, resolution_engine):
             source_id=400+i,
             snippet="recent",
             similarity_score=0.9,
-            occurred_at=(now - timedelta(days=5+i)).isoformat()
+            occurred_at=(now - timedelta(days=5 + i * 10)).isoformat()
         )
 
     analysis = resolution_engine.analyze_theme(theme_id, force_recompute=True)

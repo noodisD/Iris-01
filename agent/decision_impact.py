@@ -24,6 +24,7 @@ from .constants import (
     DECISION_IMPACT_BASELINE_EPSILON,
     DECISION_IMPACT_MIN_ANCHORS,
     DECISION_IMPACT_MIN_DATA_POINTS,
+    DECISION_IMPACT_MIN_BASELINE_DAYS,
     DECISION_IMPACT_MIN_DELTA,
     DECISION_IMPACT_WINDOW_DAYS,
 )
@@ -39,6 +40,12 @@ class DecisionImpactEngine:
     """
     Analyzes temporal sequences to identify shifts following anchor patterns.
     """
+
+    # Class-level default so a partially constructed engine (the maths tests
+    # build one with __new__ to keep the database out of reach) still resolves
+    # it. Assigning in _observation_start shadows it per instance.
+    _observation_start_cache: datetime | None = None
+
     def __init__(self, user_id: int):
         """Initialize the decision impact engine for a user."""
         self.user_id = user_id
@@ -103,7 +110,7 @@ class DecisionImpactEngine:
                     target_id=target['id'],
                     effect_direction=result['effect_direction'],
                     delta_score=float(result['delta_score']),
-                    anchor_count=len(anchors),
+                    anchor_count=result['anchor_count'],
                     target_count=result['target_total_count'],
                     confidence_level=result['confidence_level']
                 )
@@ -132,19 +139,56 @@ class DecisionImpactEngine:
         # to report evidence rather than to guess ahead of it.
         cutoff = utc_now() - timedelta(days=DECISION_IMPACT_WINDOW_DAYS)
         elapsed_anchors = [t for t in anchor_timestamps if t <= cutoff]
-        if len(elapsed_anchors) < DECISION_IMPACT_MIN_ANCHORS:
+
+        # Several entries about one occasion are one episode, not several
+        # confirmations. Ten entries written up at a single moment produced ten
+        # supporting anchors, consistency 1.0 and high confidence from five
+        # target events — the same five, scored ten times.
+        #
+        # The grouping is by day, matching how the rest of the system treats
+        # simultaneity (leverage's _is_simultaneous, tension's shared-day
+        # counting). A wider rule was tried and rejected: collapsing everything
+        # closer together than the follow-up window also merged anchors ten days
+        # apart, which are distinct occasions whose windows merely overlap in
+        # part, and it silently disqualified any theme recurring faster than
+        # once a fortnight from ever being an anchor.
+        episodes: list[datetime] = []
+        seen_days: set = set()
+        for t in sorted(elapsed_anchors):
+            day = t.date()
+            if day not in seen_days:
+                seen_days.add(day)
+                episodes.append(t)
+
+        if len(episodes) < DECISION_IMPACT_MIN_ANCHORS:
             return None
+
+        # How far back the record actually goes. Without this the baseline rate
+        # divided by a full 60 days whether or not 60 days had been observed, so
+        # a new user logging steadily every day had their first weeks scored as
+        # near-silence: a perfectly constant cadence came out as a 179% increase
+        # at medium confidence, purely because the app had not existed yet.
+        observation_start = self._observation_start()
 
         baseline_rates = []
         post_rates = []
         directions = []
+        evaluated: list[datetime] = []
 
-        # For each anchor event, compute local delta
-        for t in elapsed_anchors:
-            # Baseline window: [t - 60, t)
+        # For each episode, compute local delta
+        for t in episodes:
+            # Baseline window: [t - 60, t), clipped to what was observed.
             b_start = t - timedelta(days=DECISION_IMPACT_BASELINE_DAYS)
+            if observation_start is not None:
+                b_start = max(b_start, observation_start)
+
+            observed_days = (t - b_start).total_seconds() / 86400.0
+            if observed_days < DECISION_IMPACT_MIN_BASELINE_DAYS:
+                # Nothing to compare this episode against.
+                continue
+
             b_count = sum(1 for ts in all_target_occs if b_start <= ts < t)
-            b_rate = b_count / DECISION_IMPACT_BASELINE_DAYS
+            b_rate = b_count / observed_days
 
             # Post window: [t, t + 14]
             p_end = t + timedelta(days=DECISION_IMPACT_WINDOW_DAYS)
@@ -153,6 +197,7 @@ class DecisionImpactEngine:
 
             baseline_rates.append(b_rate)
             post_rates.append(p_rate)
+            evaluated.append(t)
 
             # Local direction
             if b_rate < DECISION_IMPACT_BASELINE_EPSILON:
@@ -165,6 +210,10 @@ class DecisionImpactEngine:
                 directions.append('decrease')
             else:
                 directions.append('none')
+
+        # Every episode was censored by insufficient observed baseline.
+        if not baseline_rates:
+            return None
 
         avg_baseline = np.mean(baseline_rates)
         avg_post = np.mean(post_rates)
@@ -190,13 +239,14 @@ class DecisionImpactEngine:
         # Confidence Signal using central engine
         # We pass anchor timestamps as 'evidence' and directions as 'signal'
         self._evidence = [] # Clear buffer
-        conf = self.conf_engine.compute_confidence('impact', anchor_id, elapsed_anchors, directions)
+        conf = self.conf_engine.compute_confidence('impact', anchor_id, evaluated, directions)
 
         # Emit evidence
         self.emit_evidence('rate', 'avg_baseline_rate', avg_baseline)
         self.emit_evidence('rate', 'avg_post_rate', avg_post)
         self.emit_evidence('delta', 'delta_score', delta)
-        self.emit_evidence('count', 'anchor_count', len(elapsed_anchors))
+        self.emit_evidence('count', 'anchor_count', len(evaluated))
+        self.emit_evidence('count', 'anchor_events_seen', len(anchor_timestamps))
         # A bundle is stored under the anchor alone, so it has to name the target
         # it describes.
         self.emit_evidence('count', 'target_id', target_id)
@@ -217,9 +267,34 @@ class DecisionImpactEngine:
             "effect_direction": direction,
             "delta_score": delta,
             "target_total_count": len(all_target_occs),
+            # The cohort actually evaluated, not every anchor event on record.
+            "anchor_count": len(evaluated),
             "confidence_level": conf['confidence_level'],
             "consistency_ratio": conf['consistency_score']
         }
+
+    def _observation_start(self) -> datetime | None:
+        """The earliest occurrence this user has on record, memoized.
+
+        A proxy for when observation began. It is not the same thing as a
+        deliberate record of observed days — a user can stop logging without
+        stopping living — but it is a hard bound: nothing before this point was
+        observed at all, so no baseline may be scored as if it had been.
+        """
+        if self._observation_start_cache is not None:
+            return self._observation_start_cache
+
+        earliest = None
+        for theme in themes.get_all_themes(self.user_id):
+            first_seen = theme.get('first_seen_at')
+            if not first_seen:
+                continue
+            dt = to_utc(first_seen)
+            if dt and (earliest is None or dt < earliest):
+                earliest = dt
+
+        self._observation_start_cache = earliest
+        return earliest
 
     # --- Helpers ---
 

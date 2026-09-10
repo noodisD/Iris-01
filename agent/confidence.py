@@ -21,6 +21,7 @@ from .timeutils import to_utc, utc_now
 from .constants import (
     CONF_CONSISTENCY_THRESHOLD,
     CONF_HIGH_POINTS,
+    CONF_MIN_COVERAGE_DAYS_FOR_HIGH,
     CONF_MIN_POINTS,
     CONF_RECENCY_DAYS,
     CONF_WEIGHT_CONSISTENCY,
@@ -122,13 +123,23 @@ class ConfidenceEngine:
         # 6. Classification (Gatekeeper logic)
         label = 'low'
 
-        # Rule: High points + Good consistency + Decent recency = High
-        if effective_count >= CONF_HIGH_POINTS and recency >= 0.5:
+        # Rule: High points + enough elapsed time + good consistency + decent
+        # recency = High.
+        #
+        # coverage_days was computed and then ignored, so evidence with no
+        # duration at all could reach the top label: ten reflections saved in the
+        # same second scored 1.0 and 'high' across zero days. Sufficiency counts
+        # data points, and data points are not the same thing as observations of
+        # a pattern over time — which is the only thing any of these engines
+        # claims to measure.
+        has_enough_span = coverage_days >= CONF_MIN_COVERAGE_DAYS_FOR_HIGH
+        if effective_count >= CONF_HIGH_POINTS and recency >= 0.5 and has_enough_span:
             if not has_direction or consistency >= CONF_CONSISTENCY_THRESHOLD:
                 label = 'high'
             else:
                 label = 'medium' # High data but conflicting signals
-        # Rule: Medium points + Acceptable signals = Medium
+        # Rule: Medium points + Acceptable signals = Medium. Evidence that is
+        # plentiful but instantaneous lands here rather than at 'high'.
         elif effective_count >= CONF_MIN_POINTS:
             if not has_direction or consistency >= 0.5:
                 label = 'medium'

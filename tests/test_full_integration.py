@@ -153,6 +153,22 @@ def test_full_lifecycle_integration(test_user, mock_pipeline_components):
             occurred_at=entry_date.isoformat()
         )
 
+    # Work keeps going through the middle stretch. Without these, the fixture
+    # left a 22-day hole between the 28-days-ago burst and the recent one — so
+    # "Work ran continuously" was the narrative, but the data said it stopped
+    # and restarted, which is what resolution now reports.
+    for i in range(4):
+        cont_date = now - timedelta(days=25 - i * 5)
+        cont_id = db.create_journal_entry(user_id, f"Work continues {i}", {})
+        db.add_theme_occurrence(
+            theme_id=theme_b_id,
+            source_type='journal_entry',
+            source_id=cont_id,
+            snippet="work continues",
+            similarity_score=0.9,
+            occurred_at=cont_date.isoformat()
+        )
+
     logger.info("--- Step 3: Recent Activity (Resolution Trigger) ---")
     # Recent: 2 days ago. Anxiety comes back.
     recent_date = now - timedelta(days=2)

@@ -68,6 +68,9 @@ DECISION_IMPACT_MIN_ANCHORS = 3         # Minimum anchor events to analyze
 DECISION_IMPACT_MIN_DELTA = 0.15        # Minimum relative change to count
 DECISION_IMPACT_MIN_DATA_POINTS = 5     # Per target pattern for reliability
 DECISION_IMPACT_BASELINE_EPSILON = 0.01 # Threshold below which rate is treated as zero
+# A baseline shorter than the follow-up window cannot establish what "normal"
+# was: the before/after comparison would have less evidence before than after.
+DECISION_IMPACT_MIN_BASELINE_DAYS = DECISION_IMPACT_WINDOW_DAYS
 
 # Confidence & Reliability Engine Configuration
 # 1. Scoring Weights (Must sum to 1.0 when consistency is present)
@@ -81,6 +84,10 @@ CONF_MEDIUM_POINTS = 5
 CONF_HIGH_POINTS = 10
 
 CONF_RECENCY_DAYS = 30          # Evidence older than this decays (1/e at 30 days)
+# A pattern is a claim about behaviour over time, so "high confidence" has to
+# mean the evidence spans some. Ten entries written in one sitting are ten data
+# points and one observation.
+CONF_MIN_COVERAGE_DAYS_FOR_HIGH = 7
 CONF_CONSISTENCY_THRESHOLD = 0.7 # Minimum ratio for "high" consistency
 
 # Conflict Suppression Configuration

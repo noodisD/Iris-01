@@ -97,17 +97,35 @@ class LeverageEngine:
         # it followed by the other within the lag.
         lag = timedelta(days=LEVERAGE_TIME_LAG_DAYS)
 
+        # The three buckets have to be disjoint, or the same observation is
+        # counted as evidence twice. A target an hour after a source is both
+        # "within the lag" and same-day, so five isolated pairs an hour apart
+        # produced five forward *and* five simultaneous counts: support of ten
+        # from five events, and a maximum directional lift drawn from pairs
+        # _is_simultaneous itself calls neutral.
+        #
+        # Same-day is neutral, so it cannot also be directional: a follower only
+        # counts as forward evidence if it lands on a *later day*.
         def _follows(earlier, later_times):
             # Compared as a duration, not via timedelta.days: truncation made a
             # gap of eight days minus a microsecond register as seven, so a pair
             # just outside the window counted as inside it.
-            return any(timedelta(0) < (later - earlier) <= lag for later in later_times)
+            return any(
+                timedelta(0) < (later - earlier) <= lag
+                and not self._is_simultaneous(earlier, later)
+                for later in later_times
+            )
+
+        def _shares_a_day(at, others):
+            return any(self._is_simultaneous(at, other) for other in others)
 
         forward_count = sum(1 for s_at in source_occs if _follows(s_at, target_occs))
         backward_count = sum(1 for t_at in target_occs if _follows(t_at, source_occs))
+        # A source event already counted as directional evidence is not counted
+        # again as neutral evidence.
         simultaneous_count = sum(
             1 for s_at in source_occs
-            if any(self._is_simultaneous(s_at, t_at) for t_at in target_occs)
+            if _shares_a_day(s_at, target_occs) and not _follows(s_at, target_occs)
         )
 
         total_cooccurrence = forward_count + backward_count + simultaneous_count

@@ -435,6 +435,147 @@ def test_the_offline_embedding_fixture_is_semantically_meaningful():
     assert abs(float(near[0] @ far)) < 0.3, "unrelated entries must stay apart"
 
 
+# --- support must not count the same observation twice ----------------------
+
+
+def _leverage_pair(source_times, target_times):
+    """Run the real analyze_pair with only the occurrence store mocked."""
+    from agent.leverage import LeverageEngine
+
+    engine = LeverageEngine(user_id=1)
+    captured = {}
+    with patch.object(engine, "_get_occurrences",
+                      side_effect=lambda t, i, since: (
+                          source_times if i == 1 else target_times)), \
+         patch.object(engine, "ev_engine"), \
+         patch("agent.leverage.leverage_repo") as repo:
+        repo.create_or_update_pair.side_effect = (
+            lambda **kw: captured.update(kw)
+        )
+        result = engine.analyze_pair("theme", 1, "theme", 2)
+    return result, captured
+
+
+def test_a_same_day_pair_is_not_counted_as_both_forward_and_simultaneous():
+    """Five isolated pairs an hour apart produced five forward plus five
+    simultaneous counts — support of ten from five events — and a maximum
+    directional lift drawn from pairs _is_simultaneous calls neutral."""
+    # 30 days apart, so no target is followed by the *next* source within the
+    # 7-day lag: the fixture isolates the same-day pair itself.
+    base = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+    sources = [base + timedelta(days=30 * i) for i in range(5)]
+    targets = [t + timedelta(hours=1) for t in sources]
+
+    result, stored = _leverage_pair(sources, targets)
+
+    assert result is not None
+    assert stored["cooccurrence_count"] == 5, (
+        f"five events must be five units of support, got {stored['cooccurrence_count']}"
+    )
+    assert result["directional_lift"] == 0.0, (
+        "same-day evidence is neutral, so it cannot produce directional lift"
+    )
+
+
+def test_a_next_day_follower_is_still_directional_evidence():
+    """The negative control must not have been bought by ignoring the lag."""
+    base = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+    sources = [base + timedelta(days=30 * i) for i in range(5)]
+    targets = [t + timedelta(days=2) for t in sources]
+
+    result, stored = _leverage_pair(sources, targets)
+
+    assert result is not None
+    assert stored["cooccurrence_count"] == 5
+    assert result["directional_lift"] == 1.0, (
+        "every source followed by a target two days later is maximal forward evidence"
+    )
+
+
+def test_tension_divides_shared_days_by_active_days():
+    """The numerator counts days the themes shared; the denominator counted raw
+    events, so a second entry on an already-active day changed the rate without
+    changing the coexistence it reports."""
+    from agent.tension import TensionEngine
+
+    engine = TensionEngine(user_id=1)
+    base = datetime(2026, 6, 1, tzinfo=UTC)
+
+    def occ(day, n=1):
+        return [{"occurred_at": base + timedelta(days=day, hours=h),
+                 "source_type": "journal_entry", "source_id": day * 10 + h}
+                for h in range(n)]
+
+    sparse = occ(0) + occ(1) + occ(2)
+    # The very same three days, but each theme logged three times a day.
+    dense = occ(0, 3) + occ(1, 3) + occ(2, 3)
+
+    with patch("agent.tension.themes") as th:
+        th.get_occurrences.side_effect = lambda tid: sparse
+        sparse_metrics = engine._calculate_cooccurrence_metrics(1, 2)
+
+        th.get_occurrences.side_effect = lambda tid: dense
+        dense_metrics = engine._calculate_cooccurrence_metrics(1, 2)
+
+    assert sparse_metrics["cooccurrence_count"] == 3
+    assert dense_metrics["cooccurrence_count"] == 3, (
+        "a busy day is still one shared day"
+    )
+    assert sparse_metrics["cooccurrence_rate"] == dense_metrics["cooccurrence_rate"], (
+        f"the same three shared days must give the same rate: "
+        f"{sparse_metrics['cooccurrence_rate']} vs {dense_metrics['cooccurrence_rate']}"
+    )
+    assert dense_metrics["cooccurrence_rate"] == 1.0, (
+        "three shared days out of three active days is total coexistence"
+    )
+
+
+# --- silence is measured between events, not to a window edge ---------------
+
+
+def _resolution_label(ages_in_days):
+    """Classify a theme whose occurrences are these many days old."""
+    from agent.resolution import ResolutionEngine
+
+    engine = ResolutionEngine(user_id=1)
+    now = datetime.now(UTC)
+    timestamps = sorted(now - timedelta(days=d) for d in ages_in_days)
+    recent_start, baseline_end, baseline_start = engine._get_time_windows()
+
+    recent = sum(1 for t in timestamps if t >= recent_start)
+    past = sum(1 for t in timestamps if baseline_start <= t < baseline_end)
+    rate_recent = recent / 21
+    rate_past = past / 90
+    attenuation = engine._calculate_attenuation_score(rate_recent, rate_past)
+    gap = engine._get_gap_detected(list(timestamps), recent_start)
+    return engine._classify_resolution(past, recent, attenuation, gap)
+
+
+def test_a_real_gap_between_events_is_a_reappearance():
+    """Occurrences 32, 31, 30 and 1 days old contain a 29-day silence. The gap
+    was measured to the window boundary instead, so this read as persisting."""
+    assert _resolution_label([32, 31, 30, 1]) == "reappearing"
+
+
+def test_a_short_gap_is_not_a_reappearance():
+    """The 29-day fixture must not have been bought by always saying yes."""
+    assert _resolution_label([30, 29, 28, 16]) != "reappearing"
+
+
+def test_old_only_history_is_not_reported_as_stabilized():
+    """With both windows empty the attenuation score is zero, which used to mean
+    'little change in rate' — a steady ongoing rate claimed for a theme with no
+    evidence in 111 days."""
+    assert _resolution_label([150, 140, 135, 130]) != "stabilized"
+
+
+def test_a_genuinely_steady_theme_is_still_stabilized():
+    """The control: evidence on both sides of the comparison, at the same rate
+    and with no silence long enough to count as a gap."""
+    ages = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95, 105]
+    assert _resolution_label(ages) == "stabilized"
+
+
 # --- a theme is dated by when its entries happened --------------------------
 
 
@@ -506,3 +647,152 @@ def test_theme_stats_are_derived_from_occurrences_not_incremented():
     )
     assert "MAX(occurred_at)" in sql, "last_seen_at is the newest occurrence"
     assert "MIN(occurred_at)" in sql, "first_seen_at is the oldest occurrence"
+
+
+# --- impact needs an observed baseline and independent episodes -------------
+
+
+def _impact(anchor_ages, target_ages, observation_age):
+    """Run the real _calculate_impact against occurrences of these ages."""
+    from agent.decision_impact import DecisionImpactEngine
+
+    engine = DecisionImpactEngine(user_id=1)
+    now = datetime.now(UTC)
+    anchors = sorted(now - timedelta(days=d) for d in anchor_ages)
+    targets = sorted(now - timedelta(days=d) for d in target_ages)
+
+    with patch.object(engine, "_get_all_occurrences", return_value=targets), \
+         patch.object(engine, "_observation_start",
+                      return_value=now - timedelta(days=observation_age)), \
+         patch.object(engine, "ev_engine"), \
+         patch("agent.decision_impact.decision_impacts"):
+        return engine._calculate_impact(1, anchors, "theme", 2)
+
+
+def test_a_steady_cadence_on_a_short_history_is_not_an_increase():
+    """40 days of perfectly constant activity, anchors 15-17 days ago: the
+    baseline divided by a full 60 days regardless of the record only going back
+    40, so the same steady cadence scored as a 179% increase at medium
+    confidence. A new user's first weeks are not evidence of change."""
+    result = _impact(
+        anchor_ages=[17, 16, 15],
+        target_ages=list(range(1, 41)),   # one a day for 40 days
+        observation_age=40,
+    )
+    assert result is None or result["effect_direction"] == "none", result
+
+
+def test_a_real_emergence_after_an_observed_baseline_is_still_found():
+    """The control: an observed, genuinely empty baseline followed by activity."""
+    result = _impact(
+        anchor_ages=[60, 45, 30],
+        target_ages=list(range(16, 30)),  # only after the last anchor
+        observation_age=200,
+    )
+    assert result is not None
+    assert result["effect_direction"] in ("emergence", "increase"), result
+
+
+def test_one_episode_written_up_ten_times_is_not_ten_confirmations():
+    """Ten anchor entries at one moment produced `emergence` at high confidence
+    with consistency 1.0 from five target events. They are ten entries about one
+    episode, and their follow-up windows score the same events ten times."""
+    now_ages = [40] * 10
+    result = _impact(
+        anchor_ages=now_ages,
+        target_ages=[35, 34, 33, 32, 31],
+        observation_age=300,
+    )
+    assert result is None, (
+        f"one episode cannot supply the minimum number of anchors, got {result}"
+    )
+
+
+def test_separate_episodes_still_count_separately():
+    """The control: the same number of anchors, genuinely spread apart."""
+    result = _impact(
+        anchor_ages=[120, 90, 60],
+        target_ages=[115, 114, 85, 84, 55, 54, 53],
+        observation_age=300,
+    )
+    assert result is not None, "well-separated anchors are independent episodes"
+
+
+def test_the_persisted_anchor_count_is_the_cohort_actually_evaluated():
+    """anchor_count stored every anchor on record while the calculation judged
+    only those with elapsed follow-up and an observed baseline."""
+    result = _impact(
+        anchor_ages=[120, 90, 60, 1],     # the last one has no elapsed follow-up
+        target_ages=[115, 114, 85, 84, 55, 54, 53],
+        observation_age=300,
+    )
+    assert result is not None
+    assert result["anchor_count"] == 3, (
+        f"four anchors on record, three judged, got {result['anchor_count']}"
+    )
+
+
+# --- confidence must use the time coverage it measures ----------------------
+
+
+def test_instantaneous_evidence_cannot_be_high_confidence():
+    """coverage_days was computed and then ignored, so ten reflections saved in
+    the same second scored 1.0 and 'high' across zero days of coverage."""
+    from agent.confidence import ConfidenceEngine
+
+    now = datetime.now(UTC)
+    burst = [now] * 10
+
+    result = ConfidenceEngine().compute_confidence("theme", 1, burst)
+
+    assert result["time_coverage_days"] == 0
+    assert result["confidence_level"] != "high", (
+        f"ten entries in one moment is one observation, got {result}"
+    )
+
+
+def test_the_same_evidence_spread_over_time_is_high_confidence():
+    """The control: the count is identical, only the span differs."""
+    from agent.confidence import ConfidenceEngine
+
+    now = datetime.now(UTC)
+    spread = [now - timedelta(days=d) for d in range(10)]
+
+    result = ConfidenceEngine().compute_confidence("theme", 1, spread)
+
+    assert result["time_coverage_days"] >= 7
+    assert result["confidence_level"] == "high", result
+
+
+def test_the_evaluated_cohort_is_the_episodes_that_had_a_baseline():
+    """Censoring removes the *earliest* episodes — the ones closest to the start
+    of the record — so the evaluated cohort is the tail, not the head."""
+    from agent.decision_impact import DecisionImpactEngine
+
+    engine = DecisionImpactEngine(user_id=1)
+    now = datetime.now(UTC)
+    # The 95-day-old anchor sits only 5 days after observation began, so it has
+    # no baseline; the other two do.
+    anchors = sorted(now - timedelta(days=d) for d in (95, 60, 30))
+    # Dense before the last episode, silent after it, so there is a real effect
+    # to report and the calculation reaches the confidence step.
+    targets = sorted(now - timedelta(days=d) for d in range(31, 100))
+
+    captured = {}
+    with patch.object(engine, "_get_all_occurrences", return_value=targets), \
+         patch.object(engine, "_observation_start", return_value=now - timedelta(days=100)), \
+         patch.object(engine, "ev_engine"), \
+         patch("agent.decision_impact.decision_impacts"), \
+         patch.object(engine.conf_engine, "compute_confidence",
+                      side_effect=lambda pt, pid, ts, d=None, sources=None: captured.update(
+                          {"timestamps": list(ts)}) or {
+                          "confidence_level": "medium", "confidence_score": 0.5,
+                          "data_points_count": len(ts), "time_coverage_days": 30,
+                          "consistency_score": 1.0, "recency_score": 0.5}):
+        engine._calculate_impact(1, anchors, "theme", 2)
+
+    assert captured["timestamps"], "some episodes must survive censoring"
+    oldest_evaluated = min(captured["timestamps"])
+    assert (now - oldest_evaluated).days < 95, (
+        "the episode without an observed baseline must not be in the cohort"
+    )

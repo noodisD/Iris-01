@@ -175,12 +175,16 @@ class TensionEngine:
         recent_count = len(recent_cooccurrences)
         past_count = len(past_cooccurrences)
 
-        # Calculate co-occurrence rate (relative to individual theme occurrences)
-        total_occurrences_a = len(occurrences_a)
-        total_occurrences_b = len(occurrences_b)
-        min_theme_occurrences = min(total_occurrences_a, total_occurrences_b)
+        # The numerator counts *days* the two themes shared, so the denominator
+        # has to be days as well. Dividing shared days by raw lifetime event
+        # counts mixed units: adding a second entry on a day a theme was already
+        # active changed the rate without changing the coexistence it claims to
+        # measure, so a busy day quietly diluted the very thing being reported.
+        days_a_all = {to_utc(occ["occurred_at"]).date() for occ in occurrences_a}
+        days_b_all = {to_utc(occ["occurred_at"]).date() for occ in occurrences_b}
+        min_active_days = min(len(days_a_all), len(days_b_all))
 
-        cooccurrence_rate = cooccurrence_count / min_theme_occurrences if min_theme_occurrences > 0 else 0
+        cooccurrence_rate = cooccurrence_count / min_active_days if min_active_days > 0 else 0
 
         return {
             "cooccurrence_count": cooccurrence_count,

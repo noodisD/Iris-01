@@ -210,27 +210,26 @@ class ResolutionEngine:
         return max(-1.0, min(1.0, score)) # Safety clamp
 
     def _get_gap_detected(self, timestamps: list[datetime], recent_start: datetime) -> bool:
-        """
-        Gap Detected if there exists a silence at least as long as 
-        RESOLUTION_RECENT_DAYS between baseline and recent activity.
+        """Was the theme silent for RESOLUTION_RECENT_DAYS before it came back?
+
+        The gap is measured between the last occurrence before the recent window
+        and the first one inside it — the actual silence. It used to be measured
+        from that last baseline occurrence to the *window boundary*, which is not
+        a gap at all: occurrences 32, 31, 30 and 1 days old contain a real
+        29-day silence, but the boundary sits 21 days back, so the test asked
+        whether the theme had been quiet for 21 days before the window opened,
+        found it had not, and reported `persisting` for a pattern that had
+        plainly stopped and restarted.
         """
         if not timestamps:
             return False
 
-        timestamps.sort()
-
-        # Find the last occurrence before the recent window
-        last_baseline_occ = None
-        for ts in reversed(timestamps):
-            if ts < recent_start:
-                last_baseline_occ = ts
-                break
-
-        if last_baseline_occ is None:
+        before = [ts for ts in timestamps if ts < recent_start]
+        after = [ts for ts in timestamps if ts >= recent_start]
+        if not before or not after:
             return False
 
-        # Gap exists if last baseline occurrence was more than RESOLUTION_RECENT_DAYS before recent_start
-        return last_baseline_occ <= (recent_start - timedelta(days=RESOLUTION_RECENT_DAYS))
+        return (min(after) - max(before)) >= timedelta(days=RESOLUTION_RECENT_DAYS)
 
     def _classify_resolution(self, past_count: int, recent_count: int,
                             attenuation_score: float, gap_detected: bool) -> str:
@@ -243,11 +242,21 @@ class ResolutionEngine:
         if past_count >= RESOLUTION_MIN_DATA_POINTS and recent_count > 0 and gap_detected:
             return 'reappearing'
 
-        # 3. Stabilized: Little change in rate
-        if abs(attenuation_score) <= RESOLUTION_DELTA_EPSILON:
+        # 3. Nothing in either window. Both rates are zero, so the attenuation
+        # score is zero and this used to fall into 'stabilized' below — reporting
+        # a steady ongoing rate for a theme with no evidence in the last 111
+        # days. An empty comparison is not stability. The evidence that exists is
+        # old and the theme has not recurred, which is dissipation; the
+        # confidence engine's recency floor keeps such a verdict low-confidence.
+        if past_count == 0 and recent_count == 0:
+            return 'dissipated'
+
+        # 4. Stabilized: Little change in rate, measured against evidence that
+        # actually exists on both sides of the comparison.
+        if past_count > 0 and recent_count > 0 and abs(attenuation_score) <= RESOLUTION_DELTA_EPSILON:
             return 'stabilized'
 
-        # 4. Persisting: Fallback
+        # 5. Persisting: Fallback
         return 'persisting'
 
     def _calculate_confidence(self, total_points: int) -> str:
