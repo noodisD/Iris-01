@@ -22,16 +22,34 @@ def test_theme_dissipates_after_silence(test_user, resolution_engine):
         last_seen_at=(now - timedelta(days=30)).isoformat()
     )
 
-    # 2. Add occurrences in the baseline window (21-111 days ago based on constants)
+    # 2. Add occurrences in the baseline window (21-111 days ago based on
+    # constants), each backed by a real entry written on the day it happened.
+    # A dissipation is now scored on the absence itself — how well established
+    # the pattern was, how long the quiet has run, and crucially whether the
+    # user carried on logging through it. An occurrence with no entry behind it
+    # describes someone who wrote three times and vanished, and a silence nobody
+    # observed is evidence of nothing.
     # 3 occurrences to reach RESOLUTION_MIN_DATA_POINTS
     for i in range(3):
+        occurred = now - timedelta(days=40 + i)
+        entry_id = db.create_journal_entry(
+            test_user['id'], f"past occurrence {i}", {}, created_at=occurred.isoformat()
+        )
         db.add_theme_occurrence(
             theme_id=theme_id,
             source_type='journal_entry',
-            source_id=100+i,
+            source_id=entry_id,
             snippet="past occurrence",
             similarity_score=0.9,
-            occurred_at=(now - timedelta(days=40 + i)).isoformat()
+            occurred_at=occurred.isoformat()
+        )
+
+    # The user keeps journaling after the theme stops appearing, so the silence
+    # is one we actually observed.
+    for i in range(6):
+        since = now - timedelta(days=35 - i * 6)
+        db.create_journal_entry(
+            test_user['id'], f"still writing {i}", {}, created_at=since.isoformat()
         )
 
     # 3. Analyze (Recent count will be 0 as occurrences are > 21 days ago)
@@ -41,6 +59,45 @@ def test_theme_dissipates_after_silence(test_user, resolution_engine):
     assert analysis['recent_count'] == 0
     assert analysis['past_count'] >= 3
     assert analysis['confidence_level'] in ['high', 'medium']
+
+
+def test_an_unobserved_silence_is_not_a_confident_dissipation(test_user, resolution_engine):
+    """The same theme, the same silence — but the user stopped logging entirely.
+
+    Scoring a dissipation on how long the quiet has run, without asking whether
+    anyone was watching, would turn a fortnight away from the app into a resolved
+    pattern. That is the failure mode worth guarding: confidently wrong.
+    """
+    now = datetime.now()
+    theme_id = db.create_theme(
+        user_id=test_user['id'],
+        centroid_embedding=[0.7] * 1536,
+        summary="Abandoned Theme",
+        first_seen_at=(now - timedelta(days=60)).isoformat(),
+        last_seen_at=(now - timedelta(days=40)).isoformat()
+    )
+
+    for i in range(5):
+        occurred = now - timedelta(days=40 + i)
+        entry_id = db.create_journal_entry(
+            test_user['id'], f"before the silence {i}", {}, created_at=occurred.isoformat()
+        )
+        db.add_theme_occurrence(
+            theme_id=theme_id,
+            source_type='journal_entry',
+            source_id=entry_id,
+            snippet="before the silence",
+            similarity_score=0.9,
+            occurred_at=occurred.isoformat()
+        )
+
+    # Nothing logged since. The theme is quiet, but so is everything else.
+    analysis = resolution_engine.analyze_theme(theme_id, force_recompute=True)
+
+    assert analysis['resolution_label'] == 'dissipated'
+    assert analysis['confidence_level'] == 'low', (
+        "a silence nobody observed cannot be a confident dissipation"
+    )
 
 def test_theme_reappears_after_gap(test_user, resolution_engine):
     # 1. Create a theme

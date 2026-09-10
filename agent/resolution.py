@@ -26,6 +26,7 @@ from .constants import (
 from .database import confidence as confidence_repo
 
 # Import database and constants
+from .database import embeddings as sources
 from .database import resolutions, themes
 from .evidence import EvidenceEngine
 
@@ -136,9 +137,17 @@ class ResolutionEngine:
         # 2. Classification
         label = self._classify_resolution(past_count, recent_count, attenuation_score, gap_detected)
 
-        # 3. Confidence using central engine
+        # 3. Confidence using central engine.
+        #
+        # A dissipation is a claim about an absence, so it is scored on the
+        # absence rather than on how fresh the newest evidence is — see
+        # compute_absence_confidence. Every other label is a claim about what is
+        # happening now and keeps the ordinary recency-decayed score.
         self._evidence = [] # Clear buffer
-        conf = self.conf_engine.compute_confidence('resolution', theme_id, timestamps)
+        if label == 'dissipated':
+            conf = self._absence_confidence(timestamps)
+        else:
+            conf = self.conf_engine.compute_confidence('resolution', theme_id, timestamps)
         confidence = conf['confidence_level']
 
         # Emit evidence
@@ -197,6 +206,40 @@ class ResolutionEngine:
         baseline_end = recent_start
         baseline_start = baseline_end - timedelta(days=RESOLUTION_BASELINE_DAYS)
         return recent_start, baseline_end, baseline_start
+
+    def _absence_confidence(self, timestamps: list[datetime]) -> dict:
+        """Score a dissipation on its own evidence: support, silence, watchfulness.
+
+        The silence is compared against an equal span of the user's own logging
+        immediately before it, so the question asked is "did they carry on
+        logging and this stopped appearing?" rather than "did they log every
+        day", which no real user does.
+        """
+        now = utc_now()
+        last_seen = max(timestamps)
+        days_silent = max(0.0, (now - last_seen).total_seconds() / 86400.0)
+
+        # An equal window either side of the last occurrence.
+        span = timedelta(days=max(days_silent, 1.0))
+        try:
+            observed_during = sources.count_observed_days(self.user_id, last_seen, now)
+            observed_before = sources.count_observed_days(
+                self.user_id, last_seen - span, last_seen
+            )
+        except Exception as e:
+            # Without the observation record we cannot tell an observed silence
+            # from an unobserved one, and must not guess in the confident
+            # direction. Fall back to the ordinary score.
+            logger.warning(f"Observation history unavailable for user {self.user_id}: {e}")
+            return self.conf_engine.compute_confidence('resolution', 0, timestamps)
+
+        return self.conf_engine.compute_absence_confidence(
+            baseline_count=len(timestamps),
+            days_silent=days_silent,
+            silence_threshold_days=RESOLUTION_RECENT_DAYS,
+            observed_days_during=observed_during,
+            observed_days_before=observed_before,
+        )
 
     def _calculate_attenuation_score(self, recent_rate: float, past_rate: float) -> float:
         """

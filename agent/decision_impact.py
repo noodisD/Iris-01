@@ -305,13 +305,25 @@ class DecisionImpactEngine:
         active = [t for t in all_themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
 
         # 2. Dissipation filter (don't anchor on dead patterns)
+        #
+        # This required 'high', which a freshly computed dissipation cannot
+        # reach: the label needs RESOLUTION_RECENT_DAYS (21) of silence, and the
+        # confidence engine's recency term is exp(-21/30) = 0.4966, just under
+        # the 0.5 the 'high' branch demands. The filter was therefore dead and
+        # dead patterns went on being anchors.
+        #
+        # Medium is the right bar here regardless of that arithmetic. This is not
+        # a claim shown to anyone — it is a decision about what to spend an
+        # O(themes^2) scan on, and a medium-confidence dissipation is already
+        # good enough reason not to anchor on a theme.
         from .resolution import ResolutionEngine
         res_engine = ResolutionEngine(self.user_id)
 
         refined = []
         for t in active:
             res = res_engine.analyze_theme(t['id'])
-            if res['resolution_label'] == 'dissipated' and res['confidence_level'] == 'high':
+            if (res['resolution_label'] == 'dissipated'
+                    and res['confidence_level'] in ('medium', 'high')):
                 continue
             refined.append(t)
         return refined

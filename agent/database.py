@@ -194,16 +194,25 @@ class Database:
     # Journal Entry Methods
     # ============================================================================
 
-    def create_journal_entry(self, user_id: int, raw_text: str, wellbeing_data: dict) -> int:
-        """Creates a new journal entry and returns its ID."""
+    def create_journal_entry(self, user_id: int, raw_text: str, wellbeing_data: dict,
+                             created_at=None) -> int:
+        """Creates a new journal entry and returns its ID.
+
+        `created_at` defaults to now, which is what the application always wants:
+        an entry happens when it is written. It is settable so that tests can
+        build a history that actually happened over time. Without it, a fixture
+        could backdate a theme *occurrence* but not the entry behind it, so the
+        record said the user had written everything today — and anything
+        measuring observation over a past window read zero.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    INSERT INTO journal_entries (user_id, raw_text, wellbeing_data)
-                    VALUES (%s, %s, %s) RETURNING id;
+                    INSERT INTO journal_entries (user_id, raw_text, wellbeing_data, created_at)
+                    VALUES (%s, %s, %s, COALESCE(%s::timestamptz, NOW())) RETURNING id;
                     """,
-                    (user_id, raw_text, Json(wellbeing_data))
+                    (user_id, raw_text, Json(wellbeing_data), created_at)
                 )
                 entry_id = cur.fetchone()[0]
                 conn.commit()
@@ -657,6 +666,57 @@ class Database:
                 }
                 for row in rows
             ]
+
+    def count_observed_days(self, user_id: int, start, end) -> int:
+        """Distinct days in [start, end) on which the user deliberately logged.
+
+        "Deliberately logged" is ADR-0003's definition of evidence: a journal
+        entry, a reflection, or a completed habit. Chat is excluded here for the
+        same reason it is excluded from occurrences — it is not a record the user
+        chose to keep.
+
+        This exists to tell an *observed* silence from an unobserved one. A theme
+        going quiet while someone keeps writing every day is evidence that it
+        stopped; the same silence while they stop opening the app at all is
+        evidence of nothing, and the two must not be scored alike.
+
+        Deliberately reads only the source tables. Unioning theme_occurrences in
+        as well looks equivalent — every occurrence derives from one of these
+        rows — but it joins two tables that add_theme_occurrence writes inside a
+        transaction while opening further pooled connections to invalidate
+        caches. Adding this read to that pattern produced deadlocks and a test
+        suite that hung instead of finishing in half a minute.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(DISTINCT d) FROM (
+                    -- Compared as timestamps where the column is one, so a
+                    -- window ending 'now' still counts what was written earlier
+                    -- today. Truncating both sides to dates made the end bound
+                    -- exclude the current day entirely, and the window that
+                    -- matters most -- the silence, which ends now -- always read
+                    -- as zero days observed.
+                    SELECT created_at::date AS d FROM journal_entries
+                     WHERE user_id = %s AND created_at >= %s AND created_at < %s
+                    UNION
+                    -- Date-typed sources record a day, not an instant, so a
+                    -- record on the boundary day belongs to the window that day
+                    -- falls in.
+                    SELECT reflection_date AS d FROM reflections
+                     WHERE user_id = %s AND reflection_date >= %s::date
+                       AND reflection_date <= %s::date
+                    UNION
+                    SELECT hc.completion_date AS d
+                      FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
+                     WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
+                       AND hc.completion_date >= %s::date
+                       AND hc.completion_date <= %s::date
+                ) days;
+                """,
+                (user_id, start, end, user_id, start, end, user_id, start, end),
+            )
+            return int(cur.fetchone()[0])
 
     def get_unassigned_embeddings(self, user_id: int) -> list:
         """

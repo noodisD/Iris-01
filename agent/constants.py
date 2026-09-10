@@ -90,6 +90,22 @@ CONF_RECENCY_DAYS = 30          # Evidence older than this decays (1/e at 30 day
 CONF_MIN_COVERAGE_DAYS_FOR_HIGH = 7
 CONF_CONSISTENCY_THRESHOLD = 0.7 # Minimum ratio for "high" consistency
 
+# --- Confidence in an observed absence --------------------------------------
+# "This stopped happening" is not the same claim as "this happened recently",
+# and the ordinary recency decay scores it backwards: the longer a silence runs,
+# the *more* it confirms a dissipation, but the lower recency drives the score.
+# A freshly computed dissipation needs RESOLUTION_RECENT_DAYS of silence, at
+# which point exp(-21/30) = 0.4966 — permanently below the 0.5 the 'high' branch
+# requires — so a dissipation could never be high-confidence at all.
+#
+# Silence is maximally convincing once it has run twice the length that defines
+# it. Beyond that, more silence adds nothing.
+CONF_ABSENCE_SILENCE_SATURATION_MULTIPLE = 2.0
+# Below this share of the user's own prior logging rate, we were not watching
+# closely enough to call the silence evidence of anything.
+CONF_ABSENCE_MIN_CONTINUITY = 0.34
+CONF_ABSENCE_HIGH_CONTINUITY = 0.67
+
 # Conflict Suppression Configuration
 CONFLICT_SUPPRESSION_ENABLED = True
 CONFLICT_MIN_CONFIDENCE = "medium"

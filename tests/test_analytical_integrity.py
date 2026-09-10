@@ -20,7 +20,6 @@ from agent.persistence import PersistenceEngine
 
 # --- discovery must not invent themes ---------------------------------------
 
-
 def _unit_rows(vectors, source_type="journal_entry"):
     """Shape vectors like get_unassigned_embeddings() returns them."""
     base = datetime(2026, 9, 1, tzinfo=UTC)
@@ -144,7 +143,6 @@ def test_eps_uses_the_euclidean_distance_for_the_cosine_threshold():
 
 # --- evidence bundles belong to one theme each ------------------------------
 
-
 def test_each_theme_gets_only_its_own_evidence():
     """The buffer was created once per engine and only appended to, so a run
     over several themes filed theme 1's metrics inside theme 2's bundle."""
@@ -185,7 +183,6 @@ def test_each_theme_gets_only_its_own_evidence():
 
 # --- provenance: a snippet must come from its own table ---------------------
 
-
 def test_discovery_reads_the_snippet_from_the_source_type_it_was_given():
     """Without the source type this defaulted to journal_entry, so a reflection
     quoted whatever journal row shared its numeric id."""
@@ -217,7 +214,6 @@ def test_discovery_reads_the_snippet_from_the_source_type_it_was_given():
 
 
 # --- presentation must not invent numbers -----------------------------------
-
 
 def _service_over(engine_results: dict):
     """An InsightsService whose engines return exactly these results."""
@@ -335,7 +331,6 @@ def test_confidence_label_reaches_the_screen():
 
 # --- a failed analysis is not a completed one -------------------------------
 
-
 def test_persistence_failure_does_not_mark_the_source_complete():
     """The exception was caught and the row was then marked 'complete', so the
     queue deleted the task. The embedding existed and the occurrence never did."""
@@ -383,7 +378,6 @@ def test_the_queue_retries_a_failed_analysis_instead_of_deleting_it():
 
 
 # --- eligibility is one rule, not two ---------------------------------------
-
 
 def test_discovery_and_the_online_path_admit_the_same_sources():
     """Discovery admitted `habit` — the habit *definition*, an intention rather
@@ -436,7 +430,6 @@ def test_the_offline_embedding_fixture_is_semantically_meaningful():
 
 
 # --- support must not count the same observation twice ----------------------
-
 
 def _leverage_pair(source_times, target_times):
     """Run the real analyze_pair with only the occurrence store mocked."""
@@ -532,7 +525,6 @@ def test_tension_divides_shared_days_by_active_days():
 
 # --- silence is measured between events, not to a window edge ---------------
 
-
 def _resolution_label(ages_in_days):
     """Classify a theme whose occurrences are these many days old."""
     from agent.resolution import ResolutionEngine
@@ -577,7 +569,6 @@ def test_a_genuinely_steady_theme_is_still_stabilized():
 
 
 # --- a theme is dated by when its entries happened --------------------------
-
 
 def test_a_discovered_theme_is_dated_by_the_event_not_the_embedding():
     """Discovery dated themes and occurrences by embeddings.created_at, so an
@@ -628,7 +619,6 @@ def test_discovery_asks_the_database_for_the_event_time():
 
 # --- replaying a source must not inflate the evidence -----------------------
 
-
 def test_theme_stats_are_derived_from_occurrences_not_incremented():
     """add_theme_occurrence is an upsert, but the stats update was an
     unconditional `occurrence_count + 1`, so a queue retry or replay wrote one
@@ -650,7 +640,6 @@ def test_theme_stats_are_derived_from_occurrences_not_incremented():
 
 
 # --- impact needs an observed baseline and independent episodes -------------
-
 
 def _impact(anchor_ages, target_ages, observation_age):
     """Run the real _calculate_impact against occurrences of these ages."""
@@ -734,7 +723,6 @@ def test_the_persisted_anchor_count_is_the_cohort_actually_evaluated():
 
 # --- confidence must use the time coverage it measures ----------------------
 
-
 def test_instantaneous_evidence_cannot_be_high_confidence():
     """coverage_days was computed and then ignored, so ten reflections saved in
     the same second scored 1.0 and 'high' across zero days of coverage."""
@@ -795,4 +783,78 @@ def test_the_evaluated_cohort_is_the_episodes_that_had_a_baseline():
     oldest_evaluated = min(captured["timestamps"])
     assert (now - oldest_evaluated).days < 95, (
         "the episode without an observed baseline must not be in the cohort"
+    )
+
+
+# --- confidence in an absence is not confidence in a recent event -----------
+
+def _absence(baseline_count, days_silent, during, before):
+    from agent.confidence import ConfidenceEngine
+
+    return ConfidenceEngine().compute_absence_confidence(
+        baseline_count=baseline_count,
+        days_silent=days_silent,
+        silence_threshold_days=21,
+        observed_days_during=during,
+        observed_days_before=before,
+    )
+
+
+def test_a_well_observed_dissipation_can_be_high_confidence():
+    """A dissipation needs 21 days of silence, at which point the ordinary
+    recency term is exp(-21/30) = 0.4966 — permanently below the 0.5 the 'high'
+    branch demands. The strongest possible dissipation could never be trusted."""
+    result = _absence(baseline_count=12, days_silent=60, during=40, before=45)
+    assert result["confidence_level"] == "high", result
+
+
+def test_a_longer_silence_is_more_convincing_not_less():
+    """The ordinary model has the sign backwards here: ninety days of silence
+    after twenty occurrences scored 'low' because the newest evidence was old."""
+    short = _absence(baseline_count=12, days_silent=22, during=15, before=16)
+    long = _absence(baseline_count=12, days_silent=90, during=60, before=62)
+    assert long["confidence_score"] > short["confidence_score"], (short, long)
+
+
+def test_a_silence_nobody_observed_proves_nothing():
+    """The guard that keeps this honest: a fortnight's holiday is not a resolved
+    pattern. Inverting the sign without this would be worse than the bug."""
+    result = _absence(baseline_count=20, days_silent=60, during=1, before=45)
+    assert result["confidence_level"] == "low", result
+
+
+def test_continuity_is_measured_against_the_user_s_own_rate():
+    """Someone who journals weekly must not read as absent six days in seven."""
+    weekly = _absence(baseline_count=12, days_silent=60, during=8, before=8)
+    assert weekly["confidence_level"] == "high", weekly
+
+
+def test_a_thin_pattern_that_stops_is_not_high_confidence():
+    """Support still matters: two occurrences stopping is not a resolution."""
+    result = _absence(baseline_count=2, days_silent=60, during=40, before=45)
+    assert result["confidence_level"] == "low", result
+
+
+def test_resolution_uses_the_absence_model_only_for_dissipation():
+    """Every other label is a claim about what is happening now and keeps the
+    ordinary recency-decayed score."""
+    import inspect
+
+    from agent.resolution import ResolutionEngine
+
+    src = inspect.getsource(ResolutionEngine.analyze_theme)
+    assert "if label == 'dissipated':" in src
+    assert "_absence_confidence" in src
+
+
+def test_the_dissipated_anchor_filter_is_reachable():
+    """decision_impact required 'dissipated' AND 'high', which the arithmetic
+    above made impossible, so dead patterns went on being anchors."""
+    import inspect
+
+    from agent.decision_impact import DecisionImpactEngine
+
+    src = inspect.getsource(DecisionImpactEngine._get_candidate_anchors)
+    assert "('medium', 'high')" in src, (
+        "the filter must accept a confidence level a dissipation can actually reach"
     )

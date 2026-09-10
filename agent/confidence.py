@@ -19,6 +19,9 @@ from typing import Any
 # Import constants
 from .timeutils import to_utc, utc_now
 from .constants import (
+    CONF_ABSENCE_HIGH_CONTINUITY,
+    CONF_ABSENCE_MIN_CONTINUITY,
+    CONF_ABSENCE_SILENCE_SATURATION_MULTIPLE,
     CONF_CONSISTENCY_THRESHOLD,
     CONF_HIGH_POINTS,
     CONF_MIN_COVERAGE_DAYS_FOR_HIGH,
@@ -167,6 +170,93 @@ class ConfidenceEngine:
         }
 
         return result
+
+    def compute_absence_confidence(
+        self,
+        baseline_count: int,
+        days_silent: float,
+        silence_threshold_days: float,
+        observed_days_during: int,
+        observed_days_before: int,
+    ) -> dict[str, Any]:
+        """How much to trust the claim that a pattern has *stopped*.
+
+        compute_confidence answers "how fresh is the newest evidence", which is
+        the right question for a claim about what is happening now and the wrong
+        one for a claim about an absence. Silence is not stale evidence about the
+        pattern; it *is* the evidence, and it strengthens as it runs. Scoring a
+        dissipation on recency inverted that: a theme silent for ninety days
+        after twenty occurrences — the most confidently dead thing this system
+        can observe — was forced to 'low'.
+
+        Inverting the sign on its own would be worse than the bug. Silence only
+        means anything if somebody was watching, or a fortnight's holiday reads
+        as a resolved pattern. So the third term is the load-bearing one:
+
+        - support     how well established the pattern was before it stopped
+        - silence     how long the quiet has run, against what defines it
+        - continuity  whether the user kept logging through the quiet, measured
+                      against their own prior rate rather than an absolute one
+
+        Continuity gates the result rather than merely weighting it: below
+        CONF_ABSENCE_MIN_CONTINUITY the honest answer is that we stopped looking,
+        whatever the other two terms say.
+        """
+        support = min(
+            1.0,
+            math.log(max(baseline_count, 0) + 1) / math.log(CONF_HIGH_POINTS + 1),
+        )
+
+        saturation = max(
+            silence_threshold_days * CONF_ABSENCE_SILENCE_SATURATION_MULTIPLE, 1.0
+        )
+        silence = max(0.0, min(1.0, days_silent / saturation))
+
+        # Compared against the user's own habit over an equal span, so someone
+        # who journals weekly is not scored as absent for six days out of seven.
+        continuity_known = observed_days_before > 0
+        if continuity_known:
+            continuity = min(1.0, observed_days_during / observed_days_before)
+        else:
+            # No prior logging on record to compare against, so how closely we
+            # were watching is simply unknown. Activity during the silence is
+            # still worth something, but an unknown must not be allowed to
+            # produce the top label — that is the direction in which being wrong
+            # costs the most.
+            continuity = 1.0 if observed_days_during > 0 else 0.0
+
+        score = (0.4 * support) + (0.3 * silence) + (0.3 * continuity)
+
+        if continuity < CONF_ABSENCE_MIN_CONTINUITY:
+            label = 'low'
+        elif (continuity_known
+                and baseline_count >= CONF_HIGH_POINTS
+                and silence >= 1.0
+                and continuity >= CONF_ABSENCE_HIGH_CONTINUITY):
+            label = 'high'
+        elif baseline_count >= CONF_MIN_POINTS:
+            label = 'medium'
+        else:
+            label = 'low'
+
+        return {
+            "confidence_level": label,
+            "confidence_score": round(score, 3),
+            "data_points_count": baseline_count,
+            "time_coverage_days": int(days_silent),
+            "consistency_score": round(continuity, 3),
+            "recency_score": round(silence, 3),
+            "_explanation": {
+                "mode": "absence",
+                "support": round(support, 3),
+                "silence": round(silence, 3),
+                "continuity": round(continuity, 3),
+                "observed_days_during": observed_days_during,
+                "observed_days_before": observed_days_before,
+                "continuity_known": continuity_known,
+                "final_score": round(score, 3),
+            },
+        }
 
     def _empty_result(self) -> dict:
         return {

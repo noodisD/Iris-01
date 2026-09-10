@@ -128,6 +128,9 @@ class EmbeddingRepository(Repository):
     def get_unassigned_embeddings(self, user_id: int) -> list:
         return self.db.get_unassigned_embeddings(user_id)
 
+    def count_observed_days(self, user_id: int, start, end) -> int:
+        return self.db.count_observed_days(user_id, start, end)
+
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         return self.db.get_content_for_source(source_type, source_id)
 
