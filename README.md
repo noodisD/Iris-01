@@ -147,6 +147,15 @@ already applied it would keep the old definition.
 snapshot, so any change also lands as a reviewable diff; regenerate it with
 `python -m tests.test_schema_snapshot --update`.
 
+### Bringing in what you have already written
+
+The Import page reads an export — Notion, Obsidian, Day One, a folder of notes,
+a zip — and voice recordings, and turns them into entries dated when they were
+written. It shows you what it found before anything is saved, and refuses to
+commit an entry whose date it could not determine: a guessed date is counted in
+the wrong week for good. Recordings are transcribed and the audio is kept, so
+you can listen back and so a better model can re-read them later.
+
 ### What IRIS is allowed to say
 
 Settings carries the analytical gates: the confidence a finding needs before it

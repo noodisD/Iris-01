@@ -18,6 +18,7 @@ re-litigated by accident, only deliberately.
 | [0010](ADR-0010-one-journal-store.md) | A journal entry is a reflection | Why the CLI writes through ReflectionService |
 | [0011](ADR-0011-durable-ingest-queue.md) | Writing is separated from analysing | Why analysis is eventually consistent |
 | [0012](ADR-0012-migrations.md) | Migrations own the schema | How to change a constraint |
+| [0013](ADR-0013-importing.md) | Imported entries are reflections, dated when they happened | Why an import must be reviewed before it lands |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

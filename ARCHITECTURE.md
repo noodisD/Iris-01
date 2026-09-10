@@ -49,8 +49,20 @@ started by the API's lifespan and by the CLI) does the rest. So an embedding
 provider outage delays the work rather than losing it — the queue row survives
 the outage and the process, and retries on a widening backoff.
 
+Writing arrives three ways, and they converge immediately: typed into the app,
+spoken and transcribed, or imported from an export. All three end at
+`ReflectionService.create_reflection`, so there is one write path and one set of
+rules about what becomes evidence. An import is staged in `import_items` and
+reviewed first — the format is a guess and the dates come from other people's
+tools, so nothing is committed until someone has looked (ADR-0013).
+
+The queue carries two job kinds that are *not* evidence: `transcription` turns a
+stored recording into text, and parsing reads an upload. Neither appears in
+`EVIDENCE_WEIGHTS`; a transcript becomes evidence only once it is committed as a
+reflection.
+
 `agent/pipeline.py: run_processing_pipeline(source_type, source_id)` is what the
-worker runs:
+worker runs for evidence:
 
 1. Mark the row `processing`.
 2. Read **that row** back by id. (It used to read back any row in that status,
