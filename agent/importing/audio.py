@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -60,15 +61,40 @@ def resolve(rel_path: str) -> Path:
     return target
 
 
+def _repair_webm_duration(src: Path) -> Path:
+    """Rewrite a browser recording's container so it knows how long it is.
+
+    MediaRecorder writes webm as a live stream, which carries no duration in its
+    header. The audio is perfectly fine, but `<audio>` shows no length and
+    cannot seek — so playing back a saved entry means listening from the start
+    with no scrubber. Remuxing with `-c copy` rewrites only the container: every
+    audio sample is bit-identical, so this is still the recording as made.
+    """
+    if src.suffix.lower() != ".webm" or not shutil.which("ffmpeg"):
+        return src
+    fixed = src.with_name(f"{src.stem}.remuxed.webm")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-y", "-i", str(src), "-c", "copy", str(fixed)],
+            check=True, capture_output=True, timeout=300,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not remux {src.name}; keeping it as recorded: {e}")
+        return src
+    src.unlink(missing_ok=True)
+    return fixed
+
+
 def store_recording(user_id: int, src: Path, original_name: str) -> dict:
     """Move a recording into permanent storage, keyed by its own content."""
+    src = _repair_webm_duration(src)
     digest = hashlib.sha256()
     with src.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     sha = digest.hexdigest()
 
-    suffix = Path(original_name).suffix.lower() or src.suffix.lower() or ".bin"
+    suffix = src.suffix.lower() or Path(original_name).suffix.lower() or ".bin"
     rel = f"{user_id}/{sha[:2]}/{sha}{suffix}"
     target = audio_root() / rel
     target.parent.mkdir(parents=True, exist_ok=True)

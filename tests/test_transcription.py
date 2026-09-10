@@ -204,3 +204,23 @@ def test_a_silent_recording_is_reported_rather_than_retried_forever(
     item = store.get_item(staged_recording["item_id"], test_user["id"])
     assert item["status"] == "failed"
     assert "heard" in (item["error"] or ""), "the reason has to be legible"
+
+
+@needs_ffmpeg
+def test_a_browser_recording_learns_its_own_duration(audio_root, test_user):
+    """MediaRecorder writes webm as a live stream with no duration in the
+    header, so `<audio>` shows no length and cannot seek. Remuxing with -c copy
+    fixes the container without touching a single audio sample."""
+    src = audio_root / "recording.webm"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+         "-c:a", "libopus", "-f", "webm", str(src)],
+        check=True, capture_output=True,
+    )
+
+    stored = store_recording(test_user["id"], src, "recording.webm")
+
+    assert stored["duration_seconds"] == pytest.approx(2.0, abs=0.3), (
+        "a saved recording must know how long it is, or playback cannot seek"
+    )
+    assert stored["rel_path"].endswith(".webm")

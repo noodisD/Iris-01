@@ -6,6 +6,7 @@ import {
   isBusy, useImportActions, useImportAdapters, useImportBatch, useImportBatches, useImportEntries,
 } from '@/hooks/useImport';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
+import { AudioRecorder } from '@/components/AudioRecorder';
 import type { ImportBatch, ImportEntry } from '@/types/api';
 
 const TEXT_ACCEPT = '.zip,.md,.markdown,.txt,.json,.csv';
@@ -328,6 +329,18 @@ export function ImportScreen() {
     }
   };
 
+  /** A recording made here takes the same path as an uploaded one, and carries
+   *  its own timestamp — so unlike an upload, it already knows its date. */
+  const saveRecording = async (blob: Blob, filename: string, recordedAt: string) => {
+    const staged = await importApi.uploadRecording(blob, {
+      filename, recordedAt, capturedSource: 'recording',
+      onProgress: (fraction) => setProgress({ label: 'saving recording', fraction }),
+    });
+    setProgress(undefined);
+    setActiveId(staged.batchId);
+    qc.invalidateQueries({ queryKey: qk.importBatches });
+  };
+
   const done = () => { setActiveId(undefined); qc.invalidateQueries({ queryKey: qk.importBatches }); };
 
   if (isLoading) return <LoadingState label="Iris is checking what you have brought…" />;
@@ -368,11 +381,14 @@ export function ImportScreen() {
               hint="An export from Notion, Obsidian, Day One — a zip, a folder of notes, or one long file. Iris will show you what it found before anything is saved."
               onFiles={(f) => send(f, 'text')}
             />
-            <DropZone
-              label="voice journals" accept={AUDIO_ACCEPT} busy={!!progress}
-              hint="Recordings from your phone. They are transcribed, and the audio is kept so you can listen back."
-              onFiles={(f) => send(f, 'audio')}
-            />
+            <div className="col" style={{ gap: 12 }}>
+              <DropZone
+                label="voice journals" accept={AUDIO_ACCEPT} busy={!!progress}
+                hint="Recordings from your phone. They are transcribed, and the audio is kept so you can listen back."
+                onFiles={(f) => send(f, 'audio')}
+              />
+              <AudioRecorder disabled={!!progress} onSave={saveRecording} />
+            </div>
           </div>
 
           {(batches ?? []).length === 0 ? (
