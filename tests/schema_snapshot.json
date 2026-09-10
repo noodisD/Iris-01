@@ -270,6 +270,160 @@
         "type": "double precision"
       }
     },
+    "import_batches": {
+      "adapter": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "committed_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "detected": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "entry_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "kind": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "original_filename": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "status": {
+        "default": "'uploaded'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "stored_path": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "import_items": {
+      "audio_path": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "batch_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "content": {
+        "default": "''::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "content_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
+      },
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "date_confidence": {
+        "default": "'unknown'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "date_source": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "entry_date": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "source_name": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "status": {
+        "default": "'staged'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "tags": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "title": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      }
+    },
     "insight_priorities": {
       "computed_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -659,6 +813,11 @@
       }
     },
     "reflections": {
+      "audio_path": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
       "clarity_level": {
         "default": null,
         "nullable": "YES",
@@ -668,6 +827,11 @@
         "default": null,
         "nullable": "NO",
         "type": "text"
+      },
+      "content_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
       },
       "created_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -698,6 +862,11 @@
         "default": null,
         "nullable": "NO",
         "type": "date"
+      },
+      "source": {
+        "default": "'app'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
       },
       "tags": {
         "default": null,
@@ -1155,6 +1324,106 @@
         "type": "n"
       }
     },
+    "import_batches": {
+      "import_batches_committed_count_not_null": {
+        "definition": "NOT NULL committed_count",
+        "type": "n"
+      },
+      "import_batches_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "import_batches_entry_count_not_null": {
+        "definition": "NOT NULL entry_count",
+        "type": "n"
+      },
+      "import_batches_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "import_batches_kind_check": {
+        "definition": "CHECK (((kind)::text = ANY ((ARRAY['text'::character varying, 'audio'::character varying])::text[])))",
+        "type": "c"
+      },
+      "import_batches_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "import_batches_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "import_batches_status_check": {
+        "definition": "CHECK (((status)::text = ANY ((ARRAY['uploaded'::character varying, 'parsing'::character varying, 'needs_review'::character varying, 'committing'::character varying, 'committed'::character varying, 'failed'::character varying])::text[])))",
+        "type": "c"
+      },
+      "import_batches_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "import_batches_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "import_batches_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "import_batches_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "import_items": {
+      "import_items_batch_id_fkey": {
+        "definition": "FOREIGN KEY (batch_id) REFERENCES import_batches(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "import_items_batch_id_not_null": {
+        "definition": "NOT NULL batch_id",
+        "type": "n"
+      },
+      "import_items_content_not_null": {
+        "definition": "NOT NULL content",
+        "type": "n"
+      },
+      "import_items_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "import_items_date_confidence_check": {
+        "definition": "CHECK (((date_confidence)::text = ANY ((ARRAY['certain'::character varying, 'probable'::character varying, 'unknown'::character varying])::text[])))",
+        "type": "c"
+      },
+      "import_items_date_confidence_not_null": {
+        "definition": "NOT NULL date_confidence",
+        "type": "n"
+      },
+      "import_items_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "import_items_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "import_items_status_check": {
+        "definition": "CHECK (((status)::text = ANY ((ARRAY['staged'::character varying, 'excluded'::character varying, 'duplicate'::character varying, 'imported'::character varying, 'failed'::character varying])::text[])))",
+        "type": "c"
+      },
+      "import_items_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "import_items_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "import_items_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "insight_priorities": {
       "insight_priorities_id_not_null": {
         "definition": "NOT NULL id",
@@ -1414,6 +1683,14 @@
         "definition": "NOT NULL reflection_date",
         "type": "n"
       },
+      "reflections_source_check": {
+        "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying])::text[])))",
+        "type": "c"
+      },
+      "reflections_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      },
       "reflections_user_id_fkey": {
         "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
         "type": "f"
@@ -1614,6 +1891,15 @@
       "idx_habits_status_date": "CREATE INDEX idx_habits_status_date ON public.habits USING btree (processing_status, created_at)",
       "idx_habits_user_active": "CREATE INDEX idx_habits_user_active ON public.habits USING btree (user_id, is_active)"
     },
+    "import_batches": {
+      "idx_import_batches_user": "CREATE INDEX idx_import_batches_user ON public.import_batches USING btree (user_id, created_at DESC)",
+      "import_batches_pkey": "CREATE UNIQUE INDEX import_batches_pkey ON public.import_batches USING btree (id)"
+    },
+    "import_items": {
+      "idx_import_items_batch": "CREATE INDEX idx_import_items_batch ON public.import_items USING btree (batch_id, id)",
+      "idx_import_items_hash": "CREATE INDEX idx_import_items_hash ON public.import_items USING btree (user_id, content_hash)",
+      "import_items_pkey": "CREATE UNIQUE INDEX import_items_pkey ON public.import_items USING btree (id)"
+    },
     "insight_priorities": {
       "insight_priorities_insight_id_key": "CREATE UNIQUE INDEX insight_priorities_insight_id_key ON public.insight_priorities USING btree (insight_id)",
       "insight_priorities_pkey": "CREATE UNIQUE INDEX insight_priorities_pkey ON public.insight_priorities USING btree (id)"
@@ -1651,7 +1937,8 @@
     "reflections": {
       "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",
       "idx_reflections_user_date": "CREATE INDEX idx_reflections_user_date ON public.reflections USING btree (user_id, reflection_date DESC)",
-      "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)"
+      "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)",
+      "uq_reflections_user_day_hash": "CREATE UNIQUE INDEX uq_reflections_user_day_hash ON public.reflections USING btree (user_id, reflection_date, content_hash) WHERE (content_hash IS NOT NULL)"
     },
     "schema_migrations": {
       "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"
