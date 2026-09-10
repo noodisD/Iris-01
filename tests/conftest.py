@@ -160,6 +160,19 @@ def offline_embeddings(monkeypatch):
     # retry/backoff logic above it still runs and tests that drive failures
     # through this same call can override it.
     monkeypatch.setattr("agent.pipeline.openai.embeddings.create", fake_create)
+
+    # Same guarantee for audio. Transcription is billed per minute, so a test
+    # that reached the real API by accident would be expensive as well as
+    # non-deterministic; tests that exercise transcription override this.
+    def refuse_transcription(*a, **kw):
+        raise AssertionError(
+            "a test reached the real transcription API — patch "
+            "agent.transcription.openai.audio.transcriptions.create instead"
+        )
+
+    monkeypatch.setattr(
+        "agent.transcription.openai.audio.transcriptions.create", refuse_transcription
+    )
     # Theme discovery names its clusters with the LLM. That call fails soft,
     # but it is still a real request made from a test.
     monkeypatch.setattr(

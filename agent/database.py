@@ -2115,7 +2115,7 @@ class Database:
             try:
                 cur.execute(
                     """
-                    SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at
+                    SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at, audio_path
                     FROM reflections
                     WHERE user_id = %s
                       AND (%s::int IS NULL OR id < %s)
@@ -2138,7 +2138,8 @@ class Database:
                         "clarity_level": row[5],
                         "tags": row[6],
                         "created_at": row[7],
-                        "updated_at": row[8]
+                        "updated_at": row[8],
+                        "audio_path": row[9],
                     }
                     for row in rows
                 ]
@@ -2154,7 +2155,7 @@ class Database:
                 cur.execute(
                     """
                     SELECT id, user_id, reflection_date, content, mood, energy_level, tags,
-                           processing_status, created_at, updated_at
+                           processing_status, created_at, updated_at, audio_path
                     FROM reflections WHERE id = %s;
                     """,
                     (reflection_id,)
@@ -2171,7 +2172,8 @@ class Database:
                         "tags": row[6],
                         "processing_status": row[7],
                         "created_at": row[8],
-                        "updated_at": row[9]
+                        "updated_at": row[9],
+                        "audio_path": row[10],
                     }
                 return None
             except Exception as e:

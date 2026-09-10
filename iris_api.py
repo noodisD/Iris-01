@@ -709,6 +709,9 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         "energy": r.get("energy_level"),
         "tags": r.get("tags") or [],
         "createdAt": _iso(created),
+        # Present only for entries that came from a recording, so the journal
+        # can offer the audio next to the words it produced.
+        "audioUrl": f"/api/audio/{r['id']}" if r.get("audio_path") else None,
     }
 
 
@@ -901,6 +904,86 @@ def _item_to_contract(item: dict) -> dict:
         "hasAudio": bool(item.get("audio_path")),
         "error": item.get("error"),
     }
+
+
+@app.post("/api/import/audio")
+async def upload_import_audio(
+    file: UploadFile = File(...),
+    recordedAt: str | None = Form(None),
+    capturedSource: str = Form("upload"),
+    batchId: int | None = Form(None),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Take a voice journal, keep it, and queue it for transcription.
+
+    Async because it awaits the upload; streamed to disk so a long recording is
+    not held in memory. The recording is stored before anything else happens, so
+    a transcription failure delays the transcript rather than losing the audio.
+    """
+    from agent.importing.audio import AUDIO_SUFFIXES, enqueue_transcription, stage_recording
+    from agent.importing import store as import_store
+
+    name = Path(file.filename or "recording.webm").name
+    if Path(name).suffix.lower() not in AUDIO_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{Path(name).suffix or 'That file'} is not an audio format IRIS can read.",
+        )
+
+    staging = Path(tempfile.mkdtemp(prefix="iris-audio-"))
+    destination = staging / name
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_IMPORT_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="That recording is too large.")
+                out.write(chunk)
+
+        def stage() -> dict:
+            batch = batchId or import_store.create_batch(user_id, "audio", name, None)
+            if not batchId:
+                import_store.update_batch(batch, status="needs_review", adapter="audio")
+            staged = stage_recording(user_id, batch, destination, name, recordedAt)
+            enqueue_transcription(staged["item_id"], user_id)
+            import_store.update_batch(
+                batch, entry_count=import_store.counts(batch).get("total", 0)
+            )
+            return {"batchId": str(batch), **staged}
+
+        staged = await run_in_threadpool(stage)
+        return {
+            "batchId": staged["batchId"],
+            "entryId": str(staged["item_id"]),
+            "durationSeconds": staged.get("duration_seconds"),
+            "capturedSource": capturedSource,
+            # The transcript arrives on the queue; the page polls for it.
+            "transcriptionStatus": "pending",
+        }
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+@app.get("/api/audio/{reflection_id}")
+def get_reflection_audio(reflection_id: int, user_id: int = Depends(get_current_user_id)):
+    """Serve a kept recording. FileResponse handles Range, so playback seeks."""
+    from agent.importing.audio import media_type_for, resolve
+
+    reflection = db.get_reflection(reflection_id)
+    if not reflection or reflection.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="No such entry.")
+    if not reflection.get("audio_path"):
+        raise HTTPException(status_code=404, detail="That entry has no recording.")
+    try:
+        path = resolve(reflection["audio_path"])
+    except ValueError:
+        # A stored path that escapes the audio root should never exist; if one
+        # does, refusing to open it is the only safe answer.
+        raise HTTPException(status_code=404, detail="That recording is unavailable.")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="That recording is unavailable.")
+    return FileResponse(path, media_type=media_type_for(path))
 
 
 @app.get("/api/import/adapters")

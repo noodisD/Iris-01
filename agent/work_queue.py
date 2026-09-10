@@ -115,12 +115,32 @@ def _fail(item_id: int, attempts: int, error: str) -> None:
         conn.commit()
 
 
+def _run(source_type: str, source_id: int) -> None:
+    """Do one queued job.
+
+    Most queue entries are evidence being ingested, and go to the pipeline.
+    'transcription' is not: it is a job *kind*, turning a stored recording into
+    text. ADR-0003 asks anything new to say which side of the evidence line it
+    falls on, and the answer is neither — the audio is not evidence, and the
+    transcript only becomes evidence once it is committed as a reflection. So it
+    must never appear in EVIDENCE_WEIGHTS or get_unassigned_embeddings, and it
+    is dispatched here rather than being taught to run_processing_pipeline,
+    whose table_map is a map of evidence sources.
+    """
+    if source_type == "transcription":
+        from .importing.audio import run_transcription_job
+
+        run_transcription_job(source_id)
+        return
+    run_processing_pipeline(source_type, source_id)
+
+
 def process_due(limit: int = 20) -> tuple[int, int]:
     """Process items whose retry time has arrived. Returns (succeeded, failed)."""
     succeeded = failed = 0
     for item in _claim_due(limit):
         try:
-            run_processing_pipeline(item["source_type"], item["source_id"])
+            _run(item["source_type"], item["source_id"])
             _succeed(item["id"])
             succeeded += 1
         except Exception as e:

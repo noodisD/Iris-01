@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # API Keys (Required in Prod)
     OPENAI_API_KEY: str = Field(default="your_openai_api_key_here")
     OPENAI_MODEL: str = Field(default="gpt-5.5")
+    # Accuracy matters more than cost here: a transcript becomes a reflection,
+    # gets embedded, and is quoted back as something the owner said, so a
+    # mis-heard word turns into evidence. gpt-4o-mini-transcribe is the cheaper
+    # lever for a very large backlog; whisper-1 is the one to switch to if
+    # per-segment timestamps are ever wanted.
+    TRANSCRIPTION_MODEL: str = Field(default="gpt-4o-transcribe")
 
     # PostgreSQL
     # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)
