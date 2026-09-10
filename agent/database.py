@@ -549,16 +549,44 @@ class Database:
                 }
             return None
 
-    def update_theme_stats(self, theme_id: int, last_seen_at: str):
-        """Updates theme's last_seen_at and increments occurrence_count."""
+    def update_theme_stats(self, theme_id: int, last_seen_at: str = None):
+        """Recompute a theme's aggregates from the occurrences it actually has.
+
+        This used to increment the stored counter unconditionally and overwrite
+        last_seen_at with whatever timestamp the caller passed. Neither is
+        safe, because add_theme_occurrence is an upsert:
+
+        - A source delivered twice — a queue retry, a replay — wrote one
+          occurrence and incremented the count twice, so a theme's count drifted
+          above the number of occurrences supporting it, and every confidence
+          and rate derived from that count inherited the drift.
+        - The overwrite moved last_seen_at *backwards* whenever a historical
+          entry was backfilled, because the newest occurrence and the most
+          recently written one are not the same thing.
+
+        Deriving both from theme_occurrences makes redelivery a no-op and lets a
+        correction or deletion be reflected instead of accumulated. The
+        `last_seen_at` argument is retained for callers but no longer trusted
+        over the stored evidence.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    UPDATE themes SET last_seen_at = %s, occurrence_count = occurrence_count + 1
-                    WHERE id = %s;
+                    UPDATE themes
+                    SET occurrence_count = agg.n,
+                        first_seen_at = agg.min_at,
+                        last_seen_at = agg.max_at
+                    FROM (
+                        SELECT COUNT(*) AS n,
+                               MIN(occurred_at) AS min_at,
+                               MAX(occurred_at) AS max_at
+                        FROM theme_occurrences
+                        WHERE theme_id = %s
+                    ) agg
+                    WHERE themes.id = %s AND agg.n > 0;
                     """,
-                    (last_seen_at, theme_id)
+                    (theme_id, theme_id)
                 )
                 conn.commit()
             except psycopg2.Error as e:
@@ -638,23 +666,47 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT e.id, e.source_type, e.source_id, e.vector, e.created_at
+                SELECT e.id, e.source_type, e.source_id, e.vector, e.created_at,
+                       -- When the thing happened, not when we got round to
+                       -- embedding it. Discovery used e.created_at for a theme's
+                       -- first_seen/last_seen *and* for every occurrence it
+                       -- wrote, so an entry backdated to March, or one embedded
+                       -- late after a provider outage, was recorded as having
+                       -- happened at embedding time. The matching path already
+                       -- uses the source's own date, so the same entry landed on
+                       -- a different date depending on whether it joined an
+                       -- existing theme or founded one.
+                       CASE e.source_type
+                           WHEN 'journal_entry' THEN
+                               (SELECT j.created_at FROM journal_entries j WHERE j.id = e.source_id)
+                           WHEN 'reflection' THEN
+                               (SELECT r.reflection_date::timestamp AT TIME ZONE 'UTC'
+                                  FROM reflections r WHERE r.id = e.source_id)
+                           WHEN 'habit_completion' THEN
+                               (SELECT hc.completion_date::timestamp AT TIME ZONE 'UTC'
+                                  FROM habit_completions hc WHERE hc.id = e.source_id)
+                       END AS occurred_at
                 FROM embeddings e
                 WHERE NOT EXISTS (
                     SELECT 1 FROM theme_occurrences occ
                     WHERE occ.source_type = e.source_type AND occ.source_id = e.source_id
                 )
+                -- Eligibility here must match the online path in pipeline.py
+                -- and ADR-0003: evidence is what the user deliberately logged.
+                -- 'habit' is the habit *definition* -- an intention, not
+                -- behaviour -- and admitting it here let a habit someone created
+                -- and never did found a theme and count as an occurrence of it.
+                -- Completions still qualify; skipped ones already do not.
                 AND (
                     (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
                     (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s)) OR
-                    (e.source_type = 'habit' AND e.source_id IN (SELECT id FROM habits WHERE user_id = %s)) OR
                     (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
                         WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE))
                 )
                 ORDER BY e.created_at DESC;
                 """,
-                (user_id, user_id, user_id, user_id)
+                (user_id, user_id, user_id)
             )
             rows = cur.fetchall()
             return [
@@ -663,7 +715,10 @@ class Database:
                     "source_type": row[1],
                     "source_id": row[2],
                     "vector": row[3],
-                    "created_at": row[4]
+                    # Kept distinct on purpose: created_at is when this row was
+                    # embedded, occurred_at is when the user's entry happened.
+                    "created_at": row[4],
+                    "occurred_at": row[5] or row[4],
                 }
                 for row in rows
             ]

@@ -13,7 +13,9 @@ os.environ["POSTGRES_DB"] = os.environ.get("IRIS_TEST_POSTGRES_DB", "iris_test_d
 import datetime
 import hashlib
 import logging
+import math
 import random
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -92,16 +94,47 @@ def _ensure_test_database() -> None:
         conn.close()
 
 
+def _token_vector(token: str) -> list:
+    """A deterministic unit-ish vector for one word."""
+    seed = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:16], 16)
+    rng = random.Random(seed)
+    return [rng.uniform(-1.0, 1.0) for _ in range(1536)]
+
+
 def _offline_embedding(text: str, model: str = None) -> list:
     """A deterministic stand-in for OpenAI embeddings.
 
     Same text in, same vector out, so repeated entries still cluster and
     unrelated ones stay apart. Tests that need particular semantic
     relationships override this with mock_pipeline_logic.
+
+    This used to hash the *whole string*, which made every distinct text an
+    independent random vector: "Poor Sleep again 1" and "Poor Sleep again 2"
+    came out at cosine 0.04, as unrelated as any two sentences in the language.
+    Themes still formed in the integration tests only because discovery's eps
+    had grown to the distance between orthogonal vectors, so the suite was
+    asserting on a bug. Once eps bounds the data, a whole-string hash can never
+    cluster and nothing would form a theme at all.
+
+    Embedding the *words* keeps the determinism and the offline guarantee while
+    giving the fixture the one property the tests actually depend on: texts that
+    say nearly the same thing land near each other. A bare counter is scaffolding
+    rather than content, so it is weighted down instead of dominating the vector.
+    It is still not a semantic model — real theme-discovery precision has to be
+    measured against real embeddings on an annotated corpus.
     """
-    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16], 16)
-    rng = random.Random(seed)
-    return [rng.uniform(-1.0, 1.0) for _ in range(1536)]
+    tokens = [t for t in re.split(r"[^a-zA-Z0-9]+", text.lower()) if t]
+    if not tokens:
+        tokens = ["\x00empty"]
+
+    acc = [0.0] * 1536
+    for token in tokens:
+        weight = 0.15 if token.isdigit() else 1.0
+        for i, value in enumerate(_token_vector(token)):
+            acc[i] += weight * value
+
+    norm = math.sqrt(sum(v * v for v in acc)) or 1.0
+    return [v / norm for v in acc]
 
 
 @pytest.fixture(autouse=True)

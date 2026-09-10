@@ -190,7 +190,9 @@ class PersistenceEngine:
             entries.append({
                 "source_type": item["source_type"],
                 "source_id": item["source_id"],
-                "created_at": item["created_at"]
+                # The event time, not the embedding time. `.get` covers callers
+                # that predate the field; the repository always supplies it.
+                "occurred_at": item.get("occurred_at") or item["created_at"],
             })
 
         vectors_array = np.array(vectors, dtype=np.float32)
@@ -214,22 +216,18 @@ class PersistenceEngine:
                 logger.info(f"HDBSCAN clustering found labels: {set(cluster_labels)}")
             elif CLUSTERING_BACKEND == "dbscan":
                 # Use DBSCAN as fallback - similar to HDBSCAN but with eps parameter
-                from sklearn.neighbors import NearestNeighbors
-
-                # Estimate eps based on min_cluster_size
-                # Find distance to k-th nearest neighbor where k=min_cluster_size
-                k = min(self.min_cluster_size, len(normalized_vectors) - 1)
-                if k > 0:
-                    neighbors = NearestNeighbors(n_neighbors=k).fit(normalized_vectors)
-                    distances, indices = neighbors.kneighbors(normalized_vectors)
-                    # Use the average distance to k-th neighbor as eps
-                    avg_kth_distance = np.mean(distances[:, -1])
-                    # Ensure minimum eps based on cluster threshold
-                    # Cosine distance = 1 - Cosine Similarity
-                    # We want similarity > 0.78, so distance < 0.22
-                    eps = max(avg_kth_distance, 1.0 - PERSISTENCE_CLUSTER_THRESHOLD)
-                else:
-                    eps = 1.0 - PERSISTENCE_CLUSTER_THRESHOLD
+                # eps is a *euclidean* radius over L2-normalized vectors, so it
+                # has to be the euclidean distance corresponding to the cosine
+                # threshold: |a - b| = sqrt(2 * (1 - cos)). At 0.78 that is
+                # 0.663, not the 0.22 the old comment assumed.
+                #
+                # Worse than the wrong conversion was wrapping it in
+                # max(..., mean distance to the k-th neighbour). In 1536
+                # dimensions unrelated unit vectors sit ~1.41 apart, so that term
+                # always won: eps adapted to the data instead of bounding it, and
+                # five mutually unrelated entries — maximum pairwise cosine
+                # 0.06 — clustered into a full theme.
+                eps = float(np.sqrt(2.0 * (1.0 - PERSISTENCE_CLUSTER_THRESHOLD)))
 
                 clusterer = DBSCAN(
                     eps=eps,
@@ -257,6 +255,17 @@ class PersistenceEngine:
             cluster_vectors = vectors_array[cluster_indices]
             cluster_entries = [entries[i] for i in cluster_indices]
 
+            # Density clustering chains: neighbouring points can link a cluster
+            # together without the two ends of it resembling each other at all.
+            # The backend's own acceptance is therefore not enough to call the
+            # result a theme, and the two backends are tuned differently.
+            if not self._is_cohesive(cluster_vectors):
+                logger.info(
+                    f"Cluster {label} rejected: not semantically cohesive "
+                    f"({len(cluster_indices)} entries)"
+                )
+                continue
+
             # Improved 2: Proto-Theme Logic
             # We create the theme regardless of size here, but downstream logic will filter it
             # if it's too small. This allows "Proto-Buckets".
@@ -282,14 +291,9 @@ class PersistenceEngine:
         # Compute centroid
         centroid = np.mean(vectors, axis=0)
 
-        # Get earliest and latest timestamps (handle both datetime and string)
-        timestamps = []
-        for e in entries:
-            created_at = e["created_at"]
-            if isinstance(created_at, datetime):
-                timestamps.append(created_at)
-            else:
-                timestamps.append(datetime.fromisoformat(str(created_at)))
+        # Earliest and latest *event* times, so a theme is dated by when its
+        # entries happened rather than by when the queue got to them.
+        timestamps = [to_utc(e["occurred_at"]) for e in entries]
         first_seen = min(timestamps)
         last_seen = max(timestamps)
 
@@ -314,7 +318,12 @@ class PersistenceEngine:
 
             # Record initial occurrences
             for i, entry in enumerate(entries):
-                snippet = self._get_entry_snippet(entry["source_id"])
+                # Without the source type this fell back to 'journal_entry' for
+                # every source, so a reflection quoted whatever journal row
+                # happened to share its numeric id.
+                snippet = self._get_entry_snippet(
+                    entry["source_id"], entry["source_type"]
+                )
 
                 if SKLEARN_AVAILABLE:
                     similarity = cosine_similarity(
@@ -331,7 +340,7 @@ class PersistenceEngine:
                     source_id=entry["source_id"],
                     snippet=snippet,
                     similarity_score=float(similarity),
-                    occurred_at=entry["created_at"]
+                    occurred_at=to_utc(entry["occurred_at"]).isoformat(),
                 )
 
             logger.info(f"Created theme {theme_id} with {len(entries)} initial occurrences")
@@ -499,6 +508,12 @@ Theme summary:"""
                 logger.info(f"Theme {t['id']} SKIPPED: Low temporal density ({recent_count} < 3)")
                 continue # Skip this theme, it's dormant or noise
 
+            # Each theme's bundle must record that theme's own metrics. The
+            # buffer was initialised once per engine and only ever appended to,
+            # so a run over several themes stored theme 1's numbers inside
+            # theme 2's bundle and the explanation quoted the wrong evidence.
+            self._evidence = []
+
             # If confirmed, proceed to confidence
             if not conf or conf.get('last_computed_at') is None:
                 # Improved 5: Pass source_types for Evidence Tiering
@@ -583,6 +598,35 @@ Theme summary:"""
         """Retrieve all themes for this user."""
         return themes.get_all_themes(self.user_id)
 
+    def _is_cohesive(self, vectors: np.ndarray) -> bool:
+        """Does every member of this cluster clear the theme-creation threshold?
+
+        Backend-independent acceptance, checked against the centroid the theme
+        will actually be stored with, and stated in the same terms CONTEXT.md
+        already uses: PERSISTENCE_CLUSTER_THRESHOLD forms a theme,
+        PERSISTENCE_MATCH_THRESHOLD (looser) adds to an existing one. A founding
+        member is held to the creation threshold.
+
+        The check is on the cluster's *diameter*, not its average. Density
+        clustering chains: A links to B and B links to C while A and C resemble
+        each other not at all, and an average happily absorbs both ends of a
+        chain nobody would call one pattern. Corrected eps already forces every
+        individual link past the creation threshold, so this only removes the
+        chains that survive that — it does not tighten what counts as a theme.
+        """
+        if len(vectors) < 2:
+            return False
+
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        if float(norms.min()) == 0.0:
+            return False
+
+        unit = vectors / norms
+        similarities = unit @ unit.T
+        np.fill_diagonal(similarities, 1.0)
+
+        return float(similarities.min()) >= PERSISTENCE_MATCH_THRESHOLD
+
     def _extract_snippet(self, text: str, max_length: int = 200) -> str:
         """Extract a snippet from text."""
         if not text:
@@ -590,6 +634,6 @@ Theme summary:"""
         return text[:max_length]
 
     def _get_entry_snippet(self, entry_id: int, source_type: str = 'journal_entry', max_length: int = 200) -> str:
-        """Get snippet from a journal entry."""
+        """Get the snippet for a source, read from that source's own table."""
         text = embeddings.get_content_for_source(source_type, entry_id)
         return self._extract_snippet(text, max_length) if text else ""

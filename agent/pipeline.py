@@ -187,8 +187,21 @@ def run_processing_pipeline(source_type: str, source_id: int):
                         )
                         _refresh_cross_theme_analyses(user_id)
             except Exception as e:
-                logger.error(f"Persistence check failed for {source_type} ID {source_id}: {e}")
-                # Non-blocking: don't fail the pipeline if persistence fails
+                # Re-raised, not swallowed. Projecting an entry into a theme is
+                # the required work of this pipeline, not optional narration:
+                # swallowing this and then marking the row 'complete' below told
+                # the queue the item had succeeded, so it deleted the task. The
+                # embedding existed, the occurrence never did, and nothing ever
+                # went back for it - exactly the silent loss the durable queue
+                # was built to prevent, reintroduced one layer further in.
+                #
+                # The cross-theme refresh stays non-blocking (see
+                # _refresh_cross_theme_analyses): a stale leverage cache is a
+                # worse-context problem, not missing evidence.
+                logger.error(
+                    f"Persistence check failed for {source_type} ID {source_id}: {e}"
+                )
+                raise
 
         # 6. Update status to 'complete'
         embeddings.update_processing_status(source_type, source_id, 'complete')

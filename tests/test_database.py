@@ -126,14 +126,27 @@ def test_theme_operations(test_user):
     assert len(themes) >= 1
     assert any(t["id"] == theme_id for t in themes)
 
-    # Test update_theme_stats
-    new_last_seen = "2024-01-02T10:00:00Z"
-    db.update_theme_stats(theme_id, new_last_seen)
+    # Test update_theme_stats. The count is derived from the occurrences that
+    # exist, not incremented: this used to add one per call whether or not any
+    # evidence had been recorded, so a redelivered source counted twice and a
+    # theme's count drifted away from the occurrences supporting it.
+    db.add_theme_occurrence(theme_id, 'journal_entry', 9001, "one", 0.9,
+                            "2024-01-01T10:00:00Z")
+    db.add_theme_occurrence(theme_id, 'journal_entry', 9002, "two", 0.9,
+                            "2024-01-02T10:00:00Z")
+    db.update_theme_stats(theme_id, "2024-01-02T10:00:00Z")
 
     updated_themes = db.get_themes(test_user["id"])
     theme = next(t for t in updated_themes if t["id"] == theme_id)
     assert theme["occurrence_count"] == 2
     assert theme["last_seen_at"] is not None
+
+    # Delivering the same source again is a no-op, not another occurrence.
+    db.add_theme_occurrence(theme_id, 'journal_entry', 9002, "two", 0.9,
+                            "2024-01-02T10:00:00Z")
+    db.update_theme_stats(theme_id, "2024-01-02T10:00:00Z")
+    theme = next(t for t in db.get_themes(test_user["id"]) if t["id"] == theme_id)
+    assert theme["occurrence_count"] == 2, "a replayed source must not be counted twice"
 
 def test_theme_occurrence_operations(test_user):
     """Test theme occurrence tracking."""
