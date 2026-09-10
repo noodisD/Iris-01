@@ -14,6 +14,18 @@ import logging
 from datetime import UTC, datetime
 
 from .conflict import ConflictSuppressionEngine
+from .constants import (
+    DECISION_IMPACT_BASELINE_DAYS,
+    DECISION_IMPACT_WINDOW_DAYS,
+    LEVERAGE_TIME_LAG_DAYS,
+    LEVERAGE_WINDOW_DAYS,
+    RESOLUTION_BASELINE_DAYS,
+    RESOLUTION_RECENT_DAYS,
+    TENSION_BASELINE_DAYS,
+    TENSION_RECENT_DAYS,
+    TRAJECTORY_BASELINE_DAYS,
+    TRAJECTORY_RECENT_DAYS,
+)
 from .database import db
 from .decision_impact import DecisionImpactEngine
 from .leverage import LeverageEngine
@@ -24,15 +36,42 @@ from .trajectory import TrajectoryEngine
 
 logger = logging.getLogger(__name__)
 
+# No engine performs causal identification. Leverage measures whether one theme
+# tends to *precede* another within a lag window, and decision impact compares
+# rates before and after an anchor: both are temporal association, and labelling
+# them "causal" on screen asserted something the mathematics never established.
 KIND_MAP = {
     "trajectory": "temporal",
     "resolution": "temporal",
     "tension": "linguistic",
-    "leverage": "causal",
-    "decision_impact": "causal",
+    "leverage": "temporal",
+    "decision_impact": "temporal",
 }
+
+# An ordinal encoding of the confidence *label*, not a calibrated probability —
+# the contract field is typed as a number. The label itself is carried in `tags`
+# and in the detail callout so the screen shows the real thing.
 CONFIDENCE_MAP = {"low": 0.4, "medium": 0.65, "high": 0.9}
 ACCENTS = ["sage", "rose", "indigo", "amber"]
+
+
+def _measure(label: str, value, sub: str | None = None) -> dict:
+    """One reported number, with the interval or denominator it came from.
+
+    Every engine used to be flattened into "recent vs earlier" counts. Only two
+    of them measure that, so the other three had a real number moved into the
+    "recent" slot and a zero invented for "earlier" — the screen then read
+    "12 recent · 0 earlier" for a tension whose actual split was 4 and 8.
+    A measure names what it counted and over what window instead.
+    """
+    return {"label": label, "value": value, "sub": sub}
+
+
+def _relative_change(delta) -> str:
+    """Render a decision-impact delta as the relative change it is."""
+    if delta is None:
+        return "change following the anchor"
+    return f"{float(delta):+.0%} relative change in rate"
 
 
 def _iso(ts) -> str:
@@ -52,9 +91,13 @@ class InsightsService:
     # --- raw normalization -------------------------------------------------
 
     def _normalize(self) -> list:
-        """Collect normalized {engine, pattern_key, summary, label, recent, past,
+        """Collect normalized {engine, pattern_key, summary, label, measures,
         confidence_level, theme_id} dicts across the engines. Engines that fail
-        or have no data are skipped so a partial backend still yields insights."""
+        or have no data are skipped so a partial backend still yields insights.
+
+        `measures` is engine-specific: what that engine actually computed, each
+        value carrying the window it was measured over. Engines that do not
+        compare a recent window against an earlier one do not report one."""
         out = []
 
         try:
@@ -65,8 +108,17 @@ class InsightsService:
                     "theme_id": r["theme_id"],
                     "summary": r.get("theme_summary") or "",
                     "label": r.get("trajectory_label") or "observed",
-                    "recent": r.get("recent_count", 0),
-                    "past": r.get("past_count", 0),
+                    "measures_label": "Occurrences by window",
+                    "measures": [
+                        _measure("Recent", r.get("recent_count", 0),
+                                 f"last {TRAJECTORY_RECENT_DAYS} days"),
+                        _measure("Earlier", r.get("past_count", 0),
+                                 f"prior {TRAJECTORY_BASELINE_DAYS} days"),
+                    ],
+                    "headline_metric": (
+                        f"{r.get('recent_count', 0)} in {TRAJECTORY_RECENT_DAYS}d · "
+                        f"{r.get('past_count', 0)} in the {TRAJECTORY_BASELINE_DAYS}d before"
+                    ),
                     "confidence_level": r.get("confidence_level", "low"),
                 })
         except Exception as e:  # pragma: no cover - defensive
@@ -80,8 +132,17 @@ class InsightsService:
                     "theme_id": r["theme_id"],
                     "summary": r.get("summary") or "",
                     "label": r.get("resolution_label") or "observed",
-                    "recent": r.get("recent_count", 0),
-                    "past": r.get("past_count", 0),
+                    "measures_label": "Occurrences by window",
+                    "measures": [
+                        _measure("Recent", r.get("recent_count", 0),
+                                 f"last {RESOLUTION_RECENT_DAYS} days"),
+                        _measure("Earlier", r.get("past_count", 0),
+                                 f"prior {RESOLUTION_BASELINE_DAYS} days"),
+                    ],
+                    "headline_metric": (
+                        f"{r.get('recent_count', 0)} in {RESOLUTION_RECENT_DAYS}d · "
+                        f"{r.get('past_count', 0)} in the {RESOLUTION_BASELINE_DAYS}d before"
+                    ),
                     "confidence_level": r.get("confidence_level", "low"),
                 })
         except Exception as e:  # pragma: no cover - defensive
@@ -96,8 +157,22 @@ class InsightsService:
                     "theme_id": a,
                     "summary": f"{r.get('theme_a_summary','')} vs {r.get('theme_b_summary','')}".strip(),
                     "label": r.get("tension_label") or "tension",
-                    "recent": r.get("cooccurrence_count", 0),
-                    "past": 0,
+                    # The engine already returns the recent/earlier split; this
+                    # adapter was passing the all-time total as "recent" and
+                    # hardcoding zero for "earlier".
+                    "measures_label": "Days both themes appeared",
+                    "measures": [
+                        _measure("Recent", r.get("recent_cooccurrence_count", 0),
+                                 f"last {TENSION_RECENT_DAYS} days"),
+                        _measure("Earlier", r.get("past_cooccurrence_count", 0),
+                                 f"prior {TENSION_BASELINE_DAYS} days"),
+                        _measure("All time", r.get("cooccurrence_count", 0), None),
+                    ],
+                    "headline_metric": (
+                        f"{r.get('recent_cooccurrence_count', 0)} shared days in "
+                        f"{TENSION_RECENT_DAYS}d · "
+                        f"{r.get('past_cooccurrence_count', 0)} before"
+                    ),
                     "confidence_level": r.get("confidence_level", "low"),
                 })
         except Exception as e:  # pragma: no cover - defensive
@@ -111,9 +186,23 @@ class InsightsService:
                     "pattern_key": f"{s}-{t}",
                     "theme_id": s,
                     "summary": f"{r.get('source_summary','')} → {r.get('target_summary','')}".strip(),
-                    "label": "influence",
-                    "recent": r.get("cooccurrence_count", 0),
-                    "past": 0,
+                    # "influence" overstated it: this is a forward/reverse
+                    # co-occurrence proportion within a lag window.
+                    "label": "associated",
+                    "measures_label": "Temporal association",
+                    "measures": [
+                        _measure("Directional lift",
+                                 round(float(r.get("directional_lift") or 0.0), 2),
+                                 f"forward vs reverse within {LEVERAGE_TIME_LAG_DAYS} days"),
+                        _measure("Association score",
+                                 round(float(r.get("influence_score") or 0.0), 2), None),
+                        _measure("Co-occurrences", r.get("cooccurrence_count", 0),
+                                 f"last {LEVERAGE_WINDOW_DAYS} days"),
+                    ],
+                    "headline_metric": (
+                        f"{r.get('cooccurrence_count', 0)} co-occurrences within "
+                        f"{LEVERAGE_TIME_LAG_DAYS}d"
+                    ),
                     "confidence_level": r.get("confidence_level", "low"),
                 })
         except Exception as e:  # pragma: no cover - defensive
@@ -128,8 +217,22 @@ class InsightsService:
                     "theme_id": a,
                     "summary": f"{r.get('anchor_summary','')} → {r.get('target_summary','')}".strip(),
                     "label": r.get("effect_direction") or "shift",
-                    "recent": r.get("target_total_count", 0),
-                    "past": 0,
+                    # target_total_count is every occurrence the target has ever
+                    # had, not post-anchor support, so it was not a "recent"
+                    # count and there was never an "earlier" one to compare it to.
+                    "measures_label": "Change following the anchor",
+                    "measures": [
+                        _measure("Relative change in rate",
+                                 round(float(r.get("delta_score") or 0.0), 2),
+                                 f"{DECISION_IMPACT_WINDOW_DAYS}d after vs "
+                                 f"{DECISION_IMPACT_BASELINE_DAYS}d before each anchor"),
+                        _measure("Direction agreement",
+                                 round(float(r.get("consistency_ratio") or 0.0), 2),
+                                 "across anchor events"),
+                        _measure("Target occurrences", r.get("target_total_count", 0),
+                                 "all time"),
+                    ],
+                    "headline_metric": _relative_change(r.get("delta_score")),
                     "confidence_level": r.get("confidence_level", "low"),
                 })
         except Exception as e:  # pragma: no cover - defensive
@@ -190,13 +293,13 @@ class InsightsService:
             "headline": {
                 "line1": (raw["summary"] or "A pattern")[:48],
                 "line2": f"is {raw['label']}",
-                "line3": f"{raw['recent']} recent · {raw['past']} earlier",
+                "line3": self._headline_metric(raw),
             },
             "summary": f'"{raw["summary"]}" — {raw["label"]}. '
-                       f'{raw["recent"]} recent mentions vs {raw["past"]} earlier.',
+                       f'{self._headline_metric(raw)}.',
             "accentColor": ACCENTS[idx % len(ACCENTS)],
             "featured": idx == 0,
-            "tags": [raw["label"]],
+            "tags": [raw["label"], f"{raw['confidence_level']} confidence"],
             "confidence": CONFIDENCE_MAP.get(raw["confidence_level"], 0.4),
             "detectedAt": detected_at,
             "seen": seen,
@@ -264,30 +367,51 @@ class InsightsService:
 
     # --- detail helpers ----------------------------------------------------
 
+    @staticmethod
+    def _headline_metric(raw: dict) -> str:
+        """The one number that belongs in the headline, or nothing.
+
+        Falls back to the label when an engine reports no headline measure,
+        rather than manufacturing a comparison to fill the slot.
+        """
+        return raw.get("headline_metric") or str(raw.get("label") or "observed")
+
     def _iris_read(self, raw: dict) -> str:
-        return (
-            f'I keep noticing "{raw["summary"]}". Lately it shows up as {raw["label"]} — '
-            f'{raw["recent"]} times recently compared with {raw["past"]} earlier. '
-            f'That shift is what caught my attention.'
+        """What IRIS observed, in the engine's own terms.
+
+        This used to assert "that shift is what caught my attention" for every
+        engine, including the three that never measured a shift.
+        """
+        parts = [f'I keep noticing "{raw["summary"]}". It reads as {raw["label"]}.']
+        for m in raw.get("measures", []):
+            window = f" ({m['sub']})" if m.get("sub") else ""
+            parts.append(f"{m['label']}: {m['value']}{window}.")
+        parts.append(
+            f"That is {raw['confidence_level']} confidence on the evidence logged so far."
         )
+        return " ".join(parts)
 
     def _evidence(self, raw: dict) -> list:
-        return [
-            {
+        """Only what the engine measured, each value labelled with its window."""
+        evidence: list = []
+        measures = raw.get("measures", [])
+        if measures:
+            evidence.append({
                 "kind": "comparison",
-                "label": "Recent vs earlier mentions",
+                "label": raw.get("measures_label") or "Measured",
                 "items": [
-                    {"label": "Recent", "value": raw["recent"]},
-                    {"label": "Earlier", "value": raw["past"]},
+                    {"label": m["label"], "value": m["value"],
+                     **({"sub": m["sub"]} if m.get("sub") else {})}
+                    for m in measures
                 ],
-            },
-            {
-                "kind": "callout",
-                "label": "Read",
-                "value": str(raw["label"]),
-                "sub": f"{raw['confidence_level']} confidence",
-            },
-        ]
+            })
+        evidence.append({
+            "kind": "callout",
+            "label": "Read",
+            "value": str(raw["label"]),
+            "sub": f"{raw['confidence_level']} confidence",
+        })
+        return evidence
 
     def _pull_quotes(self, raw: dict) -> list:
         theme_id = raw.get("theme_id")
@@ -319,8 +443,10 @@ class InsightsService:
                           "dissipated, stabilized, or reappeared.",
             "tension": "Looks at how two themes co-occur and diverge over time to "
                        "surface patterns that sit uneasily together.",
-            "leverage": "Estimates directional influence — whether one pattern tends "
-                        "to precede shifts in another.",
-            "decision_impact": "Measures how other patterns shift in the period "
-                               "following instances of an anchor pattern.",
+            "leverage": "Counts how often one theme is followed by another within a "
+                        "short lag, in each direction. This is temporal association, "
+                        "not a measure of one theme causing the other.",
+            "decision_impact": "Compares how often a theme occurs in the period "
+                               "following an anchor pattern against the period "
+                               "before it. Association over time, not cause.",
         }.get(engine, "Derived from longitudinal pattern analysis over your entries.")
