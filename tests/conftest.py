@@ -34,6 +34,22 @@ from agent.logging_config import configure_logging
 _MARKER_TABLE = "_iris_test_database"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_data_dir(tmp_path_factory):
+    """Keep uploads, extracted exports and audio out of the real data/.
+
+    settings.DATA_DIR defaults to `data/` next to the code, which is where a
+    running IRIS keeps the owner's recordings. A test writing there would mingle
+    its fixtures with real files — and did: an import staged by the suite was
+    later read back as part of a genuine upload, because both keyed their
+    workspace on a batch id and the two databases number batches separately.
+    """
+    from agent.config import settings
+
+    settings.DATA_DIR = str(tmp_path_factory.mktemp("iris-data"))
+    yield
+
+
 def _ensure_test_database() -> None:
     """Create the test database, its pgvector extension and its marker.
 

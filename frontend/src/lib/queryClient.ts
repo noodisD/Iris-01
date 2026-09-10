@@ -23,5 +23,9 @@ export const qk = {
   knowledge: ['knowledge'] as const,
   connectors: ['connectors'] as const,
   analysis: ['user', 'analysis'] as const,
+  importAdapters: ['import', 'adapters'] as const,
+  importBatches: ['import', 'batches'] as const,
+  importBatch: (id: string) => ['import', 'batches', id] as const,
+  importEntries: (id: string) => ['import', 'batches', id, 'entries'] as const,
   review: ['review', 'latest'] as const,
 };

@@ -56,6 +56,13 @@ class ImportService:
         """Register an upload, read it, and stage what it contains."""
         batch_id = store.create_batch(self.user_id, kind, original_filename, None)
         workspace = _batch_workspace(batch_id)
+        # Start from nothing. The path is keyed by batch id, and batch ids come
+        # from whichever database is in use — so a directory left by a different
+        # database, or by a run that failed before it cleaned up, would be read
+        # as part of this upload. That is exactly what happened the first time
+        # this ran against real data: a batch found ten entries in a seven-file
+        # export, three of them left over from the test suite's own batch 1.
+        shutil.rmtree(workspace, ignore_errors=True)
         workspace.mkdir(parents=True, exist_ok=True)
 
         stored = workspace / "upload"

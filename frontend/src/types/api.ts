@@ -294,6 +294,74 @@ export interface AnalysisPreferences {
   availableEngines: string[];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Import
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ImportAdapter {
+  name: string;
+  label: string;
+  description: string;
+}
+
+/** How confident we are about an entry's date. Never invented — see occurredOn. */
+export type DateConfidence = 'certain' | 'probable' | 'unknown';
+
+export type ImportBatchStatus =
+  | 'uploaded' | 'parsing' | 'needs_review' | 'committing' | 'committed' | 'failed';
+
+export type ImportEntryStatus =
+  | 'staged' | 'excluded' | 'duplicate' | 'imported' | 'failed';
+
+export interface ImportBatch {
+  id: ID;
+  kind: 'text' | 'audio';
+  /** Which format the upload was read as; overridable. */
+  adapter: string | null;
+  /** Every format that recognised it, best first. */
+  detected: { adapter: string; label: string; score: number }[];
+  originalFilename: string | null;
+  status: ImportBatchStatus;
+  error: string | null;
+  entryCount: number;
+  committedCount: number;
+  createdAt: ISODateTime;
+  counts: {
+    total: number;
+    staged: number;
+    excluded: number;
+    duplicate: number;
+    imported: number;
+    failed: number;
+    /** Entries with no date. While this is non-zero the import cannot commit. */
+    needsDate: number;
+    earliest: ISODate | null;
+    latest: ISODate | null;
+  };
+}
+
+export interface ImportEntry {
+  id: ID;
+  sourceName: string | null;
+  title: string | null;
+  excerpt: string;
+  /** null means the date could not be determined and must be supplied. */
+  occurredOn: ISODate | null;
+  dateSource: string | null;
+  dateConfidence: DateConfidence;
+  status: ImportEntryStatus;
+  warnings: string[];
+  hasAudio: boolean;
+  error: string | null;
+}
+
+export interface CommitResult {
+  committed: number;
+  duplicates: number;
+  failed: number;
+  excluded: number;
+}
+
 export interface ReviewWeek {
   weekStart: ISODate;
   weekEnd: ISODate;
