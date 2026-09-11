@@ -136,14 +136,16 @@ def replace_items(batch_id: int, user_id: int, items: list[dict]) -> int:
                 cur,
                 """INSERT INTO import_items
                    (batch_id, user_id, source_name, title, content, content_hash,
-                    audio_path, entry_date, date_source, date_confidence, tags, warnings)
+                    audio_path, entry_date, date_source, date_confidence, tags, warnings,
+                    status)
                    VALUES %s""",
                 [
                     (batch_id, user_id, i.get("source_name"), i.get("title"),
                      i.get("content", ""), i.get("content_hash"), i.get("audio_path"),
                      i.get("entry_date"), i.get("date_source"),
                      i.get("date_confidence", "unknown"),
-                     Json(i.get("tags") or []), Json(i.get("warnings") or []))
+                     Json(i.get("tags") or []), Json(i.get("warnings") or []),
+                     i.get("status", "staged"))
                     for i in items
                 ],
             )

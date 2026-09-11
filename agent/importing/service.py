@@ -121,7 +121,12 @@ class ImportService:
             "date_source": entry.date.source,
             "date_confidence": entry.date.confidence,
             "tags": entry.tags,
-            "warnings": entry.warnings + ([entry.date.note] if entry.date.note else []),
+            "warnings": (entry.warnings
+                         + ([entry.date.note] if entry.date.note else [])
+                         + ([entry.likely_generated] if entry.likely_generated else [])),
+            # Excluded by default, never silently dropped: the owner sees it,
+            # and the reason, and can put it back.
+            "status": "excluded" if entry.likely_generated else "staged",
         }
 
     def reparse(self, batch_id: int, adapter: str) -> dict:

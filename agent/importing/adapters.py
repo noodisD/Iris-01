@@ -41,6 +41,10 @@ class ParsedEntry:
     source_path: str = ""
     tags: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: Why this looks written by an assistant rather than the owner, if it does.
+    #: Such entries are staged excluded: an earlier AI's conclusions imported as
+    #: the owner's journal would come back out of the engines as "patterns".
+    likely_generated: str | None = None
 
 
 class SourceAdapter(Protocol):
@@ -60,6 +64,35 @@ _PROPERTY_LINE = re.compile(r"^([A-Z][A-Za-z ]{2,24}):\s*(.*)$")
 # A heading that carries a date, which is how a single-file journal separates
 # entries: "# 2024-03-01", "## Monday, 4 March 2024".
 _HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+
+
+# Signals that a note was produced by an assistant rather than written by the
+# owner. Taken from the one real case seen so far — an earlier companion that
+# wrote "Breakthrough", "Session" and "Query Results" notes into the owner's
+# vault with dates in their filenames. Heuristic, and deliberately narrow: each
+# signal is something a person does not write in their own journal. A hit only
+# changes the default (excluded, with the reason shown); it can be overridden.
+_GENERATED_FM_KEYS = {"breakthrough_id", "breakthrough_count", "session_id",
+                      "date_queried", "time_queried", "result_count"}
+_GENERATED_HEADING = re.compile(
+    r"^#{1,4}\s+(breakthrough/realization detected|session insights|"
+    r"query results:|psychological dimensions)", re.I | re.M)
+_GENERATED_DIR = re.compile(
+    r"(?i)(^|/)(breakthroughs|ai companion sessions|query results|messenger insights)(/|$)")
+
+
+def generated_reason(raw: str, rel_path: str = "") -> str | None:
+    """Why this looks like an assistant's output rather than the owner's writing."""
+    fm, _ = split_frontmatter(raw or "")
+    keys = set(re.findall(r"^([A-Za-z_][\w-]*):", fm, re.M)) & _GENERATED_FM_KEYS
+    if keys:
+        return ("This looks written by an assistant, not by you "
+                f"(its metadata has {', '.join(sorted(keys))}).")
+    if m := _GENERATED_HEADING.search(raw or ""):
+        return f"This looks like an assistant's summary (heading “{m.group(1)}”)."
+    if _GENERATED_DIR.search(rel_path or ""):
+        return "This sits in a folder of assistant-generated notes."
+    return None
 
 
 def _clean(text: str) -> str:
@@ -175,6 +208,7 @@ class NotionAdapter:
 
             clean_name = _NOTION_ID.sub("", f.stem)
             yield ParsedEntry(
+                likely_generated=generated_reason(raw, f.rel_path),
                 content=content,
                 date=best(guess, from_frontmatter(raw), from_filename(clean_name),
                           from_path(f.rel_path)),
@@ -216,6 +250,7 @@ class DatedFilesAdapter:
                 date=best(fm_date, guess),
                 title=None,
                 source_path=f.rel_path,
+                likely_generated=generated_reason(raw, f.rel_path),
             )
 
 
@@ -337,12 +372,172 @@ class PlainFilesAdapter:
                           from_path(f.rel_path)),
                 title=None,
                 source_path=f.rel_path,
+                likely_generated=generated_reason(raw, f.rel_path),
             )
 
 
+_IRIS_OG_SECTIONS = (
+    ("what_went_well", "What went well"),
+    ("what_to_improve", "What to improve"),
+    ("key_insight", "Key insight"),
+    ("tomorrow_priorities", "Tomorrow's priorities"),
+)
+
+
+def _iris_og_text(entry: dict) -> str:
+    """The prose of an earlier-IRIS entry, in the order the owner wrote it.
+
+    `reflections` is a string in most entries and a dict of named prompts in the
+    later ones (the "evening" preset). Both are the owner's own words; the dict
+    keys become headings so the structure survives rather than being run
+    together. Ideas, goals and execution are kept as labelled lists: they are
+    what the owner wrote that day — a goal here is text in a journal, not a
+    claim that anything was done.
+    """
+    parts: list[str] = []
+    refl = entry.get("reflections")
+    if isinstance(refl, dict):
+        for key, label in _IRIS_OG_SECTIONS:
+            if str(refl.get(key) or "").strip():
+                parts.append(f"{label}: {str(refl[key]).strip()}")
+        for key, value in refl.items():
+            if key not in dict(_IRIS_OG_SECTIONS) and str(value or "").strip():
+                parts.append(f"{key.replace('_', ' ').capitalize()}: {str(value).strip()}")
+    elif str(refl or "").strip():
+        parts.append(str(refl).strip())
+
+    notes = (entry.get("wellbeing") or {}).get("notes")
+    if str(notes or "").strip():
+        parts.append(f"Notes: {str(notes).strip()}")
+
+    for key, label in (("ideas", "Ideas"), ("goals", "Goals"), ("execution", "Done")):
+        items = [str(i).strip() for i in (entry.get(key) or []) if str(i).strip()]
+        if items:
+            parts.append(label + ":\n" + "\n".join(f"- {i}" for i in items))
+    return _clean("\n\n".join(parts))
+
+
+class IrisOGJournalAdapter:
+    name = "iris_og_journal"
+    label = "Earlier IRIS journal"
+    description = ("Journal entries saved by an earlier version of IRIS: a JSON list "
+                   "with a timestamp, wellbeing and reflections on every entry.")
+
+    def _payloads(self, bundle: Bundle) -> Iterator[tuple[str, list]]:
+        for f in bundle.files({".json"}):
+            try:
+                data = json.loads(bundle.read_text(f.rel_path))
+            except (ValueError, OSError):
+                continue
+            if not (isinstance(data, list) and data and isinstance(data[0], dict)):
+                continue
+            sample = data[:20]
+            # `reflections` is what distinguishes this from the companion's own
+            # re-packaging of the same entries (which carries `text` instead) —
+            # importing both would count every entry twice.
+            if sum(1 for e in sample if isinstance(e, dict)
+                   and "date" in e and "reflections" in e) >= 0.8 * len(sample):
+                yield f.rel_path, data
+
+    def sniff(self, bundle: Bundle) -> float:
+        return 0.95 if next(self._payloads(bundle), None) else 0.0
+
+    def parse(self, bundle: Bundle) -> Iterator[ParsedEntry]:
+        for rel, data in self._payloads(bundle):
+            for i, entry in enumerate(data):
+                if not isinstance(entry, dict):
+                    continue
+                content = _iris_og_text(entry)
+                if not _is_meaningful(content):
+                    continue
+                # A naive local timestamp, as the old app wrote it. Its date is
+                # the day as the owner lived it, which is the day that matters.
+                yield ParsedEntry(
+                    content=content,
+                    date=parse_timestamp(entry.get("date") or entry.get("created_at") or ""),
+                    title=entry.get("preset_used") or entry.get("time_of_day"),
+                    source_path=f"{rel}#{entry.get('id', i)}",
+                )
+
+
+_ASIDE = re.compile(r"<aside>.*?</aside>", re.S | re.I)
+
+
+class ElaraJournalAdapter:
+    name = "elara_journal"
+    label = "Personal Assistant (Elara) journal export"
+    description = ("Journal entries combined by the Elara project: one JSON file with "
+                   "metadata and a list of entries converted from Notion.")
+
+    def _payloads(self, bundle: Bundle) -> Iterator[tuple[str, dict]]:
+        for f in bundle.files({".json"}):
+            try:
+                data = json.loads(bundle.read_text(f.rel_path))
+            except (ValueError, OSError):
+                continue
+            if not (isinstance(data, dict) and isinstance(data.get("metadata"), dict)
+                    and isinstance(data.get("entries"), list) and data["entries"]):
+                continue
+            sample = data["entries"][:20]
+            if sum(1 for e in sample if isinstance(e, dict)
+                   and "content" in e and "filename" in e) >= 0.8 * len(sample):
+                yield f.rel_path, data
+
+    def sniff(self, bundle: Bundle) -> float:
+        return 0.96 if next(self._payloads(bundle), None) else 0.0
+
+    def parse(self, bundle: Bundle) -> Iterator[ParsedEntry]:
+        for rel, data in self._payloads(bundle):
+            for i, entry in enumerate(data["entries"]):
+                if not isinstance(entry, dict):
+                    continue
+                # Notion's <aside> callouts are template boilerplate, not writing.
+                content = _clean(_ASIDE.sub("", str(entry.get("content") or "")))
+                if not _is_meaningful(content):
+                    continue
+
+                stem = str(entry.get("filename") or "").rsplit(".", 1)[0]
+                named = best(from_filename(_NOTION_ID.sub("", stem)),
+                             parse_date_text(str(entry.get("title") or "")))
+                declared = str(entry.get("date") or "")[:10]
+                modified = str(entry.get("modified") or "")[:10]
+                warnings: list[str] = []
+
+                if named.known:
+                    date = named
+                elif declared and declared != modified:
+                    guess = parse_date_text(declared)
+                    date = (DateGuess(guess.value, "json_field", "probable", raw=declared,
+                                      note="taken from the export's date field")
+                            if guess.known else UNKNOWN)
+                else:
+                    # The trap this adapter exists to avoid. The export writes
+                    # the day it was *made* into `date` for most entries — on the
+                    # real archive, 80 of 89 read 2025-10-18 — so trusting it
+                    # would pile a year of writing onto one day and every window
+                    # would see a spike that never happened.
+                    date = UNKNOWN
+                    if declared:
+                        warnings.append(
+                            f"The export dates this {declared}, which is the day the "
+                            "export was made, not the day it was written."
+                        )
+
+                # Its `tags` are Notion page properties the export failed to
+                # parse ("Daily\n\nIt is so hard to…"), so they are not used.
+                yield ParsedEntry(
+                    content=content,
+                    date=date,
+                    title=str(entry.get("title") or "") or None,
+                    source_path=f"{rel}#{entry.get('id', i)}",
+                    warnings=warnings,
+                    likely_generated=generated_reason(content),
+                )
+
+
 REGISTRY: list[SourceAdapter] = [
-    DayOneAdapter(), NotionAdapter(), DatedFilesAdapter(),
-    SingleFileAdapter(), CsvAdapter(), PlainFilesAdapter(),
+    DayOneAdapter(), IrisOGJournalAdapter(), ElaraJournalAdapter(), NotionAdapter(),
+    DatedFilesAdapter(), SingleFileAdapter(), CsvAdapter(), PlainFilesAdapter(),
 ]
 
 
