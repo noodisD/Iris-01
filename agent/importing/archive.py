@@ -16,8 +16,9 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ class ExtractResult:
     root: Path
     file_count: int
     total_bytes: int
+    #: Each member's recorded modification time (epoch seconds), by path.
+    modified: dict[str, float] = field(default_factory=dict)
 
 
 def _reject(name: str, why: str) -> None:
@@ -83,6 +86,7 @@ def extract_safely(archive: Path, dest: Path) -> ExtractResult:
 
         written = 0
         count = 0
+        modified: dict[str, float] = {}
         for info in infos:
             target = (dest / info.filename).resolve()
             # Belt and braces: the name checks above should make this
@@ -108,7 +112,15 @@ def extract_safely(archive: Path, dest: Path) -> ExtractResult:
                         _reject(info.filename, "archive expands past the size budget")
                     out.write(chunk)
                     written += len(chunk)
+            # The one timestamp a zip keeps: the member's local modification
+            # time. Recorded, never trusted as a date: it is offered to the
+            # owner as a guess and nothing more (ADR-0013). 1980-01-01 is the
+            # format's floor, which tools write when there was no time at all.
+            if info.date_time > (1980, 1, 1, 0, 0, 0):
+                modified[target.relative_to(dest).as_posix()] = time.mktime(
+                    info.date_time + (0, 0, -1))
             count += 1
 
     logger.info(f"Extracted {count} files ({written} bytes) from {archive.name}")
-    return ExtractResult(root=dest, file_count=count, total_bytes=written)
+    return ExtractResult(root=dest, file_count=count, total_bytes=written,
+                         modified=modified)

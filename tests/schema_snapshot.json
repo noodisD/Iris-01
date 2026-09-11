@@ -383,6 +383,11 @@
         "nullable": "YES",
         "type": "text"
       },
+      "file_modified_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
       "id": {
         "default": "nextval(...)",
         "nullable": "NO",

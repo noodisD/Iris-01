@@ -352,6 +352,9 @@ export interface ImportEntry {
   occurredOn: ISODate | null;
   dateSource: string | null;
   dateConfidence: DateConfidence;
+  /** The day the entry's file was last saved, where the upload carried it.
+   *  Offered as a guess for an undated entry; never applied on its own. */
+  fileModifiedOn: ISODate | null;
   status: ImportEntryStatus;
   warnings: string[];
   hasAudio: boolean;

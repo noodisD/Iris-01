@@ -902,6 +902,9 @@ def _item_to_contract(item: dict) -> dict:
         "occurredOn": item["entry_date"].isoformat() if item.get("entry_date") else None,
         "dateSource": item.get("date_source"),
         "dateConfidence": item.get("date_confidence"),
+        # Offered, never applied: the day the entry's file was last saved.
+        "fileModifiedOn": (item["file_modified_at"].astimezone().date().isoformat()
+                           if item.get("file_modified_at") else None),
         "status": item["status"],
         "warnings": item.get("warnings") or [],
         "hasAudio": bool(item.get("audio_path")),
@@ -1007,6 +1010,7 @@ async def create_import_batch(
     file: UploadFile = File(...),
     adapter: str | None = Form(None),
     kind: str = Form("text"),
+    lastModified: int | None = Form(None),
     user_id: int = Depends(get_current_user_id),
 ):
     """Accept an upload and stage what it contains for review.
@@ -1014,6 +1018,9 @@ async def create_import_batch(
     Async because it genuinely awaits the upload. Streamed to disk in chunks
     rather than `await file.read()`, which would hold an entire export in memory.
     Everything after the bytes land is blocking, so it goes to the threadpool.
+
+    `lastModified` is the browser's reading of when the file was last saved, in
+    milliseconds. The server's own copy cannot know it.
     """
     staging = Path(tempfile.mkdtemp(prefix="iris-upload-"))
     destination = staging / (Path(file.filename or "upload").name or "upload")
@@ -1031,7 +1038,8 @@ async def create_import_batch(
 
         service = ImportService(user_id)
         batch = await run_in_threadpool(
-            service.create_batch, destination, file.filename or "upload", kind, adapter
+            service.create_batch, destination, file.filename or "upload", kind, adapter,
+            lastModified / 1000 if lastModified else None,
         )
         return _batch_to_contract(batch)
     except ImportError_ as e:
@@ -1091,7 +1099,7 @@ def update_import_entry(entry_id: int, update: ImportEntryUpdate,
 
 class ImportBulk(BaseModel):
     ids: list[int]
-    op: str                       # 'exclude' | 'include' | 'set_date'
+    op: str                       # 'exclude' | 'include' | 'set_date' | 'use_file_date'
     occurredOn: str | None = None
 
 

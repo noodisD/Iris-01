@@ -31,6 +31,9 @@ export async function uploadExport(
 ): Promise<ImportBatch> {
   const form = new FormData();
   form.append('file', file);
+  // When the file was last saved. The server's copy only knows when it arrived,
+  // and this is what lets an undated note be offered its file's date.
+  form.append('lastModified', String(file.lastModified));
   if (opts.adapter) form.append('adapter', opts.adapter);
   return upload('/import/batches', form, opts);
 }
@@ -75,7 +78,7 @@ export async function updateEntry(
 
 export async function bulkUpdate(
   ids: string[],
-  op: 'exclude' | 'include' | 'set_date',
+  op: 'exclude' | 'include' | 'set_date' | 'use_file_date',
   occurredOn?: string,
 ): Promise<{ updated: number }> {
   return api.post('/import/entries/bulk', { ids: ids.map(Number), op, occurredOn });

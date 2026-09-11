@@ -29,6 +29,18 @@ known date. An entry whose date cannot be determined is staged with none, shown
 for correction, and refused at commit. Genuinely ambiguous input (`03/04/2024`)
 is marked *probable* with a note naming both readings rather than quietly picked.
 
+**A file's saved time is offered, never applied.** *(Amended 2026-09-11, at the
+owner's request, for a vault of notes with no date anywhere in them.)* Where an
+upload records when each file was last saved — a zip does for every member, a
+browser does for a single file — that time is kept beside the entry
+(`import_items.file_modified_at`) and offered in review. Choosing it dates the
+entry *probable*, shown amber, and only an entry with no other date; it never
+replaces a date the writing gave. It is not offered where it would be worse than
+nothing: a time the server made itself (its copy of an upload is dated when it
+arrived — "dated today", one step removed); a day several files share, which is
+when a copy or an export was made, the trap the Elara export set with its `date`
+field; and a file holding several entries, which has one time between them.
+
 **Nothing becomes a reflection until it has been reviewed.** The source format is
 not known in advance, dates come from filenames and property blocks written by
 other tools, and an export contains plenty that is not a journal entry — a Notion

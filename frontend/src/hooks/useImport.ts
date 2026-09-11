@@ -59,7 +59,7 @@ export function useImportActions(batchId: string | undefined) {
       onSuccess: refresh,
     }),
     bulk: useMutation({
-      mutationFn: (v: { ids: string[]; op: 'exclude' | 'include' | 'set_date'; occurredOn?: string }) =>
+      mutationFn: (v: { ids: string[]; op: 'exclude' | 'include' | 'set_date' | 'use_file_date'; occurredOn?: string }) =>
         importApi.bulkUpdate(v.ids, v.op, v.occurredOn),
       onSuccess: refresh,
     }),

@@ -197,3 +197,18 @@ def best(*guesses: DateGuess) -> DateGuess:
         if g.confidence == "certain":
             return g
     return known[0]
+
+
+def from_file_time(modified: datetime) -> DateGuess:
+    """The day a file was last saved, as a date the owner may choose to use.
+
+    Never picked automatically (ADR-0013). A note is often edited days after the
+    day it describes and a copy can reset the time altogether, so this is only
+    ever offered for an entry with no other date, and always as a guess. The
+    local calendar day, because a journal day is a human day (ADR-0006): a note
+    saved at 23:30 belongs to that evening, not to tomorrow in UTC.
+    """
+    local = modified.astimezone()
+    return DateGuess(local.date(), "mtime", "probable",
+                     raw=local.isoformat(timespec="minutes"),
+                     note="Dated by when its file was last saved, not by anything written in it.")

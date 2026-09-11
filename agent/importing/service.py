@@ -16,9 +16,11 @@ importing does not become a second way for data to enter the system.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
-from datetime import date
+from collections import Counter
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import psycopg2
@@ -41,6 +43,49 @@ def _batch_workspace(batch_id: int) -> Path:
     return data_root() / "imports" / str(batch_id)
 
 
+#: Where an upload's file times are kept, beside the extracted files.
+FILE_TIMES = "file_times.json"
+#: A day this many files share, making up this much of the upload, is the day
+#: they were copied or exported rather than written. The same trap the Elara
+#: export set with its `date` field, arriving through the filesystem instead.
+_STAMP_MIN_FILES = 3
+_STAMP_SHARE = 0.3
+
+
+def _usable_file_times(workspace: Path, entries: list[ParsedEntry]
+                       ) -> tuple[dict[str, datetime], dict[str, str]]:
+    """Which entries a file's saved time could date, and why the others cannot.
+
+    Only a file holding exactly one entry: a time dates a file, and a file of
+    forty entries has one time between them. And not a day many files share.
+    """
+    try:
+        recorded = json.loads((workspace / FILE_TIMES).read_text())
+    except (OSError, ValueError):
+        return {}, {}
+    per_file = Counter(e.source_path for e in entries)
+    times = {path: datetime.fromtimestamp(ts, tz=timezone.utc)
+             for path, ts in recorded.items() if per_file.get(path) == 1}
+    if not times:
+        return {}, {}
+    days = Counter(t.astimezone().date() for t in times.values())
+    crowded = {d for d, n in days.items()
+               if n >= _STAMP_MIN_FILES and n / len(times) >= _STAMP_SHARE}
+    usable: dict[str, datetime] = {}
+    refused: dict[str, str] = {}
+    for path, t in times.items():
+        day = t.astimezone().date()
+        if day in crowded:
+            refused[path] = (
+                f"Its file was saved on {day.isoformat()}, along with {days[day] - 1} "
+                "others in this upload. That is when they were copied or exported, "
+                "not when this was written, so it cannot date it."
+            )
+        else:
+            usable[path] = t
+    return usable, refused
+
+
 class ImportError_(Exception):
     """Something about the upload itself is wrong, and the owner should be told."""
 
@@ -52,8 +97,13 @@ class ImportService:
     # --- staging ----------------------------------------------------------
 
     def create_batch(self, upload: Path, original_filename: str,
-                     kind: str = "text", adapter: str | None = None) -> dict:
-        """Register an upload, read it, and stage what it contains."""
+                     kind: str = "text", adapter: str | None = None,
+                     modified_at: float | None = None) -> dict:
+        """Register an upload, read it, and stage what it contains.
+
+        `modified_at` is when the uploaded file was last saved, if the client
+        knew it. For a single file the server's copy only knows when it arrived.
+        """
         batch_id = store.create_batch(self.user_id, kind, original_filename, None)
         workspace = _batch_workspace(batch_id)
         # Start from nothing. The path is keyed by batch id, and batch ids come
@@ -72,7 +122,7 @@ class ImportService:
         store.update_batch(batch_id, status="parsing")
 
         try:
-            bundle = self._open(destination, workspace)
+            bundle = self._open(destination, workspace, modified_at)
             self._stage(batch_id, bundle, adapter)
         except UnsafeArchive as e:
             store.update_batch(batch_id, status="failed", error=str(e))
@@ -83,16 +133,23 @@ class ImportService:
             raise
         return self.get_batch(batch_id)
 
-    def _open(self, uploaded: Path, workspace: Path) -> Bundle:
+    def _open(self, uploaded: Path, workspace: Path,
+              modified_at: float | None = None) -> Bundle:
         """A Bundle over the upload, whether it arrived as an archive or a file."""
         extracted = workspace / "extracted"
         if uploaded.suffix.lower() == ".zip":
-            extract_safely(uploaded, extracted)
+            times = extract_safely(uploaded, extracted).modified
         else:
             # A single file is a bundle of one. Same code path from here on, so
             # nothing downstream needs to know how the upload arrived.
             extracted.mkdir(parents=True, exist_ok=True)
             shutil.copy2(uploaded, extracted / uploaded.name)
+            # The server's copy carries the time it arrived, which says nothing
+            # about the writing. Only a time read from the original counts.
+            times = {uploaded.name: modified_at} if modified_at else {}
+        # Beside the files rather than on them, so a re-parse sees the same
+        # times and nothing ever reads a time the server made itself.
+        (workspace / FILE_TIMES).write_text(json.dumps(times))
         return Bundle(extracted)
 
     def _stage(self, batch_id: int, bundle: Bundle, adapter: str | None) -> None:
@@ -104,14 +161,18 @@ class ImportService:
             raise ImportError_("Nothing in this upload looked like journal entries.")
 
         entries = list(get(chosen).parse(bundle))
-        store.replace_items(batch_id, self.user_id,
-                            [self._to_item(e) for e in entries])
+        usable, refused = _usable_file_times(_batch_workspace(batch_id), entries)
+        store.replace_items(batch_id, self.user_id, [
+            self._to_item(e, usable.get(e.source_path), refused.get(e.source_path))
+            for e in entries
+        ])
         store.mark_duplicates(batch_id, self.user_id)
         store.update_batch(batch_id, status="needs_review", adapter=chosen,
                            detected=found, entry_count=len(entries), error=None)
 
     @staticmethod
-    def _to_item(entry: ParsedEntry) -> dict:
+    def _to_item(entry: ParsedEntry, file_modified_at: datetime | None = None,
+                 file_time_note: str | None = None) -> dict:
         return {
             "source_name": entry.source_path,
             "title": entry.title,
@@ -121,9 +182,13 @@ class ImportService:
             "date_source": entry.date.source,
             "date_confidence": entry.date.confidence,
             "tags": entry.tags,
+            # Offered to the owner, never applied here (ADR-0013).
+            "file_modified_at": file_modified_at,
             "warnings": (entry.warnings
                          + ([entry.date.note] if entry.date.note else [])
-                         + ([entry.likely_generated] if entry.likely_generated else [])),
+                         + ([entry.likely_generated] if entry.likely_generated else [])
+                         + ([file_time_note] if file_time_note and not entry.date.known
+                            else [])),
             # Excluded by default, never silently dropped: the owner sees it,
             # and the reason, and can put it back.
             "status": "excluded" if entry.likely_generated else "staged",
@@ -224,9 +289,23 @@ class ImportService:
         if op == "set_date":
             if entry_date is None:
                 raise ImportError_("A date is required to set one.")
-            return store.bulk_update(item_ids, self.user_id, entry_date=entry_date,
-                                     date_source="user", date_confidence="certain")
+            changed = store.bulk_update(item_ids, self.user_id, entry_date=entry_date,
+                                        date_source="user", date_confidence="certain")
+            self._recheck_duplicates(item_ids)
+            return changed
+        if op == "use_file_date":
+            # Only entries whose file time survived; the rest stay undated
+            # rather than being given something worse.
+            changed = store.use_file_dates(item_ids, self.user_id)
+            self._recheck_duplicates(item_ids)
+            return changed
         raise ImportError_(f"Unknown operation {op!r}.")
+
+    def _recheck_duplicates(self, item_ids: list[int]) -> None:
+        # A duplicate is the same words on the same day, so giving an entry a
+        # date can make it one. update_item already rechecked; bulk did not.
+        for batch_id in store.batches_of(item_ids, self.user_id):
+            store.mark_duplicates(batch_id, self.user_id)
 
     # --- committing -------------------------------------------------------
 

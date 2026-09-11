@@ -19,6 +19,7 @@ from typing import Any
 from psycopg2.extras import Json, execute_values
 
 from ..database import db
+from .dates import from_file_time
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +114,11 @@ def delete_batch(batch_id: int, user_id: int) -> bool:
 
 _ITEM_COLUMNS = """id, batch_id, user_id, source_name, title, content, content_hash,
                    audio_path, entry_date, date_source, date_confidence, tags,
-                   warnings, status, reflection_id, error"""
+                   warnings, status, reflection_id, error, file_modified_at"""
 _ITEM_KEYS = ("id", "batch_id", "user_id", "source_name", "title", "content",
               "content_hash", "audio_path", "entry_date", "date_source",
-              "date_confidence", "tags", "warnings", "status", "reflection_id", "error")
+              "date_confidence", "tags", "warnings", "status", "reflection_id", "error",
+              "file_modified_at")
 
 
 def _item_row(row) -> dict:
@@ -137,7 +139,7 @@ def replace_items(batch_id: int, user_id: int, items: list[dict]) -> int:
                 """INSERT INTO import_items
                    (batch_id, user_id, source_name, title, content, content_hash,
                     audio_path, entry_date, date_source, date_confidence, tags, warnings,
-                    status)
+                    status, file_modified_at)
                    VALUES %s""",
                 [
                     (batch_id, user_id, i.get("source_name"), i.get("title"),
@@ -145,7 +147,7 @@ def replace_items(batch_id: int, user_id: int, items: list[dict]) -> int:
                      i.get("entry_date"), i.get("date_source"),
                      i.get("date_confidence", "unknown"),
                      Json(i.get("tags") or []), Json(i.get("warnings") or []),
-                     i.get("status", "staged"))
+                     i.get("status", "staged"), i.get("file_modified_at"))
                     for i in items
                 ],
             )
@@ -211,6 +213,43 @@ def bulk_update(item_ids: list[int], user_id: int, **fields: Any) -> int:
         changed = cur.rowcount
         conn.commit()
         return changed
+
+
+def batches_of(item_ids: list[int], user_id: int) -> list[int]:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT batch_id FROM import_items
+               WHERE id = ANY(%s) AND user_id = %s;""",
+            (item_ids, user_id),
+        )
+        return [r[0] for r in cur.fetchall()]
+
+
+def use_file_dates(item_ids: list[int], user_id: int) -> int:
+    """Date undated entries by the day their file was last saved, as a guess.
+
+    Only entries with no date and a recorded file time. A file time never
+    replaces a date the export gave: that date came from the writing, this one
+    from the filesystem.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, file_modified_at FROM import_items
+               WHERE id = ANY(%s) AND user_id = %s
+                 AND entry_date IS NULL AND file_modified_at IS NOT NULL;""",
+            (item_ids, user_id),
+        )
+        rows = cur.fetchall()
+        for item_id, modified in rows:
+            guess = from_file_time(modified)
+            cur.execute(
+                """UPDATE import_items
+                   SET entry_date = %s, date_source = %s, date_confidence = %s
+                   WHERE id = %s;""",
+                (guess.value, guess.source, guess.confidence, item_id),
+            )
+        conn.commit()
+    return len(rows)
 
 
 def counts(batch_id: int) -> dict[str, int]:

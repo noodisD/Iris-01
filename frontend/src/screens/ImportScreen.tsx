@@ -73,11 +73,12 @@ function ProgressBar({ fraction, label }: { fraction: number; label: string }) {
 }
 
 function EntryRow({
-  entry, onDate, onToggle,
+  entry, onDate, onToggle, onFileDate,
 }: {
   entry: ImportEntry;
   onDate: (id: string, value: string) => void;
   onToggle: (entry: ImportEntry) => void;
+  onFileDate: (id: string) => void;
 }) {
   const undated = entry.occurredOn === null;
   const excluded = entry.status === 'excluded';
@@ -112,6 +113,17 @@ function EntryRow({
           {entry.sourceName}
           {entry.hasAudio && ' · recording'}
         </span>
+        {entry.dateSource === 'mtime' && (
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--amber)' }}>
+            dated by when its file was last saved · a guess
+          </span>
+        )}
+        {undated && entry.fileModifiedOn && !excluded && (
+          <button className="btn ghost" onClick={() => onFileDate(entry.id)}
+                  style={{ alignSelf: 'flex-start', fontSize: 10.5, padding: 0, color: 'var(--amber)' }}>
+            file last saved {entry.fileModifiedOn}. Use that?
+          </button>
+        )}
         {entry.warnings.map((w, i) => (
           <span key={i} style={{ fontSize: 10.5, color: 'var(--amber)', fontStyle: 'italic' }}>
             {w}
@@ -150,6 +162,9 @@ function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
   const waiting = counts.awaitingTranscript > 0;
   const blocked = counts.needsDate > 0 || waiting;
   const undatedIds = (entries ?? []).filter((e) => e.occurredOn === null && e.status === 'staged')
+    .map((e) => e.id);
+  const fileDatable = (entries ?? [])
+    .filter((e) => e.occurredOn === null && e.status === 'staged' && e.fileModifiedOn)
     .map((e) => e.id);
 
   return (
@@ -196,6 +211,23 @@ function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
         )}
       </div>
 
+      {fileDatable.length > 0 && (
+        <div className="row" style={{
+          gap: 10, alignItems: 'center', padding: '11px 14px',
+          border: '1px solid var(--amber)', borderRadius: 8,
+        }}>
+          <span style={{ fontSize: 12.5, color: 'var(--ink-2)', flex: 1 }}>
+            {fileDatable.length} undated {fileDatable.length === 1 ? 'entry' : 'entries'} can
+            be dated by when {fileDatable.length === 1 ? 'its file was' : 'their files were'} last
+            saved. That is a guess (a note is often edited after the day it describes),
+            so those dates stay amber for you to check.
+          </span>
+          <button className="btn" disabled={actions.bulk.isPending}
+                  onClick={() => actions.bulk.mutate({ ids: fileDatable, op: 'use_file_date' })}>
+            use file dates
+          </button>
+        </div>
+      )}
       {undatedIds.length > 0 && (
         <div className="row" style={{
           gap: 10, alignItems: 'center', padding: '11px 14px',
@@ -229,6 +261,7 @@ function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
             <EntryRow
               key={e.id} entry={e}
               onDate={(id, occurredOn) => actions.setDate.mutate({ id, occurredOn })}
+              onFileDate={(id) => actions.bulk.mutate({ ids: [id], op: 'use_file_date' })}
               onToggle={(entry) => actions.setStatus.mutate({
                 id: entry.id, status: entry.status === 'excluded' ? 'staged' : 'excluded',
               })}
