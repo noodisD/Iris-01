@@ -147,7 +147,8 @@ function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
   const [bulkDate, setBulkDate] = React.useState('');
 
   const counts = batch.counts;
-  const blocked = counts.needsDate > 0;
+  const waiting = counts.awaitingTranscript > 0;
+  const blocked = counts.needsDate > 0 || waiting;
   const undatedIds = (entries ?? []).filter((e) => e.occurredOn === null && e.status === 'staged')
     .map((e) => e.id);
 
@@ -245,9 +246,14 @@ function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
         >
           {actions.commit.isPending ? 'importing…' : `Import ${counts.staged} entries`}
         </button>
-        {blocked && (
+        {counts.needsDate > 0 && (
           <span style={{ fontSize: 11.5, color: 'var(--rose)', fontStyle: 'italic' }}>
             Set or exclude the undated entries first.
+          </span>
+        )}
+        {counts.needsDate === 0 && waiting && (
+          <span style={{ fontSize: 11.5, color: 'var(--ink-3)', fontStyle: 'italic' }}>
+            {counts.awaitingTranscript} recording(s) still being transcribed…
           </span>
         )}
       </div>
@@ -384,7 +390,7 @@ export function ImportScreen() {
             <div className="col" style={{ gap: 12 }}>
               <DropZone
                 label="voice journals" accept={AUDIO_ACCEPT} busy={!!progress}
-                hint="Recordings from your phone. They are transcribed, and the audio is kept so you can listen back."
+                hint="Recordings from your phone. They are sent to OpenAI to be transcribed; the audio itself is kept here so you can listen back."
                 onFiles={(f) => send(f, 'audio')}
               />
               <AudioRecorder disabled={!!progress} onSave={saveRecording} />

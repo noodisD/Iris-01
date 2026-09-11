@@ -3,9 +3,13 @@ Keeping a voice journal, and turning it into words.
 
 The recording is kept, not discarded once transcribed. Transcription is lossy
 and irreversible: a garbled sentence cannot be recovered from its transcript,
-and a better model next year cannot re-read a file that is gone. So the original
-bytes are what get stored, conversions happen on throwaway copies, and the
-transcript is treated as a derived artefact.
+and a better model next year cannot re-read a file that is gone. So the recording is what gets
+stored and the transcript is treated as a derived artefact.
+
+One exception, stated plainly because the rest of this module promises
+fidelity: a browser's webm is remuxed (`-c copy`) before it is stored, so its
+stored bytes and hash differ from the upload even though every audio sample is
+identical. Every other format is stored byte-for-byte.
 
 Storage is content-addressed. Uploading the same recording twice writes the same
 path, which is the cheapest possible de-duplication and needs no bookkeeping.
@@ -210,3 +214,33 @@ def enqueue_transcription(item_id: int, user_id: int) -> None:
 
     enqueue("transcription", item_id, user_id)
     worker.wake()
+
+
+def release_unreferenced(rel_paths) -> int:
+    """Delete stored recordings that nothing refers to any more.
+
+    Undoing an import removed the reflections and left the audio behind, so
+    "undo" quietly kept the most personal part of what was imported. Storage is
+    content-addressed, which means one file can back several entries, so a file
+    is removed only once no reflection and no staged item still names it.
+    """
+    from ..database import db
+
+    removed = 0
+    for rel in {p for p in rel_paths if p}:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT (SELECT count(*) FROM reflections WHERE audio_path = %s)
+                        + (SELECT count(*) FROM import_items WHERE audio_path = %s);""",
+                (rel, rel),
+            )
+            if cur.fetchone()[0]:
+                continue
+        try:
+            path = resolve(rel)
+        except ValueError:
+            continue
+        if path.exists():
+            path.unlink()
+            removed += 1
+    return removed

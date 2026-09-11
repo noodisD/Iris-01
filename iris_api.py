@@ -883,6 +883,9 @@ def _batch_to_contract(batch: dict) -> dict:
             "failed": counts.get("failed", 0),
             # The number that decides whether a commit is allowed at all.
             "needsDate": counts.get("needs_date", 0),
+            # Recordings still being transcribed: nothing to commit yet, and
+            # nothing the owner can fix except wait.
+            "awaitingTranscript": counts.get("awaiting_transcript", 0),
             "earliest": counts["earliest"].isoformat() if counts.get("earliest") else None,
             "latest": counts["latest"].isoformat() if counts.get("latest") else None,
         },
@@ -942,9 +945,9 @@ async def upload_import_audio(
                 out.write(chunk)
 
         def stage() -> dict:
-            batch = batchId or import_store.create_batch(user_id, "audio", name, None)
-            if not batchId:
-                import_store.update_batch(batch, status="needs_review", adapter="audio")
+            service = ImportService(user_id)
+            # Resolved and authorised server-side; a supplied id is a claim.
+            batch = service.batch_for_append(batchId, "audio", name)
             staged = stage_recording(user_id, batch, destination, name, recordedAt)
             enqueue_transcription(staged["item_id"], user_id)
             import_store.update_batch(
@@ -961,6 +964,9 @@ async def upload_import_audio(
             # The transcript arrives on the queue; the page polls for it.
             "transcriptionStatus": "pending",
         }
+    except ImportError_ as e:
+        # Without this, the authorisation check below surfaced as a 500.
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

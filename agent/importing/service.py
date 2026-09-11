@@ -161,6 +161,31 @@ class ImportService:
         self._require(batch_id)
         return store.list_items(batch_id, self.user_id, status, limit, offset)
 
+    def batch_for_append(self, batch_id: int | None, kind: str, filename: str) -> int:
+        """The batch a new recording should join, creating one if needed.
+
+        A batch id arriving from a client is a claim, not a fact. Resolving it
+        server-side is what stops an id belonging to someone else — or to a
+        batch already committed, or to a text import — being appended to. IRIS
+        is single-user and loopback-only today (ADR-0001), so this is not an
+        exposure now; it is the check that has to exist before it ever could be,
+        and the kind and lifecycle parts are wrong regardless of how many users
+        there are.
+        """
+        if batch_id is None:
+            new_id = store.create_batch(self.user_id, kind, filename, None)
+            store.update_batch(new_id, status="needs_review", adapter="audio")
+            return new_id
+
+        batch = store.get_batch(batch_id, self.user_id)
+        if not batch:
+            raise ImportError_("No such import.")
+        if batch["kind"] != kind:
+            raise ImportError_("That import is not a set of recordings.")
+        if batch["status"] not in ("uploaded", "needs_review"):
+            raise ImportError_("That import is no longer open for new recordings.")
+        return batch_id
+
     # --- correcting -------------------------------------------------------
 
     def update_item(self, item_id: int, entry_date: date | None = None,
@@ -218,6 +243,16 @@ class ImportService:
                 f"{counts['needs_date']} entries still have no date. Set them, or "
                 "exclude them, before importing."
             )
+        # Readiness, not just completeness. A staged recording carries an empty
+        # content field until its transcript lands, and committing one produced
+        # a failed item explaining that "Reflection content cannot be empty" —
+        # a validation message about a situation the owner cannot act on and
+        # did not cause. Waiting is the answer, so say that instead.
+        if counts.get("awaiting_transcript"):
+            raise ImportError_(
+                f"{counts['awaiting_transcript']} recording(s) are still being "
+                "transcribed. They will be ready shortly."
+            )
 
         store.update_batch(batch_id, status="committing")
         reflections = ReflectionService(self.user_id)
@@ -248,7 +283,17 @@ class ImportService:
                               reflection_id=reflection_id, error=None)
             committed += 1
 
-        store.update_batch(batch_id, status="committed", committed_count=committed)
+        # 'committed' meant "the commit ran", not "everything landed", so a batch
+        # where every item failed still reported success. Failures are part of
+        # the outcome, and the screen has to be able to show them.
+        store.update_batch(
+            batch_id,
+            status="committed" if not failed else "failed",
+            committed_count=committed,
+            error=None if not failed else (
+                f"{failed} of {committed + failed} entries could not be imported."
+            ),
+        )
         if committed:
             _kick_the_queue()
 
@@ -266,6 +311,13 @@ class ImportService:
         """
         self._require(batch_id)
         removed = 0
+        # Collected before anything is deleted: the staged rows are what name
+        # the recordings, and they go with the batch.
+        audio_paths = {
+            i["audio_path"]
+            for i in store.list_items(batch_id, self.user_id, limit=100_000)
+            if i.get("audio_path")
+        }
         if with_reflections:
             from ..database import db, themes
 
@@ -298,7 +350,12 @@ class ImportService:
 
         store.delete_batch(batch_id, self.user_id)
         shutil.rmtree(_batch_workspace(batch_id), ignore_errors=True)
-        return {"deleted": True, "reflections_removed": removed}
+
+        from .audio import release_unreferenced
+
+        released = release_unreferenced(audio_paths)
+        return {"deleted": True, "reflections_removed": removed,
+                "recordings_removed": released}
 
 
 def _kick_the_queue() -> None:

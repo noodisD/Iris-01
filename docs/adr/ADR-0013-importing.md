@@ -42,19 +42,27 @@ how well they recognise a bundle; the best wins, the result is shown, and it can
 be overruled. An export from a tool nobody anticipated falls through to
 "every file is an entry, check the dates" rather than to a failure.
 
-**`transcription` and `import_parse` are queue job kinds, not evidence source
-types.** ADR-0003 asks anything new to say which side of the evidence line it
-falls on. The answer here is neither: audio is not evidence, and a transcript
-becomes evidence only once it is committed as a reflection. They must never
-appear in `EVIDENCE_WEIGHTS` or `get_unassigned_embeddings`, which is why they
-are dispatched in `work_queue` rather than taught to `run_processing_pipeline`,
-whose table map is a map of evidence sources.
+**`transcription` is a queue job kind, not an evidence source type.** ADR-0003
+asks anything new to say which side of the evidence line it falls on. The answer
+here is neither: audio is not evidence, and a transcript becomes evidence only
+once it is committed as a reflection. It must never appear in `EVIDENCE_WEIGHTS`
+or `get_unassigned_embeddings`, which is why it is dispatched in `work_queue`
+rather than taught to `run_processing_pipeline`, whose table map is a map of
+evidence sources.
+
+Parsing an upload is *not* queued. An earlier version of this ADR said it was,
+and named an `import_parse` job kind that was never built: parsing runs inside
+the upload request, off the event loop via `run_in_threadpool`. That is adequate
+for the exports seen so far and would need revisiting for very large archives,
+where a request-bound parse holds the connection for the whole read.
 
 **The recording is kept.** Transcription is lossy and cannot be un-made: a
 garbled sentence is unrecoverable if the original is gone, and a better model
 next year cannot re-read a file that no longer exists. Audio is stored
-content-addressed under `data/audio/`, conversions happen on throwaway copies,
-and the transcript is treated as derived.
+content-addressed under `data/audio/` and the transcript is treated as derived.
+Browser webm is the one exception to byte-for-byte storage: its container is
+rewritten losslessly so playback can seek, which changes the stored bytes and
+hash while leaving every audio sample identical.
 
 **`content_hash` is written by the importer only.** It could be computed for
 every reflection, but then the de-duplication index would reject an entry typed
@@ -78,4 +86,6 @@ that wanted to import without review would have to reopen this ADR.
 Undo is supported because the dates are the point: if an export is read with the
 wrong format and hundreds of entries land on the wrong days, living with it is
 not an acceptable answer. Deleting a batch takes its reflections, their
-embeddings and their occurrences, then refreshes the affected themes.
+embeddings and their occurrences, then refreshes the affected themes and deletes
+any recording no remaining entry refers to — an undo that kept the audio would
+keep the most personal part of what was imported.

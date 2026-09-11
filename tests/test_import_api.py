@@ -239,3 +239,118 @@ def test_imported_entries_are_embedded_and_become_evidence(client, test_user, pr
     assert latest < date.today() - timedelta(days=300), (
         "a backfilled archive must not register as activity happening now"
     )
+
+
+# --- findings from the 2026-09-11 review, each reproduced before it was fixed ---
+
+import shutil
+import subprocess
+
+from agent.database import db as _db
+
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+
+
+def _tone_bytes(tmp_path) -> bytes:
+    path = tmp_path / "memo.mp3"
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=1", str(path)],
+                   check=True, capture_output=True)
+    return path.read_bytes()
+
+
+def _upload_audio(client, data: bytes, **form):
+    return client.post("/api/import/audio",
+                       files={"file": ("memo.mp3", data, "audio/mpeg")}, data=form)
+
+
+@needs_ffmpeg
+def test_a_recording_cannot_be_committed_before_its_transcript(client, tmp_path, monkeypatch,
+                                                              process_queue):
+    """Committing used to be allowed, and produced a failed item reading
+    "Reflection content cannot be empty" — a message about nothing the owner
+    did or could fix. The answer is to wait, so the gate says that."""
+    r = _upload_audio(client, _tone_bytes(tmp_path), recordedAt="2026-02-14T21:30:00Z")
+    batch_id = r.json()["batchId"]
+
+    batch = client.get(f"/api/import/batches/{batch_id}").json()
+    assert batch["counts"]["awaitingTranscript"] == 1
+    r = client.post(f"/api/import/batches/{batch_id}/commit")
+    assert r.status_code == 409
+    assert "being transcribed" in r.json()["detail"]
+
+    monkeypatch.setattr("agent.transcription.openai.audio.transcriptions.create",
+                        lambda **kw: "Spoken words, now written down.")
+    process_queue()
+    assert client.post(f"/api/import/batches/{batch_id}/commit").json()["committed"] == 1
+
+
+def test_a_batch_that_could_not_import_everything_does_not_report_success(client, test_user):
+    """'committed' used to mean "the commit ran". A batch whose entries failed
+    still said it had succeeded."""
+    batch = _upload(client, _dated_export(["2024-03-01", "2024-03-02"]))
+    entries = client.get(f"/api/import/batches/{batch['id']}/entries").json()["entries"]
+    # Blank the content of one text entry; create_reflection rejects it for real.
+    from agent.importing import store
+    store.update_item(int(entries[0]["id"]), test_user["id"], content="   ")
+
+    result = client.post(f"/api/import/batches/{batch['id']}/commit").json()
+    assert result == {"committed": 1, "duplicates": 0, "failed": 1, "excluded": 0}
+
+    after = client.get(f"/api/import/batches/{batch['id']}").json()
+    assert after["status"] == "failed"
+    assert "1 of 2" in after["error"]
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("scenario", ["someone_else", "text_import", "already_committed"])
+def test_a_recording_can_only_join_an_open_audio_import_you_own(client, test_user, tmp_path,
+                                                               scenario):
+    """A batch id from the client is a claim. It was used unchecked."""
+    from agent.importing import store
+
+    if scenario == "someone_else":
+        with _db.connection() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO users (username, password_hash) "
+                        "VALUES ('someone_else', 'x') RETURNING id;")
+            other = cur.fetchone()[0]
+            conn.commit()
+        target = store.create_batch(other, "audio", "theirs.mp3", None)
+    elif scenario == "text_import":
+        target = int(_upload(client, _dated_export(["2024-03-01"]))["id"])
+    else:
+        target = store.create_batch(test_user["id"], "audio", "old.mp3", None)
+        store.update_batch(target, status="committed")
+
+    r = _upload_audio(client, _tone_bytes(tmp_path), batchId=str(target))
+    assert r.status_code == 400, f"{scenario}: {r.status_code} {r.text}"
+
+    if scenario == "someone_else":
+        with _db.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM import_items WHERE batch_id = %s;", (target,))
+            assert cur.fetchone()[0] == 0, "nothing may be appended to another account's import"
+            cur.execute("DELETE FROM users WHERE username = 'someone_else';")
+            conn.commit()
+
+
+@needs_ffmpeg
+def test_undoing_a_voice_import_deletes_the_recording(client, tmp_path, monkeypatch, process_queue):
+    """Undo removed the entries and kept the audio — the most personal part of
+    what was imported."""
+    from agent.importing.audio import resolve
+
+    r = _upload_audio(client, _tone_bytes(tmp_path), recordedAt="2026-02-14T21:30:00Z")
+    batch_id = r.json()["batchId"]
+    monkeypatch.setattr("agent.transcription.openai.audio.transcriptions.create",
+                        lambda **kw: "Spoken words.")
+    process_queue()
+    client.post(f"/api/import/batches/{batch_id}/commit")
+
+    with _db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT audio_path FROM reflections WHERE source = 'voice';")
+        stored = resolve(cur.fetchone()[0])
+    assert stored.exists()
+
+    body = client.delete(f"/api/import/batches/{batch_id}?withReflections=true").json()
+    assert body["recordings_removed"] == 1
+    assert not stored.exists(), "undo must not keep the recording"

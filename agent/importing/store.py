@@ -225,12 +225,26 @@ def counts(batch_id: int) -> dict[str, int]:
             (batch_id,),
         )
         by_status["needs_date"] = cur.fetchone()[0]
+        # A recording whose transcript has not arrived has nothing to commit
+        # yet. Counted separately from needs_date because the remedy is
+        # different: a missing date is something the owner supplies, a missing
+        # transcript is something to wait for.
+        cur.execute(
+            """SELECT COUNT(*) FROM import_items
+               WHERE batch_id = %s AND status = 'staged'
+                 AND audio_path IS NOT NULL AND btrim(content) = '';""",
+            (batch_id,),
+        )
+        by_status["awaiting_transcript"] = cur.fetchone()[0]
         cur.execute(
             "SELECT MIN(entry_date), MAX(entry_date) FROM import_items WHERE batch_id = %s;",
             (batch_id,),
         )
         first, last = cur.fetchone()
-    by_status["total"] = sum(v for k, v in by_status.items() if k != "needs_date")
+    by_status["total"] = sum(
+        v for k, v in by_status.items()
+        if k not in ("needs_date", "awaiting_transcript")
+    )
     by_status["earliest"] = first
     by_status["latest"] = last
     return by_status

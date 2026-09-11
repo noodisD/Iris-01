@@ -335,6 +335,9 @@ export interface ImportBatch {
     failed: number;
     /** Entries with no date. While this is non-zero the import cannot commit. */
     needsDate: number;
+    /** Recordings still being transcribed. Also blocks commit — but by waiting,
+     *  not by anything the owner has to fix. */
+    awaitingTranscript: number;
     earliest: ISODate | null;
     latest: ISODate | null;
   };
