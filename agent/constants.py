@@ -14,6 +14,14 @@ PERSISTENCE_CLUSTER_THRESHOLD = 0.78  # Strict threshold for creating NEW themes
 PERSISTENCE_MIN_CLUSTER_SIZE = 5      # Minimum entries required to form a theme (Proto-Theme boundary)
 PERSISTENCE_DORMANT_MONTHS = 3        # Themes inactive for this long go dormant (future feature)
 
+# Once a user has enough evidence, themes are compared on what differs between
+# entries: the user's average embedding (their shared voice) is removed first,
+# and these thresholds apply in that space (ADR-0014). Measured on the owner's
+# real journal, where raw thresholds put 121 of 132 grouped entries in one theme.
+PERSISTENCE_STYLE_MIN_ENTRIES = 30        # Below this the average is mostly the entries themselves
+PERSISTENCE_STYLE_MATCH_THRESHOLD = 0.40  # Join an existing theme, shared voice removed
+PERSISTENCE_STYLE_CLUSTER_THRESHOLD = 0.50  # Form a new theme, shared voice removed
+
 # Evidence Weights (Source Reliability)
 EVIDENCE_WEIGHTS = {
     "reflection": 1.0,

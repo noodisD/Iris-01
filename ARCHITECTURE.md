@@ -85,7 +85,7 @@ practising it.
 
 | Engine | Question | Method |
 | :-- | :-- | :-- |
-| Persistence | What keeps appearing? | Cosine matching (≥0.70) + DBSCAN clustering |
+| Persistence | What keeps appearing? | Cosine matching + complete-linkage clustering on what differs between entries — the user's shared voice removed (ADR-0014) |
 | Trajectory | What is changing? | Weighted regression on frequency |
 | Tension | What co-exists uneasily? | Co-occurrence with divergent trends |
 | Resolution | What settled or came back? | Recent vs baseline window deltas |
@@ -94,8 +94,9 @@ practising it.
 
 Thresholds live in `agent/constants.py` and are documented in `CONTEXT.md`;
 a cluster needs 5 occurrences before it is a theme rather than a proto-theme.
-Clustering uses HDBSCAN when installed and falls back to scikit-learn DBSCAN,
-which is the configuration in practice.
+Clustering is scikit-learn complete linkage over the user's embeddings with their
+shared voice removed: a theme forms only where every pair of its founding entries
+clears the creation threshold, so it cannot chain (ADR-0014).
 
 ## 4. Meta-control
 

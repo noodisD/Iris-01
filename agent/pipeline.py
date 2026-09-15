@@ -23,6 +23,7 @@ from .config import settings
 # Import the data layer interfaces
 from .database import embeddings
 from .persistence import PersistenceEngine
+from .prompt_labels import strip_prompt_labels
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,14 @@ def _refresh_cross_theme_analyses(user_id: int) -> None:
         logger.warning(f"Cross-theme refresh failed for user {user_id}: {e}")
 
 
+def rebuild_themes(user_id: int) -> dict:
+    """Throw away a user's themes and find them again (ADR-0014), then refresh
+    the cross-theme analyses that are cached against theme ids."""
+    result = PersistenceEngine(user_id).rebuild_themes()
+    _refresh_cross_theme_analyses(user_id)
+    return result
+
+
 def run_processing_pipeline(source_type: str, source_id: int):
     """
     Runs the full processing pipeline for a given source item.
@@ -140,7 +149,11 @@ def run_processing_pipeline(source_type: str, source_id: int):
 
         # 3. Generate embedding
         model_name = "text-embedding-3-small"
-        embedding = generate_embedding(content, model=model_name)
+        # Embedded without the prompt labels a journaling tool wrote in front of
+        # the writing: identical in every entry of that format, they grouped
+        # entries by format rather than by what they say (ADR-0014). The stored
+        # entry keeps them.
+        embedding = generate_embedding(strip_prompt_labels(content).strip() or content, model=model_name)
 
         # 4. Store the canonical embedding in PostgreSQL
         embeddings.add_embedding(source_type, source_id, model_name, embedding)

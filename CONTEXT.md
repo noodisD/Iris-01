@@ -18,8 +18,9 @@ A pattern identified across journal entries, reflections, and habits. Represents
 - Every theme has at least one occurrence
 - `themes.created_at ≤ min(occurrences[*].occurred_at)`
 - Themes are user-scoped (no cross-user themes)
-- Semantic similarity score (cosine) ≥ `PERSISTENCE_CLUSTER_THRESHOLD` (0.78) to form a new theme
-- Matching score (cosine) ≥ `PERSISTENCE_MATCH_THRESHOLD` (0.70) to add to existing theme
+- Similarity is cosine on what differs between entries: once a user has `PERSISTENCE_STYLE_MIN_ENTRIES` (30) evidence embeddings, their average embedding — the voice every entry shares — is removed first (ADR-0014)
+- ≥ `PERSISTENCE_STYLE_CLUSTER_THRESHOLD` (0.50) to form a new theme; ≥ `PERSISTENCE_STYLE_MATCH_THRESHOLD` (0.40) to join the *closest* existing theme
+- Below 30 entries, raw cosine: ≥ `PERSISTENCE_CLUSTER_THRESHOLD` (0.78) to form, ≥ `PERSISTENCE_MATCH_THRESHOLD` (0.70) to join
 
 ### Occurrence
 An instance of a theme appearing in a source (journal entry, reflection, habit completion).

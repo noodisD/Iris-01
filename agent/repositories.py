@@ -131,6 +131,9 @@ class EmbeddingRepository(Repository):
     def count_observed_days(self, user_id: int, start, end) -> int:
         return self.db.count_observed_days(user_id, start, end)
 
+    def get_evidence_style(self, user_id: int) -> tuple:
+        return self.db.get_evidence_style(user_id)
+
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         return self.db.get_content_for_source(source_type, source_id)
 
@@ -146,6 +149,9 @@ class ThemeRepository(Repository):
 
     def get_all_themes(self, user_id: int) -> list:
         return self.db.get_themes(user_id)
+
+    def delete_all_for_user(self, user_id: int) -> int:
+        return self.db.delete_user_themes(user_id)
 
     def get_theme(self, theme_id: int) -> dict:
         return self.db.get_theme_by_id(theme_id)

@@ -56,6 +56,7 @@ def _discover(rows):
     created = []
     with patch("agent.persistence.embeddings") as emb:
         emb.get_unassigned_embeddings.return_value = rows
+        emb.get_evidence_style.return_value = (0, None)  # below the minimum: raw space
         with patch.object(
             engine, "_create_theme_from_cluster",
             side_effect=lambda vecs, entries: created.append(entries) or {"id": len(created)},
@@ -135,7 +136,7 @@ def test_eps_uses_the_euclidean_distance_for_the_cosine_threshold():
     import inspect
 
     src = inspect.getsource(PersistenceEngine.discover_themes)
-    assert "np.sqrt(2.0 * (1.0 - PERSISTENCE_CLUSTER_THRESHOLD))" in src
+    assert "distance_threshold=1.0 - cluster_threshold" in src
     assert "avg_kth_distance" not in src, (
         "eps must bound the data, not adapt to it"
     )
@@ -195,6 +196,7 @@ def test_discovery_reads_the_snippet_from_the_source_type_it_was_given():
         emb.get_content_for_source.side_effect = (
             lambda stype, sid: looked_up.append((stype, sid)) or "text"
         )
+        emb.get_evidence_style.return_value = (0, None)  # below the minimum: raw space
         th.create_theme.return_value = 42
 
         vectors = np.ones((2, 1536), dtype=np.float32)

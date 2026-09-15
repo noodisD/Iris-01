@@ -64,7 +64,7 @@ def test_live_system_flow(test_user):
         run_processing_pipeline('journal_entry', eid)
 
     # 2. Theme Discovery
-    print("\n[2/5] Running Theme Discovery (HDBSCAN on real vectors)...")
+    print("\n[2/5] Running Theme Discovery (complete linkage on real vectors)...")
     p_engine = PersistenceEngine(user_id)
     p_engine.min_cluster_size = 2
     new_themes = p_engine.discover_themes()

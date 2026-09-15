@@ -31,6 +31,9 @@ from .constants import (
     PERSISTENCE_CLUSTER_THRESHOLD,
     PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_MIN_CLUSTER_SIZE,
+    PERSISTENCE_STYLE_CLUSTER_THRESHOLD,
+    PERSISTENCE_STYLE_MATCH_THRESHOLD,
+    PERSISTENCE_STYLE_MIN_ENTRIES,
 )
 from .database import confidence as confidence_repo
 
@@ -65,24 +68,12 @@ def cosine_similarity_manual(vec1, vec2):
 
 logger = logging.getLogger(__name__)
 
-# Try to import hdbscan, with fallback to scikit-learn alternatives
+# Complete-linkage clustering from scikit-learn (ADR-0014).
 try:
-    from hdbscan import HDBSCAN
-    HAS_HDBSCAN = True
-    CLUSTERING_BACKEND = "hdbscan"
+    from sklearn.cluster import AgglomerativeClustering
 except ImportError:
-    HAS_HDBSCAN = False
-    logger.info("hdbscan not installed. Will use scikit-learn clustering as fallback.")
-
-    # Try to use scikit-learn clustering algorithms as fallback
-    try:
-        from sklearn.cluster import DBSCAN
-        HAS_DBSCAN = True
-        CLUSTERING_BACKEND = "dbscan"
-    except ImportError:
-        HAS_DBSCAN = False
-        logger.warning("Neither hdbscan nor DBSCAN available. Theme discovery will be limited.")
-        CLUSTERING_BACKEND = "none"
+    AgglomerativeClustering = None
+    logger.warning("scikit-learn clustering unavailable. Theme discovery is disabled.")
 
 
 class PersistenceEngine:
@@ -90,7 +81,7 @@ class PersistenceEngine:
     Tracks what keeps coming back by finding semantic themes in journal entries.
 
     Core principle: An entry is assigned if it appears in theme_occurrences.
-    One entry matches at most one theme (first match wins).
+    One entry matches at most one theme: the closest one.
     """
 
     def __init__(self, user_id: int):
@@ -101,6 +92,52 @@ class PersistenceEngine:
         self.conf_engine = ConfidenceEngine()
         self.ev_engine = EvidenceEngine()
         self._evidence = []
+        self._space_cache = None
+
+    # === The space themes are compared in ===
+
+    def _space(self) -> tuple:
+        """The shared voice to remove, and the thresholds that belong with it.
+
+        One person's writing shares a voice. In the owner's first 156 imported
+        entries a single direction carried two-thirds of the variance, and the
+        typical entry scored 0.84 against the average of all of them. Compared
+        raw, every theme centroid looks like every entry: the first theme
+        cleared the 0.70 match bar for nearly everything and took 121 of the
+        132 entries that grouped at all. Removing the user's average compares
+        entries on what differs between them (ADR-0014).
+
+        Until there are PERSISTENCE_STYLE_MIN_ENTRIES the average is mostly the
+        entries themselves, so raw comparison and its thresholds stand.
+        """
+        if self._space_cache is None:
+            count, mean = embeddings.get_evidence_style(self.user_id)
+            if count >= PERSISTENCE_STYLE_MIN_ENTRIES and mean is not None:
+                self._space_cache = (np.asarray(mean, dtype=np.float64),
+                                     PERSISTENCE_STYLE_MATCH_THRESHOLD,
+                                     PERSISTENCE_STYLE_CLUSTER_THRESHOLD)
+            else:
+                self._space_cache = (None, PERSISTENCE_MATCH_THRESHOLD,
+                                     PERSISTENCE_CLUSTER_THRESHOLD)
+        return self._space_cache
+
+    def _project(self, vectors, are_centroids: bool = False) -> np.ndarray:
+        """Unit vectors in the comparison space.
+
+        An entry is normalised before the shared voice is removed; a centroid is
+        not, because it is already an average of unit vectors and the shared
+        voice is an average of the same kind. Anything with nothing left once
+        the voice is removed projects to zero and matches nothing.
+        """
+        mean, _, _ = self._space()
+        arr = np.atleast_2d(np.asarray(vectors, dtype=np.float64))
+        if not are_centroids:
+            norms = np.linalg.norm(arr, axis=1, keepdims=True)
+            arr = arr / np.where(norms > 1e-12, norms, 1.0)
+        if mean is not None:
+            arr = arr - mean
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        return np.where(norms > 1e-9, arr / np.where(norms > 1e-9, norms, 1.0), 0.0)
 
     def emit_evidence(self, ev_type: str, key: str, value: Any):
         """Buffers evidence for later persistence."""
@@ -129,35 +166,32 @@ class PersistenceEngine:
         if not user_themes:
             return None
 
-        embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
+        _, match_threshold, _ = self._space()
+        entry = self._project(embedding)[0]
+        centroids = self._project([t["centroid_embedding"] for t in user_themes], are_centroids=True)
+        similarities = centroids @ entry
 
-        for theme in user_themes:
-            centroid = np.array(theme["centroid_embedding"], dtype=np.float32).reshape(1, -1)
+        # The closest theme, not the first past the bar. Themes come back
+        # largest first, so "first match wins" gave every borderline entry to
+        # the biggest theme, which made the biggest theme bigger (ADR-0014).
+        best = int(np.argmax(similarities))
+        similarity = float(similarities[best])
+        if similarity < match_threshold:
+            return None
 
-            if SKLEARN_AVAILABLE:
-                similarity = cosine_similarity(embedding_array, centroid)[0][0]
-            else:
-                # Use manual cosine similarity calculation
-                similarity = cosine_similarity_manual(embedding_array[0], centroid[0])
-
-            # Improved 1: Use dual thresholds. Matching is easier (0.70) than creating.
-            if similarity >= self.similarity_threshold:
-                # Record occurrence and update stats
-                snippet = self._extract_snippet(content)
-                themes.add_occurrence(
-                    theme_id=theme["id"],
-                    source_type=source_type,
-                    source_id=source_id,
-                    snippet=snippet,
-                    similarity_score=float(similarity),
-                    occurred_at=occurred_at.isoformat()
-                )
-                themes.update_stats(theme["id"], occurred_at.isoformat())
-                logger.info(f"Matched entry {source_id} to theme {theme['id']} "
-                           f"(similarity: {similarity:.3f})")
-                return theme["id"]  # First match wins
-
-        return None
+        theme = user_themes[best]
+        themes.add_occurrence(
+            theme_id=theme["id"],
+            source_type=source_type,
+            source_id=source_id,
+            snippet=self._extract_snippet(content),
+            similarity_score=similarity,
+            occurred_at=occurred_at.isoformat()
+        )
+        themes.update_stats(theme["id"], occurred_at.isoformat())
+        logger.info(f"Matched entry {source_id} to theme {theme['id']} "
+                   f"(similarity: {similarity:.3f})")
+        return theme["id"]
 
     # === Theme Discovery ===
 
@@ -169,8 +203,8 @@ class PersistenceEngine:
         Returns:
             List of newly created themes
         """
-        if not HAS_HDBSCAN and not HAS_DBSCAN:
-            logger.error("Neither hdbscan nor dbscan available. Cannot discover themes.")
+        if AgglomerativeClustering is None:
+            logger.error("scikit-learn clustering unavailable. Cannot discover themes.")
             return []
 
         # 1. Get entries not yet assigned to any theme
@@ -197,49 +231,30 @@ class PersistenceEngine:
 
         vectors_array = np.array(vectors, dtype=np.float32)
 
-        # 3. Cluster using available algorithm
-        # Normalize vectors and use euclidean (mathematically equivalent to cosine for clustering)
-        # This is more robust than using the 'cosine' metric directly
+        # 3. Cluster
         try:
-            norms = np.linalg.norm(vectors_array, axis=1, keepdims=True)
-            normalized_vectors = vectors_array / (norms + 1e-10)
+            _, match_threshold, cluster_threshold = self._space()
+            normalized_vectors = self._project(vectors_array)
 
-            if CLUSTERING_BACKEND == "hdbscan":
-                clusterer = HDBSCAN(
-                    min_cluster_size=self.min_cluster_size,
-                    min_samples=1,
-                    metric='euclidean',
-                    cluster_selection_method='leaf',
-                    allow_single_cluster=True
+            # Complete linkage: a cluster forms only where *every* pair of its
+            # entries clears the creation bar, so it cannot chain. DBSCAN linked
+            # A to B and B to C, and the cohesion check below then threw the
+            # whole chain away. On the owner's journal, re-embedding three
+            # entries bridged two good themes into a chain of 21 that was
+            # rejected outright, leaving 25 of 138 entries grouped; dropping any
+            # single entry changed how many themes formed in 75 of 138 runs.
+            # With complete linkage: 74 grouped, and 18 of 138 (ADR-0014).
+            cluster_labels = np.full(len(normalized_vectors), -1)
+            usable = np.where(np.linalg.norm(normalized_vectors, axis=1) > 0)[0]
+            if len(usable) >= 2:
+                clusterer = AgglomerativeClustering(
+                    n_clusters=None,
+                    metric="cosine",
+                    linkage="complete",
+                    distance_threshold=1.0 - cluster_threshold,
                 )
-                cluster_labels = clusterer.fit_predict(normalized_vectors)
-                logger.info(f"HDBSCAN clustering found labels: {set(cluster_labels)}")
-            elif CLUSTERING_BACKEND == "dbscan":
-                # Use DBSCAN as fallback - similar to HDBSCAN but with eps parameter
-                # eps is a *euclidean* radius over L2-normalized vectors, so it
-                # has to be the euclidean distance corresponding to the cosine
-                # threshold: |a - b| = sqrt(2 * (1 - cos)). At 0.78 that is
-                # 0.663, not the 0.22 the old comment assumed.
-                #
-                # Worse than the wrong conversion was wrapping it in
-                # max(..., mean distance to the k-th neighbour). In 1536
-                # dimensions unrelated unit vectors sit ~1.41 apart, so that term
-                # always won: eps adapted to the data instead of bounding it, and
-                # five mutually unrelated entries — maximum pairwise cosine
-                # 0.06 — clustered into a full theme.
-                eps = float(np.sqrt(2.0 * (1.0 - PERSISTENCE_CLUSTER_THRESHOLD)))
-
-                clusterer = DBSCAN(
-                    eps=eps,
-                    # Improved 3: Ensure we don't form singleton clusters
-                    min_samples=max(2, self.min_cluster_size // 2),
-                    metric='euclidean'
-                )
-                cluster_labels = clusterer.fit_predict(normalized_vectors)
-                logger.info(f"DBSCAN clustering found labels: {set(cluster_labels)}")
-            else:
-                logger.error("No clustering algorithm available.")
-                return []
+                cluster_labels[usable] = clusterer.fit_predict(normalized_vectors[usable])
+            logger.info(f"Complete-linkage clustering found {len(set(cluster_labels) - {-1})} groups")
         except Exception as e:
             logger.error(f"Clustering failed: {e}")
             return []
@@ -252,6 +267,8 @@ class PersistenceEngine:
                 continue
 
             cluster_indices = np.where(cluster_labels == label)[0]
+            if len(cluster_indices) < 2:
+                continue  # a single entry is not a pattern
             cluster_vectors = vectors_array[cluster_indices]
             cluster_entries = [entries[i] for i in cluster_indices]
 
@@ -259,7 +276,7 @@ class PersistenceEngine:
             # together without the two ends of it resembling each other at all.
             # The backend's own acceptance is therefore not enough to call the
             # result a theme, and the two backends are tuned differently.
-            if not self._is_cohesive(cluster_vectors):
+            if not self._is_cohesive(normalized_vectors[cluster_indices], match_threshold):
                 logger.info(
                     f"Cluster {label} rejected: not semantically cohesive "
                     f"({len(cluster_indices)} entries)"
@@ -275,6 +292,31 @@ class PersistenceEngine:
 
         logger.info(f"Discovered {len(new_themes)} new themes")
         return new_themes
+
+    def rebuild_themes(self) -> dict:
+        """Regroup all of this user's evidence from scratch.
+
+        Themes are derived: occurrences point at entries that stay where they
+        are, so themes can be thrown away and found again whenever the way they
+        are found changes. One clustering pass over everything, then every entry
+        still ungrouped is offered to the themes that formed, oldest first, as
+        the ingest path would. Theme ids change, and the analyses cached against
+        the old ids are deleted with them.
+        """
+        removed = themes.delete_all_for_user(self.user_id)
+        self._space_cache = None
+        created = self.discover_themes()
+
+        leftovers = sorted(embeddings.get_unassigned_embeddings(self.user_id),
+                           key=lambda row: to_utc(row["occurred_at"]))
+        matched = 0
+        for row in leftovers:
+            content = embeddings.get_content_for_source(row["source_type"], row["source_id"]) or ""
+            if self.check_persistence(row["vector"], row["source_type"], row["source_id"],
+                                      content, to_utc(row["occurred_at"])):
+                matched += 1
+        return {"removed": removed, "created": len(created),
+                "matched_afterwards": matched, "ungrouped": len(leftovers) - matched}
 
     def _create_theme_from_cluster(self, vectors: np.ndarray,
                                   entries: list[dict]) -> dict | None:
@@ -316,7 +358,9 @@ class PersistenceEngine:
                 occurrence_count=len(entries)
             )
 
-            # Record initial occurrences
+            # Record initial occurrences, scored in the space they were grouped in
+            centroid_in_space = self._project(centroid, are_centroids=True)[0]
+            members_in_space = self._project(vectors)
             for i, entry in enumerate(entries):
                 # Without the source type this fell back to 'journal_entry' for
                 # every source, so a reflection quoted whatever journal row
@@ -325,14 +369,7 @@ class PersistenceEngine:
                     entry["source_id"], entry["source_type"]
                 )
 
-                if SKLEARN_AVAILABLE:
-                    similarity = cosine_similarity(
-                        centroid.reshape(1, -1),
-                        vectors[i].reshape(1, -1)
-                    )[0][0]
-                else:
-                    # Use manual cosine similarity calculation
-                    similarity = cosine_similarity_manual(centroid, vectors[i])
+                similarity = float(centroid_in_space @ members_in_space[i])
 
                 themes.add_occurrence(
                     theme_id=theme_id,
@@ -598,7 +635,7 @@ Theme summary:"""
         """Retrieve all themes for this user."""
         return themes.get_all_themes(self.user_id)
 
-    def _is_cohesive(self, vectors: np.ndarray) -> bool:
+    def _is_cohesive(self, vectors: np.ndarray, threshold: float | None = None) -> bool:
         """Does every member of this cluster clear the theme-creation threshold?
 
         Backend-independent acceptance, checked against the centroid the theme
@@ -610,9 +647,9 @@ Theme summary:"""
         The check is on the cluster's *diameter*, not its average. Density
         clustering chains: A links to B and B links to C while A and C resemble
         each other not at all, and an average happily absorbs both ends of a
-        chain nobody would call one pattern. Corrected eps already forces every
-        individual link past the creation threshold, so this only removes the
-        chains that survive that — it does not tighten what counts as a theme.
+        chain nobody would call one pattern. Complete linkage now guarantees this
+        at the creation bar, so the check is a safety net: it states what a
+        theme is in one place, whatever the clustering method.
         """
         if len(vectors) < 2:
             return False
@@ -625,7 +662,7 @@ Theme summary:"""
         similarities = unit @ unit.T
         np.fill_diagonal(similarities, 1.0)
 
-        return float(similarities.min()) >= PERSISTENCE_MATCH_THRESHOLD
+        return float(similarities.min()) >= (PERSISTENCE_MATCH_THRESHOLD if threshold is None else threshold)
 
     def _extract_snippet(self, text: str, max_length: int = 200) -> str:
         """Extract a snippet from text."""

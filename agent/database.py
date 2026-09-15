@@ -616,6 +616,32 @@ class Database:
                 logger.error(f"Failed to delete theme {theme_id}: {e}")
                 raise
 
+    def delete_user_themes(self, user_id: int) -> int:
+        """Delete every theme a user has, and every cached analysis of them.
+
+        Occurrences and tensions cascade. The pattern caches are keyed by theme
+        id with no foreign key, so they are cleared here explicitly: ids are not
+        reused, and a stale row would otherwise describe a theme that no longer
+        exists.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("SELECT id FROM themes WHERE user_id = %s;", (user_id,))
+                ids = [row[0] for row in cur.fetchall()]
+                if ids:
+                    cur.execute("DELETE FROM pattern_evidence WHERE pattern_type = 'theme' AND (pattern_id = ANY(%s) OR related_pattern_id = ANY(%s));", (ids, ids))
+                    cur.execute("DELETE FROM pattern_confidence WHERE pattern_type = 'theme' AND pattern_id = ANY(%s);", (ids,))
+                    cur.execute("DELETE FROM pattern_resolutions WHERE pattern_type = 'theme' AND pattern_id = ANY(%s);", (ids,))
+                    cur.execute("DELETE FROM pattern_leverage WHERE (source_type = 'theme' AND source_id = ANY(%s)) OR (target_type = 'theme' AND target_id = ANY(%s));", (ids, ids))
+                    cur.execute("DELETE FROM decision_impacts WHERE (anchor_type = 'theme' AND anchor_id = ANY(%s)) OR (target_type = 'theme' AND target_id = ANY(%s));", (ids, ids))
+                    cur.execute("DELETE FROM themes WHERE id = ANY(%s);", (ids,))
+                conn.commit()
+                return len(ids)
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to delete themes for user {user_id}: {e}")
+                raise
+
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
                             snippet: str, similarity_score: float, occurred_at: str):
         """Records that a theme occurred at a specific entry."""
@@ -782,6 +808,28 @@ class Database:
                 }
                 for row in rows
             ]
+
+    def get_evidence_style(self, user_id: int) -> tuple:
+        """How many evidence embeddings a user has, and their average.
+
+        The average is the voice every entry shares. Themes are compared with it
+        removed once there is enough evidence for it to mean that (ADR-0014).
+        Eligibility is the same as get_unassigned_embeddings: evidence only.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*), AVG(e.vector) FROM embeddings e
+                WHERE (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s))
+                   OR (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s))
+                   OR (e.source_type = 'habit_completion' AND e.source_id IN (
+                        SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
+                        WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE));
+                """,
+                (user_id, user_id, user_id)
+            )
+            count, mean = cur.fetchone()
+            return int(count), mean
 
     def get_entry_count(self, user_id: int) -> int:
         """Returns the number of journal entries for a user."""

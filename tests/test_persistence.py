@@ -95,7 +95,7 @@ def test_discover_themes(engine, mocker):
     new_themes = engine.discover_themes()
 
     # The important thing is that at least one theme is discovered
-    # Different clustering algorithms (DBSCAN vs HDBSCAN) may produce different numbers of clusters
+    # The exact number of clusters is the clustering method's business
     assert len(new_themes) >= 1, "At least one theme should be discovered"
     assert new_themes[0]["id"] == 50
     assert new_themes[0]["summary"] == "Discovered Theme"
