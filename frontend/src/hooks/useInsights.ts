@@ -6,6 +6,10 @@ export function useInsights() {
   return useQuery({ queryKey: qk.insights, queryFn: insightsApi.listInsights });
 }
 
+export function useInsightsCoverage() {
+  return useQuery({ queryKey: [...qk.insights, 'coverage'], queryFn: insightsApi.getInsightsCoverage });
+}
+
 export function useInsight(id: string | undefined) {
   return useQuery({
     queryKey: id ? qk.insight(id) : ['noop'],

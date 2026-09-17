@@ -1,6 +1,6 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useInsights, useInsight } from '@/hooks/useInsights';
+import { useInsights, useInsight, useInsightsCoverage } from '@/hooks/useInsights';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import { color } from '@/components/primitives';
 import type { InsightSummary, InsightEvidence } from '@/types/api';
@@ -41,12 +41,61 @@ function Card({ insight, onOpen }: { insight: InsightSummary; onOpen: (id: strin
   );
 }
 
+function EmptyInsights() {
+  // An empty list has three different meanings, and the screen used to give one
+  // answer to all of them: nothing written yet, nothing written lately, or
+  // plenty written and nothing recurring inside the window being measured.
+  const { data: c } = useInsightsCoverage();
+  if (!c || c.entries === 0) {
+    return <EmptyState title="No patterns yet." body="Iris needs about a week of conversations and entries before she'll surface anything. She won't guess." />;
+  }
+
+  const held = `Your ${c.entries} entries are still here, ${c.entriesInThemes} of them grouped into ${c.themes} themes.`;
+
+  // A failed check is not a measured absence, and must not be shown as one.
+  if (!c.available) {
+    return (
+      <EmptyState
+        title="Iris can't tell right now."
+        body={`The check for how much you've written recently didn't answer, so nothing is being claimed about how things are. ${held}`}
+      />
+    );
+  }
+
+  if (c.observedDaysInWindow === 0 && c.lastEntryOn) {
+    const when = new Date(c.lastEntryOn + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    return (
+      <EmptyState
+        title={`Nothing written since ${when}.`}
+        body={`Patterns about now are measured over the last ${c.windowDays} days, and nothing falls in them — so Iris has nothing to say about how things are. ${held} They come back the moment you write again.`}
+      />
+    );
+  }
+
+  const days = `${c.observedDaysInWindow} day${c.observedDaysInWindow === 1 ? '' : 's'}`;
+  if (!c.supportsCurrentState) {
+    return (
+      <EmptyState
+        title="Not enough written lately."
+        body={`Describing how things are now takes ${c.observedDaysRequired} days of writing in the last ${c.windowDays}, and there ${c.observedDaysInWindow === 1 ? 'is' : 'are'} ${days}. One entry after a long gap is a sign of life, not a basis for saying how you are. ${held}`}
+      />
+    );
+  }
+
+  return (
+    <EmptyState
+      title="Nothing measurable about now."
+      body={`${days} of writing in the last ${c.windowDays}, and nothing has recurred often enough to measure against it. ${held}`}
+    />
+  );
+}
+
 function IndexView() {
   const { data, isLoading, isError, refetch } = useInsights();
   const nav = useNavigate();
   if (isLoading) return <LoadingState label="Iris is reviewing your patterns…" />;
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
-  if (data.length === 0) return <EmptyState title="No patterns yet." body="Iris needs about a week of conversations and entries before she'll surface anything. She won't guess." />;
+  if (data.length === 0) return <EmptyInsights />;
 
   const newCount = data.filter(i => !i.seen).length;
 

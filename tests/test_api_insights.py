@@ -24,17 +24,28 @@ def client(test_user):
 
 @pytest.fixture
 def seeded_theme(test_user):
-    """A theme with several recent occurrences → trajectory produces an insight."""
+    """A theme with several recent occurrences → trajectory produces an insight.
+
+    Each occurrence is backed by an entry written on its day. IRIS withholds
+    findings about the present while nothing recent has been logged
+    (agent/coverage.py), and a theme occurring "two days ago" with nothing
+    written for months is a world that cannot happen.
+    """
     tid = db.create_theme(
         test_user["id"], [0.0] * 1536, "Worrying about the launch deadline",
         (datetime.now() - timedelta(days=40)).isoformat(),
         datetime.now().isoformat(), 5,
     )
     for i in range(5):
+        occurred = datetime.now() - timedelta(days=i * 2)
+        entry_id = db.create_journal_entry(
+            test_user["id"], "I'm anxious about whether we'll ship on time", {},
+            created_at=occurred.isoformat(),
+        )
         db.add_theme_occurrence(
-            tid, "reflection", 1000 + i,
+            tid, "journal_entry", entry_id,
             "I'm anxious about whether we'll ship on time",
-            0.9, (datetime.now() - timedelta(days=i * 2)).isoformat(),
+            0.9, occurred.isoformat(),
         )
     return tid
 

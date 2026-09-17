@@ -630,7 +630,16 @@ class Database:
                 ids = [row[0] for row in cur.fetchall()]
                 if ids:
                     cur.execute("DELETE FROM pattern_evidence WHERE pattern_type = 'theme' AND (pattern_id = ANY(%s) OR related_pattern_id = ANY(%s));", (ids, ids))
-                    cur.execute("DELETE FROM pattern_confidence WHERE pattern_type = 'theme' AND pattern_id = ANY(%s);", (ids,))
+                    # Every pattern_type an engine files under, not just
+                    # 'theme': resolution writes 'resolution' and trajectory
+                    # writes 'trajectory', so deleting one type left rows
+                    # describing themes that no longer exist.
+                    cur.execute(
+                        """DELETE FROM pattern_confidence
+                            WHERE pattern_id = ANY(%s)
+                              AND pattern_type IN ('theme', 'resolution', 'trajectory',
+                                                   'tension', 'leverage', 'decision_impact');""",
+                        (ids,))
                     cur.execute("DELETE FROM pattern_resolutions WHERE pattern_type = 'theme' AND pattern_id = ANY(%s);", (ids,))
                     cur.execute("DELETE FROM pattern_leverage WHERE (source_type = 'theme' AND source_id = ANY(%s)) OR (target_type = 'theme' AND target_id = ANY(%s));", (ids, ids))
                     cur.execute("DELETE FROM decision_impacts WHERE (anchor_type = 'theme' AND anchor_id = ANY(%s)) OR (target_type = 'theme' AND target_id = ANY(%s));", (ids, ids))
@@ -693,6 +702,29 @@ class Database:
                 for row in rows
             ]
 
+    def last_observed_day(self, user_id: int):
+        """The most recent day the user deliberately logged anything, or None.
+
+        Same definition of evidence as count_observed_days (ADR-0003), so the
+        two agree about what counts as being observed.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT MAX(d) FROM (
+                    SELECT MAX(created_at::date) AS d FROM journal_entries WHERE user_id = %s
+                    UNION ALL
+                    SELECT MAX(reflection_date) FROM reflections WHERE user_id = %s
+                    UNION ALL
+                    SELECT MAX(hc.completion_date) FROM habit_completions hc
+                      JOIN habits h ON hc.habit_id = h.id
+                     WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
+                ) days;
+                """,
+                (user_id, user_id, user_id),
+            )
+            return cur.fetchone()[0]
+
     def count_observed_days(self, user_id: int, start, end) -> int:
         """Distinct days in [start, end) on which the user deliberately logged.
 
@@ -724,19 +756,23 @@ class Database:
                     -- matters most -- the silence, which ends now -- always read
                     -- as zero days observed.
                     SELECT created_at::date AS d FROM journal_entries
-                     WHERE user_id = %s AND created_at >= %s AND created_at < %s
+                     WHERE user_id = %s AND created_at > %s AND created_at <= %s
                     UNION
-                    -- Date-typed sources record a day, not an instant, so a
-                    -- record on the boundary day belongs to the window that day
-                    -- falls in.
+                    -- Exclusive start, inclusive end, on every source: two
+                    -- touching windows share their boundary day, and it must
+                    -- count in one of them, not both. With the start inclusive,
+                    -- the day of a theme's last occurrence counted as observed
+                    -- *before* the silence and again *during* it, which is how
+                    -- an unobserved gap earned continuity credit. The end stays
+                    -- inclusive so what was written earlier today still counts.
                     SELECT reflection_date AS d FROM reflections
-                     WHERE user_id = %s AND reflection_date >= %s::date
+                     WHERE user_id = %s AND reflection_date > %s::date
                        AND reflection_date <= %s::date
                     UNION
                     SELECT hc.completion_date AS d
                       FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
                      WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
-                       AND hc.completion_date >= %s::date
+                       AND hc.completion_date > %s::date
                        AND hc.completion_date <= %s::date
                 ) days;
                 """,
@@ -830,6 +866,78 @@ class Database:
             )
             count, mean = cur.fetchone()
             return int(count), mean
+
+    def get_latest_reflections(self, user_id: int, limit: int = 5) -> list:
+        """The most recently *written* reflections, newest first.
+
+        get_reflections pages by id, which is insertion order. Since importing
+        that is not writing order: a batch of 2024 entries committed today has
+        the newest ids, so the chat's "recent entries" meant "last imported".
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, reflection_date, content, mood, energy_level, clarity_level
+                   FROM reflections WHERE user_id = %s
+                   ORDER BY reflection_date DESC, id DESC LIMIT %s;""",
+                (user_id, limit),
+            )
+            keys = ("id", "reflection_date", "content", "mood", "energy_level", "clarity_level")
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+    def get_memory_item(self, source_type: str, source_id: int) -> dict | None:
+        """What a retrieved memory is, when it happened, and its own words.
+
+        get_content_for_source returns the text that was embedded, which wraps a
+        reflection in a header ("Anchor: Self-Reflection | ... | Content: ...")
+        with placeholder scores and no date: right for the embedding, wrong for
+        the model reading the chat context.
+        """
+        queries = {
+            "reflection": ("journal", "SELECT content, reflection_date FROM reflections WHERE id = %s;"),
+            "journal_entry": ("journal", "SELECT raw_text, created_at::date FROM journal_entries WHERE id = %s;"),
+            "message": ("said in chat", "SELECT content, created_at::date FROM conversation_messages WHERE id = %s;"),
+            "habit_completion": ("habit", """SELECT CASE WHEN hc.is_skipped
+                                                     THEN 'Skipped ' || h.name || COALESCE(': ' || hc.skip_reason, '')
+                                                     ELSE 'Did ' || h.name || COALESCE(': ' || hc.notes, '') END,
+                                                hc.completion_date
+                                         FROM habit_completions hc JOIN habits h ON h.id = hc.habit_id
+                                         WHERE hc.id = %s;"""),
+        }
+        if source_type not in queries:
+            return None
+        kind, sql = queries[source_type]
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (source_id,))
+            row = cur.fetchone()
+        if not row or not (row[0] or "").strip():
+            return None
+        return {"kind": kind, "date": row[1], "text": row[0]}
+
+    def get_journal_page(self, user_id: int, limit: int = 50, before=None) -> list:
+        """A page of reflections ordered by when they were *written*.
+
+        get_reflections pages by id, which is insertion order: after an import
+        that is the order files were committed, so a 2024 entry can sit at the
+        top of "newest first". The cursor is (date, id) because dates repeat.
+        """
+        before_date, before_id = (before or (None, None))
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, reflection_date, content, mood, energy_level, clarity_level,
+                       tags, created_at, updated_at, audio_path
+                  FROM reflections
+                 WHERE user_id = %s
+                   AND (%s::date IS NULL
+                        OR (reflection_date, id) < (%s::date, %s::int))
+                 ORDER BY reflection_date DESC, id DESC
+                 LIMIT %s;
+                """,
+                (user_id, before_date, before_date, before_id, limit),
+            )
+            keys = ("id", "reflection_date", "content", "mood", "energy_level",
+                    "clarity_level", "tags", "created_at", "updated_at", "audio_path")
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
 
     def get_entry_count(self, user_id: int) -> int:
         """Returns the number of journal entries for a user."""
@@ -1602,6 +1710,28 @@ class Database:
             except psycopg2.Error as e:
                 conn.rollback()
                 logger.error(f"Failed to create/update insight priority: {e}")
+                raise
+
+    def retire_insight_priorities(self, keep_insight_ids: list) -> int:
+        """Drop priority rows outside the current selection.
+
+        The writer upserts by insight_id, so a shorter selection left the
+        previous, longer one in place: five rows described a ranking that no
+        longer existed and read as current. A selection is a snapshot — what is
+        not in it is not ranked.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "DELETE FROM insight_priorities WHERE NOT (insight_id = ANY(%s));",
+                    (list(keep_insight_ids),),
+                )
+                retired = cur.rowcount
+                conn.commit()
+                return retired
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to retire insight priorities: {e}")
                 raise
 
     def get_insight_priority(self, engine_name: str, pattern_type: str, pattern_id: int) -> dict:

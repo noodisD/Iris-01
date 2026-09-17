@@ -122,6 +122,10 @@ export interface JournalEntry {
   /** Server-extracted tags; frontend never invents these. */
   tags?: string[];
   irisNote?: string;        // What Iris observed about this entry
+  /** The day the entry was written. Imported entries keep their own date. */
+  occurredOn?: ISODate;
+  /** When the row reached IRIS — the import day for an imported entry. */
+  importedAt?: ISODateTime;
   createdAt: ISODateTime;
 }
 
@@ -202,6 +206,22 @@ export type InsightKind =
   | 'embodied';     // body-vocabulary
 
 export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
+
+/** Why the insights list may be empty: how much recent evidence there is. */
+export interface InsightCoverage {
+  /** False when the check itself failed — not a measured absence. */
+  available: boolean;
+  windowDays: number;
+  observedDaysInWindow: number;
+  /** Days that must be written in before IRIS describes the present. */
+  observedDaysRequired: number;
+  lastEntryOn: ISODate | null;
+  daysSinceLastEntry: number | null;
+  supportsCurrentState: boolean;
+  entries: number;
+  themes: number;
+  entriesInThemes: number;
+}
 
 export interface InsightSummary {
   id: ID;

@@ -15,10 +15,15 @@ from agent.trajectory import TrajectoryEngine
 # Setup logging
 logger = logging.getLogger("FinalStressTest")
 
-def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
+def test_final_system_integrated_flow(test_user, mock_pipeline_logic, journalled_recently):
     """
     MEGA E2E: Verifies all modules (Persistence -> ... -> Conflict Suppression)
     """
+    # The fixture below stops logging weeks ago, but every assertion here is
+    # about what IRIS says *now*. A present-tense finding needs the user to
+    # have been observed recently (agent/coverage.py), so the journalling
+    # this test always assumed is now stated.
+    journalled_recently()
     user_id = test_user['id']
     now = datetime.now()
 
@@ -35,19 +40,19 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     # SCENARIO A: Leverage (Stress -> Sleep)
     for i in range(6):
         d_s = now - timedelta(days=60 - (i*6))
-        eid = db.create_journal_entry(user_id, f"Stress {i}", {})
+        eid = db.create_journal_entry(user_id, f"Stress {i}", {}, created_at=d_s.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d_s.isoformat())
         db.update_theme_stats(t_stress, d_s.isoformat())
 
         d_sl = d_s + timedelta(days=2)
-        eid = db.create_journal_entry(user_id, f"Sleep {i}", {})
+        eid = db.create_journal_entry(user_id, f"Sleep {i}", {}, created_at=d_sl.isoformat())
         db.add_theme_occurrence(t_sleep, 'journal_entry', eid, "sleep", 0.95, d_sl.isoformat())
         db.update_theme_stats(t_sleep, d_sl.isoformat())
 
     # SCENARIO B: Tension (Stress & Yoga co-occur)
     for i in range(7):
         d_t = now - timedelta(days=40 - i*2)
-        eid = db.create_journal_entry(user_id, f"Stress & Yoga {i}", {})
+        eid = db.create_journal_entry(user_id, f"Stress & Yoga {i}", {}, created_at=d_t.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d_t.isoformat())
         db.update_theme_stats(t_stress, d_t.isoformat())
         db.add_theme_occurrence(t_yoga, 'journal_entry', eid, "yoga", 0.95, d_t.isoformat())
@@ -56,19 +61,20 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic):
     # SCENARIO C: Resolution (Habit dissipated)
     for i in range(8):
         d_h = now - timedelta(days=90 - i*5) # Stops 55 days ago
-        eid = db.create_journal_entry(user_id, f"Habit {i}", {})
+        eid = db.create_journal_entry(user_id, f"Habit {i}", {}, created_at=d_h.isoformat())
         db.add_theme_occurrence(t_habit, 'journal_entry', eid, "habit", 0.95, d_h.isoformat())
         db.update_theme_stats(t_habit, d_h.isoformat())
 
     # SCENARIO D: Impact (Meditation -> Stress Fade)
     med_anchors = [now - timedelta(days=200), now - timedelta(days=120), now - timedelta(days=70)]
     for i, d_m in enumerate(med_anchors):
-        eid = db.create_journal_entry(user_id, f"Meditation {i}", {})
+        eid = db.create_journal_entry(user_id, f"Meditation {i}", {}, created_at=d_m.isoformat())
         db.add_theme_occurrence(t_med, 'journal_entry', eid, "meditate", 0.95, d_m.isoformat())
         db.update_theme_stats(t_med, d_m.isoformat())
         for j in range(3):
             d_s_base = d_m - timedelta(days=5+j)
-            eid_s = db.create_journal_entry(user_id, f"Stress pre-med {i}-{j}", {})
+            eid_s = db.create_journal_entry(user_id, f"Stress pre-med {i}-{j}", {},
+                                            created_at=d_s_base.isoformat())
             db.add_theme_occurrence(t_stress, 'journal_entry', eid_s, "stress", 0.95, d_s_base.isoformat())
             db.update_theme_stats(t_stress, d_s_base.isoformat())
 

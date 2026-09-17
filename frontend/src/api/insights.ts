@@ -1,6 +1,7 @@
 /**
  * Insights API — WIRED LIVE (single-user backend; built from the analytical engines).
  *   GET    /api/insights                     → InsightSummary[]
+ *   GET    /api/insights/coverage            → InsightCoverage
  *   GET    /api/insights/:id                 → InsightDetail
  *   POST   /api/insights/:id/snooze          → InsightSummary (status: snoozed)
  *   POST   /api/insights/:id/resolve         → InsightSummary (status: resolved)
@@ -8,10 +9,14 @@
  */
 
 import { api } from './client';
-import type { InsightDetail, InsightSummary } from '@/types/api';
+import type { InsightCoverage, InsightDetail, InsightSummary } from '@/types/api';
 
 export async function listInsights(): Promise<InsightSummary[]> {
   return api.get('/insights');
+}
+
+export async function getInsightsCoverage(): Promise<InsightCoverage> {
+  return api.get('/insights/coverage');
 }
 
 export async function getInsight(id: string): Promise<InsightDetail | null> {

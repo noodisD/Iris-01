@@ -57,12 +57,14 @@ def test_system_with_leverage(test_user, mock_pipeline_components):
         date_b = date_a + timedelta(days=2)
 
         # Add Stress
-        entry_id_a = db.create_journal_entry(user_id, f"Stress {i}", {})
+        entry_id_a = db.create_journal_entry(user_id, f"Stress {i}", {},
+                                             created_at=date_a.isoformat())
         db.add_theme_occurrence(theme_a_id, 'journal_entry', entry_id_a, "stress", 0.9, date_a.isoformat())
         db.update_theme_stats(theme_a_id, date_a.isoformat())
 
         # Add Sleep
-        entry_id_b = db.create_journal_entry(user_id, f"Sleep {i}", {})
+        entry_id_b = db.create_journal_entry(user_id, f"Sleep {i}", {},
+                                             created_at=date_b.isoformat())
         db.add_theme_occurrence(theme_b_id, 'journal_entry', entry_id_b, "sleep", 0.9, date_b.isoformat())
         db.update_theme_stats(theme_b_id, date_b.isoformat())
 

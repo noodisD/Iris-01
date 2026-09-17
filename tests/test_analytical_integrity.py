@@ -790,7 +790,7 @@ def test_the_evaluated_cohort_is_the_episodes_that_had_a_baseline():
 
 # --- confidence in an absence is not confidence in a recent event -----------
 
-def _absence(baseline_count, days_silent, during, before):
+def _absence(baseline_count, days_silent, during, before, span=45.0):
     from agent.confidence import ConfidenceEngine
 
     return ConfidenceEngine().compute_absence_confidence(
@@ -799,6 +799,10 @@ def _absence(baseline_count, days_silent, during, before):
         silence_threshold_days=21,
         observed_days_during=during,
         observed_days_before=before,
+        # These fixtures describe patterns that ran for weeks before stopping.
+        # The span was implicit when it did not exist as an input; a burst
+        # confined to one day is now a separate case, tested in test_coverage.
+        baseline_span_days=span,
     )
 
 
@@ -820,7 +824,10 @@ def test_a_longer_silence_is_more_convincing_not_less():
 
 def test_a_silence_nobody_observed_proves_nothing():
     """The guard that keeps this honest: a fortnight's holiday is not a resolved
-    pattern. Inverting the sign without this would be worse than the bug."""
+    pattern. Inverting the sign without this would be worse than the bug.
+
+    One logged day against forty-five now fails two gates — the continuity ratio
+    and the minimum number of observed days — and both say the same thing."""
     result = _absence(baseline_count=20, days_silent=60, during=1, before=45)
     assert result["confidence_level"] == "low", result
 

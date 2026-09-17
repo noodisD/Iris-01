@@ -86,10 +86,11 @@ def _raw(engine, key, confidence, label="persisting", theme_id=1):
     }
 
 
-def test_insights_list_drops_what_chat_would_suppress(test_user, monkeypatch):
+def test_insights_list_drops_what_chat_would_suppress(test_user, monkeypatch, journalled_recently):
     """The screen used to call the engines with no gating at all, so a finding
     chat discarded as low-confidence was still shown as something IRIS
     believed."""
+    journalled_recently()  # the days this assertion assumes were logged
     from agent.insights_service import InsightsService
 
     service = InsightsService(test_user["id"])
@@ -106,8 +107,9 @@ def test_insights_list_drops_what_chat_would_suppress(test_user, monkeypatch):
     )
 
 
-def test_insights_list_respects_a_lowered_threshold(test_user, monkeypatch):
+def test_insights_list_respects_a_lowered_threshold(test_user, monkeypatch, journalled_recently):
     """It is the user's threshold, not a hardcoded one."""
+    journalled_recently()  # the days this assertion assumes were logged
     from agent.insights_service import InsightsService
     from agent.preferences import UserPreferencesService
 

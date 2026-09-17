@@ -113,6 +113,19 @@ CONF_ABSENCE_SILENCE_SATURATION_MULTIPLE = 2.0
 # closely enough to call the silence evidence of anything.
 CONF_ABSENCE_MIN_CONTINUITY = 0.34
 CONF_ABSENCE_HIGH_CONTINUITY = 0.67
+# Continuity as a bare ratio is maxed out by a single day: one entry either side
+# of a silence scored 1.0, so ten occurrences written in one sitting and one
+# entry yesterday came back "high, 1.0" — higher than eight occurrences with
+# weekly logging right through the quiet (0.82). Watching means watching on
+# several days, and a claim that something *stopped* needs the baseline to have
+# lasted longer than one afternoon.
+CONF_ABSENCE_MIN_OBSERVED_DAYS = 3      # distinct days logged during the silence
+CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS = 7  # a burst on one day is one observation
+
+# How many distinct days must be logged in the recent window before IRIS may
+# describe the present at all. One entry after months of silence is a sign of
+# life, not a basis for saying how things are (agent/coverage.py).
+COVERAGE_MIN_OBSERVED_DAYS = 3
 
 # Conflict Suppression Configuration
 CONFLICT_SUPPRESSION_ENABLED = True

@@ -47,7 +47,8 @@ def test_full_system_with_meta_controls(test_user, mock_external_services):
     # 15 recent points over 15 days to ensure 'increasing' is triggered
     for i in range(15):
         d = now - timedelta(days=15 - i)
-        eid = db.create_journal_entry(user_id, f"Stress {i}", {})
+        eid = db.create_journal_entry(user_id, f"Stress {i}", {},
+                                     created_at=d.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d.isoformat())
         db.update_theme_stats(t_stress, d.isoformat())
 

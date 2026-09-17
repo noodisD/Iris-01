@@ -312,6 +312,32 @@ def _purge_user(user_id: int) -> None:
 
 
 @pytest.fixture
+def journalled_recently(test_user):
+    """Days on which this user deliberately logged something.
+
+    IRIS withholds every present-tense finding unless COVERAGE_MIN_OBSERVED_DAYS
+    distinct days in the recent window contain writing (agent/coverage.py). Most
+    integration fixtures backdate *occurrences* over months while creating their
+    entries with no timestamp at all — so the entries land today and the world
+    they describe (someone journalling for months) never existed. This supplies
+    the missing half: the logging itself.
+    """
+    from datetime import datetime, timedelta
+
+    from agent.database import db as _db
+
+    def wrote(days_ago=(1, 4, 8, 13, 19)):
+        for offset in days_ago:
+            _db.create_journal_entry(
+                test_user["id"], f"logged {offset} days ago", {},
+                created_at=(datetime.now() - timedelta(days=offset)).isoformat(),
+            )
+        return len(days_ago)
+
+    return wrote
+
+
+@pytest.fixture
 def process_queue():
     """Run queued ingest work to completion, returning how many items ran.
 

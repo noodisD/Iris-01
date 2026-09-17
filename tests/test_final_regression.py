@@ -16,7 +16,12 @@ def mock_embedding(monkeypatch):
     monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.1] * 1536)
     monkeypatch.setattr("agent.core.generate_embedding", lambda text, model=None: [0.1] * 1536)
 
-def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm, mock_embedding):
+def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm, mock_embedding, journalled_recently):
+    # The fixture below stops logging weeks ago, but every assertion here is
+    # about what IRIS says *now*. A present-tense finding needs the user to
+    # have been observed recently (agent/coverage.py), so the journalling
+    # this test always assumed is now stated.
+    journalled_recently()
     user_id = test_user['id']
     start_time = datetime(2026, 1, 1)
     freeze_time.set_time(start_time)
@@ -32,10 +37,10 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     for i in range(6):
         ds = start_time + timedelta(days=i*5) # day 0 to 25
         dsl = ds + timedelta(days=2)
-        ea = db.create_journal_entry(user_id, f"Stress {i}", {})
+        ea = db.create_journal_entry(user_id, f"Stress {i}", {}, created_at=ds.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', ea, "stress", 0.9, ds.isoformat())
         db.update_theme_stats(t_stress, ds.isoformat())
-        eb = db.create_journal_entry(user_id, f"Sleep {i}", {})
+        eb = db.create_journal_entry(user_id, f"Sleep {i}", {}, created_at=dsl.isoformat())
         db.add_theme_occurrence(t_sleep, 'journal_entry', eb, "sleep", 0.9, dsl.isoformat())
         db.update_theme_stats(t_sleep, dsl.isoformat())
 
@@ -43,7 +48,7 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     # Window: 65 to 40 days ago
     med_dates = [start_time + timedelta(days=40), start_time + timedelta(days=50), start_time + timedelta(days=60)]
     for i, dm in enumerate(med_dates):
-        em = db.create_journal_entry(user_id, f"Med {i}", {})
+        em = db.create_journal_entry(user_id, f"Med {i}", {}, created_at=dm.isoformat())
         db.add_theme_occurrence(t_med, 'journal_entry', em, "med", 0.9, dm.isoformat())
         db.update_theme_stats(t_med, dm.isoformat())
         # Stress BEFORE med only
@@ -54,7 +59,7 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     # Day 0 to 30
     for i in range(6):
         dh = start_time + timedelta(days=i*5)
-        eh = db.create_journal_entry(user_id, f"Habit {i}", {})
+        eh = db.create_journal_entry(user_id, f"Habit {i}", {}, created_at=dh.isoformat())
         db.add_theme_occurrence(t_habit, 'journal_entry', eh, "habit", 0.9, dh.isoformat())
         db.update_theme_stats(t_habit, dh.isoformat())
 

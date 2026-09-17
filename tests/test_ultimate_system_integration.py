@@ -51,7 +51,12 @@ def mock_pipeline(monkeypatch):
     monkeypatch.setattr("agent.core.generate_embedding", mock_embed)
     monkeypatch.setattr("agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "Dynamic Insight")
 
-def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
+def test_ultimate_end_to_end_flow(test_user, mock_pipeline, journalled_recently):
+    # The fixture below stops logging weeks ago, but every assertion here is
+    # about what IRIS says *now*. A present-tense finding needs the user to
+    # have been observed recently (agent/coverage.py), so the journalling
+    # this test always assumed is now stated.
+    journalled_recently()
     report = SystemReport()
     user_id = test_user['id']
     now = datetime.now()
@@ -68,30 +73,31 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline):
     # SCENARIO A: Leverage (Stress -> Sleep)
     for i in range(6):
         d_s = now - timedelta(days=80 - (i*10))
-        eid = db.create_journal_entry(user_id, f"Stress {i}", {})
+        eid = db.create_journal_entry(user_id, f"Stress {i}", {}, created_at=d_s.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d_s.isoformat())
         db.update_theme_stats(t_stress, d_s.isoformat())
-        eid_sl = db.create_journal_entry(user_id, f"Sleep {i}", {})
+        eid_sl = db.create_journal_entry(user_id, f"Sleep {i}", {},
+                                        created_at=(d_s + timedelta(days=2)).isoformat())
         db.add_theme_occurrence(t_sleep, 'journal_entry', eid_sl, "sleep", 0.95, (d_s + timedelta(days=2)).isoformat())
         db.update_theme_stats(t_sleep, (d_s + timedelta(days=2)).isoformat())
 
     # SCENARIO B: Tension (Stress & Yoga co-occur)
     for i in range(7):
         d_t = now - timedelta(days=45 - i*5)
-        eid = db.create_journal_entry(user_id, f"Stress & Yoga {i}", {})
+        eid = db.create_journal_entry(user_id, f"Stress & Yoga {i}", {}, created_at=d_t.isoformat())
         db.add_theme_occurrence(t_stress, 'journal_entry', eid, "stress", 0.95, d_t.isoformat())
         db.add_theme_occurrence(t_yoga, 'journal_entry', eid, "yoga", 0.95, d_t.isoformat())
 
     # SCENARIO C: Dissipated (Habit)
     for i in range(8):
         d_h = now - timedelta(days=90 - i*5)
-        eid = db.create_journal_entry(user_id, f"Habit {i}", {})
+        eid = db.create_journal_entry(user_id, f"Habit {i}", {}, created_at=d_h.isoformat())
         db.add_theme_occurrence(t_habit, 'journal_entry', eid, "habit", 0.95, d_h.isoformat())
 
     # SCENARIO D: Decision Impact (Meditation -> Stress decrease)
     med_dates = [now - timedelta(days=100), now - timedelta(days=70), now - timedelta(days=40)]
     for i, dm in enumerate(med_dates):
-        em = db.create_journal_entry(user_id, f"Meditation {i}", {})
+        em = db.create_journal_entry(user_id, f"Meditation {i}", {}, created_at=dm.isoformat())
         db.add_theme_occurrence(t_med, 'journal_entry', em, "med", 0.95, dm.isoformat())
         for j in range(2):
             db.add_theme_occurrence(t_stress, 'journal_entry', 5000+i+j, "stress", 0.9, (dm - timedelta(days=5+j)).isoformat())

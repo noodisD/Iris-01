@@ -5,12 +5,14 @@ all the different services (intelligence, memory, journal, etc.).
 """
 
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # Main services
 from .conflict import ConflictSuppressionEngine
 from .timeutils import utc_now
+from .coverage import current_state_gate
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .database import (
     db,
@@ -40,6 +42,13 @@ try:
     from prompts.system_prompt import SYSTEM_PROMPT
 except (ImportError, ValueError):
     from prompts.system_prompt import SYSTEM_PROMPT
+
+
+#: How many of the latest entries the chat sees, and how much of each. Entries
+#: now span years, so the prompt is told these are the latest few, not all.
+RECENT_ENTRIES_IN_CONTEXT = 5
+ENTRY_CHARS_IN_CONTEXT = 1500
+MEMORY_CHARS_IN_CONTEXT = 300
 
 
 class PersonalAICompanion:
@@ -124,6 +133,9 @@ class PersonalAICompanion:
         # _get_aggregated_context, after ranking, matching CONTEXT.md's
         # documented order: enablement -> confidence -> conflict ->
         # prioritisation -> budget.
+        # Order 0: before anything else. A finding about the present is
+        # withheld while nothing recent has been logged (agent/coverage.py).
+        self.analysis_pipeline.register_gate('coverage', current_state_gate, order=0)
         self.analysis_pipeline.register_gate('enablement', engine_enablement_gate, order=1)
         self.analysis_pipeline.register_gate('confidence', confidence_gate, order=2)
 
@@ -231,7 +243,16 @@ class PersonalAICompanion:
         header = "# Observed Structural Patterns & Observed Temporal Sequences:"
         body = self._format_pattern_body(narratives, suppression_log, prefs)
 
-        return f"# Relevant Long-Term Memory:\n{memories}\n\n# Recent Journal Entries & Reflections:\n{reflections_context}\n\n# Current Habits & Streaks:\n{habits_context}\n\n{header}\n{body}"
+        # The model is told the date. Entries span years, and without it
+        # "recently" or "last week" is a guess about when today is.
+        today = datetime.now().astimezone()
+        return (
+            f"# Today: {today:%A, %Y-%m-%d}\n\n"
+            f"# Relevant Long-Term Memory:\n{memories}\n\n"
+            f"# Recent Journal Entries & Reflections (the {RECENT_ENTRIES_IN_CONTEXT} most recently written, newest first):\n{reflections_context}\n\n"
+            f"# Current Habits & Streaks:\n{habits_context}\n\n"
+            f"{header}\n{body}"
+        )
 
     @staticmethod
     def _format_pattern_body(narratives: list[str], suppression_log: dict, prefs: dict) -> str:
@@ -297,14 +318,30 @@ class PersonalAICompanion:
     def _get_reflections_context(self) -> str:
         """Retrieves recent reflections for context."""
         try:
-            reflections = journals.get_reflections(self.user_id, limit=5)
+            reflections = db.get_latest_reflections(self.user_id, RECENT_ENTRIES_IN_CONTEXT)
             if not reflections:
-                return "No recent reflections found."
+                return "No journal entries yet."
 
             parts = []
             for r in reflections:
-                date_str = r['reflection_date'].strftime("%Y-%m-%d") if hasattr(r['reflection_date'], 'strftime') else str(r['reflection_date'])
-                parts.append(f"- [{date_str}] Mood: {r['mood'] or 'N/A'}, Energy: {r['energy_level'] or 'N/A'}\n  Content: {r['content']}")
+                # Only what was recorded. "Energy: N/A" on every imported entry
+                # read as a value, and invited the model to reason about it.
+                # Mood is left out: it is inferred from tags, and with no tags
+                # it is "okay", so every imported entry claimed a mood nobody
+                # gave it.
+                recorded = []
+                if r["energy_level"] is not None:
+                    recorded.append(f"energy {r['energy_level']}/10")
+                if r["clarity_level"] is not None:
+                    recorded.append(f"clarity {r['clarity_level']}/10")
+                meta = f" ({', '.join(recorded)})" if recorded else ""
+                content = r["content"] or ""
+                if len(content) > ENTRY_CHARS_IN_CONTEXT:
+                    content = content[:ENTRY_CHARS_IN_CONTEXT].rstrip() + " …"
+                # Every line indented, so a list inside an entry cannot pass for
+                # the next entry.
+                body = "\n".join(f"  {line}" for line in content.splitlines())
+                parts.append(f"- [{r['reflection_date']:%Y-%m-%d}]{meta}\n{body}")
             return "\n".join(parts)
         except Exception as e:
             logger.error(f"Error fetching reflections context: {e}")
@@ -333,25 +370,34 @@ class PersonalAICompanion:
         logger.info("Retrieving relevant context using pgvector...")
         try:
             query_embedding = generate_embedding(text)
+            # Over-fetch: entries already shown under Recent Journal Entries are
+            # dropped here rather than repeated.
             results = db.search_similar_embeddings(
                 user_id=self.user_id,
                 query_vector=query_embedding,
-                n_results=n_results
+                n_results=n_results + RECENT_ENTRIES_IN_CONTEXT,
             )
-
             if not results:
                 return "No specific long-term memories found."
 
+            shown = {r["id"] for r in db.get_latest_reflections(self.user_id, RECENT_ENTRIES_IN_CONTEXT)}
             context_parts = []
             for r in results:
-                content = db.get_content_for_source(r['source_type'], r['source_id'])
-                if content:
-                    relevance = 1.0 - r['distance']
-                    context_parts.append(f"- [{r['source_type']}] (relevance: {relevance:.0%}) {content[:300]}")
+                if r["source_type"] == "reflection" and r["source_id"] in shown:
+                    continue
+                item = db.get_memory_item(r["source_type"], r["source_id"])
+                if not item:
+                    continue
+                when = f"{item['date']:%Y-%m-%d}" if item["date"] else "undated"
+                words = " ".join(item["text"].split())
+                if len(words) > MEMORY_CHARS_IN_CONTEXT:
+                    words = words[:MEMORY_CHARS_IN_CONTEXT].rstrip() + " …"
+                context_parts.append(f"- [{item['kind']}, {when}] {words}")
+                if len(context_parts) == n_results:
+                    break
 
             if not context_parts:
                 return "No specific long-term memories found."
-
             return "\n".join(context_parts)
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")

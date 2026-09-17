@@ -10,12 +10,17 @@ from agent.database import confidence, db, resolutions
 from agent.resolution import ResolutionEngine
 
 
-def test_resolution_override_survives_pipeline(test_user, monkeypatch):
+def test_resolution_override_survives_pipeline(test_user, monkeypatch, journalled_recently):
     """
     Verify that a manually-set resolution survives re-analysis through the full pipeline.
 
     This reproduces the exact scenario from test_final_system_stress_test.py PHASE 4.
     """
+    # The fixture below stops logging weeks ago, but every assertion here is
+    # about what IRIS says *now*. A present-tense finding needs the user to
+    # have been observed recently (agent/coverage.py), so the journalling
+    # this test always assumed is now stated.
+    journalled_recently()
     user_id = test_user['id']
     now = datetime.now()
 
@@ -42,14 +47,16 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch):
     # Add occurrences 28-60 days ago (13 occurrences)
     for days_ago in [28, 30, 30, 32, 34, 36, 36, 38, 40, 42, 48, 54, 60]:
         d = now - timedelta(days=days_ago)
-        entry = db.create_journal_entry(user_id, f"Entry at day {days_ago}", {})
+        entry = db.create_journal_entry(user_id, f"Entry at day {days_ago}", {},
+                                        created_at=d.isoformat())
         db.add_theme_occurrence(theme, 'journal_entry', entry, "stress", 0.95, d.isoformat())
         db.update_theme_stats(theme, d.isoformat())
 
     # Add old occurrences (75-207 days ago)
     for days_ago in [75, 76, 77, 125, 126, 127, 205, 206, 207]:
         d = now - timedelta(days=days_ago)
-        entry = db.create_journal_entry(user_id, f"Entry at day {days_ago}", {})
+        entry = db.create_journal_entry(user_id, f"Entry at day {days_ago}", {},
+                                        created_at=d.isoformat())
         db.add_theme_occurrence(theme, 'journal_entry', entry, "stress", 0.95, d.isoformat())
         db.update_theme_stats(theme, d.isoformat())
 

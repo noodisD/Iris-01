@@ -49,6 +49,13 @@ class InsightPrioritizationEngine:
         Calculates priority scores, sorts them, and selects top-N unique patterns.
         """
         if not insights:
+            # Nothing ranked means the previous ranking is no longer current.
+            # Retiring only on the way *through* left five rows describing a
+            # selection that no longer existed, timestamped as if it did.
+            try:
+                db.retire_insight_priorities([])
+            except Exception as e:
+                logger.warning(f"Could not retire superseded priorities: {e}")
             return []
 
         # 1. Scoring
@@ -98,7 +105,16 @@ class InsightPrioritizationEngine:
             if len(final_list) >= PRIORITY_MAX_ITEMS:
                 break
 
-        # 4. Persistence for audit
+        # 4. Persistence for audit. Superseded selections are retired first:
+        # upserting the current ranks on top of an older, longer list left rows
+        # that read as current selections and never expired.
+        try:
+            db.retire_insight_priorities(
+                [f"{i['engine_name']}:{i['pattern_type']}:{i['pattern_id']}" for i in final_list]
+            )
+        except Exception as e:
+            logger.warning(f"Could not retire superseded priorities: {e}")
+
         for idx, ins in enumerate(final_list):
             insight_id = f"{ins['engine_name']}:{ins['pattern_type']}:{ins['pattern_id']}"
             db.create_or_update_insight_priority(

@@ -19,6 +19,8 @@ from typing import Any
 # Import constants
 from .timeutils import to_utc, utc_now
 from .constants import (
+    CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS,
+    CONF_ABSENCE_MIN_OBSERVED_DAYS,
     CONF_ABSENCE_HIGH_CONTINUITY,
     CONF_ABSENCE_MIN_CONTINUITY,
     CONF_ABSENCE_SILENCE_SATURATION_MULTIPLE,
@@ -178,6 +180,7 @@ class ConfidenceEngine:
         silence_threshold_days: float,
         observed_days_during: int,
         observed_days_before: int,
+        baseline_span_days: float | None = None,
     ) -> dict[str, Any]:
         """How much to trust the claim that a pattern has *stopped*.
 
@@ -201,6 +204,15 @@ class ConfidenceEngine:
         Continuity gates the result rather than merely weighting it: below
         CONF_ABSENCE_MIN_CONTINUITY the honest answer is that we stopped looking,
         whatever the other two terms say.
+
+        Two further gates, because a ratio of one day to one day is 1.0 and read
+        as perfect watchfulness: `high` needs CONF_ABSENCE_MIN_OBSERVED_DAYS
+        distinct days logged *during* the silence, and a baseline confined to
+        less than CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS is a burst — ten entries in
+        one sitting are ten data points and one observation, so it cannot exceed
+        `medium` however many there are. Measured: ten occurrences on one day
+        with a day either side scored high/1.0 before this, against 0.82 for
+        eight occurrences logged weekly throughout.
         """
         support = min(
             1.0,
@@ -225,18 +237,28 @@ class ConfidenceEngine:
             # costs the most.
             continuity = 1.0 if observed_days_during > 0 else 0.0
 
-        score = (0.4 * support) + (0.3 * silence) + (0.3 * continuity)
+        # Thin watchfulness cannot be disguised by a flattering ratio.
+        watched_enough = observed_days_during >= CONF_ABSENCE_MIN_OBSERVED_DAYS
+        spread_enough = (baseline_span_days is None
+                         or baseline_span_days >= CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS)
+        thin_observation = min(1.0, observed_days_during / CONF_ABSENCE_MIN_OBSERVED_DAYS)
 
-        if continuity < CONF_ABSENCE_MIN_CONTINUITY:
+        score = (0.35 * support) + (0.25 * silence) + (0.25 * continuity) + (0.15 * thin_observation)
+
+        if continuity < CONF_ABSENCE_MIN_CONTINUITY or observed_days_during == 0:
             label = 'low'
         elif (continuity_known
+                and watched_enough
+                and spread_enough
                 and baseline_count >= CONF_HIGH_POINTS
                 and silence >= 1.0
                 and continuity >= CONF_ABSENCE_HIGH_CONTINUITY):
             label = 'high'
-        elif baseline_count >= CONF_MIN_POINTS:
+        elif baseline_count >= CONF_MIN_POINTS and watched_enough:
             label = 'medium'
         else:
+            # Established enough, but watched on too few days to call the
+            # silence evidence of anything.
             label = 'low'
 
         return {
@@ -253,6 +275,9 @@ class ConfidenceEngine:
                 "continuity": round(continuity, 3),
                 "observed_days_during": observed_days_during,
                 "observed_days_before": observed_days_before,
+                "baseline_span_days": baseline_span_days,
+                "watched_enough": watched_enough,
+                "spread_enough": spread_enough,
                 "continuity_known": continuity_known,
                 "final_score": round(score, 3),
             },

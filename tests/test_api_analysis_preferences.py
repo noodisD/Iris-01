@@ -19,6 +19,13 @@ from agent.insights_service import InsightsService
 from agent.preferences import UserPreferencesService
 
 
+@pytest.fixture(autouse=True)
+def _observed(journalled_recently):
+    """These tests stub the engines, so nothing would be logged at all and every
+    present-tense finding would be withheld (agent/coverage.py)."""
+    journalled_recently()
+
+
 @pytest.fixture
 def client(test_user):
     app.dependency_overrides[get_current_user_id] = lambda: test_user["id"]

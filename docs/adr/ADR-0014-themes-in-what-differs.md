@@ -46,7 +46,8 @@ linked A to B and B to C, and the cohesion check then rejected the whole chain:
 after three entries were re-embedded, one entry bridged two good themes into a
 chain of 21 that was thrown away, and the rebuild grouped 25 of 138 entries.
 Removing any single entry changed how many themes formed in 75 of 138 runs with
-DBSCAN and in 18 with complete linkage, which grouped 74 of 138 into six themes.
+DBSCAN and in 18 with complete linkage, which grouped 74 of 138 entries into 18
+themes, 7 of them with the five members an engine requires.
 
 **The prompts a tool wrote are not embedded.** The stored entry keeps its
 labels so each answer still says what it answered; the embedded text leaves out

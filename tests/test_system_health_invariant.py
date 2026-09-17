@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+from datetime import date, timedelta
 
 from dotenv import load_dotenv
 
@@ -38,15 +39,22 @@ def test_system_health_invariant():
     print("> CASE A: Injecting 4 identical reflections (User A)...")
     text_a = f"This is a specific repetitive thought about A: {uuid.uuid4().hex}"
     refl_a = ReflectionService(id_a)
-    for _ in range(4):
-        refl_a.create_reflection(text_a, energy_level=8)
+    # Written on four separate days: a present-tense finding needs the user to
+    # have been observed on several (agent/coverage.py), and four entries typed
+    # in one sitting are four data points and one observation.
+    for offset in range(4):
+        refl_a.create_reflection(
+            text_a, energy_level=8,
+            reflection_date=date.today() - timedelta(days=offset * 3))
 
     # CASE B: 5 items (Visible)
     print("> CASE B: Injecting 5 identical reflections (User B)...")
     text_b = f"This is a specific repetitive thought about B: {uuid.uuid4().hex}"
     refl_b = ReflectionService(id_b)
-    for _ in range(5):
-        refl_b.create_reflection(text_b, energy_level=8)
+    for offset in range(5):
+        refl_b.create_reflection(
+            text_b, energy_level=8,
+            reflection_date=date.today() - timedelta(days=offset * 3))
 
     # Writes only enqueue; run the queued embedding work before discovery.
     from agent.work_queue import drain

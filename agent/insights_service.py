@@ -14,6 +14,7 @@ import logging
 from datetime import UTC, datetime
 
 from .conflict import ConflictSuppressionEngine
+from .coverage import current_state_gate, drop_unsupported, observation_coverage
 from .constants import (
     DECISION_IMPACT_BASELINE_DAYS,
     DECISION_IMPACT_WINDOW_DAYS,
@@ -126,6 +127,8 @@ class InsightsService:
 
         try:
             for r in ResolutionEngine(self.user_id).analyze_all_themes():
+                if r.get("resolution_label") == "unsupported":
+                    continue  # both windows empty: nothing was compared
                 out.append({
                     "engine": "resolution",
                     "pattern_key": str(r["theme_id"]),
@@ -258,6 +261,11 @@ class InsightsService:
         is true, and this screen is a list the user scrolls. Ordering by
         strength replaces truncation.
         """
+        # A finding about now needs something logged now, and a finding its own
+        # engine calls unsupported is a non-finding at any threshold (ADR-0007:
+        # the same rule the chat pipeline applies as a gate).
+        raw = current_state_gate(drop_unsupported(raw), {"user_id": self.user_id})
+
         prefs = UserPreferencesService(self.user_id).get_prefs()
         levels = {"low": 0, "medium": 1, "high": 2}
         minimum = levels.get(prefs.get("min_confidence", "medium"), 1)
@@ -304,6 +312,36 @@ class InsightsService:
             "detectedAt": detected_at,
             "seen": seen,
         }
+
+    def coverage(self) -> dict:
+        """Why the list may be empty: how much recent evidence there is.
+
+        An empty Insights screen has two very different meanings - nothing has
+        been noticed, or nothing recent has been written - and the screen said
+        the first while the second was true.
+        """
+        out = observation_coverage(self.user_id).as_dict()
+        with db.connection() as conn, conn.cursor() as cur:
+            # Everything the owner deliberately logged, by ADR-0003's definition
+            # of evidence — not reflections alone.
+            cur.execute(
+                """SELECT (SELECT count(*) FROM reflections WHERE user_id = %s)
+                        + (SELECT count(*) FROM journal_entries WHERE user_id = %s);""",
+                (self.user_id, self.user_id),
+            )
+            out["entries"] = cur.fetchone()[0]
+            # Keyed on (source_type, source_id): the same number identifies a
+            # different row in each source table, so counting ids alone merges a
+            # reflection with a habit completion that happens to share one.
+            cur.execute(
+                """SELECT count(DISTINCT t.id),
+                          count(DISTINCT (o.source_type, o.source_id))
+                     FROM themes t LEFT JOIN theme_occurrences o ON o.theme_id = t.id
+                    WHERE t.user_id = %s;""",
+                (self.user_id,),
+            )
+            out["themes"], out["entriesInThemes"] = cur.fetchone()
+        return out
 
     def list_summaries(self) -> list:
         """Return InsightSummary[], hiding resolved and still-snoozed insights."""
@@ -354,6 +392,17 @@ class InsightsService:
             if iid != insight_id:
                 continue
             base = self._summary(raw, idx, statuses.get(iid), detected)
+            # A link kept working is not a licence to read as current: policy
+            # governs what is surfaced, not what is addressable (ADR-0007), so
+            # the qualification travels with the insight.
+            coverage = observation_coverage(self.user_id)
+            if not coverage.supports_current_state:
+                base["historical"] = True
+                base["coverageNote"] = (
+                    f"Historical. Only {coverage.observed_days_in_window} of the "
+                    f"{coverage.window_days} most recent days were written in, so this "
+                    "describes what was recorded then, not how things are now."
+                )
             base.update({
                 "irisRead": self._iris_read(raw),
                 "evidence": self._evidence(raw),

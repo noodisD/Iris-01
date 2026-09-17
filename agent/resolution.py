@@ -82,12 +82,32 @@ class ResolutionEngine:
                 logger.debug(f"  last_computed_at value: {cached.get('last_computed_at')}")
                 logger.debug(f"  last_computed_at is not None: {cached.get('last_computed_at') is not None}")
 
-            if cached and self._cache_is_fresh(cached.get('last_computed_at')):
+            # A verdict of "dissipated" over two empty windows was reachable
+            # under the old rules and is not reachable now. Serving it from
+            # cache would keep eighteen of those on screen for a day after the
+            # rule changed, so an empty comparison is treated as stale whatever
+            # its timestamp says.
+            # Only a *legacy* empty comparison is stale: one labelled anything
+            # the current rules cannot produce. A freshly computed 'unsupported'
+            # is a valid answer and is served like any other, instead of
+            # recomputing (and rewriting confidence and evidence rows) on every
+            # read.
+            empty_comparison = (cached or {}).get('recent_count') == 0 \
+                and (cached or {}).get('past_count') == 0 \
+                and (cached or {}).get('resolution_label') != 'unsupported'
+            if cached and empty_comparison:
+                logger.debug(
+                    f"Resolution cache for theme {theme_id} compares two empty "
+                    "windows: recomputing rather than serving it"
+                )
+            elif cached and self._cache_is_fresh(cached.get('last_computed_at')):
                 logger.debug(f"Resolution cache HIT for theme {theme_id}: label={cached.get('resolution_label')}")
                 # Add theme summary for convenience
                 theme = themes.get_theme(theme_id)
                 cached['summary'] = theme['summary'] if theme else "Unknown"
                 cached['theme_id'] = theme_id
+                # Same shape from cache as from a fresh computation.
+                cached['current_state_supported'] = cached.get('resolution_label') != 'unsupported'
                 logger.debug(f"  Returning cached with theme_id={cached.get('theme_id')}, label={cached.get('resolution_label')}")
                 return cached
             elif not cached:
@@ -183,6 +203,9 @@ class ResolutionEngine:
             "theme_id": theme_id,
             "summary": summary,
             "resolution_label": label,
+            # False when both windows were empty: measured, but not something to
+            # say out loud (agent/coverage.py).
+            "current_state_supported": label != 'unsupported',
             "attenuation_score": attenuation_score,
             "confidence_level": confidence,
             "recent_count": recent_count,
@@ -233,12 +256,17 @@ class ResolutionEngine:
             logger.warning(f"Observation history unavailable for user {self.user_id}: {e}")
             return self.conf_engine.compute_confidence('resolution', 0, timestamps)
 
+        # How long the pattern itself ran. Ten occurrences inside one day are
+        # one observation, and cannot support a confident cessation claim.
+        span_days = (max(timestamps) - min(timestamps)).total_seconds() / 86400.0
+
         return self.conf_engine.compute_absence_confidence(
             baseline_count=len(timestamps),
             days_silent=days_silent,
             silence_threshold_days=RESOLUTION_RECENT_DAYS,
             observed_days_during=observed_during,
             observed_days_before=observed_before,
+            baseline_span_days=span_days,
         )
 
     def _calculate_attenuation_score(self, recent_rate: float, past_rate: float) -> float:
@@ -285,14 +313,15 @@ class ResolutionEngine:
         if past_count >= RESOLUTION_MIN_DATA_POINTS and recent_count > 0 and gap_detected:
             return 'reappearing'
 
-        # 3. Nothing in either window. Both rates are zero, so the attenuation
-        # score is zero and this used to fall into 'stabilized' below — reporting
-        # a steady ongoing rate for a theme with no evidence in the last 111
-        # days. An empty comparison is not stability. The evidence that exists is
-        # old and the theme has not recurred, which is dissipation; the
-        # confidence engine's recency floor keeps such a verdict low-confidence.
+        # 3. Nothing in either window: there is no comparison to make, so there
+        # is nothing to report. This returned 'dissipated' on the reasoning that
+        # old evidence plus no recurrence is a fading pattern, trusting
+        # confidence to keep such a verdict quiet. It does not: a dissipation is
+        # scored on support and silence, so an archive that simply ends produced
+        # eighteen themes reading "dissipated - 0 in 21d - 0 in the 90d before",
+        # eight of them medium confidence. An empty comparison is not a finding.
         if past_count == 0 and recent_count == 0:
-            return 'dissipated'
+            return 'unsupported'
 
         # 4. Stabilized: Little change in rate, measured against evidence that
         # actually exists on both sides of the comparison.
