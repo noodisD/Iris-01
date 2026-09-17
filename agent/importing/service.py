@@ -181,6 +181,9 @@ class ImportService:
             "entry_date": entry.date.value,
             "date_source": entry.date.source,
             "date_confidence": entry.date.confidence,
+            # What the source recorded as values rather than prose. Kept beside
+            # the entry so a number the owner entered stays a number.
+            "metrics": entry.metrics,
             "tags": entry.tags,
             # Offered to the owner, never applied here (ADR-0013).
             "file_modified_at": file_modified_at,
@@ -351,6 +354,11 @@ class ImportService:
                     source="voice" if item["audio_path"] else "import",
                     content_hash=item["content_hash"],
                     audio_path=item["audio_path"],
+                    # The source's own measurements, and how well its date is
+                    # known — both stopped at the staging table before.
+                    metrics=item.get("metrics"),
+                    date_source=item.get("date_source"),
+                    date_confidence=item.get("date_confidence"),
                 )
             except psycopg2.errors.UniqueViolation:
                 # The index caught what the pre-flight sweep missed — a race, or

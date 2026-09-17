@@ -170,6 +170,11 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # which invalidated the resolution cache, so the label recomputed to
         # 'persisting' before the narrative for that same turn was written.
         should_check_persistence = source_type in ['journal_entry', 'reflection', 'habit_completion']
+        if should_check_persistence and not embeddings.is_evidence_eligible(source_type, source_id):
+            # Memory, not evidence: a duplicate or a placeholder must not form
+            # or reinforce a theme, though it stays searchable (ADR-0003).
+            logger.info(f"{source_type} {source_id} is memory only; not offered to the engines")
+            should_check_persistence = False
         if should_check_persistence:
             try:
                 engine = PersistenceEngine(user_id)

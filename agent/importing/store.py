@@ -114,11 +114,12 @@ def delete_batch(batch_id: int, user_id: int) -> bool:
 
 _ITEM_COLUMNS = """id, batch_id, user_id, source_name, title, content, content_hash,
                    audio_path, entry_date, date_source, date_confidence, tags,
-                   warnings, status, reflection_id, error, file_modified_at"""
+                   warnings, status, reflection_id, error, file_modified_at,
+                   metrics"""
 _ITEM_KEYS = ("id", "batch_id", "user_id", "source_name", "title", "content",
               "content_hash", "audio_path", "entry_date", "date_source",
               "date_confidence", "tags", "warnings", "status", "reflection_id", "error",
-              "file_modified_at")
+              "file_modified_at", "metrics")
 
 
 def _item_row(row) -> dict:
@@ -139,7 +140,7 @@ def replace_items(batch_id: int, user_id: int, items: list[dict]) -> int:
                 """INSERT INTO import_items
                    (batch_id, user_id, source_name, title, content, content_hash,
                     audio_path, entry_date, date_source, date_confidence, tags, warnings,
-                    status, file_modified_at)
+                    status, file_modified_at, metrics)
                    VALUES %s""",
                 [
                     (batch_id, user_id, i.get("source_name"), i.get("title"),
@@ -147,7 +148,8 @@ def replace_items(batch_id: int, user_id: int, items: list[dict]) -> int:
                      i.get("entry_date"), i.get("date_source"),
                      i.get("date_confidence", "unknown"),
                      Json(i.get("tags") or []), Json(i.get("warnings") or []),
-                     i.get("status", "staged"), i.get("file_modified_at"))
+                     i.get("status", "staged"), i.get("file_modified_at"),
+                     Json(i["metrics"]) if i.get("metrics") else None)
                     for i in items
                 ],
             )

@@ -52,6 +52,10 @@ class ReflectionService:
         source: str = 'app',
         content_hash: str | None = None,
         audio_path: str | None = None,
+        metrics: dict | None = None,
+        date_source: str | None = None,
+        date_confidence: str | None = None,
+        evidence_eligible: bool = True,
     ) -> int:
         """Create a new reflection. Returns reflection ID."""
         if not content or not content.strip():
@@ -63,8 +67,10 @@ class ReflectionService:
         if clarity_level and not (1 <= clarity_level <= 10):
             raise ValueError("Clarity level must be between 1 and 10")
 
-        # Auto-infer mood
-        mood = self._infer_mood(tags or [])
+        # Inferred from tags where there are any. With none there is nothing to
+        # infer from, and "okay" was a default dressed as a self-report: all 138
+        # imported entries claimed a mood nobody gave them.
+        mood = self._infer_mood(tags) if tags else None
 
         reflection_id = db.create_reflection(
             self.user_id,
@@ -77,6 +83,10 @@ class ReflectionService:
             source,
             content_hash,
             audio_path,
+            metrics,
+            date_source,
+            date_confidence,
+            evidence_eligible,
         )
 
         # The reflection is stored. Turning it into evidence is queued, so a

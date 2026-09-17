@@ -131,6 +131,9 @@ class EmbeddingRepository(Repository):
     def count_observed_days(self, user_id: int, start, end) -> int:
         return self.db.count_observed_days(user_id, start, end)
 
+    def is_evidence_eligible(self, source_type: str, source_id: int) -> bool:
+        return self.db.is_evidence_eligible(source_type, source_id)
+
     def get_evidence_style(self, user_id: int) -> tuple:
         return self.db.get_evidence_style(user_id)
 

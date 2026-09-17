@@ -37,6 +37,9 @@ class ParsedEntry:
 
     content: str
     date: DateGuess = UNKNOWN
+    #: Typed values the source recorded, with their own scales — mood, energy,
+    #: sleep, stress and the rest. Prose is content; these are measurements.
+    metrics: dict | None = None
     title: str | None = None
     source_path: str = ""
     tags: list[str] = field(default_factory=list)
@@ -376,6 +379,38 @@ class PlainFilesAdapter:
             )
 
 
+#: The earlier IRIS recorded these beside the prose, on its own scales. They
+#: were read as text or dropped entirely, so every imported entry arrived with
+#: no energy, no clarity, and a mood nobody had given it.
+_IRIS_OG_METRICS = {
+    "mood": ("mood", "1-10"),
+    "energy": ("energy", "1-10"),
+    "sleep_hours": ("sleep_hours", "hours"),
+    "sleep_quality": ("sleep_quality", "1-10"),
+    "exercise": ("exercise", "as recorded"),
+    "nutrition": ("nutrition", "as recorded"),
+    "anxiety": ("anxiety", "1-10"),
+    "stress": ("stress", "1-10"),
+}
+
+
+def _iris_og_metrics(entry: dict) -> dict:
+    """The typed values an entry recorded, each with the scale it was on.
+
+    Kept separately from the prose: a number the owner entered is a
+    measurement, and running it into a sentence loses both the value and the
+    scale it was measured against.
+    """
+    wellbeing = entry.get("wellbeing") or {}
+    out = {}
+    for key, (name, scale) in _IRIS_OG_METRICS.items():
+        value = wellbeing.get(key)
+        if value in (None, "", []):
+            continue
+        out[name] = {"value": value, "scale": scale, "source": "iris_og.wellbeing"}
+    return out
+
+
 _IRIS_OG_SECTIONS = (
     ("what_went_well", "What went well"),
     ("what_to_improve", "What to improve"),
@@ -455,11 +490,18 @@ class IrisOGJournalAdapter:
                 yield ParsedEntry(
                     content=content,
                     date=parse_timestamp(entry.get("date") or entry.get("created_at") or ""),
+                    metrics=_iris_og_metrics(entry) or None,
                     title=entry.get("preset_used") or entry.get("time_of_day"),
                     source_path=f"{rel}#{entry.get('id', i)}",
                 )
 
 
+# Checked against the real export before deciding to drop these: 8 <aside>
+# blocks across 89 entries, **one** distinct text between them (152 chars, tip
+# marker, "Notion Tip"), and all 8 sit beside prose the owner wrote. It is one
+# piece of template furniture repeated 8 times, so keeping it would copy an
+# identical string into 8 entries and hand the engines a phrase that recurs
+# without anyone having written it twice.
 _ASIDE = re.compile(r"<aside>.*?</aside>", re.S | re.I)
 
 

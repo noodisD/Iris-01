@@ -714,7 +714,8 @@ class Database:
                 SELECT MAX(d) FROM (
                     SELECT MAX(created_at::date) AS d FROM journal_entries WHERE user_id = %s
                     UNION ALL
-                    SELECT MAX(reflection_date) FROM reflections WHERE user_id = %s
+                    SELECT MAX(reflection_date) FROM reflections
+                     WHERE user_id = %s AND evidence_eligible
                     UNION ALL
                     SELECT MAX(hc.completion_date) FROM habit_completions hc
                       JOIN habits h ON hc.habit_id = h.id
@@ -766,7 +767,8 @@ class Database:
                     -- an unobserved gap earned continuity credit. The end stays
                     -- inclusive so what was written earlier today still counts.
                     SELECT reflection_date AS d FROM reflections
-                     WHERE user_id = %s AND reflection_date > %s::date
+                     WHERE user_id = %s AND evidence_eligible
+                       AND reflection_date > %s::date
                        AND reflection_date <= %s::date
                     UNION
                     SELECT hc.completion_date AS d
@@ -821,7 +823,11 @@ class Database:
                 -- Completions still qualify; skipped ones already do not.
                 AND (
                     (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
-                    (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s)) OR
+                    -- evidence_eligible is false for copied setup text and
+                    -- placeholders: still searchable, no longer proof that
+                    -- anything recurred (ADR-0003).
+                    (e.source_type = 'reflection' AND e.source_id IN (
+                        SELECT id FROM reflections WHERE user_id = %s AND evidence_eligible)) OR
                     (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
                         WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE))
@@ -912,6 +918,21 @@ class Database:
         if not row or not (row[0] or "").strip():
             return None
         return {"kind": kind, "date": row[1], "text": row[0]}
+
+    def is_evidence_eligible(self, source_type: str, source_id: int) -> bool:
+        """Whether this source may form or reinforce a theme.
+
+        False for copied setup text and placeholders: they stay stored,
+        embedded and searchable, and stop counting as proof that something
+        recurred (ADR-0003). Only reflections carry the flag; anything else is
+        eligible by definition of its own table.
+        """
+        if source_type != 'reflection':
+            return True
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT evidence_eligible FROM reflections WHERE id = %s;", (source_id,))
+            row = cur.fetchone()
+        return bool(row[0]) if row else True
 
     def get_journal_page(self, user_id: int, limit: int = 50, before=None) -> list:
         """A page of reflections ordered by when they were *written*.
@@ -2242,7 +2263,9 @@ class Database:
     def create_reflection(self, user_id: int, content: str, reflection_date = None,
                          mood: str = None, energy_level: int = None, clarity_level: int = None,
                          tags: list = None, source: str = 'app',
-                         content_hash: str = None, audio_path: str = None) -> int:
+                         content_hash: str = None, audio_path: str = None,
+                         metrics: dict = None, date_source: str = None,
+                         date_confidence: str = None, evidence_eligible: bool = True) -> int:
         """Creates a new reflection and returns its ID.
 
         `source`, `content_hash` and `audio_path` carry provenance for entries
@@ -2260,11 +2283,15 @@ class Database:
                     """
                     INSERT INTO reflections (user_id, reflection_date, content, mood,
                                              energy_level, clarity_level, tags,
-                                             source, content_hash, audio_path)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                             source, content_hash, audio_path,
+                                             metrics, date_source, date_confidence,
+                                             evidence_eligible)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
                     (user_id, reflection_date, content, mood, energy_level, clarity_level,
-                     Json(tags) if tags else None, source, content_hash, audio_path)
+                     Json(tags) if tags else None, source, content_hash, audio_path,
+                     Json(metrics) if metrics else None, date_source, date_confidence,
+                     evidence_eligible)
                 )
                 reflection_id = cur.fetchone()[0]
                 conn.commit()

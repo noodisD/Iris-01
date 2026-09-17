@@ -393,6 +393,11 @@
         "nullable": "NO",
         "type": "integer"
       },
+      "metrics": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
       "reflection_id": {
         "default": null,
         "nullable": "YES",
@@ -843,15 +848,35 @@
         "nullable": "YES",
         "type": "timestamp with time zone"
       },
+      "date_confidence": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "date_source": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
       "energy_level": {
         "default": null,
         "nullable": "YES",
         "type": "smallint"
       },
+      "evidence_eligible": {
+        "default": "true",
+        "nullable": "NO",
+        "type": "boolean"
+      },
       "id": {
         "default": "nextval(...)",
         "nullable": "NO",
         "type": "integer"
+      },
+      "metrics": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
       },
       "mood": {
         "default": null,
@@ -1675,6 +1700,10 @@
       "reflections_energy_level_check": {
         "definition": "CHECK (((energy_level >= 1) AND (energy_level <= 10)))",
         "type": "c"
+      },
+      "reflections_evidence_eligible_not_null": {
+        "definition": "NOT NULL evidence_eligible",
+        "type": "n"
       },
       "reflections_id_not_null": {
         "definition": "NOT NULL id",
