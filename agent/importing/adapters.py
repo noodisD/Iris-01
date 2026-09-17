@@ -535,9 +535,106 @@ class ElaraJournalAdapter:
                 )
 
 
+def _is_number(text: str) -> bool:
+    """A transcriber's confidence score, as opposed to a remark about the clip."""
+    try:
+        float(text.strip())
+    except ValueError:
+        return False
+    return True
+
+
+class TelegramVoiceAdapter:
+    """A transcript document: one file, many spoken entries, no dates.
+
+    The owner's voice journal was transcribed from Telegram voice messages in a
+    single Whisper run, so every entry carries the same "exported 2026-07-26
+    17:02 UTC" line — the moment the transcriber wrote the files out, not when
+    anything was said. Reading that as the date would put nine hours of speech
+    on one afternoon, which is the Elara trap exactly (ADR-0013). The order is
+    real and is kept; the dates are absent and stay absent until the owner
+    supplies them or a Telegram export does.
+
+    Without this, the registry falls through to `plain_files` and the whole
+    document becomes one 61,000-word entry.
+    """
+
+    name = "telegram_voice"
+    label = "Voice transcripts (one file, many recordings)"
+    description = "A transcript document whose entries are numbered recordings, each with its length."
+
+    #: "## 12. Some title" — the numbering is the chronological order.
+    _ENTRY = re.compile(r"^##\s+(\d+)\.\s*(.*\S)\s*$", re.M)
+    #: "*14:16 · en (0.99) · exported 2026-07-26 17:02 UTC*"
+    _META = re.compile(r"^\*(\d{1,2}):(\d{2})\s·\s([^\s(]+)\s*\(([^)]*)\)(.*?)\*\s*$", re.M)
+    _ANCHOR = re.compile(r"^\[[^\]]*\]\(#[^)]*\)\s*$", re.M)
+
+    def _files(self, bundle: Bundle) -> list[BundleFile]:
+        # Structure is the discriminator — numbered headings each followed by a
+        # duration line — not size. The floor only keeps a stub out.
+        return [f for f in bundle.files(MARKDOWN_SUFFIXES) if f.size > 400]
+
+    def _entries(self, text: str) -> list[tuple[int, str, str, re.Match | None]]:
+        out = []
+        marks = list(self._ENTRY.finditer(text))
+        for i, m in enumerate(marks):
+            body = text[m.end(): marks[i + 1].start() if i + 1 < len(marks) else len(text)]
+            meta = self._META.search(body)
+            if not meta:
+                continue  # a contents block, not a recording
+            out.append((int(m[1]), m[2], body, meta))
+        return out
+
+    def sniff(self, bundle: Bundle) -> float:
+        files = self._files(bundle)
+        if len(files) != 1:
+            return 0.0
+        found = self._entries(bundle.read_text(files[0].rel_path))
+        # Numbered headings *and* a duration line under each: a plain numbered
+        # list of notes does not have the second.
+        return 0.92 if len(found) >= 3 else 0.0
+
+    def parse(self, bundle: Bundle) -> Iterator[ParsedEntry]:
+        for f in self._files(bundle):
+            for number, title, body, meta in self._entries(bundle.read_text(f.rel_path)):
+                minutes, seconds, language, bracket, tail = meta.groups()
+                spoken = self._META.sub("", body)
+                spoken = self._ANCHOR.sub("", spoken)
+                content = _clean(spoken)
+                if not _is_meaningful(content):
+                    continue
+                warnings = [
+                    f"Recording {number}, {int(minutes)}:{seconds} long. The transcript file "
+                    "carries no date — its timestamp is when the transcription ran."
+                ]
+                # The bracket holds either a confidence score or the
+                # transcriber's prose; the tail holds remarks such as
+                # "near-empty clip" before the "exported ..." stamp. A score is
+                # not a remark, and the stamp is not one either.
+                remarks = []
+                if not _is_number(bracket):
+                    remarks.append(bracket.strip())
+                for part in tail.split("·"):
+                    part = part.strip()
+                    if part and not part.startswith("exported"):
+                        remarks.append(part)
+                if remarks:
+                    warnings.append("The transcriber noted: " + "; ".join(remarks) + ".")
+                yield ParsedEntry(
+                    content=content,
+                    date=UNKNOWN,
+                    title=title,
+                    # The number keeps the chronological order the file states.
+                    source_path=f"{f.rel_path}#{number:03d}",
+                    tags=[language] if language and language.isalpha() else [],
+                    warnings=warnings,
+                )
+
+
 REGISTRY: list[SourceAdapter] = [
     DayOneAdapter(), IrisOGJournalAdapter(), ElaraJournalAdapter(), NotionAdapter(),
-    DatedFilesAdapter(), SingleFileAdapter(), CsvAdapter(), PlainFilesAdapter(),
+    TelegramVoiceAdapter(), DatedFilesAdapter(), SingleFileAdapter(), CsvAdapter(),
+    PlainFilesAdapter(),
 ]
 
 
