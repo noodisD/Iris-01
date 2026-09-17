@@ -701,14 +701,19 @@ class JournalCreate(BaseModel):
 def _reflection_to_journal(r: dict, user_id: int) -> dict:
     """Map a reflection row → the frontend `JournalEntry` shape."""
     content = r.get("content") or ""
-    created = r.get("created_at") or r.get("reflection_date")
+    occurred = r.get("reflection_date") or r.get("created_at")
     return {
         "id": str(r["id"]),
         "userId": str(user_id),
         "lines": content.split("\n"),
         "energy": r.get("energy_level"),
         "tags": r.get("tags") or [],
-        "createdAt": _iso(created),
+        # When it was written. `createdAt` preferred created_at, which for an
+        # imported entry is the day it was imported, so a journal spanning two
+        # years displayed as one afternoon in September.
+        "occurredOn": occurred.isoformat() if hasattr(occurred, "isoformat") else str(occurred),
+        "importedAt": _iso(r.get("created_at")),
+        "createdAt": _iso(occurred),
         # Present only for entries that came from a recording, so the journal
         # can offer the audio next to the words it produced.
         "audioUrl": f"/api/audio/{r['id']}" if r.get("audio_path") else None,
@@ -725,16 +730,17 @@ def list_journal(user_id: int = Depends(get_current_user_id),
     parameter — it was previously ignored, so paging silently returned page one
     forever.
     """
-    before_id = None
+    before = None
     if cursor:
         try:
-            before_id = int(cursor)
+            day, last_id = cursor.split(":")
+            before = (date.fromisoformat(day), int(last_id))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid cursor")
 
-    service = ReflectionService(user_id)
-    # Fetch one extra row to learn whether a further page exists.
-    rows = service.get_reflections(limit=limit + 1, before_id=before_id)
+    # Ordered by the day each entry was written, so an imported archive reads as
+    # a history. The cursor carries (date, id) because dates repeat.
+    rows = db.get_journal_page(user_id, limit=limit + 1, before=before)
     has_more = len(rows) > limit
     rows = rows[:limit]
 
@@ -743,7 +749,7 @@ def list_journal(user_id: int = Depends(get_current_user_id),
         "recurringPhrases": [],
     }
     if has_more and rows:
-        body["nextCursor"] = str(rows[-1]["id"])
+        body["nextCursor"] = f"{rows[-1]['reflection_date'].isoformat()}:{rows[-1]['id']}"
     return body
 
 
@@ -1343,6 +1349,16 @@ class InsightSnooze(BaseModel):
 def list_insights(user_id: int = Depends(get_current_user_id)):
     """Return InsightSummary[] from the analytical engines (snoozed/resolved hidden)."""
     return InsightsService(user_id).list_summaries()
+
+
+@app.get("/api/insights/coverage")
+def get_insights_coverage(user_id: int = Depends(get_current_user_id)):
+    """How much recent evidence there is to reason from.
+
+    Declared before /api/insights/{insight_id} so "coverage" is not read as an
+    insight id.
+    """
+    return InsightsService(user_id).coverage()
 
 
 @app.get("/api/insights/{insight_id}")

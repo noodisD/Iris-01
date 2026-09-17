@@ -76,6 +76,14 @@ Browser webm is the one exception to byte-for-byte storage: its container is
 rewritten losslessly so playback can seek, which changes the stored bytes and
 hash while leaving every audio sample identical.
 
+**A date that was not read from the source records how it was chosen.** Dates
+supplied by anything other than the importer's own parsers — a crosswalk built
+from another export, a page's creation time, a resemblance to another entry —
+are provenance, not facts, and a `certain` label on one cannot be audited from
+the label alone. `data/imports/date-provenance.json` records, per batch and date
+source, the rule that supplied it, its confidence and where the crosswalk lives.
+Written when dates are enriched, not reconstructed afterwards.
+
 **`content_hash` is written by the importer only.** It could be computed for
 every reflection, but then the de-duplication index would reject an entry typed
 twice in one day through the app — a 500 from a feature those paths never touch.

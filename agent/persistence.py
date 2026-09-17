@@ -401,13 +401,18 @@ class PersistenceEngine:
         Returns:
             A short summary (5-10 words)
         """
-        # Get actual text snippets
+        # The owner's words, not the embedding wrapper, and enough of them to
+        # name a subject. Three 150-character prefixes of "Anchor:
+        # Self-Reflection | Source: Reflection | Mood: okay | Content: ..." is
+        # how every theme came to be called "Routine self-reflection on ...".
+        from .database import db
+
         snippets = []
-        for entry in entries[:3]:  # Use first 3 entries for context
-            text = embeddings.get_content_for_source(entry["source_type"], entry["source_id"])
+        for entry in entries[:8]:
+            item = db.get_memory_item(entry["source_type"], entry["source_id"])
+            text = (item or {}).get("text") or ""
             if text:
-                # Truncate to first 150 chars
-                snippets.append(text[:150])
+                snippets.append(" ".join(text.split())[:400])
 
         if not snippets:
             return "Recurring theme"
@@ -416,15 +421,18 @@ class PersistenceEngine:
         from .intelligence import Intelligence
         intelligence = Intelligence()
 
-        prompt = f"""These journal excerpts share a common semantic theme.
-Create a neutral, observational summary of the theme in 5-10 words.
-Do NOT interpret, judge, or offer advice.
-Just name what keeps coming back.
+        prompt = f"""These journal excerpts share a common subject.
+Name that subject in 3-8 words, as a neutral noun phrase.
+
+Name what the writing is ABOUT — the work, the sleep, the money, the person,
+the decision. Do NOT describe the act of writing: never use the words journal,
+entry, reflection, self-reflection, note, writing, thoughts or musings.
+Do not interpret, judge, or advise.
 
 Excerpts:
 {chr(10).join(f'- "{s}"' for s in snippets)}
 
-Theme summary:"""
+Subject:"""
 
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -437,10 +445,26 @@ Theme summary:"""
                 # 5-10 words, so brevity comes from the instruction, not the cap.
                 max_tokens=400
             )
-            # Improved 6: Check for generic fallback in LLM response too
-            clean_summary = summary.strip()
+            clean_summary = summary.strip().strip('"')
             if "Recurring theme" in clean_summary or len(clean_summary) < 3:
-                 return self._get_best_fallback_summary(entries)
+                return self._get_best_fallback_summary(entries)
+            # A name about journaling is not a name for a theme; the words below
+            # describe the act, not the subject, and produced titles like
+            # "Daily self-reflection on accomplishments and progress".
+            meta = ("journal", "entry", "entries", "reflection", "reflections",
+                    "self-reflection", "note", "notes", "writing", "musings")
+            if any(word in clean_summary.lower() for word in meta):
+                logger.info(f"Theme name describes journaling, retrying: {clean_summary!r}")
+                retry = intelligence.chat(
+                    messages=[{"role": "user", "content": prompt + (
+                        "\n\nYour previous answer named the act of writing rather than "
+                        "the subject. Name only the subject.")}],
+                    system_prompt="You are a neutral observer. Describe patterns without judgment.",
+                    temperature=0.5,
+                    max_tokens=400,
+                ).strip().strip('"')
+                if retry and not any(word in retry.lower() for word in meta):
+                    return retry
             return clean_summary
         except Exception as e:
             logger.error(f"LLM summary generation failed: {e}")
@@ -671,6 +695,46 @@ Theme summary:"""
         return text[:max_length]
 
     def _get_entry_snippet(self, entry_id: int, source_type: str = 'journal_entry', max_length: int = 200) -> str:
-        """Get the snippet for a source, read from that source's own table."""
+        """The owner's own words, for quoting back to them.
+
+        get_content_for_source returns the text that was *embedded*, which wraps
+        a reflection in "Anchor: Self-Reflection | ... | Mood: okay (Energy:
+        ?/10 ...) | Content: ...". All 74 stored snippets began that way and the
+        Insights screen printed them as pull quotes, so application metadata was
+        presented as something the owner had written. get_memory_item returns
+        the entry itself.
+        """
+        from .database import db
+
+        item = db.get_memory_item(source_type, entry_id)
+        if item and item.get("text"):
+            return self._extract_snippet(" ".join(item["text"].split()), max_length)
+        # A source the memory lookup does not know: fall back rather than lose
+        # the quote entirely.
         text = embeddings.get_content_for_source(source_type, entry_id)
         return self._extract_snippet(text, max_length) if text else ""
+
+    def refresh_snippets(self) -> int:
+        """Rewrite stored occurrence snippets in the owner's own words.
+
+        Existing occurrences keep whatever snippet was stored when they were
+        written, so fixing the source above does not fix what is already on
+        screen.
+        """
+        from .database import db
+
+        updated = 0
+        for theme in themes.get_all_themes(self.user_id):
+            for occ in db.get_theme_occurrences(theme["id"]):
+                snippet = self._get_entry_snippet(occ["source_id"], occ["source_type"])
+                if snippet and snippet != occ.get("snippet"):
+                    with db.connection() as conn, conn.cursor() as cur:
+                        cur.execute(
+                            """UPDATE theme_occurrences SET snippet = %s
+                                WHERE theme_id = %s AND source_type = %s AND source_id = %s;""",
+                            (snippet, theme["id"], occ["source_type"], occ["source_id"]),
+                        )
+                        conn.commit()
+                    updated += 1
+        logger.info(f"Rewrote {updated} occurrence snippet(s) for user {self.user_id}")
+        return updated
