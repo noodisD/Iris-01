@@ -322,6 +322,33 @@ class InsightsService:
             "confidence": CONFIDENCE_MAP.get(raw["confidence_level"], 0.4),
             "detectedAt": detected_at,
             "seen": seen,
+            # Where this came from, and what its count means. A construct the
+            # owner read and vouched for was indistinguishable on screen from a
+            # cluster a machine named after the fact, which defeats the point of
+            # asking them. And a 'mention' count says the subject appears in the
+            # writing — never how often they did the thing.
+            **self._provenance(raw.get("theme_id")),
+        }
+
+    def _provenance(self, theme_id) -> dict:
+        """How a finding was arrived at, carried through to the screen.
+
+        Absent rather than guessed when the finding is not theme-shaped: tension
+        and leverage span two patterns, so a single origin would be a fiction.
+        """
+        if not isinstance(theme_id, int):
+            return {}
+        try:
+            theme = db.get_theme_by_id(theme_id)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Provenance unavailable for theme {theme_id}: {e}")
+            return {}
+        if not theme:
+            return {}
+        return {
+            "origin": theme.get("origin"),
+            "claimKind": theme.get("claim_kind"),
+            "confirmedAt": _iso(theme["confirmed_at"]) if theme.get("confirmed_at") else None,
         }
 
     def coverage(self) -> dict:

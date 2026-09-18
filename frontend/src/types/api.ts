@@ -216,6 +216,9 @@ export interface ConstructCandidate {
   /** A card-sized name for it. */
   summary: string;
   origin: 'observed' | 'clustered';
+  /** What confirming it would mean. 'mention' is what a verified quote can
+   *  support; 'behaviour' claims the thing happened and is not yet evidenced. */
+  claimKind: 'mention' | 'behaviour';
   spanStart: ISODate | null;
   spanEnd: ISODate | null;
   /** The owner's own sentences the claim rests on, verified verbatim. */
@@ -266,6 +269,13 @@ export interface InsightSummary {
   detectedAt: ISODateTime;
   /** Has the user actually opened this? */
   seen: boolean;
+  /** How this was arrived at. Absent for findings that span two patterns,
+   *  where a single origin would be a fiction. */
+  origin?: 'observed' | 'clustered';
+  /** 'mention' counts appearances in the writing, never actions taken. */
+  claimKind?: 'mention' | 'behaviour';
+  /** When the owner vouched for it, if they did. */
+  confirmedAt?: ISODateTime | null;
 }
 
 export interface InsightDetail extends InsightSummary {

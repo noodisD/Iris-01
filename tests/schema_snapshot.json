@@ -937,6 +937,11 @@
       }
     },
     "theme_occurrences": {
+      "admission_basis": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
       "id": {
         "default": "nextval(...)",
         "nullable": "NO",
@@ -1072,6 +1077,11 @@
         "default": null,
         "nullable": "NO",
         "type": "USER-DEFINED"
+      },
+      "claim_kind": {
+        "default": "'mention'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
       },
       "confirmed_at": {
         "default": null,
@@ -1908,6 +1918,10 @@
         "definition": "NOT NULL centroid_embedding",
         "type": "n"
       },
+      "themes_claim_kind_not_null": {
+        "definition": "NOT NULL claim_kind",
+        "type": "n"
+      },
       "themes_first_seen_at_not_null": {
         "definition": "NOT NULL first_seen_at",
         "type": "n"
@@ -2089,6 +2103,7 @@
     "themes": {
       "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
       "idx_themes_user": "CREATE INDEX idx_themes_user ON public.themes USING btree (user_id)",
+      "idx_themes_user_kind": "CREATE INDEX idx_themes_user_kind ON public.themes USING btree (user_id, claim_kind)",
       "idx_themes_user_status": "CREATE INDEX idx_themes_user_status ON public.themes USING btree (user_id, status)",
       "themes_pkey": "CREATE UNIQUE INDEX themes_pkey ON public.themes USING btree (id)"
     },

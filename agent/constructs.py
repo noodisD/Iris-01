@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 #: whole in `definition`; this is only what the engines print.
 SUMMARY_MAX_CHARS = 72
 
+#: What a construct's occurrences mean. These never share a count or a
+#: confidence label: a tally of mentions that reads as a tally of actions is the
+#: misunderstanding this distinction exists to prevent.
+CLAIM_MENTION = "mention"      # the subject appears in the writing
+CLAIM_BEHAVIOUR = "behaviour"  # the thing happened — not yet supportable
+
 
 def _summarise(claim: str) -> str:
     """A card-sized name for the pattern, cut at a word boundary."""
@@ -94,6 +100,12 @@ def promote(user_id: int, observation) -> int | None:
         origin="observed",
         definition=observation.claim,
         status="candidate",
+        # A verified quote proves the subject appears in the writing, and
+        # nothing stronger. Claiming the behaviour happened needs actor, event
+        # identity, negation and retrospective reference — none of which is
+        # checked yet, and two quotes explicitly denying a behaviour currently
+        # pass verification. So nothing is born as a behaviour claim.
+        claim_kind=CLAIM_MENTION,
     )
 
     for citation, vector in prototypes:
@@ -124,6 +136,7 @@ def candidates(user_id: int) -> list[dict]:
             "claim": theme["definition"] or theme["summary"],
             "summary": theme["summary"],
             "origin": theme["origin"],
+            "claimKind": theme.get("claim_kind"),
             "spanStart": _iso(theme["first_seen_at"]),
             "spanEnd": _iso(theme["last_seen_at"]),
             "quotes": [
@@ -194,6 +207,15 @@ def confirm(theme_id: int) -> int:
     that may be confirmed (already active, rejected, or not one the reader
     proposed).
     """
+    theme = db.get_theme_by_id(theme_id)
+    if theme and theme.get("claim_kind") == CLAIM_BEHAVIOUR:
+        # Refused rather than measured. Verification checks that a quote appears
+        # in an entry; it does not check that the entry records the event, so a
+        # behaviour count would rest on a proof nobody has built.
+        logger.warning(
+            f"Construct {theme_id} claims a behaviour, which cannot yet be evidenced; refused")
+        return -1
+
     memberships = _memberships(theme_id)
     if memberships is None:
         return -1
@@ -286,6 +308,11 @@ def _memberships(theme_id: int) -> list | None:
             "snippet": (entry.get("content") or "")[:500],
             "similarity_score": similarity,
             "occurred_at": entry["occurred_at"].isoformat(),
+            # A sentence the owner read and vouched for, or a match the detector
+            # proposed and they never saw. Confirming a claim and authorising a
+            # detector are different acts, so the evidence records which one
+            # produced each row.
+            "admission_basis": "citation" if seeded else "similarity",
         })
     return found
 
