@@ -27,7 +27,9 @@ Three rules hold this together:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 
 import numpy as np
 
@@ -48,6 +50,26 @@ CLAIM_MENTION = "mention"      # the subject appears in the writing
 CLAIM_BEHAVIOUR = "behaviour"  # the thing happened — not yet supportable
 
 
+def proposal_key(observation) -> str:
+    """A stable identity for a proposal, so a rerun recognises it.
+
+    Reading unchanged writing produces the same findings again. Without an
+    identity that survives between runs, a second read offers back a proposal
+    the owner already rejected, and quietly creates a duplicate of one they
+    already confirmed — asking them to decide something they have decided.
+
+    Derived from the claim and the writing it rests on, not from a row id: two
+    runs that found the same thing in the same sentences are the same proposal,
+    whichever order the passes finished in.
+    """
+    claim = re.sub(r"[^a-z0-9 ]+", "", (getattr(observation, "claim", "") or "").lower()).strip()
+    cited = sorted(
+        f"{c.source_type}:{c.entry_id}:{c.text}"
+        for c in (getattr(observation, "citations", ()) or ())
+    )
+    return hashlib.sha256("|".join([claim, *cited]).encode()).hexdigest()[:32]
+
+
 def _summarise(claim: str) -> str:
     """A card-sized name for the pattern, cut at a word boundary."""
     text = " ".join((claim or "").split())
@@ -57,7 +79,7 @@ def _summarise(claim: str) -> str:
     return (cut or text[:SUMMARY_MAX_CHARS]).rstrip(" ,.;:") + "…"
 
 
-def promote(user_id: int, observation) -> int | None:
+def promote(user_id: int, observation, run_id: int = None) -> int | None:
     """Store a discovered observation as a candidate construct.
 
     Returns the theme id, or None if the observation carried nothing that could
@@ -122,6 +144,7 @@ def promote(user_id: int, observation) -> int | None:
             vector=vector,
         )
 
+    db.set_theme_proposal(theme_id, proposal_key(observation), run_id)
     logger.info(f"Promoted a candidate construct {theme_id} with {len(prototypes)} prototype(s)")
     return theme_id
 
@@ -173,10 +196,25 @@ def discover(user_id: int, intelligence=None, include_staged: bool = True) -> li
     from .observations import ObservationEngine
 
     engine = ObservationEngine(user_id, intelligence=intelligence)
-    observations = engine.read_archive(include_staged=include_staged)
+    observations, run_id = engine.read_archive(include_staged=include_staged)
+
+    # A decision already made is not offered again. Rejecting a proposal has to
+    # mean something the next run respects, or rejection is only a way of
+    # clearing the screen until someone presses the button.
+    already_decided = db.get_decided_proposal_keys(user_id)
+    staged = skipped = 0
     for observation in observations:
-        promote(user_id, observation)
-    logger.info(f"Discovery staged {len(observations)} candidate(s) for user {user_id}")
+        if proposal_key(observation) in already_decided:
+            skipped += 1
+            continue
+        if promote(user_id, observation, run_id=run_id) is not None:
+            staged += 1
+
+    if run_id is not None:
+        db.record_run_candidates(run_id, staged)
+    logger.info(
+        f"Discovery staged {staged} candidate(s) for user {user_id}, "
+        f"{skipped} already decided")
     return candidates(user_id)
 
 

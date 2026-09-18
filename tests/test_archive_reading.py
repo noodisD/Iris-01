@@ -21,8 +21,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from agent.constants import OBSERVATION_CHARS_PER_TOKEN
 from agent.observations import Citation, Observation, chunk_entries, consolidate
 
@@ -97,14 +95,11 @@ def test_observations_sharing_an_entry_within_a_pass_become_one():
     assert merged[0].claim == second.claim, "the longest claim survives — by length, not by meaning"
 
 
-@pytest.mark.xfail(reason="cross-pass consolidation is not built; see Package 3", strict=True)
 def test_the_same_finding_restated_in_two_passes_becomes_one():
-    """The behaviour consolidation was described as having, and does not.
-
-    Disjoint passes produce disjoint citations, and merging keys on citation
-    overlap, so the same finding noticed twice stays two findings. Recorded as a
-    failing test rather than a comment so that building it flips this to green.
-    """
+    """Disjoint passes share no citations, so citation overlap cannot reach
+    across them. Identical wording can, and saying two identical sentences are
+    the same finding is not a judgement about meaning. Anything less certain is
+    left to the synthesis pass, which asks."""
     first = _observation("Certainty and boldness appeared together", [_cite(1, "a"), _cite(2, "b")])
     second = _observation("Certainty and boldness appeared together", [_cite(7, "c"), _cite(8, "d")])
 

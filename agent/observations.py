@@ -37,6 +37,7 @@ filed away to be counted later.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -83,6 +84,12 @@ Return JSON only, in this exact shape:
 {"observations": [{"claim": "...", "quotes": [{"entryId": 12, "sourceType": "reflection", "text": "exact words from that entry"}]}]}
 
 If nothing recurs across entries, return {"observations": []}. An empty answer is a good answer."""
+
+
+#: Which prompt produced a reading, derived from the prompt itself rather than
+#: a number somebody has to remember to increment. It changes when the wording
+#: changes, and cannot claim a version the text does not match.
+PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
 
 def _normalized(text: str) -> str:
@@ -137,11 +144,16 @@ class Observation:
     span_end: date | None
     entries_read: int
     confidence_level: str
+    #: The claims this was merged from, when a synthesis pass judged them the
+    #: same finding. Empty for a finding that was never merged, so "one claim"
+    #: and "several claims a model called equivalent" stay distinguishable.
+    merged_from: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {
             "engine": ENGINE_NAME,
             "claim": self.claim,
+            "mergedFrom": list(self.merged_from),
             "citations": [c.as_dict() for c in self.citations],
             "spanStart": self.span_start.isoformat() if self.span_start else None,
             "spanEnd": self.span_end.isoformat() if self.span_end else None,
@@ -150,11 +162,17 @@ class Observation:
         }
 
 
-def _parse_reply(reply: str) -> list:
-    """The model's answer, or nothing. A half-understood answer is nothing."""
+def _strip_fence(reply: str) -> str:
+    """The JSON inside a model's answer, fenced or not."""
     text = (reply or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text).rsplit("```", 1)[0]
+    return text
+
+
+def _parse_reply(reply: str) -> list:
+    """The model's answer, or nothing. A half-understood answer is nothing."""
+    text = _strip_fence(reply)
     try:
         data = json.loads(text)
     except ValueError as e:
@@ -172,6 +190,106 @@ def _confidence(citations: tuple[Citation, ...], span_days: int) -> str:
     if len(entries) >= OBSERVATION_MEDIUM_ENTRIES:
         return "medium"
     return "low"
+
+
+SYNTHESIS_PROMPT = """You are given findings drawn from different parts of one person's journal.
+
+Some may be the same finding, noticed separately and worded differently. Say which.
+
+For each pair you believe describes the same thing, give a relationship:
+- "equivalent" — the same finding, restated. Anyone who accepted one would accept the other.
+- "narrower" / "broader" — one is a special case of the other. NOT the same finding.
+- "contradictory" — they cannot both be true of the same person.
+- "related" — connected in subject, but making different claims.
+
+Only "equivalent" will be acted on. If you are unsure, say "related".
+
+Return JSON only:
+{"pairs": [{"a": 0, "b": 2, "relationship": "equivalent"}]}
+
+An empty list is a good answer when nothing restates anything else."""
+
+
+def synthesise(observations: list[Observation], intelligence) -> list[Observation]:
+    """Merge findings that are the same finding in different words.
+
+    Reading in passes means one pattern can be noticed several times over, and
+    passes are disjoint — they share no citations — so citation overlap cannot
+    reach across them. Wording can, but only carefully: opposite and nested
+    claims share vocabulary freely, and a merge that swallowed a narrower claim
+    into a broader one would put the narrower claim's evidence behind a
+    statement it never supported.
+
+    So this asks rather than assumes, and acts on one answer only. A surviving
+    claim is always one of the originals, never a new sentence synthesised from
+    them: a merged finding must be something the model already said and the
+    citations already backed. What was merged is recorded on the result, so the
+    owner sees it and it can be taken apart again.
+    """
+    if len(observations) < 2 or intelligence is None:
+        return observations
+
+    # Ordered by claim so the model sees the same list however the passes
+    # finished, and so indices mean the same thing on a rerun.
+    ordered = sorted(observations, key=lambda o: _claim_key(o.claim))
+    listing = "\n".join(f"[{i}] {o.claim}" for i, o in enumerate(ordered))
+
+    try:
+        reply = intelligence.chat(
+            messages=[{"role": "user", "content": listing}],
+            system_prompt=SYNTHESIS_PROMPT,
+            max_tokens=OBSERVATION_MAX_TOKENS,
+        )
+    except Exception as e:
+        # Failing to merge leaves restatements standing, which is visible and
+        # harmless. Failing open into a wrong merge would not be.
+        logger.error(f"Synthesis pass failed, leaving findings unmerged: {e}")
+        return observations
+
+    try:
+        pairs = json.loads(_strip_fence(reply)).get("pairs") or []
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Synthesis reply was not JSON, leaving findings unmerged: {e}")
+        return observations
+
+    parent = list(range(len(ordered)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    merged_any = False
+    for pair in pairs:
+        if not isinstance(pair, dict) or pair.get("relationship") != "equivalent":
+            continue
+        try:
+            a, b = int(pair["a"]), int(pair["b"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (0 <= a < len(ordered) and 0 <= b < len(ordered)) or a == b:
+            continue
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+            merged_any = True
+
+    if not merged_any:
+        return observations
+
+    groups: dict[int, list[int]] = {}
+    for i in range(len(ordered)):
+        groups.setdefault(find(i), []).append(i)
+
+    out: list[Observation] = []
+    for members in groups.values():
+        if len(members) == 1:
+            out.append(ordered[members[0]])
+            continue
+        out.append(_pool([ordered[i] for i in members], merged=True))
+    logger.info(f"Synthesis merged {len(ordered)} finding(s) into {len(out)}")
+    return out
 
 
 class ObservationEngine:
@@ -208,24 +326,37 @@ class ObservationEngine:
 
         return self._verified(_parse_reply(reply), entries)
 
-    def read_archive(self, include_staged: bool = True) -> list[Observation]:
-        """Read everything, in passes, and consolidate what comes back.
+    def read_archive(self, include_staged: bool = True) -> tuple[list[Observation], int | None]:
+        """Read everything, in passes, and record what the reading covered.
 
         This is the whole-archive path. `read()` remains the single-pass one
         that the endpoint uses for a quick look; this is what a full discovery
         run calls. Staged recordings are read but can never become occurrences,
         because an occurrence needs a day and they have none (ADR-0013).
+
+        Returns the findings and the id of the run that produced them. The run
+        is recorded because a read that found nothing and a read that half
+        failed are indistinguishable from their output, and because the raw
+        pre-merge observations are kept — so a change to consolidation can be
+        tried against them instead of paying to read private writing again.
         """
         entries = list(db.get_entries_for_reading(self.user_id, limit=100_000))
         if include_staged:
             entries += db.get_staged_for_reading(self.user_id, OBSERVATION_MIN_STAGED_CHARS)
         if len(entries) < OBSERVATION_MIN_ENTRIES_CITED:
             logger.info(f"Not enough readable entries for user {self.user_id}: {len(entries)}")
-            return []
+            return [], None
+
+        chunks = chunk_entries(entries)
+        model = getattr(self.intelligence, "model", None) or "unknown"
+        run_id = db.create_observation_run(
+            user_id=self.user_id, model=model, prompt_version=PROMPT_VERSION,
+            entries_read=len(entries), passes_planned=len(chunks))
 
         found: list[Observation] = []
-        chunks = chunk_entries(entries)
-        logger.info(f"Reading {len(entries)} entries in {len(chunks)} pass(es)")
+        completed = 0
+        failures: list[str] = []
+        logger.info(f"Run {run_id}: reading {len(entries)} entries in {len(chunks)} pass(es)")
         for i, chunk in enumerate(chunks, 1):
             try:
                 reply = self.intelligence.chat(
@@ -234,14 +365,36 @@ class ObservationEngine:
                     max_tokens=OBSERVATION_MAX_TOKENS,
                 )
             except Exception as e:
-                # One failed pass is not a failed read. The rest still stands.
-                logger.error(f"Pass {i} of {len(chunks)} failed: {e}")
+                # One failed pass is not a failed read. The rest still stands —
+                # but the run says so, rather than letting a half-read archive
+                # look like a complete one that found little.
+                logger.error(f"Run {run_id}: pass {i} of {len(chunks)} failed: {e}")
+                failures.append(f"pass {i}: {e}")
                 continue
             # Verified against this chunk's entries only, so a quote cannot be
             # attributed to writing that was not in front of the model.
             found.extend(self._verified(_parse_reply(reply), chunk))
+            completed += 1
 
-        return consolidate(found)
+        # Kept before anything is joined, so merging can be judged later without
+        # another read.
+        raw = [o.as_dict() for o in found]
+
+        merged = synthesise(consolidate(found), self.intelligence)
+
+        if completed == 0:
+            status = "failed"
+        elif completed < len(chunks):
+            status = "partial"
+        else:
+            status = "complete"
+        db.finish_observation_run(
+            run_id=run_id, status=status, passes_completed=completed,
+            raw_observations=raw, error="; ".join(failures) or None)
+        logger.info(
+            f"Run {run_id}: {status}, {completed}/{len(chunks)} passes, "
+            f"{len(found)} raw finding(s) -> {len(merged)} after merging")
+        return merged, run_id
 
     # --- prompt ------------------------------------------------------------
 
@@ -374,6 +527,17 @@ def chunk_entries(entries: list[dict],
     return chunks
 
 
+def _claim_key(claim: str) -> str:
+    """A claim stripped to its wording, for recognising a literal restatement.
+
+    Two passes describing one pattern in the same words are one finding, and
+    saying so needs no judgement about meaning — only that the sentences match
+    once case and punctuation are set aside. Anything less certain than that is
+    left to `synthesise`, which asks rather than assumes.
+    """
+    return re.sub(r"[^a-z0-9 ]+", "", (claim or "").lower()).strip()
+
+
 def consolidate(observations: list[Observation]) -> list[Observation]:
     """Merge the same finding restated by different chunks.
 
@@ -407,6 +571,7 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
             parent[max(ra, rb)] = min(ra, rb)
 
     by_key: dict[tuple, int] = {}
+    by_claim: dict[str, int] = {}
     for i, observation in enumerate(observations):
         parent[i] = i
         for key in {c.key for c in observation.citations}:
@@ -414,41 +579,65 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
                 union(i, by_key[key])
             else:
                 by_key[key] = i
+        # Disjoint passes share no citations, so a finding noticed twice stayed
+        # two findings however identically it was worded. Matching the wording
+        # is not a semantic judgement: it is the same sentence.
+        claim_key = _claim_key(observation.claim)
+        if claim_key:
+            if claim_key in by_claim:
+                union(i, by_claim[claim_key])
+            else:
+                by_claim[claim_key] = i
 
     groups: dict[int, list] = {}
     for i, observation in enumerate(observations):
         groups.setdefault(find(i), []).append(observation)
     merged = [{"observations": members} for members in groups.values()]
 
-    out: list[Observation] = []
-    for group in merged:
-        members = group["observations"]
-        best = max(members, key=lambda o: len(o.claim))
-        citations: list[Citation] = []
-        seen: set = set()
-        for member in members:
-            for citation in member.citations:
-                if (citation.key, citation.text) in seen:
-                    continue
-                seen.add((citation.key, citation.text))
-                citations.append(citation)
+    return [_pool(group["observations"]) for group in merged]
 
-        dates = [c.entry_date for c in citations if c.entry_date]
-        span_start = min(dates) if dates else best.span_start
-        span_end = max(dates) if dates else best.span_end
-        span_days = (span_end - span_start).days if span_start and span_end else 0
-        out.append(Observation(
-            claim=best.claim,
-            citations=tuple(citations),
-            span_start=span_start,
-            span_end=span_end,
-            # Distinct writing read, not the sum of each member's pass size.
-            # Two observations from one five-entry pass reported ten entries
-            # read, which overstated the evidence behind a merged claim.
-            entries_read=max((m.entries_read for m in members), default=0),
-            confidence_level=_confidence(tuple(citations), span_days),
-        ))
-    return out
+
+def _pool(members: list[Observation], merged: bool = False) -> Observation:
+    """One finding from several, keeping all of the evidence.
+
+    The surviving claim is always one of the originals — the longest, which says
+    most — and never a new sentence written to cover them. A merged finding has
+    to be something that was actually said and actually cited; inventing a
+    broader statement would put every member's evidence behind a claim none of
+    them made.
+    """
+    if len(members) == 1:
+        return members[0]
+
+    best = max(members, key=lambda o: len(o.claim))
+    citations: list[Citation] = []
+    seen: set = set()
+    for member in members:
+        for citation in member.citations:
+            if (citation.key, citation.text) in seen:
+                continue
+            seen.add((citation.key, citation.text))
+            citations.append(citation)
+
+    dates = [c.entry_date for c in citations if c.entry_date]
+    span_start = min(dates) if dates else best.span_start
+    span_end = max(dates) if dates else best.span_end
+    span_days = (span_end - span_start).days if span_start and span_end else 0
+    return Observation(
+        claim=best.claim,
+        citations=tuple(citations),
+        span_start=span_start,
+        span_end=span_end,
+        # Distinct writing read, not the sum of each member's pass size. Two
+        # observations from one five-entry pass reported ten entries read, which
+        # overstated the evidence behind a merged claim.
+        entries_read=max((m.entries_read for m in members), default=0),
+        confidence_level=_confidence(tuple(citations), span_days),
+        # What this was made from, so a merge is visible and can be undone. Only
+        # recorded for the synthesis pass, where the judgement was a model's
+        # rather than an identity of citations or of wording.
+        merged_from=tuple(m.claim for m in members) if merged else (),
+    )
 
 
 def apply_preferences(observations: list[Observation], user_id: int) -> list[Observation]:

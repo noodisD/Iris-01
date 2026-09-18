@@ -562,6 +562,86 @@ class Database:
             )
             return [self._theme_row(row) for row in cur.fetchall()]
 
+    def create_observation_run(self, user_id: int, model: str, prompt_version: str,
+                               entries_read: int, passes_planned: int) -> int:
+        """Open a record of a reading run before any of it happens.
+
+        Written first, so a run that dies partway still leaves a trace. A read
+        that produced nothing and a read that never finished look identical from
+        the outside, and telling them apart is the whole point.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO observation_runs
+                    (user_id, model, prompt_version, entries_read, passes_planned, status)
+                VALUES (%s, %s, %s, %s, %s, 'running') RETURNING id;
+                """,
+                (user_id, model, prompt_version, entries_read, passes_planned))
+            run_id = cur.fetchone()[0]
+            conn.commit()
+            return run_id
+
+    def finish_observation_run(self, run_id: int, status: str, passes_completed: int,
+                               raw_observations, candidates_staged: int = 0,
+                               error: str = None) -> None:
+        """Close the record with what actually happened.
+
+        `raw_observations` is the pre-merge output: the claims and verified
+        citations exactly as they came back, before anything was joined. Keeping
+        it means a change to consolidation can be replayed offline instead of
+        re-reading the owner's archive, which costs money and sends private
+        writing out again.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE observation_runs
+                   SET status = %s, passes_completed = %s, raw_observations = %s,
+                       candidates_staged = %s, error = %s, finished_at = NOW()
+                 WHERE id = %s;
+                """,
+                (status, passes_completed, Json(raw_observations) if raw_observations is not None else None,
+                 candidates_staged, error, run_id))
+            conn.commit()
+
+    def record_run_candidates(self, run_id: int, staged: int) -> None:
+        """How many proposals a finished run put in front of the owner.
+
+        Separate from closing the run because staging happens afterwards: the
+        reading is done and recorded before anything is promoted, so that a
+        failure while promoting cannot make a completed read look like it never
+        happened.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE observation_runs SET candidates_staged = %s WHERE id = %s;",
+                (staged, run_id))
+            conn.commit()
+
+    def get_decided_proposal_keys(self, user_id: int) -> set:
+        """Proposals the owner has already seen, whatever they decided.
+
+        Re-reading unchanged writing produces the same findings again. Without
+        this, a rerun would offer back a proposal already rejected, and quietly
+        duplicate one already confirmed.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT proposal_key FROM themes
+                    WHERE user_id = %s AND proposal_key IS NOT NULL;""",
+                (user_id,))
+            return {r[0] for r in cur.fetchall()}
+
+    def set_theme_proposal(self, theme_id: int, proposal_key: str, run_id: int = None) -> None:
+        """Tie a candidate to what proposed it, and to its stable identity."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE themes SET proposal_key = %s, observation_run_id = %s
+                    WHERE id = %s;""",
+                (proposal_key, run_id, theme_id))
+            conn.commit()
+
     def get_themes_by_origin(self, user_id: int, origin: str) -> list:
         """Active themes of one origin.
 
