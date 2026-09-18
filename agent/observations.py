@@ -44,6 +44,8 @@ from dataclasses import dataclass
 from datetime import date
 
 from .constants import (
+    OBSERVATION_CHARS_PER_TOKEN,
+    OBSERVATION_CHUNK_TOKENS,
     OBSERVATION_HIGH_ENTRIES,
     OBSERVATION_HIGH_SPAN_DAYS,
     OBSERVATION_MAX_ENTRIES_READ,
@@ -51,6 +53,7 @@ from .constants import (
     OBSERVATION_MIN_CITATIONS,
     OBSERVATION_MIN_ENTRIES_CITED,
     OBSERVATION_MIN_QUOTE_CHARS,
+    OBSERVATION_MIN_STAGED_CHARS,
 )
 from .database import db
 from .intelligence import Intelligence
@@ -73,8 +76,10 @@ Each observation must:
 
 Write about the period the entries cover, in the past tense. Do not describe how the person is now.
 
+Each entry is labelled with an id and a source. Quote it back with both, exactly as given — two entries from different sources can share an id, so the source is what says which piece of writing you mean.
+
 Return JSON only, in this exact shape:
-{"observations": [{"claim": "...", "quotes": [{"entryId": 12, "text": "exact words from that entry"}]}]}
+{"observations": [{"claim": "...", "quotes": [{"entryId": 12, "sourceType": "reflection", "text": "exact words from that entry"}]}]}
 
 If nothing recurs across entries, return {"observations": []}. An empty answer is a good answer."""
 
@@ -90,17 +95,34 @@ def _normalized(text: str) -> str:
 
 @dataclass(frozen=True)
 class Citation:
-    """A quote that was found, verbatim, in the entry it was attributed to."""
+    """A quote that was found, verbatim, in the entry it was attributed to.
+
+    `source_type` is not decoration. Committed reflections and staged import
+    items are separate tables with separate id sequences that overlap — on the
+    real archive 15 staged ids also name a reflection — so an id alone does not
+    identify a piece of writing. Verifying a quote against whichever row
+    happened to share the number would let a fabricated citation pass by
+    coincidence, which is the one failure this engine exists to prevent.
+    """
 
     entry_id: int
     entry_date: date | None
     text: str
+    source_type: str = "reflection"
+
+    @property
+    def key(self) -> tuple:
+        return (self.source_type, self.entry_id)
 
     def as_dict(self) -> dict:
         return {
             "entryId": str(self.entry_id),
             "entryDate": self.entry_date.isoformat() if self.entry_date else None,
             "text": self.text,
+            "sourceType": self.source_type,
+            # A staged recording has no date, so it can be quoted but can never
+            # become an occurrence: an occurrence needs a day it happened on.
+            "citable": self.source_type == "reflection",
         }
 
 
@@ -143,7 +165,7 @@ def _parse_reply(reply: str) -> list:
 
 
 def _confidence(citations: tuple[Citation, ...], span_days: int) -> str:
-    entries = {c.entry_id for c in citations}
+    entries = {c.key for c in citations}
     if len(entries) >= OBSERVATION_HIGH_ENTRIES and span_days >= OBSERVATION_HIGH_SPAN_DAYS:
         return "high"
     if len(entries) >= OBSERVATION_MEDIUM_ENTRIES:
@@ -185,21 +207,62 @@ class ObservationEngine:
 
         return self._verified(_parse_reply(reply), entries)
 
+    def read_archive(self, include_staged: bool = True) -> list[Observation]:
+        """Read everything, in passes, and consolidate what comes back.
+
+        This is the whole-archive path. `read()` remains the single-pass one
+        that the endpoint uses for a quick look; this is what a full discovery
+        run calls. Staged recordings are read but can never become occurrences,
+        because an occurrence needs a day and they have none (ADR-0013).
+        """
+        entries = list(db.get_entries_for_reading(self.user_id, limit=100_000))
+        if include_staged:
+            entries += db.get_staged_for_reading(self.user_id, OBSERVATION_MIN_STAGED_CHARS)
+        if len(entries) < OBSERVATION_MIN_ENTRIES_CITED:
+            logger.info(f"Not enough readable entries for user {self.user_id}: {len(entries)}")
+            return []
+
+        found: list[Observation] = []
+        chunks = chunk_entries(entries)
+        logger.info(f"Reading {len(entries)} entries in {len(chunks)} pass(es)")
+        for i, chunk in enumerate(chunks, 1):
+            try:
+                reply = self.intelligence.chat(
+                    messages=[{"role": "user", "content": self._render(chunk)}],
+                    system_prompt=SYSTEM_PROMPT,
+                    max_tokens=1500,
+                )
+            except Exception as e:
+                # One failed pass is not a failed read. The rest still stands.
+                logger.error(f"Pass {i} of {len(chunks)} failed: {e}")
+                continue
+            # Verified against this chunk's entries only, so a quote cannot be
+            # attributed to writing that was not in front of the model.
+            found.extend(self._verified(_parse_reply(reply), chunk))
+
+        return consolidate(found)
+
     # --- prompt ------------------------------------------------------------
 
     @staticmethod
     def _render(entries: list[dict]) -> str:
-        """The entries, each labelled with the id a quote must be attributed to."""
+        """The entries, each labelled with what a quote must be attributed to.
+
+        The source travels with the id because the two stores' ids overlap: on
+        the real archive 15 staged items share a number with a reflection, so an
+        id alone does not identify a piece of writing.
+        """
         parts = ["Here are the entries, newest first.\n"]
         for e in entries:
             when = e["date"].isoformat() if e.get("date") else "undated"
-            parts.append(f"[entryId {e['id']} · {when}]\n{e['content']}\n")
+            source = e.get("source_type", "reflection")
+            parts.append(f"[entryId {e['id']} · sourceType {source} · {when}]\n{e['content']}\n")
         return "\n".join(parts)
 
     # --- verification ------------------------------------------------------
 
     def _verified(self, raw: list, entries: list[dict]) -> list[Observation]:
-        by_id = {e["id"]: e for e in entries}
+        by_id = {(e.get("source_type", "reflection"), e["id"]): e for e in entries}
         dates = [e["date"] for e in entries if e.get("date")]
         span_start, span_end = (min(dates), max(dates)) if dates else (None, None)
         span_days = (span_end - span_start).days if span_start and span_end else 0
@@ -222,7 +285,7 @@ class ObservationEngine:
             if len(citations) < OBSERVATION_MIN_CITATIONS:
                 logger.info(f"Observation discarded, {len(citations)} verified quote(s): {claim[:60]}")
                 continue
-            if len({c.entry_id for c in citations}) < OBSERVATION_MIN_ENTRIES_CITED:
+            if len({c.key for c in citations}) < OBSERVATION_MIN_ENTRIES_CITED:
                 logger.info(f"Observation discarded, all quotes from one entry: {claim[:60]}")
                 continue
 
@@ -246,18 +309,101 @@ class ObservationEngine:
                 entry_id = int(q.get("entryId"))
             except (TypeError, ValueError):
                 continue
-            entry = by_id.get(entry_id)
+            source_type = str(q.get("sourceType") or "reflection")
+            entry = by_id.get((source_type, entry_id))
             if entry is None:
-                # Either invented, or attributed to an entry that was not read.
+                # Either invented, or attributed to something that was not read.
                 continue
             quote = _normalized(str(q.get("text") or ""))
             if len(quote) < OBSERVATION_MIN_QUOTE_CHARS:
                 continue
             if quote not in _normalized(entry["content"]):
-                logger.info(f"Quote not found verbatim in entry {entry_id}, refused")
+                logger.info(f"Quote not found verbatim in {source_type} {entry_id}, refused")
                 continue
-            found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"), text=quote))
+            found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
+                                  text=quote, source_type=entry.get("source_type", "reflection")))
         return tuple(found)
+
+
+def chunk_entries(entries: list[dict],
+                  budget_tokens: int = OBSERVATION_CHUNK_TOKENS) -> list[list[dict]]:
+    """Split the archive into passes small enough to be read closely.
+
+    One pass over the whole archive produces generalities: the owner's is about
+    110K tokens, and a model asked to find patterns across all of it at once
+    answers about the average of a life rather than about what recurs in it.
+
+    Chunks accumulate to a token budget rather than a fixed entry count because
+    the months are wildly uneven — two of them hold 50 of 135 entries while four
+    hold one each — so a fixed count would split the dense stretches and pad the
+    sparse ones. An entry larger than the budget on its own still gets its own
+    chunk rather than being dropped.
+    """
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    size = 0
+    for entry in entries:
+        cost = max(1, len(entry.get("content") or "") // OBSERVATION_CHARS_PER_TOKEN)
+        if current and size + cost > budget_tokens:
+            chunks.append(current)
+            current, size = [], 0
+        current.append(entry)
+        size += cost
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def consolidate(observations: list[Observation]) -> list[Observation]:
+    """Merge the same finding restated by different chunks.
+
+    Reading in passes means one pattern can be noticed several times over, in
+    slightly different words. Left alone that is exactly how the earlier system
+    produced thirteen near-identical "breakthroughs" in two days — a screen full
+    of restatement reading as a screen full of findings.
+
+    Two observations are the same finding when they cite any of the same
+    writing. The merged claim is the longest of them (the one that says most),
+    and it keeps every citation, so merging strengthens the evidence rather
+    than discarding any of it.
+    """
+    merged: list[dict] = []
+    for observation in observations:
+        keys = {c.key for c in observation.citations}
+        for group in merged:
+            if group["keys"] & keys:
+                group["keys"] |= keys
+                group["observations"].append(observation)
+                break
+        else:
+            merged.append({"keys": set(keys), "observations": [observation]})
+
+    out: list[Observation] = []
+    for group in merged:
+        members = group["observations"]
+        best = max(members, key=lambda o: len(o.claim))
+        citations: list[Citation] = []
+        seen: set = set()
+        for member in members:
+            for citation in member.citations:
+                if (citation.key, citation.text) in seen:
+                    continue
+                seen.add((citation.key, citation.text))
+                citations.append(citation)
+
+        dates = [c.entry_date for c in citations if c.entry_date]
+        span_start = min(dates) if dates else best.span_start
+        span_end = max(dates) if dates else best.span_end
+        span_days = (span_end - span_start).days if span_start and span_end else 0
+        out.append(Observation(
+            claim=best.claim,
+            citations=tuple(citations),
+            span_start=span_start,
+            span_end=span_end,
+            entries_read=sum(m.entries_read for m in members),
+            confidence_level=_confidence(tuple(citations), span_days),
+        ))
+    return out
 
 
 def apply_preferences(observations: list[Observation], user_id: int) -> list[Observation]:

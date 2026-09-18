@@ -1056,6 +1056,39 @@ class Database:
                     "clarity_level", "tags", "created_at", "updated_at", "audio_path")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
+    def get_staged_for_reading(self, user_id: int, min_chars: int, batch_id: int = None) -> list:
+        """Staged import items long enough to be worth reading.
+
+        The voice transcripts sit here rather than in reflections because they
+        carry no date, and ImportService.commit refuses a batch with undated
+        entries (ADR-0013): a date is read or it is absent, never invented. They
+        can still be *read* — a quote from one is as real as any other — so they
+        supply citations for discovery while never becoming an occurrence, which
+        would need a day they happened on.
+
+        `min_chars` drops the near-empty clips: the real batch has six between
+        22 and 165 characters and the next one up is 1,108.
+        """
+        clause = "AND batch_id = %s" if batch_id else ""
+        params = [user_id, min_chars] + ([batch_id] if batch_id else [])
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, entry_date, content, source_name
+                  FROM import_items
+                 WHERE user_id = %s AND status = 'staged'
+                   AND content IS NOT NULL AND length(trim(content)) >= %s
+                   {clause}
+                 ORDER BY id;
+                """,
+                params,
+            )
+            return [
+                {"id": r[0], "date": r[1], "content": r[2],
+                 "source_name": r[3], "source_type": "import_item"}
+                for r in cur.fetchall()
+            ]
+
     def get_entries_with_vectors(self, user_id: int) -> list:
         """Every evidence-eligible entry with its embedding, for matching.
 
@@ -1106,7 +1139,8 @@ class Database:
                 """,
                 (user_id, since, since, limit),
             )
-            return [{"id": r[0], "date": r[1], "content": r[2]} for r in cur.fetchall()]
+            return [{"id": r[0], "date": r[1], "content": r[2],
+                     "source_type": "reflection"} for r in cur.fetchall()]
 
     def get_entry_count(self, user_id: int) -> int:
         """Returns the number of journal entries for a user."""

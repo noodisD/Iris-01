@@ -142,6 +142,18 @@ OBSERVATION_HIGH_ENTRIES = 4
 OBSERVATION_HIGH_SPAN_DAYS = 30
 OBSERVATION_MEDIUM_ENTRIES = 3
 
+# Reading the whole archive happens in chunks: one pass over ~110K tokens
+# produces generalities, and the months are wildly uneven (two of them hold 50
+# of 135 entries while four hold one each), so chunks accumulate to a token
+# budget rather than a fixed entry count.
+OBSERVATION_CHUNK_TOKENS = 20_000
+#: Rough chars-per-token, good enough for deciding where to cut a chunk.
+OBSERVATION_CHARS_PER_TOKEN = 4
+# A staged recording below this is a near-empty clip, not writing. The real
+# batch has six at 22-165 characters and the next one up is 1,108: a clean
+# cliff, and nothing that short can carry a quote worth citing.
+OBSERVATION_MIN_STAGED_CHARS = 200
+
 # Conflict Suppression Configuration
 CONFLICT_SUPPRESSION_ENABLED = True
 CONFLICT_MIN_CONFIDENCE = "medium"
