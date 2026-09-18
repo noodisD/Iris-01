@@ -492,16 +492,26 @@ class Database:
     # ============================================================================
 
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
-                    first_seen_at: str, last_seen_at: str, occurrence_count: int = 1) -> int:
-        """Creates a new theme and returns its ID."""
+                    first_seen_at: str, last_seen_at: str, occurrence_count: int = 1,
+                    origin: str = "clustered", definition: str = None,
+                    status: str = "active") -> int:
+        """Creates a new theme and returns its ID.
+
+        The defaults describe a cluster, which is what every existing caller
+        creates. A construct passes origin='observed' and status='candidate':
+        a row that exists and can be reviewed, but that no engine measures
+        until the owner confirms it.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at, last_seen_at, occurrence_count)
-                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at,
+                                        last_seen_at, occurrence_count, origin, definition, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
-                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at, occurrence_count)
+                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at,
+                     occurrence_count, origin, definition, status)
                 )
                 theme_id = cur.fetchone()[0]
                 conn.commit()
@@ -512,28 +522,56 @@ class Database:
                 logger.error(f"Failed to create theme: {e}")
                 raise
 
+    #: What a theme row looks like to the engines, in one place so the active
+    #: list and a status listing cannot drift apart.
+    _THEME_COLUMNS = """id, centroid_embedding, summary, first_seen_at, last_seen_at,
+                        occurrence_count, origin, definition, status"""
+
+    @staticmethod
+    def _theme_row(row) -> dict:
+        return {
+            "id": row[0],
+            "centroid_embedding": row[1],
+            "summary": row[2],
+            "first_seen_at": row[3],
+            "last_seen_at": row[4],
+            "occurrence_count": row[5],
+            "origin": row[6],
+            "definition": row[7],
+            "status": row[8],
+        }
+
     def get_themes(self, user_id: int) -> list:
-        """Retrieves all themes for a user."""
+        """The themes the engines may measure.
+
+        Only `active` ones. A construct the owner has not confirmed yet exists
+        as a row, has prototypes, and is visible for review — but measuring it
+        would be counting a pattern nobody vouched for, which is the failure
+        this status column exists to prevent.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
-                       occurrence_count FROM themes WHERE user_id = %s ORDER BY occurrence_count DESC;
+                f"""
+                SELECT {self._THEME_COLUMNS} FROM themes
+                WHERE user_id = %s AND status = 'active'
+                ORDER BY occurrence_count DESC;
                 """,
                 (user_id,)
             )
-            rows = cur.fetchall()
-            return [
-                {
-                    "id": row[0],
-                    "centroid_embedding": row[1],
-                    "summary": row[2],
-                    "first_seen_at": row[3],
-                    "last_seen_at": row[4],
-                    "occurrence_count": row[5]
-                }
-                for row in rows
-            ]
+            return [self._theme_row(row) for row in cur.fetchall()]
+
+    def get_themes_by_status(self, user_id: int, status: str) -> list:
+        """Themes in one state, newest first — the review surface's query."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {self._THEME_COLUMNS} FROM themes
+                WHERE user_id = %s AND status = %s
+                ORDER BY id DESC;
+                """,
+                (user_id, status)
+            )
+            return [self._theme_row(row) for row in cur.fetchall()]
 
     def get_theme_by_id(self, theme_id: int) -> dict:
         """Retrieves a specific theme by ID."""
@@ -541,7 +579,8 @@ class Database:
             cur.execute(
                 """
                 SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
-                       occurrence_count, user_id FROM themes WHERE id = %s;
+                       occurrence_count, user_id, origin, definition, status, confirmed_at
+                  FROM themes WHERE id = %s;
                 """,
                 (theme_id,)
             )
@@ -554,7 +593,11 @@ class Database:
                     "first_seen_at": row[3],
                     "last_seen_at": row[4],
                     "occurrence_count": row[5],
-                    "user_id": row[6]
+                    "user_id": row[6],
+                    "origin": row[7],
+                    "definition": row[8],
+                    "status": row[9],
+                    "confirmed_at": row[10],
                 }
             return None
 
@@ -679,6 +722,59 @@ class Database:
                 conn.rollback()
                 logger.error(f"Failed to add theme occurrence: {e}")
                 raise
+
+    def set_theme_status(self, theme_id: int, status: str) -> None:
+        """Confirm or reject a construct.
+
+        Confirming stamps the moment, because when the owner vouched for a
+        pattern is part of its provenance: the occurrences written afterwards
+        rest on that decision.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE themes SET status = %s,
+                       confirmed_at = CASE WHEN %s = 'active' THEN NOW() ELSE confirmed_at END
+                 WHERE id = %s;
+                """,
+                (status, status, theme_id)
+            )
+            conn.commit()
+
+    def add_theme_prototype(self, theme_id: int, source_type: str, source_id,
+                            quote: str, vector: list) -> int:
+        """Store one of the owner's own sentences as an anchor for a construct.
+
+        A prototype is a quote already verified verbatim against a stored entry,
+        so a construct cannot drift away from text that exists.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO theme_prototypes (theme_id, source_type, source_id, quote, vector)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                """,
+                (theme_id, source_type, source_id, quote, vector)
+            )
+            prototype_id = cur.fetchone()[0]
+            conn.commit()
+            return prototype_id
+
+    def get_theme_prototypes(self, theme_id: int) -> list:
+        """The sentences a construct is anchored in, oldest first."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, source_type, source_id, quote, vector
+                  FROM theme_prototypes WHERE theme_id = %s ORDER BY id;
+                """,
+                (theme_id,)
+            )
+            return [
+                {"id": r[0], "source_type": r[1], "source_id": r[2],
+                 "quote": r[3], "vector": r[4]}
+                for r in cur.fetchall()
+            ]
 
     def get_theme_occurrences(self, theme_id: int) -> list:
         """Retrieves all occurrences of a theme."""
@@ -959,6 +1055,33 @@ class Database:
             keys = ("id", "reflection_date", "content", "mood", "energy_level",
                     "clarity_level", "tags", "created_at", "updated_at", "audio_path")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+    def get_entries_with_vectors(self, user_id: int) -> list:
+        """Every evidence-eligible entry with its embedding, for matching.
+
+        Same definition of evidence as get_unassigned_embeddings (ADR-0003):
+        what the owner deliberately logged, minus anything marked memory-only.
+        A construct is a statement about the person, so a placeholder or a
+        duplicated paragraph must not be able to become one of its occurrences.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.source_type, e.source_id, e.vector, r.content, r.reflection_date
+                  FROM embeddings e
+                  JOIN reflections r ON r.id = e.source_id
+                 WHERE e.source_type = 'reflection'
+                   AND r.user_id = %s AND r.evidence_eligible
+                   AND r.reflection_date IS NOT NULL
+                 ORDER BY r.reflection_date;
+                """,
+                (user_id,)
+            )
+            return [
+                {"source_type": r[0], "source_id": r[1], "vector": r[2],
+                 "content": r[3], "occurred_at": r[4]}
+                for r in cur.fetchall()
+            ]
 
     def get_entries_for_reading(self, user_id: int, limit: int = 60, since=None) -> list:
         """Entries an engine may read and quote from, newest first.

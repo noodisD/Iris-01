@@ -25,15 +25,12 @@ except ImportError:
 
 import numpy as np
 
+from .comparison import ComparisonSpace
 from .confidence import ConfidenceEngine
 from .timeutils import to_utc, utc_now
 from .constants import (
-    PERSISTENCE_CLUSTER_THRESHOLD,
     PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_MIN_CLUSTER_SIZE,
-    PERSISTENCE_STYLE_CLUSTER_THRESHOLD,
-    PERSISTENCE_STYLE_MATCH_THRESHOLD,
-    PERSISTENCE_STYLE_MIN_ENTRIES,
 )
 from .database import confidence as confidence_repo
 
@@ -92,52 +89,24 @@ class PersistenceEngine:
         self.conf_engine = ConfidenceEngine()
         self.ev_engine = EvidenceEngine()
         self._evidence = []
-        self._space_cache = None
+        # Read through this module's own `embeddings` name, which is the seam
+        # the theme-style tests replace with a synthetic journal.
+        self._comparison = ComparisonSpace(
+            user_id, read_style=lambda uid: embeddings.get_evidence_style(uid))
 
     # === The space themes are compared in ===
 
     def _space(self) -> tuple:
-        """The shared voice to remove, and the thresholds that belong with it.
+        """(mean, match_threshold, cluster_threshold) — see agent/comparison.py.
 
-        One person's writing shares a voice. In the owner's first 156 imported
-        entries a single direction carried two-thirds of the variance, and the
-        typical entry scored 0.84 against the average of all of them. Compared
-        raw, every theme centroid looks like every entry: the first theme
-        cleared the 0.70 match bar for nearly everything and took 121 of the
-        132 entries that grouped at all. Removing the user's average compares
-        entries on what differs between them (ADR-0014).
-
-        Until there are PERSISTENCE_STYLE_MIN_ENTRIES the average is mostly the
-        entries themselves, so raw comparison and its thresholds stand.
+        Constructs compare against the same space, so it lives in one module
+        used by both rather than a copy in each that can drift apart.
         """
-        if self._space_cache is None:
-            count, mean = embeddings.get_evidence_style(self.user_id)
-            if count >= PERSISTENCE_STYLE_MIN_ENTRIES and mean is not None:
-                self._space_cache = (np.asarray(mean, dtype=np.float64),
-                                     PERSISTENCE_STYLE_MATCH_THRESHOLD,
-                                     PERSISTENCE_STYLE_CLUSTER_THRESHOLD)
-            else:
-                self._space_cache = (None, PERSISTENCE_MATCH_THRESHOLD,
-                                     PERSISTENCE_CLUSTER_THRESHOLD)
-        return self._space_cache
+        return self._comparison.space()
 
     def _project(self, vectors, are_centroids: bool = False) -> np.ndarray:
-        """Unit vectors in the comparison space.
-
-        An entry is normalised before the shared voice is removed; a centroid is
-        not, because it is already an average of unit vectors and the shared
-        voice is an average of the same kind. Anything with nothing left once
-        the voice is removed projects to zero and matches nothing.
-        """
-        mean, _, _ = self._space()
-        arr = np.atleast_2d(np.asarray(vectors, dtype=np.float64))
-        if not are_centroids:
-            norms = np.linalg.norm(arr, axis=1, keepdims=True)
-            arr = arr / np.where(norms > 1e-12, norms, 1.0)
-        if mean is not None:
-            arr = arr - mean
-        norms = np.linalg.norm(arr, axis=1, keepdims=True)
-        return np.where(norms > 1e-9, arr / np.where(norms > 1e-9, norms, 1.0), 0.0)
+        """Unit vectors in the comparison space (agent/comparison.py)."""
+        return self._comparison.project(vectors, are_centroids=are_centroids)
 
     def emit_evidence(self, ev_type: str, key: str, value: Any):
         """Buffers evidence for later persistence."""
@@ -304,7 +273,7 @@ class PersistenceEngine:
         the old ids are deleted with them.
         """
         removed = themes.delete_all_for_user(self.user_id)
-        self._space_cache = None
+        self._comparison.invalidate()
         created = self.discover_themes()
 
         leftovers = sorted(embeddings.get_unassigned_embeddings(self.user_id),

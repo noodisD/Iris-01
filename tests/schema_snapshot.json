@@ -973,6 +973,43 @@
         "type": "integer"
       }
     },
+    "theme_prototypes": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "quote": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "source_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "theme_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "vector": {
+        "default": null,
+        "nullable": "YES",
+        "type": "USER-DEFINED"
+      }
+    },
     "theme_tensions": {
       "confidence_level": {
         "default": null,
@@ -1036,10 +1073,20 @@
         "nullable": "NO",
         "type": "USER-DEFINED"
       },
+      "confirmed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
       "created_at": {
         "default": "CURRENT_TIMESTAMP",
         "nullable": "YES",
         "type": "timestamp with time zone"
+      },
+      "definition": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
       },
       "first_seen_at": {
         "default": null,
@@ -1060,6 +1107,16 @@
         "default": "1",
         "nullable": "YES",
         "type": "integer"
+      },
+      "origin": {
+        "default": "'clustered'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "status": {
+        "default": "'active'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
       },
       "summary": {
         "default": null,
@@ -1794,6 +1851,36 @@
         "type": "u"
       }
     },
+    "theme_prototypes": {
+      "theme_prototypes_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "theme_prototypes_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "theme_prototypes_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "theme_prototypes_quote_not_null": {
+        "definition": "NOT NULL quote",
+        "type": "n"
+      },
+      "theme_prototypes_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      },
+      "theme_prototypes_theme_id_fkey": {
+        "definition": "FOREIGN KEY (theme_id) REFERENCES themes(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "theme_prototypes_theme_id_not_null": {
+        "definition": "NOT NULL theme_id",
+        "type": "n"
+      }
+    },
     "theme_tensions": {
       "theme_tensions_id_not_null": {
         "definition": "NOT NULL id",
@@ -1833,9 +1920,17 @@
         "definition": "NOT NULL last_seen_at",
         "type": "n"
       },
+      "themes_origin_not_null": {
+        "definition": "NOT NULL origin",
+        "type": "n"
+      },
       "themes_pkey": {
         "definition": "PRIMARY KEY (id)",
         "type": "p"
+      },
+      "themes_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
       },
       "themes_user_id_fkey": {
         "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
@@ -1983,6 +2078,10 @@
       "theme_occurrences_pkey": "CREATE UNIQUE INDEX theme_occurrences_pkey ON public.theme_occurrences USING btree (id)",
       "theme_occurrences_theme_id_source_type_source_id_key": "CREATE UNIQUE INDEX theme_occurrences_theme_id_source_type_source_id_key ON public.theme_occurrences USING btree (theme_id, source_type, source_id)"
     },
+    "theme_prototypes": {
+      "idx_theme_prototypes_theme": "CREATE INDEX idx_theme_prototypes_theme ON public.theme_prototypes USING btree (theme_id)",
+      "theme_prototypes_pkey": "CREATE UNIQUE INDEX theme_prototypes_pkey ON public.theme_prototypes USING btree (id)"
+    },
     "theme_tensions": {
       "theme_tensions_pkey": "CREATE UNIQUE INDEX theme_tensions_pkey ON public.theme_tensions USING btree (id)",
       "theme_tensions_theme_a_id_theme_b_id_key": "CREATE UNIQUE INDEX theme_tensions_theme_a_id_theme_b_id_key ON public.theme_tensions USING btree (theme_a_id, theme_b_id)"
@@ -1990,6 +2089,7 @@
     "themes": {
       "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
       "idx_themes_user": "CREATE INDEX idx_themes_user ON public.themes USING btree (user_id)",
+      "idx_themes_user_status": "CREATE INDEX idx_themes_user_status ON public.themes USING btree (user_id, status)",
       "themes_pkey": "CREATE UNIQUE INDEX themes_pkey ON public.themes USING btree (id)"
     },
     "user_app_settings": {
