@@ -18,6 +18,7 @@ export const qk = {
   insights: ['insights'] as const,
   insight: (id: string) => ['insights', id] as const,
   journal: ['journal'] as const,
+  constructs: ['constructs', 'candidates'] as const,
   onboarding: ['onboarding'] as const,
   user: ['user'] as const,
   knowledge: ['knowledge'] as const,

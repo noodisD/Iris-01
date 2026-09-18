@@ -10,7 +10,23 @@ The practical effect: asking why IRIS says A tends to precede B could be
 answered with the numbers for A and C.
 """
 
+from datetime import datetime
+
+from agent.database import db
 from agent.evidence import EvidenceEngine
+
+
+def _theme(user_id: int, name: str) -> int:
+    """A real theme to hang evidence on.
+
+    These ids used to be bare literals (404, 505, 808). Evidence is purged per
+    user by matching the ids of themes that user owned, so evidence written
+    against a number with no theme behind it was never cleaned and survived the
+    whole session — and when the themes sequence later reached that number, an
+    unrelated test counting rows for its own theme picked up the orphans too.
+    """
+    now = datetime.now().isoformat()
+    return db.create_theme(user_id, [0.1] * 1536, name, now, now)
 
 
 def _bundle_values(bundle):
@@ -19,7 +35,9 @@ def _bundle_values(bundle):
 
 def test_two_relations_of_one_source_keep_separate_bundles(test_user):
     ev = EvidenceEngine()
-    source, target_b, target_c = 101, 202, 303
+    source = _theme(test_user["id"], "source")
+    target_b = _theme(test_user["id"], "target b")
+    target_c = _theme(test_user["id"], "target c")
 
     ev.record_evidence(
         "leverage", "theme", source,
@@ -46,24 +64,28 @@ def test_a_single_pattern_engine_is_still_addressable_without_a_pair(test_user):
     Matching is IS NOT DISTINCT FROM, so passing None finds them — `= NULL`
     would have matched nothing and silently emptied every explanation."""
     ev = EvidenceEngine()
+    theme_id = _theme(test_user["id"], "single pattern")
     ev.record_evidence(
-        "resolution", "theme", 404,
+        "resolution", "theme", theme_id,
         [{"type": "count", "key": "recent_count", "value": 3}],
     )
 
-    bundle = ev.get_latest_bundle("theme", 404, "resolution")
+    bundle = ev.get_latest_bundle("theme", theme_id, "resolution")
     assert _bundle_values(bundle) == {"recent_count": 3}
 
 
 def test_a_pairwise_bundle_is_not_returned_for_the_wrong_pair(test_user):
     ev = EvidenceEngine()
+    anchor = _theme(test_user["id"], "anchor")
+    measured = _theme(test_user["id"], "the pair that ran")
+    other = _theme(test_user["id"], "a pair with no evidence")
     ev.record_evidence(
-        "impact", "theme", 505,
+        "impact", "theme", anchor,
         [{"type": "delta", "key": "delta_score", "value": -0.4}],
-        related_pattern_id=606,
+        related_pattern_id=measured,
     )
 
-    assert ev.get_latest_bundle("theme", 505, "impact", 707) == [], (
+    assert ev.get_latest_bundle("theme", anchor, "impact", other) == [], (
         "a relation with no evidence must return nothing, not another pair's"
     )
 
@@ -73,13 +95,15 @@ def test_the_whole_pattern_view_shows_every_relation(test_user):
     relations — one bundle per (engine, other end) — rather than one relation
     standing in for all of them."""
     ev = EvidenceEngine()
-    source = 808
+    source = _theme(test_user["id"], "source with two relations")
+    first = _theme(test_user["id"], "first target")
+    second = _theme(test_user["id"], "second target")
     ev.record_evidence("leverage", "theme", source,
-                       [{"type": "count", "key": "target_id", "value": 111}],
-                       related_pattern_id=111)
+                       [{"type": "count", "key": "target_id", "value": first}],
+                       related_pattern_id=first)
     ev.record_evidence("leverage", "theme", source,
-                       [{"type": "count", "key": "target_id", "value": 222}],
-                       related_pattern_id=222)
+                       [{"type": "count", "key": "target_id", "value": second}],
+                       related_pattern_id=second)
     ev.record_evidence("resolution", "theme", source,
                        [{"type": "count", "key": "recent_count", "value": 5}])
 
@@ -87,5 +111,5 @@ def test_the_whole_pattern_view_shows_every_relation(test_user):
     targets = {r["evidence_value"] for r in bundle if r["evidence_key"] == "target_id"}
     engines = {r["engine_name"] for r in bundle}
 
-    assert targets == {111, 222}, f"both relations must appear, got {targets}"
+    assert targets == {first, second}, f"both relations must appear, got {targets}"
     assert engines == {"leverage", "resolution"}

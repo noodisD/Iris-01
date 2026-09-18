@@ -39,6 +39,7 @@ try:
     from agent.database import db
     from agent.insights_service import InsightsService
     from agent.observations import ObservationEngine, apply_preferences
+    from agent import constructs
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -1395,6 +1396,51 @@ def read_entries(body: ObservationRequest, user_id: int = Depends(get_current_us
         "observations": [o.as_dict() for o in observations],
         "entriesRead": observations[0].entries_read if observations else 0,
     }
+
+
+class DiscoverRequest(BaseModel):
+    """Whether to include the staged recordings. Nothing else to configure."""
+    includeStaged: bool = True
+
+
+@app.get("/api/constructs")
+def list_constructs(status: str = "candidate", user_id: int = Depends(get_current_user_id)):
+    """Constructs awaiting a decision, each with the quotes it rests on."""
+    if status != "candidate":
+        raise HTTPException(status_code=400, detail="Only candidates are reviewable.")
+    return {"constructs": constructs.candidates(user_id)}
+
+
+@app.post("/api/constructs/discover")
+def discover_constructs(body: DiscoverRequest, user_id: int = Depends(get_current_user_id)):
+    """Read the whole archive and stage what was found, for review.
+
+    Like /api/observations this sends journal entries to the model, and like it
+    this has no caller inside IRIS: it happens when the owner asks. Unlike it,
+    what comes back is kept — as candidates that no engine measures until they
+    are confirmed.
+    """
+    return {"constructs": constructs.discover(user_id, include_staged=body.includeStaged)}
+
+
+@app.post("/api/constructs/{theme_id}/confirm")
+def confirm_construct(theme_id: int, user_id: int = Depends(get_current_user_id)):
+    """Vouch for a construct, and measure it against the whole archive."""
+    theme = db.get_theme_by_id(theme_id)
+    if not theme or theme.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Construct not found")
+    occurrences = constructs.confirm(theme_id)
+    return {"id": str(theme_id), "status": "active", "occurrences": occurrences}
+
+
+@app.post("/api/constructs/{theme_id}/reject")
+def reject_construct(theme_id: int, user_id: int = Depends(get_current_user_id)):
+    """Set a construct aside. It is kept, and never measured."""
+    theme = db.get_theme_by_id(theme_id)
+    if not theme or theme.get("user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Construct not found")
+    constructs.reject(theme_id)
+    return {"id": str(theme_id), "status": "rejected"}
 
 
 @app.post("/api/insights/{insight_id}/snooze")

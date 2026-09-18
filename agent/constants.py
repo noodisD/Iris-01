@@ -154,6 +154,12 @@ OBSERVATION_CHARS_PER_TOKEN = 4
 # cliff, and nothing that short can carry a quote worth citing.
 OBSERVATION_MIN_STAGED_CHARS = 200
 
+# A reasoning model spends this budget on thinking first and emits nothing if it
+# runs out — the call succeeds, returns empty, and the pass is lost. At 1,500 a
+# real archive read produced finish_reason=length with 1,500 reasoning tokens
+# and no output, twice. Reading a chunk and citing it needs room for both.
+OBSERVATION_MAX_TOKENS = 16_000
+
 # Conflict Suppression Configuration
 CONFLICT_SUPPRESSION_ENABLED = True
 CONFLICT_MIN_CONFIDENCE = "medium"

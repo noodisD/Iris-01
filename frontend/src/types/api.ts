@@ -207,6 +207,28 @@ export type InsightKind =
 
 export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
 
+/** A pattern IRIS noticed by reading, waiting for you to confirm or reject it.
+ *  Nothing here is measured by any engine until it is confirmed. */
+export interface ConstructCandidate {
+  id: ID;
+  /** The claim, in the reader's words. */
+  claim: string;
+  /** A card-sized name for it. */
+  summary: string;
+  origin: 'observed' | 'clustered';
+  spanStart: ISODate | null;
+  spanEnd: ISODate | null;
+  /** The owner's own sentences the claim rests on, verified verbatim. */
+  quotes: {
+    text: string;
+    entryId: ID | null;
+    sourceType: string;
+    /** False for a staged recording: quotable, but it has no date, so it can
+     *  never become an occurrence. */
+    citable: boolean;
+  }[];
+}
+
 /** Why the insights list may be empty: how much recent evidence there is. */
 export interface InsightCoverage {
   /** False when the check itself failed — not a measured absence. */

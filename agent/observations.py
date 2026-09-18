@@ -49,6 +49,7 @@ from .constants import (
     OBSERVATION_HIGH_ENTRIES,
     OBSERVATION_HIGH_SPAN_DAYS,
     OBSERVATION_MAX_ENTRIES_READ,
+    OBSERVATION_MAX_TOKENS,
     OBSERVATION_MEDIUM_ENTRIES,
     OBSERVATION_MIN_CITATIONS,
     OBSERVATION_MIN_ENTRIES_CITED,
@@ -199,7 +200,7 @@ class ObservationEngine:
             reply = self.intelligence.chat(
                 messages=[{"role": "user", "content": self._render(entries)}],
                 system_prompt=SYSTEM_PROMPT,
-                max_tokens=1500,
+                max_tokens=OBSERVATION_MAX_TOKENS,
             )
         except Exception as e:
             logger.error(f"Observation read failed for user {self.user_id}: {e}")
@@ -230,7 +231,7 @@ class ObservationEngine:
                 reply = self.intelligence.chat(
                     messages=[{"role": "user", "content": self._render(chunk)}],
                     system_prompt=SYSTEM_PROMPT,
-                    max_tokens=1500,
+                    max_tokens=OBSERVATION_MAX_TOKENS,
                 )
             except Exception as e:
                 # One failed pass is not a failed read. The rest still stands.

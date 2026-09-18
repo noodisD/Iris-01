@@ -10,6 +10,7 @@ const NAV = [
   { to: '/journal',   label: 'Journal' },
   { to: '/habits',    label: 'Habits' },
   { to: '/insights',  label: 'Insights', dot: true },
+  { to: '/constructs', label: 'Noticed' },
   { to: '/review',    label: 'Review' },
   { to: '/mobile',    label: 'On the go' },
   { to: '/import',    label: 'Import' },

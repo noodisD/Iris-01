@@ -109,6 +109,59 @@ def promote(user_id: int, observation) -> int | None:
     return theme_id
 
 
+def candidates(user_id: int) -> list[dict]:
+    """Every construct awaiting the owner's decision, with its evidence.
+
+    A candidate is only reviewable if the quotes come with it: the whole point
+    of confirming is reading the sentences the claim rests on, not taking a
+    model's word for the claim.
+    """
+    out = []
+    for theme in db.get_themes_by_status(user_id, "candidate"):
+        prototypes = db.get_theme_prototypes(theme["id"])
+        out.append({
+            "id": str(theme["id"]),
+            "claim": theme["definition"] or theme["summary"],
+            "summary": theme["summary"],
+            "origin": theme["origin"],
+            "spanStart": _iso(theme["first_seen_at"]),
+            "spanEnd": _iso(theme["last_seen_at"]),
+            "quotes": [
+                {
+                    "text": p["quote"],
+                    "entryId": str(p["source_id"]) if p["source_id"] is not None else None,
+                    "sourceType": p["source_type"],
+                    # A staged recording has no date, so it can be read and
+                    # quoted but can never become an occurrence.
+                    "citable": p["source_type"] == "reflection",
+                }
+                for p in prototypes
+            ],
+        })
+    return out
+
+
+def _iso(value) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+def discover(user_id: int, intelligence=None, include_staged: bool = True) -> list[dict]:
+    """Read the whole archive and stage what it found for review.
+
+    Nothing here is measured. Each observation that survives verification
+    becomes a candidate the owner can confirm or reject; until they do, no
+    engine sees any of it.
+    """
+    from .observations import ObservationEngine
+
+    engine = ObservationEngine(user_id, intelligence=intelligence)
+    observations = engine.read_archive(include_staged=include_staged)
+    for observation in observations:
+        promote(user_id, observation)
+    logger.info(f"Discovery staged {len(observations)} candidate(s) for user {user_id}")
+    return candidates(user_id)
+
+
 def reject(theme_id: int) -> None:
     """The owner did not recognise this. It is kept, and never measured."""
     db.set_theme_status(theme_id, "rejected")
