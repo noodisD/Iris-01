@@ -660,16 +660,25 @@ class Database:
                 raise
 
     def delete_user_themes(self, user_id: int) -> int:
-        """Delete every theme a user has, and every cached analysis of them.
+        """Delete a user's *clustered* themes, and every cached analysis of them.
 
         Occurrences and tensions cascade. The pattern caches are keyed by theme
         id with no foreign key, so they are cleared here explicitly: ids are not
         reused, and a stale row would otherwise describe a theme that no longer
         exists.
+
+        Constructs are exempt. Clustering output is disposable — it is derived
+        from entries that stay where they are, and can be thrown away and found
+        again whenever the way it is found changes. A construct is not derived:
+        it holds the owner's own sentences as prototypes, a claim they read, and
+        a decision they made about it. Rebuilding clusters used to delete all of
+        that, including rejections, with no way to recover the decision.
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                cur.execute("SELECT id FROM themes WHERE user_id = %s;", (user_id,))
+                cur.execute(
+                    "SELECT id FROM themes WHERE user_id = %s AND origin = 'clustered';",
+                    (user_id,))
                 ids = [row[0] for row in cur.fetchall()]
                 if ids:
                     cur.execute("DELETE FROM pattern_evidence WHERE pattern_type = 'theme' AND (pattern_id = ANY(%s) OR related_pattern_id = ANY(%s));", (ids, ids))
@@ -740,6 +749,105 @@ class Database:
                 (status, status, theme_id)
             )
             conn.commit()
+
+    def retract_construct(self, theme_id: int) -> None:
+        """Mark a construct rejected and remove the evidence it produced.
+
+        Status alone was not a retraction. Occurrences survived, and the leverage
+        and decision-impact caches join themes without filtering on status, so a
+        withdrawn construct could still reach chat through a cached reader.
+        Prototypes are kept: they are the owner's own sentences and the record of
+        what was proposed.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM theme_occurrences WHERE theme_id = %s;", (theme_id,))
+                cur.execute(
+                    """DELETE FROM pattern_confidence WHERE pattern_id = %s
+                        AND pattern_type IN ('theme', 'resolution', 'trajectory',
+                                             'tension', 'leverage', 'decision_impact');""",
+                    (theme_id,))
+                cur.execute(
+                    "DELETE FROM pattern_resolutions WHERE pattern_type = 'theme' AND pattern_id = %s;",
+                    (theme_id,))
+                cur.execute(
+                    """DELETE FROM pattern_leverage
+                        WHERE (source_type = 'theme' AND source_id = %s)
+                           OR (target_type = 'theme' AND target_id = %s);""",
+                    (theme_id, theme_id))
+                cur.execute(
+                    """DELETE FROM decision_impacts
+                        WHERE (anchor_type = 'theme' AND anchor_id = %s)
+                           OR (target_type = 'theme' AND target_id = %s);""",
+                    (theme_id, theme_id))
+                cur.execute(
+                    """UPDATE themes SET status = 'rejected', occurrence_count = 0
+                        WHERE id = %s;""",
+                    (theme_id,))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to retract construct {theme_id}: {e}")
+                raise
+
+    def publish_construct(self, theme_id: int, occurrences: list) -> int:
+        """Make a construct active and record its evidence, together or not at all.
+
+        Confirmation used to commit `active` first and then write occurrences
+        through a second connection. A failure in between left an active
+        construct with no evidence — and because the review surface only lists
+        candidates, it had also vanished from the one screen that could show the
+        owner what happened.
+
+        The transition is guarded here rather than trusted from the caller: only
+        a candidate may become active, and only one the reader proposed, so a
+        stale request cannot revive something already rejected.
+
+        Returns the number of occurrences written, or -1 if the row was not in a
+        state that may be confirmed.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """SELECT status FROM themes
+                        WHERE id = %s AND origin = 'observed' FOR UPDATE;""",
+                    (theme_id,))
+                row = cur.fetchone()
+                if row is None or row[0] != 'candidate':
+                    conn.rollback()
+                    logger.info(f"Construct {theme_id} is not a candidate; nothing published")
+                    return -1
+
+                for occ in occurrences:
+                    cur.execute(
+                        """
+                        INSERT INTO theme_occurrences
+                            (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (theme_id, source_type, source_id) DO UPDATE
+                            SET similarity_score = EXCLUDED.similarity_score,
+                                snippet = EXCLUDED.snippet;
+                        """,
+                        (theme_id, occ["source_type"], occ["source_id"], occ["snippet"],
+                         occ["similarity_score"], occ["occurred_at"]))
+
+                cur.execute(
+                    """UPDATE themes SET status = 'active', confirmed_at = NOW()
+                        WHERE id = %s;""",
+                    (theme_id,))
+                cur.execute(
+                    """UPDATE themes t SET occurrence_count = agg.n,
+                              first_seen_at = agg.min_at, last_seen_at = agg.max_at
+                         FROM (SELECT COUNT(*) n, MIN(occurred_at) min_at, MAX(occurred_at) max_at
+                                 FROM theme_occurrences WHERE theme_id = %s) agg
+                        WHERE t.id = %s AND agg.n > 0;""",
+                    (theme_id, theme_id))
+                conn.commit()
+                return len(occurrences)
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to publish construct {theme_id}: {e}")
+                raise
 
     def add_theme_prototype(self, theme_id: int, source_type: str, source_id,
                             quote: str, vector: list) -> int:

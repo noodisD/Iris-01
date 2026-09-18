@@ -1430,6 +1430,13 @@ def confirm_construct(theme_id: int, user_id: int = Depends(get_current_user_id)
     if not theme or theme.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Construct not found")
     occurrences = constructs.confirm(theme_id)
+    if occurrences < 0:
+        # Already active, already rejected, or not a construct the reader
+        # proposed. Reporting success would tell the owner their decision was
+        # recorded when nothing changed.
+        raise HTTPException(
+            status_code=409,
+            detail="This is no longer awaiting a decision. Reload the review list.")
     return {"id": str(theme_id), "status": "active", "occurrences": occurrences}
 
 

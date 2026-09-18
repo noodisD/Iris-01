@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from agent.constants import OBSERVATION_CHARS_PER_TOKEN
 from agent.observations import Citation, Observation, chunk_entries, consolidate
 
@@ -75,7 +77,15 @@ def test_an_empty_archive_yields_no_passes():
 
 # --- the same finding, noticed twice ------------------------------------------
 
-def test_restatements_of_one_finding_become_one():
+def test_observations_sharing_an_entry_within_a_pass_become_one():
+    """What merging actually does: join observations that cite the same entry.
+
+    This test used to claim it covered "two passes noticing one pattern", using a
+    citation shared between them. Passes are disjoint and each observation is
+    verified only against its own chunk's entries, so two passes can never share
+    a citation — the scenario could not occur, the test passed anyway, and it was
+    read as evidence that cross-pass consolidation worked. It does not exist yet.
+    """
     shared = _cite(1, "I went all in on the opening I was most certain about")
     first = _observation("Certainty and boldness appeared together", [shared, _cite(2, "doubled down again")])
     second = _observation("The boldest moves sat alongside the strongest certainty",
@@ -83,8 +93,33 @@ def test_restatements_of_one_finding_become_one():
 
     merged = consolidate([first, second])
 
-    assert len(merged) == 1, "two passes noticing one pattern is one finding"
-    assert merged[0].claim == second.claim, "the fullest statement survives"
+    assert len(merged) == 1, "observations citing one entry are joined"
+    assert merged[0].claim == second.claim, "the longest claim survives — by length, not by meaning"
+
+
+@pytest.mark.xfail(reason="cross-pass consolidation is not built; see Package 3", strict=True)
+def test_the_same_finding_restated_in_two_passes_becomes_one():
+    """The behaviour consolidation was described as having, and does not.
+
+    Disjoint passes produce disjoint citations, and merging keys on citation
+    overlap, so the same finding noticed twice stays two findings. Recorded as a
+    failing test rather than a comment so that building it flips this to green.
+    """
+    first = _observation("Certainty and boldness appeared together", [_cite(1, "a"), _cite(2, "b")])
+    second = _observation("Certainty and boldness appeared together", [_cite(7, "c"), _cite(8, "d")])
+
+    assert len(consolidate([first, second])) == 1
+
+
+@pytest.mark.xfail(reason="greedy first-match grouping is order-dependent; see Package 3", strict=True)
+def test_merging_does_not_depend_on_the_order_observations_arrive():
+    """A,B,C yields one group; A,C,B yields two. The partition should not depend
+    on which pass finished first."""
+    a = _observation("A", [_cite(1, "a"), _cite(2, "b")])
+    b = _observation("B", [_cite(2, "b"), _cite(3, "c")])
+    c = _observation("C", [_cite(3, "c"), _cite(4, "d")])
+
+    assert len(consolidate([a, b, c])) == len(consolidate([a, c, b]))
 
 
 def test_merging_keeps_every_citation():

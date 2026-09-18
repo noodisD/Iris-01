@@ -162,38 +162,88 @@ def discover(user_id: int, intelligence=None, include_staged: bool = True) -> li
     return candidates(user_id)
 
 
-def reject(theme_id: int) -> None:
-    """The owner did not recognise this. It is kept, and never measured."""
-    db.set_theme_status(theme_id, "rejected")
-    logger.info(f"Construct {theme_id} rejected")
+def reject(theme_id: int) -> bool:
+    """The owner did not recognise this. It is kept, and never measured.
+
+    Retracting an *active* construct has to take its evidence with it. Status
+    alone is not a retraction: occurrences stay in the table, and the cached
+    readers that join themes without checking status would go on feeding chat
+    from a pattern the owner had just withdrawn.
+
+    Returns False when there was nothing to reject.
+    """
+    theme = db.get_theme_by_id(theme_id)
+    if not theme or theme.get("origin") != "observed" or theme.get("status") == "rejected":
+        logger.info(f"Construct {theme_id} is not in a state that can be rejected")
+        return False
+
+    db.retract_construct(theme_id)
+    logger.info(f"Construct {theme_id} rejected, and its evidence withdrawn")
+    return True
 
 
 def confirm(theme_id: int) -> int:
-    """The owner vouched for this. Measure it against the whole archive."""
-    db.set_theme_status(theme_id, "active")
-    written = scan(theme_id)
-    logger.info(f"Construct {theme_id} confirmed, {written} occurrence(s) found")
+    """The owner vouched for this. Measure it, and publish both at once.
+
+    Matching happens first and writes nothing. Only then are the status and the
+    evidence committed together, so a failure while matching leaves the
+    construct exactly where it was — a candidate, still on the review screen,
+    rather than an active pattern with no evidence behind it.
+
+    Returns the occurrences written, or -1 when the construct was not in a state
+    that may be confirmed (already active, rejected, or not one the reader
+    proposed).
+    """
+    memberships = _memberships(theme_id)
+    if memberships is None:
+        return -1
+    written = db.publish_construct(theme_id, memberships)
+    if written < 0:
+        return -1
+    logger.info(f"Construct {theme_id} confirmed, {written} occurrence(s) recorded")
     return written
 
 
 def scan(theme_id: int) -> int:
-    """Find every entry this construct describes, and record each one.
+    """Re-measure a construct that is already active, and record what it finds.
 
-    Compares each evidence-eligible entry against the construct's centroid in
-    the shared comparison space, at the same threshold clustering uses, and
-    writes matches through the ordinary occurrence path so the existing engines
-    pick them up unchanged.
+    Confirmation does not go through here: it computes memberships and publishes
+    them with the status in one transaction (see `confirm`). This is the path for
+    re-scanning something the owner has already agreed to.
+    """
+    memberships = _memberships(theme_id)
+    if memberships is None:
+        return 0
+    for occ in memberships:
+        db.add_theme_occurrence(
+            theme_id=theme_id,
+            source_type=occ["source_type"],
+            source_id=occ["source_id"],
+            snippet=occ["snippet"],
+            similarity_score=occ["similarity_score"],
+            occurred_at=occ["occurred_at"],
+        )
+    db.update_theme_stats(theme_id)
+    return len(memberships)
+
+
+def _memberships(theme_id: int) -> list | None:
+    """Every entry this construct describes. Writes nothing.
+
+    Returns None when the construct cannot be matched at all — no such row, no
+    prototypes, no vectors — so a caller can tell "nothing matched" apart from
+    "this could not be measured".
     """
     theme = db.get_theme_by_id(theme_id)
     if not theme:
         logger.error(f"No such construct: {theme_id}")
-        return 0
+        return None
 
     user_id = theme["user_id"]
     prototypes = db.get_theme_prototypes(theme_id)
     if not prototypes:
         logger.warning(f"Construct {theme_id} has no prototypes to match against")
-        return 0
+        return None
 
     space = ComparisonSpace(user_id)
     _, match_threshold, _ = space.space()
@@ -203,7 +253,7 @@ def scan(theme_id: int) -> int:
     vectors = [p["vector"] for p in prototypes if p["vector"] is not None]
     if not vectors:
         logger.warning(f"Construct {theme_id} has prototypes but no vectors")
-        return 0
+        return None
     centroid = np.mean([_as_vector(v) for v in vectors], axis=0)
     centroid_in_space = space.project(centroid, are_centroids=True)[0]
 
@@ -211,27 +261,33 @@ def scan(theme_id: int) -> int:
     # the quote was checked character for character against that entry's stored
     # text. Making it clear a similarity bar as well would let a construct fail
     # to include the very sentences it was built from.
-    cited = {p["source_id"] for p in prototypes if p["source_id"] is not None}
+    #
+    # Keyed on (source_type, source_id), because a bare number is not an
+    # identity: import_item 158 and reflection 158 are unrelated pieces of
+    # writing, and on this archive 15 staged ids also name a reflection. Keying
+    # on the number alone forced 12 unrelated reflections into candidates 33 and
+    # 35 — entries scoring below the bar, cited by nothing, admitted purely by
+    # numeric coincidence. Only reflections can seed: a staged recording carries
+    # no date, and an occurrence needs a day it happened on (ADR-0013).
+    cited = {(p["source_type"], p["source_id"]) for p in prototypes
+             if p["source_id"] is not None and p["source_type"] == "reflection"}
 
     entries = db.get_entries_with_vectors(user_id)
-    written = 0
+    found = []
     for entry in entries:
         entry_in_space = space.project(entry["vector"])[0]
         similarity = float(centroid_in_space @ entry_in_space)
-        if entry["source_id"] not in cited and similarity < match_threshold:
+        seeded = (entry["source_type"], entry["source_id"]) in cited
+        if not seeded and similarity < match_threshold:
             continue
-        db.add_theme_occurrence(
-            theme_id=theme_id,
-            source_type=entry["source_type"],
-            source_id=entry["source_id"],
-            snippet=(entry.get("content") or "")[:500],
-            similarity_score=similarity,
-            occurred_at=entry["occurred_at"].isoformat(),
-        )
-        written += 1
-
-    db.update_theme_stats(theme_id)
-    return written
+        found.append({
+            "source_type": entry["source_type"],
+            "source_id": entry["source_id"],
+            "snippet": (entry.get("content") or "")[:500],
+            "similarity_score": similarity,
+            "occurred_at": entry["occurred_at"].isoformat(),
+        })
+    return found
 
 
 def _as_vector(value) -> np.ndarray:

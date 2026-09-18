@@ -344,14 +344,24 @@ class InsightsService:
             # Keyed on (source_type, source_id): the same number identifies a
             # different row in each source table, so counting ids alone merges a
             # reflection with a habit completion that happens to share one.
+            # Only what is actually measured. Candidate constructs exist as theme
+            # rows so they can be reviewed, and counting them told the owner they
+            # had 28 themes when 18 were being measured — inflating the account's
+            # totals with proposals nobody had agreed to yet.
             cur.execute(
                 """SELECT count(DISTINCT t.id),
                           count(DISTINCT (o.source_type, o.source_id))
                      FROM themes t LEFT JOIN theme_occurrences o ON o.theme_id = t.id
-                    WHERE t.user_id = %s;""",
+                    WHERE t.user_id = %s AND t.status = 'active';""",
                 (self.user_id,),
             )
             out["themes"], out["entriesInThemes"] = cur.fetchone()
+            # Reported separately, never added in: a proposal is not a finding.
+            cur.execute(
+                "SELECT count(*) FROM themes WHERE user_id = %s AND status = 'candidate';",
+                (self.user_id,),
+            )
+            out["candidateConstructs"] = cur.fetchone()[0]
 
         # Which of the remaining reasons applies: a filter the owner set, or
         # findings they have already dealt with.
