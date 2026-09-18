@@ -221,6 +221,12 @@ export interface InsightCoverage {
   entries: number;
   themes: number;
   entriesInThemes: number;
+  /** Findings the owner's own confidence filter removed. Null when unknown. */
+  suppressedByFilter: number | null;
+  /** Admitted findings hidden because they are resolved or still snoozed. */
+  hiddenByStatus: number | null;
+  /** Findings that passed the admission policy, before status filtering. */
+  admitted: number | null;
 }
 
 export interface InsightSummary {
@@ -245,7 +251,8 @@ export interface InsightDetail extends InsightSummary {
   irisRead: string;
   /** Evidence series — typed loosely so backend can ship different shapes. */
   evidence: InsightEvidence[];
-  pullQuotes: { sourceDate: ISODate; text: string; sourceKind: 'journal' | 'chat' }[];
+  /** `sourceId` is the journal entry this came from, when it can be opened. */
+  pullQuotes: { sourceDate: ISODate; text: string; sourceKind: 'journal' | 'chat'; sourceId?: ID | null }[];
   related: { id: ID; label: string; tag: string }[];
   /** "Things to try" — clickable, optionally trigger server actions. */
   suggestions: InsightSuggestion[];

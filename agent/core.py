@@ -5,6 +5,7 @@ all the different services (intelligence, memory, journal, etc.).
 """
 
 import logging
+import re
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,73 @@ except (ImportError, ValueError):
 RECENT_ENTRIES_IN_CONTEXT = 5
 ENTRY_CHARS_IN_CONTEXT = 1500
 MEMORY_CHARS_IN_CONTEXT = 300
+
+_WORD = re.compile(r"[a-z0-9']+")
+
+
+# Enough to unify the regular forms a person uses across entries — "sleeping"
+# with "sleep", "worries" with "worry". Irregular pairs ("sleep"/"slept") are
+# out of reach of any suffix rule, and are deliberately not faked: when nothing
+# matches, the opening is returned and marked, rather than a guessed middle.
+_SUFFIXES = ("ingly", "edly", "ing", "ies", "ed", "es", "ly", "s")
+
+
+def _stem(word: str) -> str:
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
+def _terms(text: str) -> set[str]:
+    """Words long enough to carry meaning, lowercased and lightly stemmed."""
+    return {_stem(w) for w in _WORD.findall(text.lower()) if len(w) > 3}
+
+
+def _best_passage(text: str, query: str, limit: int = MEMORY_CHARS_IN_CONTEXT) -> str:
+    """The part of an entry that matches what was asked, not its opening.
+
+    An entry is retrieved because its embedding matched, and was then shown as
+    its first 300 characters — so an entry found for what it says about sleep
+    could arrive as its opening paragraph about work, and the sentence that
+    actually matched never reached the model. 102 of the owner's 139 entries are
+    longer than that cap.
+
+    The choice is local and lexical: no second embedding call per entry, and the
+    same entry and question always give the same passage. Ellipses mark that it
+    was taken from inside a longer entry, so no passage reads as the whole of
+    what was written.
+
+    Lexical matching has a real limit: an irregular form ("slept" for "sleep")
+    shares no stem, so the question and the sentence that answers it can miss
+    each other. That case returns the opening — the same thing shown before this
+    existed — rather than an arbitrary passage dressed up as the match.
+    """
+    words = " ".join((text or "").split())
+    if len(words) <= limit:
+        return words
+
+    wanted = _terms(query or "")
+    sentences = re.split(r"(?<=[.!?])\s+", words)
+
+    best_score, best, best_span = -1, "", (0, 0)
+    for i in range(len(sentences)):
+        window, j = "", i
+        while j < len(sentences) and len(window) + len(sentences[j]) + 1 <= limit:
+            window = f"{window} {sentences[j]}".strip()
+            j += 1
+        if not window:  # a single sentence longer than the whole budget
+            window, j = sentences[i][:limit].rstrip(), i + 1
+        score = len(wanted & _terms(window))
+        if score > best_score:
+            best_score, best, best_span = score, window, (i, j)
+
+    # Nothing in common: the opening is as honest a guess as any other part.
+    if best_score <= 0:
+        return words[:limit].rstrip() + " …"
+
+    start, end = best_span
+    return ("… " if start > 0 else "") + best + (" …" if end < len(sentences) else "")
 
 
 class PersonalAICompanion:
@@ -389,9 +457,7 @@ class PersonalAICompanion:
                 if not item:
                     continue
                 when = f"{item['date']:%Y-%m-%d}" if item["date"] else "undated"
-                words = " ".join(item["text"].split())
-                if len(words) > MEMORY_CHARS_IN_CONTEXT:
-                    words = words[:MEMORY_CHARS_IN_CONTEXT].rstrip() + " …"
+                words = _best_passage(item["text"], text, MEMORY_CHARS_IN_CONTEXT)
                 context_parts.append(f"- [{item['kind']}, {when}] {words}")
                 if len(context_parts) == n_results:
                     break

@@ -272,10 +272,13 @@ class InsightsService:
         enabled = prefs.get("enabled_engines")
 
         admitted = []
+        filtered_out = 0
         for item in raw:
             if enabled is not None and item["engine"] not in enabled:
+                filtered_out += 1
                 continue
             if levels.get(item.get("confidence_level", "low"), 0) < minimum:
+                filtered_out += 1
                 continue
             admitted.append(item)
 
@@ -288,6 +291,14 @@ class InsightsService:
 
         visible = ConflictSuppressionEngine().suppress(admitted)["visible"]
         visible.sort(key=lambda i: levels.get(i.get("confidence_level", "low"), 0), reverse=True)
+        # Recorded so an empty screen can name its reason. "Nothing to show"
+        # because the owner's filter hid it is a different sentence from
+        # "nothing was found", and the screen must not merge the two.
+        self.policy_counts = {
+            "suppressed_by_filter": filtered_out,
+            "conflict_suppressed": len(admitted) - len(visible),
+            "admitted": len(visible),
+        }
         return visible
 
     # --- contract building -------------------------------------------------
@@ -341,6 +352,30 @@ class InsightsService:
                 (self.user_id,),
             )
             out["themes"], out["entriesInThemes"] = cur.fetchone()
+
+        # Which of the remaining reasons applies: a filter the owner set, or
+        # findings they have already dealt with.
+        try:
+            admitted = self._apply_policy(self._normalize())
+            statuses = db.get_insight_statuses(self.user_id)
+            now = datetime.now(UTC)
+            hidden = 0
+            for item in admitted:
+                st = statuses.get(f"{item['engine']}:{item['pattern_key']}")
+                if not st:
+                    continue
+                snoozed_until = st.get("snoozed_until")
+                if st.get("status") == "resolved" or (
+                        st.get("status") == "snoozed" and snoozed_until and snoozed_until > now):
+                    hidden += 1
+            out["admitted"] = len(admitted)
+            out["hiddenByStatus"] = hidden
+            out["suppressedByFilter"] = getattr(self, "policy_counts", {}).get("suppressed_by_filter", 0)
+        except Exception as e:
+            # Unknown, which is not the same as none. Nulls keep the screen from
+            # announcing a reason it did not establish.
+            logger.warning(f"Policy breakdown unavailable for user {self.user_id}: {e}")
+            out["admitted"] = out["hiddenByStatus"] = out["suppressedByFilter"] = None
         return out
 
     def list_summaries(self) -> list:
@@ -475,10 +510,17 @@ class InsightsService:
                 src = (occ.get("source_type") or "").lower()
                 kind = "journal" if ("journal" in src or "reflection" in src) else "chat"
                 occurred = occ.get("occurred_at")
+                # The id the journal can open. A quote the owner cannot go and
+                # check is an assertion about their writing, not a citation.
+                # Only reflections are addressable there, so nothing else
+                # pretends to be a link.
+                source_id = occ.get("source_id")
                 quotes.append({
                     "sourceDate": _iso(occurred)[:10],
                     "text": snippet,
                     "sourceKind": kind,
+                    "sourceId": (str(source_id) if "reflection" in src
+                                 and source_id is not None else None),
                 })
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"Pull quotes unavailable for theme {theme_id}: {e}")

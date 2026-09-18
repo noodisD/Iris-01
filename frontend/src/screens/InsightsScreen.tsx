@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useInsights, useInsight, useInsightsCoverage } from '@/hooks/useInsights';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import { color } from '@/components/primitives';
+import { formatEventDate, DAY_LONG } from '@/lib/dates';
 import type { InsightSummary, InsightEvidence } from '@/types/api';
 
 // ─── Index ────────────────────────────────────────────────────────────────
@@ -42,9 +43,11 @@ function Card({ insight, onOpen }: { insight: InsightSummary; onOpen: (id: strin
 }
 
 function EmptyInsights() {
-  // An empty list has three different meanings, and the screen used to give one
-  // answer to all of them: nothing written yet, nothing written lately, or
-  // plenty written and nothing recurring inside the window being measured.
+  // An empty list has six different meanings, and the screen used to give one
+  // answer to all of them: nothing written yet, the check failed, nothing
+  // written lately, not enough written lately, findings the owner's own filter
+  // removed, findings they already resolved or snoozed, or plenty written and
+  // nothing recurring inside the window being measured.
   const { data: c } = useInsightsCoverage();
   if (!c || c.entries === 0) {
     return <EmptyState title="No patterns yet." body="Iris needs about a week of conversations and entries before she'll surface anything. She won't guess." />;
@@ -63,7 +66,7 @@ function EmptyInsights() {
   }
 
   if (c.observedDaysInWindow === 0 && c.lastEntryOn) {
-    const when = new Date(c.lastEntryOn + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    const when = formatEventDate(c.lastEntryOn, DAY_LONG);
     return (
       <EmptyState
         title={`Nothing written since ${when}.`}
@@ -78,6 +81,27 @@ function EmptyInsights() {
       <EmptyState
         title="Not enough written lately."
         body={`Describing how things are now takes ${c.observedDaysRequired} days of writing in the last ${c.windowDays}, and there ${c.observedDaysInWindow === 1 ? 'is' : 'are'} ${days}. One entry after a long gap is a sign of life, not a basis for saying how you are. ${held}`}
+      />
+    );
+  }
+
+  // IRIS has findings and the owner's own settings are hiding them. Saying
+  // "nothing is happening" here would be false, and they can undo it.
+  if (c.suppressedByFilter) {
+    return (
+      <EmptyState
+        title="Hidden by your settings."
+        body={`Iris has ${c.suppressedByFilter} observation${c.suppressedByFilter === 1 ? '' : 's'} that your confidence filter removes. That is your filter working, not an absence of patterns — Settings will show them.`}
+      />
+    );
+  }
+
+  // Everything found is something they have already dealt with.
+  if (c.admitted && c.hiddenByStatus === c.admitted) {
+    return (
+      <EmptyState
+        title="All caught up."
+        body={`Iris found ${c.admitted} pattern${c.admitted === 1 ? '' : 's'}, and you have marked ${c.admitted === 1 ? 'it' : 'them all'} resolved or snoozed. ${held}`}
       />
     );
   }
@@ -208,7 +232,19 @@ function DetailView() {
               {data.pullQuotes.map((q, i) => (
                 <blockquote key={i} style={{ margin: 0, padding: '0 0 0 18px', borderLeft: `2px solid ${c}` }}>
                   <div className="serif" style={{ fontSize: 19, fontStyle: 'italic', lineHeight: 1.4, color: 'var(--ink)' }}>"{q.text}"</div>
-                  <div style={{ marginTop: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{q.sourceDate} · {q.sourceKind}</div>
+                  {/* A quote the owner cannot go and check is an assertion
+                      about their own writing. When the entry is addressable,
+                      the citation opens it. */}
+                  {q.sourceId ? (
+                    <button
+                      onClick={() => nav(`/journal?entry=${q.sourceId}`)}
+                      style={{ marginTop: 6, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, color: c, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+                    >
+                      {formatEventDate(q.sourceDate)} · {q.sourceKind} · read the entry ↗
+                    </button>
+                  ) : (
+                    <div style={{ marginTop: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{formatEventDate(q.sourceDate)} · {q.sourceKind}</div>
+                  )}
                 </blockquote>
               ))}
             </div>

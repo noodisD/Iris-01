@@ -1,21 +1,43 @@
 import React from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useJournal } from '@/hooks/useData';
 import { createEntry } from '@/api/journal';
 import { LoadingState, ErrorState } from '@/components/states';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
+import { formatEventDate } from '@/lib/dates';
 
 const PROMPTS = ['What happened today?', 'What were you feeling?', 'What do you want Iris to remember?'];
 
 export function JournalScreen() {
-  const { data, isLoading, isError, refetch } = useJournal();
+  const { data, isPending, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useJournal();
   const qc = useQueryClient();
+  const [params] = useSearchParams();
   const [lines, setLines] = React.useState(['', '', '']);
   const [energy, setEnergy] = React.useState(6);
   const [saving, setSaving] = React.useState(false);
 
-  if (isLoading) return <LoadingState label="Iris is opening your journal…" />;
+  // A quote on the Insights screen links here by entry id. The entry may sit
+  // on a page that has not been fetched, so keep asking for older pages until
+  // it turns up rather than showing the newest entries and calling it a link.
+  const target = params.get('entry');
+  const entries = React.useMemo(() => data?.pages.flatMap(p => p.entries) ?? [], [data]);
+  const found = !target || entries.some(e => e.id === target);
+
+  React.useEffect(() => {
+    if (target && !found && hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [target, found, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  React.useEffect(() => {
+    if (target && found) {
+      document.getElementById(`entry-${target}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [target, found]);
+
+  if (isPending) return <LoadingState label="Iris is opening your journal…" />;
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
+
+  const recurringPhrases = data.pages[0]?.recurringPhrases;
 
   const save = async () => {
     setSaving(true);
@@ -65,32 +87,61 @@ export function JournalScreen() {
       </div>
 
       <aside style={{ width: 380, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '32px 28px', overflow: 'auto' }}>
-        <div className="kicker" style={{ marginBottom: 8 }}>recent entries</div>
-        <h3 className="serif" style={{ margin: '0 0 22px', fontSize: 24, lineHeight: 1 }}>{data.entries.length} recent</h3>
+        <div className="kicker" style={{ marginBottom: 8 }}>your entries · newest first</div>
+        <h3 className="serif" style={{ margin: '0 0 22px', fontSize: 24, lineHeight: 1 }}>
+          {entries.length} shown{hasNextPage ? '' : ', all of them'}
+        </h3>
         <div className="col" style={{ gap: 22 }}>
-          {data.entries.map((e) => (
-            <article key={e.id} className="col" style={{ gap: 6 }}>
-              <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{new Date(e.occurredOn ?? e.createdAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                <div className="row" style={{ gap: 4 }}>{(e.tags ?? []).map(t => <span key={t} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{t}</span>)}</div>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>{e.lines.join(' ')}</div>
-              {e.irisNote && (
-                <div className="row" style={{ gap: 6, alignItems: 'flex-start', marginTop: 4, paddingLeft: 10, borderLeft: '1px solid var(--sage-dim)' }}>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>iris:</span>
-                  <span style={{ fontSize: 11, color: 'var(--ink-2)', fontStyle: 'italic' }}>{e.irisNote}</span>
+          {entries.map((e) => {
+            const highlighted = e.id === target;
+            return (
+              <article
+                key={e.id}
+                id={`entry-${e.id}`}
+                className="col"
+                style={{
+                  gap: 6,
+                  ...(highlighted ? {
+                    margin: '0 -10px', padding: '10px', borderRadius: 8,
+                    background: 'rgba(169,200,163,0.06)', border: '1px solid var(--sage-dim)',
+                  } : {}),
+                }}
+              >
+                <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  {/* A date-only value is a day, not an instant — see lib/dates. */}
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{formatEventDate(e.occurredOn ?? e.createdAt)}</span>
+                  <div className="row" style={{ gap: 4 }}>{(e.tags ?? []).map(t => <span key={t} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{t}</span>)}</div>
                 </div>
-              )}
-            </article>
-          ))}
+                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>{e.lines.join(' ')}</div>
+                {e.irisNote && (
+                  <div className="row" style={{ gap: 6, alignItems: 'flex-start', marginTop: 4, paddingLeft: 10, borderLeft: '1px solid var(--sage-dim)' }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>iris:</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-2)', fontStyle: 'italic' }}>{e.irisNote}</span>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
 
-        {data.recurringPhrases && (
+        <div className="row" style={{ marginTop: 20, justifyContent: 'center' }}>
+          {hasNextPage ? (
+            <button className="btn" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+              {isFetchingNextPage ? 'Loading…' : 'older entries ↓'}
+            </button>
+          ) : (
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              back to the beginning
+            </span>
+          )}
+        </div>
+
+        {recurringPhrases && recurringPhrases.length > 0 && (
           <>
             <hr className="dotline" style={{ margin: '28px 0 18px' }} />
             <div className="kicker" style={{ marginBottom: 10 }}>phrases iris keeps hearing</div>
             <div className="col" style={{ gap: 6 }}>
-              {data.recurringPhrases.map((p, i) => (
+              {recurringPhrases.map((p, i) => (
                 <div key={i} className="row" style={{ alignItems: 'baseline', gap: 10 }}>
                   <span style={{ flex: 1, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--ink)' }}>"{p.phrase}"</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>×{p.count}</span>
