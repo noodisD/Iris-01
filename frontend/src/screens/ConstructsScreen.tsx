@@ -24,7 +24,11 @@ function Candidate({ c }: { c: ConstructCandidate }) {
       display: 'flex', flexDirection: 'column', gap: 16,
     }}>
       <div className="col" style={{ gap: 6 }}>
-        <div className="kicker">iris noticed · not yet counted</div>
+        <div className="kicker">
+          {c.claimKind === 'behaviour'
+            ? 'iris noticed · claims something happened'
+            : 'iris noticed · counts what you wrote about'}
+        </div>
         <h3 className="serif" style={{ margin: 0, fontSize: 26, lineHeight: 1.1 }}>{c.claim}</h3>
         {span && (
           <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -63,8 +67,11 @@ function Candidate({ c }: { c: ConstructCandidate }) {
           {reject.isPending ? 'Setting aside…' : 'Not me'}
         </button>
         <button className="btn primary" disabled={busy} onClick={() => confirm.mutate(c.id)}>
-          {confirm.isPending ? 'Measuring…' : 'Yes, that’s real'}
+          {confirm.isPending ? 'Measuring…' : 'Yes — count this in my writing'}
         </button>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', marginTop: -8 }}>
+        Counts how often this comes up in what you wrote. Not how often you did it.
       </div>
     </article>
   );
@@ -113,7 +120,7 @@ export function ConstructsScreen() {
       {data.length === 0 ? (
         <EmptyState
           title="Nothing waiting."
-          body="Reading the archive is something you ask for. When Iris finds something that recurs, it waits here with the quotes it rests on — and counts for nothing until you say it is real."
+          body="Reading the archive is something you ask for. When Iris finds something that recurs in your writing, it waits here with the quotes it rests on — and counts for nothing until you say so."
         />
       ) : (
         <div className="col" style={{ gap: 18, maxWidth: 860 }}>
