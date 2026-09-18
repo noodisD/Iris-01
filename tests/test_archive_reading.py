@@ -75,24 +75,24 @@ def test_an_empty_archive_yields_no_passes():
 
 # --- the same finding, noticed twice ------------------------------------------
 
-def test_observations_sharing_an_entry_within_a_pass_become_one():
-    """What merging actually does: join observations that cite the same entry.
+def test_one_shared_entry_is_a_bridge_not_a_shared_subject():
+    """Sharing a single entry is not enough to be one finding.
 
-    This test used to claim it covered "two passes noticing one pattern", using a
-    citation shared between them. Passes are disjoint and each observation is
-    verified only against its own chunk's entries, so two passes can never share
-    a citation — the scenario could not occur, the test passed anyway, and it was
-    read as evidence that cross-pass consolidation worked. It does not exist yet.
+    This test twice asserted the opposite. First it claimed to cover "two passes
+    noticing one pattern" using a citation shared between them — a scenario
+    disjoint passes cannot produce, so it passed while testing nothing. Then it
+    was rewritten to assert that citing one entry joins two findings, which was
+    the rule at the time and the reason a claim about one subject arrived carrying
+    quotes about another: one 22,000-character recording was cited by several
+    unrelated findings. Merging now needs enough overlap, not any (see
+    tests/test_merge_criterion.py).
     """
     shared = _cite(1, "I went all in on the opening I was most certain about")
     first = _observation("Certainty and boldness appeared together", [shared, _cite(2, "doubled down again")])
     second = _observation("The boldest moves sat alongside the strongest certainty",
                           [shared, _cite(3, "doubled the attack")])
 
-    merged = consolidate([first, second])
-
-    assert len(merged) == 1, "observations citing one entry are joined"
-    assert merged[0].claim == second.claim, "the longest claim survives — by length, not by meaning"
+    assert len(consolidate([first, second])) == 2
 
 
 def test_the_same_finding_restated_in_two_passes_becomes_one():
@@ -119,10 +119,13 @@ def test_merging_does_not_depend_on_the_order_observations_arrive():
 
 
 def test_merging_keeps_every_citation():
-    shared = _cite(1, "I went all in on the opening I was most certain about")
+    """Pooling must lose nothing. Overlapping enough to merge, so the property
+    is actually exercised rather than skipped by a fixture that no longer joins."""
+    one = _cite(1, "I went all in on the opening I was most certain about")
+    two = _cite(2, "doubled down again")
     merged = consolidate([
-        _observation("A", [shared, _cite(2, "doubled down again")]),
-        _observation("A longer claim about the same thing", [shared, _cite(3, "doubled the attack")]),
+        _observation("A", [one, two]),
+        _observation("A longer claim about the same thing", [one, two, _cite(3, "doubled the attack")]),
     ])[0]
 
     assert {c.entry_id for c in merged.citations} == {1, 2, 3}, "evidence is pooled, not discarded"
@@ -145,8 +148,10 @@ def test_pooled_evidence_can_raise_confidence():
     """Two entries is tentative; four across months is not. Merging should
     reflect the evidence that now stands behind the claim."""
     a = _observation("A", [_cite(1, "one", day=date(2026, 1, 1)),
-                           _cite(2, "two", day=date(2026, 1, 2))])
-    b = _observation("A longer version", [_cite(2, "two", day=date(2026, 1, 2)),
+                           _cite(2, "two", day=date(2026, 1, 2)),
+                           _cite(3, "three", day=date(2026, 3, 1))])
+    b = _observation("A longer version", [_cite(1, "one", day=date(2026, 1, 1)),
+                                          _cite(2, "two", day=date(2026, 1, 2)),
                                           _cite(3, "three", day=date(2026, 3, 1)),
                                           _cite(4, "four", day=date(2026, 4, 1))])
     merged = consolidate([a, b])[0]

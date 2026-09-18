@@ -55,6 +55,7 @@ from .constants import (
     OBSERVATION_MIN_CITATIONS,
     OBSERVATION_MIN_ENTRIES_CITED,
     OBSERVATION_MIN_QUOTE_CHARS,
+    OBSERVATION_MERGE_OVERLAP,
     OBSERVATION_MIN_STAGED_CHARS,
 )
 from .database import db
@@ -570,18 +571,28 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    by_key: dict[tuple, int] = {}
+    cited = [{c.key for c in o.citations} for o in observations]
+    for i in range(len(observations)):
+        parent[i] = i
+
+    # Enough in common, not anything in common. Joining on a single shared
+    # citation is single-linkage over a bridge, and one 22,000-character
+    # recording is cited by several unrelated findings — which is how a claim
+    # about one subject ended up carrying quotes about two unrelated
+    # others. Complete linkage is no remedy: every pair in such a group really
+    # does share the bridge, so its condition holds and the group still forms.
+    # The ratio is what separates a shared bridge from a shared subject.
+    for i in range(len(observations)):
+        for j in range(i + 1, len(observations)):
+            both, either = cited[i] & cited[j], cited[i] | cited[j]
+            if either and len(both) / len(either) >= OBSERVATION_MERGE_OVERLAP:
+                union(i, j)
+
+    # Disjoint passes share no citations, so a finding noticed twice stayed two
+    # findings however identically it was worded. Matching the wording is not a
+    # semantic judgement: it is the same sentence.
     by_claim: dict[str, int] = {}
     for i, observation in enumerate(observations):
-        parent[i] = i
-        for key in {c.key for c in observation.citations}:
-            if key in by_key:
-                union(i, by_key[key])
-            else:
-                by_key[key] = i
-        # Disjoint passes share no citations, so a finding noticed twice stayed
-        # two findings however identically it was worded. Matching the wording
-        # is not a semantic judgement: it is the same sentence.
         claim_key = _claim_key(observation.claim)
         if claim_key:
             if claim_key in by_claim:

@@ -154,6 +154,15 @@ OBSERVATION_CHARS_PER_TOKEN = 4
 # cliff, and nothing that short can carry a quote worth citing.
 OBSERVATION_MIN_STAGED_CHARS = 200
 
+# How much two findings must have in common before they are one finding.
+# Measured as Jaccard over cited entries, not "any entry in common": the
+# transcripts run to 22,000 characters and several unrelated findings quote the
+# same one, so a single shared citation joined claims about three unrelated
+# subjects. Complete linkage does not help here — every pair in such
+# a group genuinely shares the bridge, so its condition is satisfied — which is
+# why the ratio is the rule and not the linkage strategy.
+OBSERVATION_MERGE_OVERLAP = 0.5
+
 # A reasoning model spends this budget on thinking first and emits nothing if it
 # runs out — the call succeeds, returns empty, and the pass is lost. At 1,500 a
 # real archive read produced finish_reason=length with 1,500 reasoning tokens
