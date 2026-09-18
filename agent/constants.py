@@ -127,6 +127,21 @@ CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS = 7  # a burst on one day is one observation
 # life, not a basis for saying how things are (agent/coverage.py).
 COVERAGE_MIN_OBSERVED_DAYS = 3
 
+# --- Reading entries (agent/observations.py) --------------------------------
+# A claim resting on one entry is an anecdote. Two entries is the floor for
+# calling something recurrent, and the confidence levels below need more.
+OBSERVATION_MIN_CITATIONS = 2
+OBSERVATION_MIN_ENTRIES_CITED = 2
+# Short enough to be a coincidence: "the gym" appears in half the archive and
+# proves nothing about anything.
+OBSERVATION_MIN_QUOTE_CHARS = 16
+OBSERVATION_MAX_ENTRIES_READ = 60
+# Distinct entries and days of span required before an observation is more than
+# tentatively held.
+OBSERVATION_HIGH_ENTRIES = 4
+OBSERVATION_HIGH_SPAN_DAYS = 30
+OBSERVATION_MEDIUM_ENTRIES = 3
+
 # Conflict Suppression Configuration
 CONFLICT_SUPPRESSION_ENABLED = True
 CONFLICT_MIN_CONFIDENCE = "medium"

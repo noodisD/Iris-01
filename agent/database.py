@@ -960,6 +960,31 @@ class Database:
                     "clarity_level", "tags", "created_at", "updated_at", "audio_path")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
+    def get_entries_for_reading(self, user_id: int, limit: int = 60, since=None) -> list:
+        """Entries an engine may read and quote from, newest first.
+
+        Only what the owner deliberately logged, and only what still counts as
+        evidence (ADR-0003). Copied setup text and placeholders marked
+        memory-only stay searchable and stay visible in the journal, but must
+        never become the citation under an observation about the person — a
+        quote is meant to be the thing that convinces them, so it has to come
+        from something they actually sat down and wrote.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, reflection_date, content
+                  FROM reflections
+                 WHERE user_id = %s AND evidence_eligible
+                   AND (%s::date IS NULL OR reflection_date >= %s::date)
+                   AND content IS NOT NULL AND length(trim(content)) > 0
+                 ORDER BY reflection_date DESC, id DESC
+                 LIMIT %s;
+                """,
+                (user_id, since, since, limit),
+            )
+            return [{"id": r[0], "date": r[1], "content": r[2]} for r in cur.fetchall()]
+
     def get_entry_count(self, user_id: int) -> int:
         """Returns the number of journal entries for a user."""
         with self.connection() as conn, conn.cursor() as cur:

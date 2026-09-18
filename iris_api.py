@@ -34,9 +34,11 @@ load_dotenv()
 
 # Import the companion system
 try:
+    from agent.constants import OBSERVATION_MAX_ENTRIES_READ
     from agent.core import PersonalAICompanion
     from agent.database import db
     from agent.insights_service import InsightsService
+    from agent.observations import ObservationEngine, apply_preferences
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -1369,6 +1371,30 @@ def get_insight_detail(insight_id: str, user_id: int = Depends(get_current_user_
         raise HTTPException(status_code=404, detail="Insight not found")
     db.mark_insight_seen(user_id, insight_id)
     return detail
+
+
+class ObservationRequest(BaseModel):
+    """What to read. Deliberately small: this is a button, not a configuration."""
+    limit: int = OBSERVATION_MAX_ENTRIES_READ
+    since: date | None = None
+
+
+@app.post("/api/observations")
+def read_entries(body: ObservationRequest, user_id: int = Depends(get_current_user_id)):
+    """Read the owner's entries and report what recurs, with verbatim quotes.
+
+    This is the only path that sends journal entries to the model for analysis,
+    and it exists as a POST with no caller inside IRIS: it happens when the
+    owner asks for it, and at no other time. Nothing is stored — what comes back
+    is something IRIS noticed while reading, shown with its receipts, not a new
+    fact filed away about them.
+    """
+    engine = ObservationEngine(user_id)
+    observations = apply_preferences(engine.read(limit=body.limit, since=body.since), user_id)
+    return {
+        "observations": [o.as_dict() for o in observations],
+        "entriesRead": observations[0].entries_read if observations else 0,
+    }
 
 
 @app.post("/api/insights/{insight_id}/snooze")
