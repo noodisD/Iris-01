@@ -173,6 +173,17 @@ ENGINE_PRIORITY = [
     "resolution"
 ]
 
+# Every engine the owner may switch on or off. Not the same list as the one
+# above: ENGINE_PRIORITY is an *ordering*, used to break ties during conflict
+# suppression and ranking, and observations take part in neither — they are
+# reviewed and confirmed rather than ranked against other findings.
+#
+# Settings built its allow-list out of ENGINE_PRIORITY, so "observations" was
+# never a valid value. The moment the owner customised their engines at all,
+# apply_preferences dropped every observation, and nothing in Settings could
+# put it back.
+SELECTABLE_ENGINES = set(ENGINE_PRIORITY) | {"persistence", "observations"}
+
 # Insight Prioritization Engine Configuration
 # 1. Scoring Weights
 PRIORITY_CONFIDENCE_WEIGHT = 0.35

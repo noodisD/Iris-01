@@ -1200,6 +1200,11 @@
         "nullable": "YES",
         "type": "character varying"
       },
+      "span_is_undated": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
       "status": {
         "default": "'active'::character varying",
         "nullable": "NO",
@@ -2064,6 +2069,10 @@
       "themes_pkey": {
         "definition": "PRIMARY KEY (id)",
         "type": "p"
+      },
+      "themes_span_is_undated_not_null": {
+        "definition": "NOT NULL span_is_undated",
+        "type": "n"
       },
       "themes_status_not_null": {
         "definition": "NOT NULL status",

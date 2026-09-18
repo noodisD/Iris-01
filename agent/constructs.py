@@ -111,7 +111,13 @@ def promote(user_id: int, observation, run_id: int = None) -> int | None:
         return None
 
     centroid = np.mean(vectors, axis=0)
+    # Recordings carry no date, by design (ADR-0013). The columns are NOT NULL,
+    # so they still need a value — but a construct built only from undated
+    # writing has no span, and stamping the moment of discovery made four
+    # candidates read as though they were written that afternoon. The flag says
+    # the stored value means nothing; the review surface reports no span at all.
     dates = [c.entry_date for c in citations if getattr(c, "entry_date", None)]
+    undated = not dates
     first = min(dates).isoformat() if dates else utc_now().isoformat()
     last = max(dates).isoformat() if dates else utc_now().isoformat()
 
@@ -133,6 +139,7 @@ def promote(user_id: int, observation, run_id: int = None) -> int | None:
         # checked yet, and two quotes explicitly denying a behaviour currently
         # pass verification. So nothing is born as a behaviour claim.
         claim_kind=CLAIM_MENTION,
+        span_is_undated=undated,
     )
 
     for citation, vector in prototypes:
@@ -165,8 +172,9 @@ def candidates(user_id: int) -> list[dict]:
             "summary": theme["summary"],
             "origin": theme["origin"],
             "claimKind": theme.get("claim_kind"),
-            "spanStart": _iso(theme["first_seen_at"]),
-            "spanEnd": _iso(theme["last_seen_at"]),
+            # No span rather than a placeholder presented as a date.
+            "spanStart": None if theme.get("span_is_undated") else _iso(theme["first_seen_at"]),
+            "spanEnd": None if theme.get("span_is_undated") else _iso(theme["last_seen_at"]),
             "quotes": [
                 {
                     "text": p["quote"],

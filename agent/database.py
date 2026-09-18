@@ -494,7 +494,8 @@ class Database:
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
                     first_seen_at: str, last_seen_at: str, occurrence_count: int = 1,
                     origin: str = "clustered", definition: str = None,
-                    status: str = "active", claim_kind: str = "mention") -> int:
+                    status: str = "active", claim_kind: str = "mention",
+                    span_is_undated: bool = False) -> int:
         """Creates a new theme and returns its ID.
 
         The defaults describe a cluster, which is what every existing caller
@@ -508,11 +509,12 @@ class Database:
                     """
                     INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at,
                                         last_seen_at, occurrence_count, origin, definition,
-                                        status, claim_kind)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                        status, claim_kind, span_is_undated)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
                     (user_id, centroid_embedding, summary, first_seen_at, last_seen_at,
-                     occurrence_count, origin, definition, status, claim_kind)
+                     occurrence_count, origin, definition, status, claim_kind,
+                     span_is_undated)
                 )
                 theme_id = cur.fetchone()[0]
                 conn.commit()
@@ -526,7 +528,8 @@ class Database:
     #: What a theme row looks like to the engines, in one place so the active
     #: list and a status listing cannot drift apart.
     _THEME_COLUMNS = """id, centroid_embedding, summary, first_seen_at, last_seen_at,
-                        occurrence_count, origin, definition, status, claim_kind"""
+                        occurrence_count, origin, definition, status, claim_kind,
+                        span_is_undated"""
 
     @staticmethod
     def _theme_row(row) -> dict:
@@ -541,6 +544,7 @@ class Database:
             "definition": row[7],
             "status": row[8],
             "claim_kind": row[9],
+            "span_is_undated": row[10],
         }
 
     def get_themes(self, user_id: int) -> list:
@@ -684,7 +688,7 @@ class Database:
                 """
                 SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
                        occurrence_count, user_id, origin, definition, status, confirmed_at,
-                       claim_kind
+                       claim_kind, span_is_undated
                   FROM themes WHERE id = %s;
                 """,
                 (theme_id,)
@@ -704,6 +708,7 @@ class Database:
                     "status": row[9],
                     "confirmed_at": row[10],
                     "claim_kind": row[11],
+                    "span_is_undated": row[12],
                 }
             return None
 
@@ -1181,13 +1186,20 @@ class Database:
         The average is the voice every entry shares. Themes are compared with it
         removed once there is enough evidence for it to mean that (ADR-0014).
         Eligibility is the same as get_unassigned_embeddings: evidence only.
+
+        That last sentence was a claim the SQL did not honour. Copied setup text
+        and placeholders — excluded from matching, excluded from occurrences —
+        were still shaping the space everything is matched *in*. Worse, they
+        counted toward PERSISTENCE_STYLE_MIN_ENTRIES, so a user could be moved
+        into style space by rows that are not evidence.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT COUNT(*), AVG(e.vector) FROM embeddings e
                 WHERE (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s))
-                   OR (e.source_type = 'reflection' AND e.source_id IN (SELECT id FROM reflections WHERE user_id = %s))
+                   OR (e.source_type = 'reflection' AND e.source_id IN (
+                        SELECT id FROM reflections WHERE user_id = %s AND evidence_eligible))
                    OR (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
                         WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE));

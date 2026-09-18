@@ -8,7 +8,7 @@ It provides a single source of truth for the companion's analytical sensitivity.
 import logging
 from typing import Any
 
-from .constants import ENGINE_PRIORITY
+from .constants import SELECTABLE_ENGINES
 
 # Import database and constants
 from .database import db
@@ -80,9 +80,8 @@ class UserPreferencesService:
                 if not isinstance(value, list):
                     raise ValueError("enabled_engines must be a list of strings or null")
                 # Cross-reference with existing engines
-                all_engines = set(ENGINE_PRIORITY) | {"persistence"}
                 for e in value:
-                    if e not in all_engines:
+                    if e not in SELECTABLE_ENGINES:
                         raise ValueError(f"Invalid engine name: {e}")
 
         elif key == "show_suppressed":
