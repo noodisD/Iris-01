@@ -33,7 +33,6 @@ import numpy as np
 
 from .comparison import ComparisonSpace
 from .database import db
-from .pipeline import generate_embedding
 from .timeutils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -68,6 +67,12 @@ def promote(user_id: int, observation) -> int | None:
     if not citations:
         logger.warning("Refusing to promote an observation with no citations")
         return None
+
+    # Imported here rather than at module scope: agent.pipeline imports this
+    # module, so importing it back at load time makes the package uninstallable
+    # — agent.work_queue imports pipeline, which imports constructs, which would
+    # import a pipeline that has not finished defining anything yet.
+    from .pipeline import generate_embedding
 
     vectors, prototypes = [], []
     for citation in citations:
@@ -247,6 +252,53 @@ def scan(theme_id: int) -> int:
         )
     db.update_theme_stats(theme_id)
     return len(memberships)
+
+
+def classify(user_id: int, source_type: str, source_id: int, embedding,
+             content: str, occurred_at) -> list[int]:
+    """Test one new entry against every construct the owner has confirmed.
+
+    Clustering is exclusive — an entry joins the single closest cluster — because
+    it answers "what is this entry mostly about". A construct answers a different
+    question, "does this entry show X", and several can be true of one entry at
+    once. Running constructs through the exclusive competition meant an entry
+    could go to a cluster on ingestion and to a construct on replay, so
+    confirming a construct changed its measured frequency for reasons that were
+    routing rather than writing.
+
+    Returns the construct ids this entry was added to.
+    """
+    actives = db.get_themes_by_origin(user_id, "observed")
+    if not actives:
+        return []
+
+    space = ComparisonSpace(user_id)
+    _, match_threshold, _ = space.space()
+    entry = space.project(embedding)[0]
+
+    matched = []
+    for theme in actives:
+        centroid = theme.get("centroid_embedding")
+        if centroid is None:
+            continue
+        centroid_in_space = space.project(_as_vector(centroid), are_centroids=True)[0]
+        similarity = float(centroid_in_space @ entry)
+        if similarity < match_threshold:
+            continue
+        db.add_theme_occurrence(
+            theme_id=theme["id"],
+            source_type=source_type,
+            source_id=source_id,
+            snippet=(content or "")[:500],
+            similarity_score=similarity,
+            occurred_at=occurred_at.isoformat() if hasattr(occurred_at, "isoformat") else str(occurred_at),
+            # The owner never saw this one: the detector proposed it.
+            admission_basis="similarity",
+        )
+        db.update_theme_stats(theme["id"])
+        matched.append(theme["id"])
+        logger.info(f"{source_type} {source_id} matched construct {theme['id']} ({similarity:.3f})")
+    return matched
 
 
 def _memberships(theme_id: int) -> list | None:

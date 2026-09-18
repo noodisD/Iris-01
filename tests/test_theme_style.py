@@ -93,7 +93,7 @@ def test_an_entry_joins_the_closest_theme_not_the_first():
     engine = PersistenceEngine(user_id=1)
     with patch("agent.persistence.embeddings") as emb, patch("agent.persistence.themes") as th:
         emb.get_evidence_style.return_value = (0, None)
-        th.get_all_themes.return_value = [
+        th.get_by_origin.return_value = [
             {"id": 1, "centroid_embedding": far.tolist(), "occurrence_count": 50},
             {"id": 2, "centroid_embedding": near.tolist(), "occurrence_count": 3},
         ]

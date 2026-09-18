@@ -153,6 +153,9 @@ class ThemeRepository(Repository):
     def get_all_themes(self, user_id: int) -> list:
         return self.db.get_themes(user_id)
 
+    def get_by_origin(self, user_id: int, origin: str) -> list:
+        return self.db.get_themes_by_origin(user_id, origin)
+
     def delete_all_for_user(self, user_id: int) -> int:
         return self.db.delete_user_themes(user_id)
 

@@ -387,16 +387,38 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
     and it keeps every citation, so merging strengthens the evidence rather
     than discarding any of it.
     """
-    merged: list[dict] = []
-    for observation in observations:
-        keys = {c.key for c in observation.citations}
-        for group in merged:
-            if group["keys"] & keys:
-                group["keys"] |= keys
-                group["observations"].append(observation)
-                break
-        else:
-            merged.append({"keys": set(keys), "observations": [observation]})
+    # Connected components, not first-match-wins. The previous loop joined an
+    # observation to the first group it happened to touch and stopped, so a
+    # bridging observation did not unite the groups it connected: keys A={1,2},
+    # B={2,3}, C={3,4} gave one group in the order A,B,C and two in the order
+    # A,C,B. The partition depended on which pass finished first, which is not a
+    # property of the writing.
+    parent: dict[int, int] = {}
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    by_key: dict[tuple, int] = {}
+    for i, observation in enumerate(observations):
+        parent[i] = i
+        for key in {c.key for c in observation.citations}:
+            if key in by_key:
+                union(i, by_key[key])
+            else:
+                by_key[key] = i
+
+    groups: dict[int, list] = {}
+    for i, observation in enumerate(observations):
+        groups.setdefault(find(i), []).append(observation)
+    merged = [{"observations": members} for members in groups.values()]
 
     out: list[Observation] = []
     for group in merged:
@@ -420,7 +442,10 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
             citations=tuple(citations),
             span_start=span_start,
             span_end=span_end,
-            entries_read=sum(m.entries_read for m in members),
+            # Distinct writing read, not the sum of each member's pass size.
+            # Two observations from one five-entry pass reported ten entries
+            # read, which overstated the evidence behind a merged claim.
+            entries_read=max((m.entries_read for m in members), default=0),
             confidence_level=_confidence(tuple(citations), span_days),
         ))
     return out

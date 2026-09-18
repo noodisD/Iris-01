@@ -126,9 +126,14 @@ def test_the_models_wording_never_enters_the_vector(test_user, archive, monkeypa
     Embedding the claim would anchor a construct in how a model talks, and it
     would then match entries for resembling that voice rather than the owner's.
     """
+    # Patched where it lives, not where it is used: constructs imports it inside
+    # promote() rather than at module scope, because binding agent.pipeline at
+    # import time made the whole package uncircular-importable.
+    import agent.pipeline as pipeline
+
     embedded: list[str] = []
-    real = constructs.generate_embedding
-    monkeypatch.setattr(constructs, "generate_embedding",
+    real = pipeline.generate_embedding
+    monkeypatch.setattr(pipeline, "generate_embedding",
                         lambda text: embedded.append(text) or real(text))
 
     constructs.promote(test_user["id"], _observation(archive))

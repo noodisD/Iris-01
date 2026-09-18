@@ -24,7 +24,7 @@ def test_check_persistence_match(engine, mocker):
             "occurrence_count": 1
         }
     ]
-    mocker.patch("agent.database.db.get_themes", return_value=mock_themes)
+    mocker.patch("agent.database.db.get_themes_by_origin", return_value=mock_themes)
 
     # Mock update methods
     mock_add_occ = mocker.patch("agent.database.db.add_theme_occurrence")
@@ -54,7 +54,7 @@ def test_check_persistence_no_match(engine, mocker):
             "occurrence_count": 1
         }
     ]
-    mocker.patch("agent.database.db.get_themes", return_value=mock_themes)
+    mocker.patch("agent.database.db.get_themes_by_origin", return_value=mock_themes)
 
     # Mock update methods
     mock_add_occ = mocker.patch("agent.database.db.add_theme_occurrence")

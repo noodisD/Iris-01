@@ -562,6 +562,28 @@ class Database:
             )
             return [self._theme_row(row) for row in cur.fetchall()]
 
+    def get_themes_by_origin(self, user_id: int, origin: str) -> list:
+        """Active themes of one origin.
+
+        Clustering and constructs answer different questions, so they must not
+        compete for the same slot. An entry belongs to at most one cluster —
+        topical grouping is exclusive by design — but to as many constructs as
+        describe it, because "went all in" and "slept badly" are not rivals.
+        Mixing them meant a confirmed construct could lose an entry to a cluster
+        on ingestion while winning it during replay, so confirming a construct
+        changed measured frequency for reasons that were routing, not writing.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {self._THEME_COLUMNS} FROM themes
+                WHERE user_id = %s AND status = 'active' AND origin = %s
+                ORDER BY occurrence_count DESC;
+                """,
+                (user_id, origin)
+            )
+            return [self._theme_row(row) for row in cur.fetchall()]
+
     def get_themes_by_status(self, user_id: int, status: str) -> list:
         """Themes in one state, newest first — the review surface's query."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -708,19 +730,30 @@ class Database:
                 raise
 
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
-                            snippet: str, similarity_score: float, occurred_at: str):
-        """Records that a theme occurred at a specific entry."""
+                            snippet: str, similarity_score: float, occurred_at: str,
+                            admission_basis: str = "similarity"):
+        """Records that a theme occurred at a specific entry.
+
+        `admission_basis` says why: 'citation' for a sentence the owner read
+        while reviewing, 'similarity' for a match a detector proposed and they
+        never saw. Clustering only ever produces the latter, which is why that
+        is the default.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
                     INSERT INTO theme_occurrences
-                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at,
+                     admission_basis)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (theme_id, source_type, source_id) DO UPDATE
-                    SET snippet = EXCLUDED.snippet, similarity_score = EXCLUDED.similarity_score;
+                    SET snippet = EXCLUDED.snippet,
+                        similarity_score = EXCLUDED.similarity_score,
+                        admission_basis = EXCLUDED.admission_basis;
                     """,
-                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at)
+                    (theme_id, source_type, source_id, snippet, similarity_score, occurred_at,
+                     admission_basis)
                 )
 
                 # Invalidate caches
@@ -1211,6 +1244,13 @@ class Database:
         what the owner deliberately logged, minus anything marked memory-only.
         A construct is a statement about the person, so a placeholder or a
         duplicated paragraph must not be able to become one of its occurrences.
+
+        All three source types ingestion admits, so replaying the archive and
+        classifying a new entry read the same population. This read reflections
+        alone while ingestion also admitted journal entries and completed habits,
+        which would have made a construct's history disagree with its future.
+        The owner's archive is currently all reflections, so the gap had no
+        present effect — it was waiting for the first habit tick.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -1221,9 +1261,29 @@ class Database:
                  WHERE e.source_type = 'reflection'
                    AND r.user_id = %s AND r.evidence_eligible
                    AND r.reflection_date IS NOT NULL
-                 ORDER BY r.reflection_date;
+
+                UNION ALL
+
+                SELECT e.source_type, e.source_id, e.vector, j.raw_text, j.created_at::date
+                  FROM embeddings e
+                  JOIN journal_entries j ON j.id = e.source_id
+                 WHERE e.source_type = 'journal_entry' AND j.user_id = %s
+
+                UNION ALL
+
+                SELECT e.source_type, e.source_id, e.vector,
+                       CASE WHEN hc.is_skipped THEN 'Skipped ' || h.name
+                            ELSE 'Did ' || h.name END,
+                       hc.completion_date
+                  FROM embeddings e
+                  JOIN habit_completions hc ON hc.id = e.source_id
+                  JOIN habits h ON h.id = hc.habit_id
+                 WHERE e.source_type = 'habit_completion'
+                   AND h.user_id = %s AND hc.is_skipped IS NOT TRUE
+
+                 ORDER BY 5;
                 """,
-                (user_id,)
+                (user_id, user_id, user_id)
             )
             return [
                 {"source_type": r[0], "source_id": r[1], "vector": r[2],

@@ -545,6 +545,73 @@
         "type": "jsonb"
       }
     },
+    "observation_runs": {
+      "candidates_staged": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "entries_read": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "finished_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "model": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "passes_completed": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "passes_planned": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "prompt_version": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "raw_observations": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "started_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "status": {
+        "default": "'running'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "pattern_confidence": {
       "confidence_level": {
         "default": null,
@@ -1113,6 +1180,11 @@
         "nullable": "NO",
         "type": "timestamp with time zone"
       },
+      "observation_run_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
       "occurrence_count": {
         "default": "1",
         "nullable": "YES",
@@ -1121,6 +1193,11 @@
       "origin": {
         "default": "'clustered'::character varying",
         "nullable": "NO",
+        "type": "character varying"
+      },
+      "proposal_key": {
+        "default": null,
+        "nullable": "YES",
         "type": "character varying"
       },
       "status": {
@@ -1579,6 +1656,48 @@
         "type": "n"
       }
     },
+    "observation_runs": {
+      "observation_runs_candidates_staged_not_null": {
+        "definition": "NOT NULL candidates_staged",
+        "type": "n"
+      },
+      "observation_runs_entries_read_not_null": {
+        "definition": "NOT NULL entries_read",
+        "type": "n"
+      },
+      "observation_runs_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "observation_runs_passes_completed_not_null": {
+        "definition": "NOT NULL passes_completed",
+        "type": "n"
+      },
+      "observation_runs_passes_planned_not_null": {
+        "definition": "NOT NULL passes_planned",
+        "type": "n"
+      },
+      "observation_runs_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "observation_runs_started_at_not_null": {
+        "definition": "NOT NULL started_at",
+        "type": "n"
+      },
+      "observation_runs_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "observation_runs_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "observation_runs_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "pattern_confidence": {
       "pattern_confidence_id_not_null": {
         "definition": "NOT NULL id",
@@ -1934,6 +2053,10 @@
         "definition": "NOT NULL last_seen_at",
         "type": "n"
       },
+      "themes_observation_run_id_fkey": {
+        "definition": "FOREIGN KEY (observation_run_id) REFERENCES observation_runs(id) ON DELETE SET NULL",
+        "type": "f"
+      },
       "themes_origin_not_null": {
         "definition": "NOT NULL origin",
         "type": "n"
@@ -2053,6 +2176,10 @@
     "journal_entries": {
       "journal_entries_pkey": "CREATE UNIQUE INDEX journal_entries_pkey ON public.journal_entries USING btree (id)"
     },
+    "observation_runs": {
+      "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",
+      "observation_runs_pkey": "CREATE UNIQUE INDEX observation_runs_pkey ON public.observation_runs USING btree (id)"
+    },
     "pattern_confidence": {
       "pattern_confidence_pattern_type_pattern_id_key": "CREATE UNIQUE INDEX pattern_confidence_pattern_type_pattern_id_key ON public.pattern_confidence USING btree (pattern_type, pattern_id)",
       "pattern_confidence_pkey": "CREATE UNIQUE INDEX pattern_confidence_pkey ON public.pattern_confidence USING btree (id)"
@@ -2102,6 +2229,7 @@
     },
     "themes": {
       "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
+      "idx_themes_proposal_key": "CREATE INDEX idx_themes_proposal_key ON public.themes USING btree (user_id, proposal_key)",
       "idx_themes_user": "CREATE INDEX idx_themes_user ON public.themes USING btree (user_id)",
       "idx_themes_user_kind": "CREATE INDEX idx_themes_user_kind ON public.themes USING btree (user_id, claim_kind)",
       "idx_themes_user_status": "CREATE INDEX idx_themes_user_status ON public.themes USING btree (user_id, status)",

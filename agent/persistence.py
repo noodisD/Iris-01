@@ -137,7 +137,15 @@ class PersistenceEngine:
 
         _, match_threshold, _ = self._space()
         entry = self._project(embedding)[0]
-        centroids = self._project([t["centroid_embedding"] for t in user_themes], are_centroids=True)
+        # A theme with no stored centroid cannot be compared against. Filtered
+        # rather than projected: an empty list projects to a zero-dimension
+        # array, and the failure then surfaces as a matmul shape error deep in
+        # numpy rather than as "there was nothing to match".
+        comparable = [t for t in user_themes if t.get("centroid_embedding") is not None]
+        if not comparable:
+            logger.info(f"No comparable themes for user {self.user_id}; nothing to match")
+            return None
+        centroids = self._project([t["centroid_embedding"] for t in comparable], are_centroids=True)
         similarities = centroids @ entry
 
         # The closest theme, not the first past the bar. Themes come back
@@ -148,7 +156,7 @@ class PersistenceEngine:
         if similarity < match_threshold:
             return None
 
-        theme = user_themes[best]
+        theme = comparable[best]
         themes.add_occurrence(
             theme_id=theme["id"],
             source_type=source_type,
@@ -625,8 +633,14 @@ Subject:"""
     # === Private Helpers ===
 
     def _get_user_themes(self) -> list[dict]:
-        """Retrieve all themes for this user."""
-        return themes.get_all_themes(self.user_id)
+        """The themes an entry competes to join — clusters only.
+
+        Topical clustering is exclusive: one entry, one cluster, the closest.
+        Constructs are not part of that competition (see
+        `constructs.classify`), because they are independent classifiers rather
+        than rival groupings.
+        """
+        return themes.get_by_origin(self.user_id, "clustered")
 
     def _is_cohesive(self, vectors: np.ndarray, threshold: float | None = None) -> bool:
         """Does every member of this cluster clear the theme-creation threshold?

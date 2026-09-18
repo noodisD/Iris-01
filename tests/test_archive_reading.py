@@ -111,10 +111,11 @@ def test_the_same_finding_restated_in_two_passes_becomes_one():
     assert len(consolidate([first, second])) == 1
 
 
-@pytest.mark.xfail(reason="greedy first-match grouping is order-dependent; see Package 3", strict=True)
 def test_merging_does_not_depend_on_the_order_observations_arrive():
-    """A,B,C yields one group; A,C,B yields two. The partition should not depend
-    on which pass finished first."""
+    """A,B,C used to yield one group and A,C,B two, because grouping joined an
+    observation to the first group it touched and stopped — so a bridging
+    observation did not unite the groups it connected. The partition is now
+    connected components, which does not depend on which pass finished first."""
     a = _observation("A", [_cite(1, "a"), _cite(2, "b")])
     b = _observation("B", [_cite(2, "b"), _cite(3, "c")])
     c = _observation("C", [_cite(3, "c"), _cite(4, "d")])

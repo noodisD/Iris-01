@@ -22,6 +22,7 @@ from .config import settings
 
 # Import the data layer interfaces
 from .database import embeddings
+from . import constructs
 from .persistence import PersistenceEngine
 from .prompt_labels import strip_prompt_labels
 
@@ -185,10 +186,33 @@ def run_processing_pipeline(source_type: str, source_id: int):
                     content=content,
                     occurred_at=occurred_at
                 )
-                if matched_theme_id:
-                    logger.info(f"{source_type.capitalize()} {source_id} matched theme {matched_theme_id}")
+                # Constructs are classified separately, and always. Clustering
+                # asks "what is this entry mostly about" and admits one answer;
+                # a construct asks "does this entry show X", and several can be
+                # true at once. Running them through the same exclusive contest
+                # meant an entry could go to a cluster now and to a construct on
+                # replay, so confirming a construct moved its measured frequency
+                # for reasons that were routing rather than writing.
+                try:
+                    matched_constructs = constructs.classify(
+                        user_id=user_id,
+                        source_type=source_type,
+                        source_id=source_id,
+                        embedding=embedding,
+                        content=content,
+                        occurred_at=occurred_at,
+                    )
+                except Exception as e:
+                    # A construct failing to classify must not lose the entry's
+                    # clustering, which has already been written.
+                    logger.error(f"Construct classification failed for {source_type} {source_id}: {e}")
+                    matched_constructs = []
+
+                if matched_theme_id or matched_constructs:
+                    if matched_theme_id:
+                        logger.info(f"{source_type.capitalize()} {source_id} matched theme {matched_theme_id}")
                     _refresh_cross_theme_analyses(user_id)
-                else:
+                elif not matched_theme_id:
                     # Nothing matched. Themes are only *born* from clustering,
                     # and discover_themes() used to be reachable only from the
                     # CLI — so a user of the web app never formed a first theme

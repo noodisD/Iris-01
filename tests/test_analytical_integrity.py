@@ -165,7 +165,7 @@ def test_each_theme_gets_only_its_own_evidence():
     with patch("agent.persistence.themes") as th, \
          patch("agent.persistence.confidence_repo") as conf_repo, \
          patch.object(engine, "ev_engine") as ev:
-        th.get_all_themes.return_value = themes_rows
+        th.get_by_origin.return_value = themes_rows
         th.get_occurrences.side_effect = lambda tid: occ[tid]
         conf_repo.get_confidence.return_value = None
         ev.record_evidence.side_effect = (
