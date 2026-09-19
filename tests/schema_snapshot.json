@@ -513,43 +513,6 @@
         "type": "integer"
       }
     },
-    "journal_entries": {
-      "created_at": {
-        "default": "CURRENT_TIMESTAMP",
-        "nullable": "YES",
-        "type": "timestamp with time zone"
-      },
-      "id": {
-        "default": "nextval(...)",
-        "nullable": "NO",
-        "type": "integer"
-      },
-      "processing_status": {
-        "default": "'pending'::character varying",
-        "nullable": "YES",
-        "type": "character varying"
-      },
-      "raw_text": {
-        "default": null,
-        "nullable": "NO",
-        "type": "text"
-      },
-      "updated_at": {
-        "default": "CURRENT_TIMESTAMP",
-        "nullable": "YES",
-        "type": "timestamp with time zone"
-      },
-      "user_id": {
-        "default": null,
-        "nullable": "NO",
-        "type": "integer"
-      },
-      "wellbeing_data": {
-        "default": null,
-        "nullable": "YES",
-        "type": "jsonb"
-      }
-    },
     "observation_runs": {
       "candidates_staged": {
         "default": "0",
@@ -1663,28 +1626,6 @@
         "type": "n"
       }
     },
-    "journal_entries": {
-      "journal_entries_id_not_null": {
-        "definition": "NOT NULL id",
-        "type": "n"
-      },
-      "journal_entries_pkey": {
-        "definition": "PRIMARY KEY (id)",
-        "type": "p"
-      },
-      "journal_entries_raw_text_not_null": {
-        "definition": "NOT NULL raw_text",
-        "type": "n"
-      },
-      "journal_entries_user_id_fkey": {
-        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
-        "type": "f"
-      },
-      "journal_entries_user_id_not_null": {
-        "definition": "NOT NULL user_id",
-        "type": "n"
-      }
-    },
     "observation_runs": {
       "observation_runs_candidates_staged_not_null": {
         "definition": "NOT NULL candidates_staged",
@@ -2201,9 +2142,6 @@
     },
     "insight_status": {
       "insight_status_pkey": "CREATE UNIQUE INDEX insight_status_pkey ON public.insight_status USING btree (user_id, insight_id)"
-    },
-    "journal_entries": {
-      "journal_entries_pkey": "CREATE UNIQUE INDEX journal_entries_pkey ON public.journal_entries USING btree (id)"
     },
     "observation_runs": {
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",

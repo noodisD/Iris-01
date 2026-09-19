@@ -23,7 +23,7 @@ def test_trajectory_slope_math(test_user, freeze_time):
     # (Simplified: linear regression on indices [0, 10, 20] vs values [1, 2, 3])
     for i in range(3):
         occ_time = base_time + timedelta(days=i*10)
-        db.add_theme_occurrence(theme_id, 'journal_entry', 100+i, "snippet", 0.9, occ_time.isoformat())
+        db.add_theme_occurrence(theme_id, 'reflection', 100+i, "snippet", 0.9, occ_time.isoformat())
         db.update_theme_stats(theme_id, occ_time.isoformat())
 
     # Move 'now' forward so windows establish correctly
@@ -54,10 +54,10 @@ def test_leverage_lift_math(test_user, freeze_time):
         time_a = base_time + timedelta(days=i*10)
         time_b = time_a + timedelta(days=2)
 
-        db.add_theme_occurrence(t_a, 'journal_entry', 200+i, "a", 0.9, time_a.isoformat())
+        db.add_theme_occurrence(t_a, 'reflection', 200+i, "a", 0.9, time_a.isoformat())
         db.update_theme_stats(t_a, time_a.isoformat())
 
-        db.add_theme_occurrence(t_b, 'journal_entry', 300+i, "b", 0.9, time_b.isoformat())
+        db.add_theme_occurrence(t_b, 'reflection', 300+i, "b", 0.9, time_b.isoformat())
         db.update_theme_stats(t_b, time_b.isoformat())
 
     # Move to 'now'

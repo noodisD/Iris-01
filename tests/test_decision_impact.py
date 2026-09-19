@@ -21,13 +21,13 @@ def test_impact_emergence_detected(test_user, impact_engine):
     # so all three can actually be judged.
     anchor_dates = [now - timedelta(days=210), now - timedelta(days=110), now - timedelta(days=20)]
     for i, d_a in enumerate(anchor_dates):
-        eid_a = db.create_journal_entry(user_id, f"A {i}", {})
-        db.add_theme_occurrence(t_a, 'journal_entry', eid_a, "a", 0.9, d_a.isoformat())
+        eid_a = db.create_reflection(user_id, f'A {i}')
+        db.add_theme_occurrence(t_a, 'reflection', eid_a, "a", 0.9, d_a.isoformat())
         db.update_theme_stats(t_a, d_a.isoformat())
         for j in range(2):
             d_b = d_a + timedelta(days=2 + j)
-            eid_b = db.create_journal_entry(user_id, f"B {i}-{j}", {})
-            db.add_theme_occurrence(t_b, 'journal_entry', eid_b, "b", 0.9, d_b.isoformat())
+            eid_b = db.create_reflection(user_id, f'B {i}-{j}')
+            db.add_theme_occurrence(t_b, 'reflection', eid_b, "b", 0.9, d_b.isoformat())
             db.update_theme_stats(t_b, d_b.isoformat())
     impacts = impact_engine.analyze_anchor('theme', t_a)
     target_b_impact = next((i for i in impacts if i['target_id'] == t_b), None)
@@ -45,13 +45,13 @@ def test_impact_fade_detected(test_user, impact_engine):
     # so all three can actually be judged.
     anchor_dates = [now - timedelta(days=210), now - timedelta(days=110), now - timedelta(days=20)]
     for i, d_a in enumerate(anchor_dates):
-        eid_a = db.create_journal_entry(user_id, f"A {i}", {})
-        db.add_theme_occurrence(t_a, 'journal_entry', eid_a, "a", 0.9, d_a.isoformat())
+        eid_a = db.create_reflection(user_id, f'A {i}')
+        db.add_theme_occurrence(t_a, 'reflection', eid_a, "a", 0.9, d_a.isoformat())
         db.update_theme_stats(t_a, d_a.isoformat())
         for j in range(3):
             d_b = d_a - timedelta(days=5 + j)
-            eid_b = db.create_journal_entry(user_id, f"B {i}-{j}", {})
-            db.add_theme_occurrence(t_b, 'journal_entry', eid_b, "b", 0.9, d_b.isoformat())
+            eid_b = db.create_reflection(user_id, f'B {i}-{j}')
+            db.add_theme_occurrence(t_b, 'reflection', eid_b, "b", 0.9, d_b.isoformat())
             db.update_theme_stats(t_b, d_b.isoformat())
     impacts = impact_engine.analyze_anchor('theme', t_a)
     target_b_impact = next((i for i in impacts if i['target_id'] == t_b), None)
@@ -69,14 +69,14 @@ def test_noise_rejection(test_user, impact_engine):
     # signal this test asserts is absent.
     anchor_dates = [now - timedelta(days=240), now - timedelta(days=130), now - timedelta(days=20)]
     for i, d_a in enumerate(anchor_dates):
-        eid_a = db.create_journal_entry(user_id, f"A {i}", {})
-        db.add_theme_occurrence(t_a, 'journal_entry', eid_a, "a", 0.9, d_a.isoformat())
+        eid_a = db.create_reflection(user_id, f'A {i}')
+        db.add_theme_occurrence(t_a, 'reflection', eid_a, "a", 0.9, d_a.isoformat())
         db.update_theme_stats(t_a, d_a.isoformat())
     for i, d_a in enumerate(anchor_dates):
         for j in range(2):
             d_b = d_a + timedelta(days=30 + j)
-            eid_b = db.create_journal_entry(user_id, f"B {i}-{j}", {})
-            db.add_theme_occurrence(t_b, 'journal_entry', eid_b, "b", 0.9, d_b.isoformat())
+            eid_b = db.create_reflection(user_id, f'B {i}-{j}')
+            db.add_theme_occurrence(t_b, 'reflection', eid_b, "b", 0.9, d_b.isoformat())
             db.update_theme_stats(t_b, d_b.isoformat())
     impacts = impact_engine.analyze_anchor('theme', t_a)
     target_b_impact = next((i for i in impacts if i['target_id'] == t_b), None)
@@ -89,20 +89,20 @@ def test_cache_invalidation(test_user, impact_engine):
     t_b = db.create_theme(user_id, [0.2]*1536, "Target", (now-timedelta(days=100)).isoformat(), now.isoformat())
     for i in range(3):
         d_a = now - timedelta(days=210 - (i*95))  # 210, 115, 20 — all past the follow-up window
-        eid_a = db.create_journal_entry(user_id, f"A {i}", {})
-        db.add_theme_occurrence(t_a, 'journal_entry', eid_a, "a", 0.9, d_a.isoformat())
+        eid_a = db.create_reflection(user_id, f'A {i}')
+        db.add_theme_occurrence(t_a, 'reflection', eid_a, "a", 0.9, d_a.isoformat())
         db.update_theme_stats(t_a, d_a.isoformat())
         for j in range(2):
             d_b = d_a + timedelta(days=2 + j)
-            eid_b = db.create_journal_entry(user_id, f"B {i}-{j}", {})
-            db.add_theme_occurrence(t_b, 'journal_entry', eid_b, "b", 0.9, d_b.isoformat())
+            eid_b = db.create_reflection(user_id, f'B {i}-{j}')
+            db.add_theme_occurrence(t_b, 'reflection', eid_b, "b", 0.9, d_b.isoformat())
             db.update_theme_stats(t_b, d_b.isoformat())
     impact_engine.analyze_anchor('theme', t_a)
     conn = db.get_connection()
     with conn.cursor() as cur:
         cur.execute("SELECT last_computed_at FROM decision_impacts WHERE anchor_id = %s", (t_a,))
         assert cur.fetchone()[0] is not None
-    db.add_theme_occurrence(t_a, 'journal_entry', 9999, "new", 0.9, now.isoformat())
+    db.add_theme_occurrence(t_a, 'reflection', 9999, "new", 0.9, now.isoformat())
     with conn.cursor() as cur:
         cur.execute("SELECT last_computed_at FROM decision_impacts WHERE anchor_id = %s", (t_a,))
         assert cur.fetchone()[0] is None

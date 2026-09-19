@@ -105,11 +105,11 @@ def test_pipeline_embeds_the_row_it_was_asked_for(test_user, monkeypatch):
     taking the other row's user_id with it.
     """
     user_id = test_user["id"]
-    first = db.create_journal_entry(user_id, "ALPHA one distinctive entry", {})
-    second = db.create_journal_entry(user_id, "BETA a quite different entry", {})
+    first = db.create_reflection(user_id, 'ALPHA one distinctive entry')
+    second = db.create_reflection(user_id, 'BETA a quite different entry')
 
     # Leave `first` stuck mid-flight, exactly as a crashed run would.
-    db.update_processing_status("journal_entry", first, "processing")
+    db.update_processing_status("reflection", first, "processing")
 
     seen = []
     monkeypatch.setattr(
@@ -120,7 +120,7 @@ def test_pipeline_embeds_the_row_it_was_asked_for(test_user, monkeypatch):
         "agent.persistence.PersistenceEngine._generate_theme_summary", lambda s, e: "T"
     )
 
-    run_processing_pipeline("journal_entry", second)
+    run_processing_pipeline("reflection", second)
 
     assert seen, "the pipeline should have embedded something"
     assert "BETA" in seen[0], f"embedded the wrong row's text: {seen[0]!r}"
@@ -155,8 +155,6 @@ def test_journal_entry_service_creates_an_entry(test_user, mock_pipeline_logic):
     assert "Journal Entry Created" in out, out
 
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM journal_entries WHERE user_id = %s;", (test_user["id"],))
-        assert cur.fetchone()[0] == 0, "the CLI must no longer write the legacy table"
         cur.execute(
             "SELECT content, energy_level FROM reflections WHERE user_id = %s;",
             (test_user["id"],),

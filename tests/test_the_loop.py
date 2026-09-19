@@ -26,10 +26,9 @@ def _theme(user_id: int, summary: str, seed: float, at: datetime) -> int:
 
 
 def _entry(user_id: int, at: datetime, *theme_ids: int) -> None:
-    entry_id = db.create_journal_entry(user_id, f"entry {at:%Y-%m-%d}", {},
-                                       created_at=at.isoformat())
+    entry_id = db.create_reflection(user_id, f'entry {at:%Y-%m-%d}', reflection_date=at.isoformat())
     for theme_id in theme_ids:
-        db.add_theme_occurrence(theme_id, "journal_entry", entry_id, "a line", 0.9, at.isoformat())
+        db.add_theme_occurrence(theme_id, "reflection", entry_id, "a line", 0.9, at.isoformat())
         db.update_theme_stats(theme_id, at.isoformat())
 
 

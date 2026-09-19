@@ -119,18 +119,25 @@ def test_the_engine_lists_agree():
     assert named == SELECTABLE_ENGINES, f"what the glossary says: {named}"
 
 
-def test_nothing_in_the_product_writes_the_legacy_journal_table():
-    """ADR-0010: a journal entry is a reflection; `journal_entries` stays, read,
-    because evidence references its rows — and a new write to it is a
-    regression. The ADR said so; now the build does."""
-    writers = []
-    for path in [*(ROOT / "agent").rglob("*.py"), ROOT / "iris_api.py", ROOT / "companion.py"]:
-        if path.name == "database.py":
-            continue  # where the method is defined, not called
-        text = path.read_text()
-        # The database layer's writer, not the CLI's or the API's own
-        # create_journal_entry — both of which write a reflection.
-        if re.search(r"\b(db|journals)\.create_journal_entry\(", text) \
-                or "INSERT INTO journal_entries" in text:
-            writers.append(path.name)
-    assert not writers, f"the legacy table is written by {writers}"
+# Use, not mention: SQL against the table, a db call on the source type, a
+# comparison with it. History in a comment and an importer's
+# `journal_entries.json` are neither.
+USES_THE_JOURNAL_TABLE = re.compile(
+    r"(FROM|INTO|JOIN|UPDATE|TABLE)\s+journal_entries\b"
+    r"|\b(db|self)\.\w+\(\s*['\"]journal_entry['\"]"
+    r"|source_type\s*(=|==)\s*['\"]journal_entry['\"]"
+    r"|\bcreate_journal_entry\(\s*(test_user|user_id|uid)")
+
+
+def test_the_legacy_journal_table_is_gone_from_the_code():
+    """ADR-0010: a journal entry is a reflection. `journal_entries` was kept
+    readable after the product stopped writing it, and seven queries went on
+    unioning it in as if it might hold evidence while only the tests filled it.
+    Migration 0015 dropped it; nothing but the migrations and the one-off
+    backfill script may name it again."""
+    allowed = {ROOT / "scripts" / "backfill_journal_entries.py", Path(__file__)}
+    named = [str(path.relative_to(ROOT))
+             for path in [*(ROOT / "agent").rglob("*.py"), *(ROOT / "tests").rglob("*.py"),
+                          *(ROOT / "scripts").rglob("*.py"), ROOT / "iris_api.py", ROOT / "companion.py"]
+             if path not in allowed and USES_THE_JOURNAL_TABLE.search(path.read_text())]
+    assert not named, f"still naming the retired journal table or source type: {named}"

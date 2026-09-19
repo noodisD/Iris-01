@@ -56,8 +56,8 @@ An instance of a theme in one source.
 
 ### Source
 What the owner deliberately logged. Evidence is reflections (a journal entry *is*
-a reflection, ADR-0010), legacy `journal_entries` rows (read, no longer written),
-and habit completions. A skipped habit is not evidence. An entry marked
+a reflection, ADR-0010) and habit completions. The legacy `journal_entries`
+table was dropped by migration 0015 once nothing was left in it. A skipped habit is not evidence. An entry marked
 memory-only (`evidence_eligible = false`) is searchable but never evidence.
 
 A reflection's `reflection_date` may be **null**: the owner said the day is not

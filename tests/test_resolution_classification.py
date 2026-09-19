@@ -34,10 +34,10 @@ def test_theme_dissipated_when_no_recent_activity(test_user):
     for i in range(5):  # More than RESOLUTION_MIN_DATA_POINTS
         days_ago = 30 + (i * 5)  # 30, 35, 40, 45, 50 days ago
         occ_date = now - timedelta(days=days_ago)
-        entry_id = db.create_journal_entry(user_id, f"Entry {i}", {})
+        entry_id = db.create_reflection(user_id, f'Entry {i}')
         db.add_theme_occurrence(
             theme_id,
-            'journal_entry',
+            'reflection',
             entry_id,
             "snippet",
             0.95,

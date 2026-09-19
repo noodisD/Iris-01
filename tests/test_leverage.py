@@ -45,10 +45,10 @@ def test_asymmetric_influence_detected(test_user, leverage_engine):
         b_date = a_date + timedelta(days=2)
 
         # Add occurrences and update stats
-        db.add_theme_occurrence(theme_a_id, 'journal_entry', 1000+i, "occ a", 0.9, a_date.isoformat())
+        db.add_theme_occurrence(theme_a_id, 'reflection', 1000+i, "occ a", 0.9, a_date.isoformat())
         db.update_theme_stats(theme_a_id, a_date.isoformat())
 
-        db.add_theme_occurrence(theme_b_id, 'journal_entry', 2000+i, "occ b", 0.9, b_date.isoformat())
+        db.add_theme_occurrence(theme_b_id, 'reflection', 2000+i, "occ b", 0.9, b_date.isoformat())
         db.update_theme_stats(theme_b_id, b_date.isoformat())
 
     # Analyze
@@ -82,10 +82,10 @@ def test_symmetric_patterns_rejected(test_user, leverage_engine):
     for i in range(5):
         occ_date = now - timedelta(days=30 + i*5)
 
-        db.add_theme_occurrence(theme_a_id, 'journal_entry', 3000+i, "occ a", 0.9, occ_date.isoformat())
+        db.add_theme_occurrence(theme_a_id, 'reflection', 3000+i, "occ a", 0.9, occ_date.isoformat())
         db.update_theme_stats(theme_a_id, occ_date.isoformat())
 
-        db.add_theme_occurrence(theme_b_id, 'journal_entry', 3000+i, "occ b", 0.9, occ_date.isoformat())
+        db.add_theme_occurrence(theme_b_id, 'reflection', 3000+i, "occ b", 0.9, occ_date.isoformat())
         db.update_theme_stats(theme_b_id, occ_date.isoformat())
 
     result = leverage_engine.analyze_pair('theme', theme_a_id, 'theme', theme_b_id)
@@ -105,7 +105,7 @@ def test_noise_filtering_low_counts(test_user, leverage_engine):
 
     # Only 2 occurrences (min is 5)
     for i in range(2):
-        db.add_theme_occurrence(theme_a_id, 'journal_entry', 4000+i, "a", 0.9, now.isoformat())
+        db.add_theme_occurrence(theme_a_id, 'reflection', 4000+i, "a", 0.9, now.isoformat())
         db.update_theme_stats(theme_a_id, now.isoformat())
 
     result = leverage_engine.analyze_pair('theme', theme_a_id, 'theme', theme_b_id)
@@ -120,9 +120,9 @@ def test_cache_invalidation(test_user, leverage_engine):
     for i in range(5):
         a_date = now - timedelta(days=30 + i*5)
         b_date = a_date + timedelta(days=2)
-        db.add_theme_occurrence(theme_a_id, 'journal_entry', 5000+i, "a", 0.9, a_date.isoformat())
+        db.add_theme_occurrence(theme_a_id, 'reflection', 5000+i, "a", 0.9, a_date.isoformat())
         db.update_theme_stats(theme_a_id, a_date.isoformat())
-        db.add_theme_occurrence(theme_b_id, 'journal_entry', 6000+i, "b", 0.9, b_date.isoformat())
+        db.add_theme_occurrence(theme_b_id, 'reflection', 6000+i, "b", 0.9, b_date.isoformat())
         db.update_theme_stats(theme_b_id, b_date.isoformat())
 
     # 2. Analyze (populates cache)
@@ -131,7 +131,7 @@ def test_cache_invalidation(test_user, leverage_engine):
     assert len(targets) > 0
 
     # 3. Add NEW occurrence (invalidates cache)
-    db.add_theme_occurrence(theme_a_id, 'journal_entry', 7000, "new", 0.9, now.isoformat())
+    db.add_theme_occurrence(theme_a_id, 'reflection', 7000, "new", 0.9, now.isoformat())
     # Note: add_theme_occurrence has the invalidate call
 
     # 4. Check cache is NULL

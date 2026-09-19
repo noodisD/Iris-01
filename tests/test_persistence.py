@@ -32,7 +32,7 @@ def test_check_persistence_match(engine, mocker):
 
     # Input embedding (identical to centroid)
     embedding = [0.1] * 1536
-    source_type = "journal_entry"
+    source_type = "reflection"
     source_id = 100
     content = "Recurring thought content"
     occurred_at = datetime.now()
@@ -62,7 +62,7 @@ def test_check_persistence_no_match(engine, mocker):
     # Input embedding (orthogonal to centroid)
     embedding = [0.0, 1.0] + [0.0] * 1534
 
-    matched_id = engine.check_persistence(embedding, "journal_entry", 100, "content", datetime.now())
+    matched_id = engine.check_persistence(embedding, "reflection", 100, "content", datetime.now())
 
     assert matched_id is None
     mock_add_occ.assert_not_called()
@@ -78,7 +78,7 @@ def test_discover_themes(engine, mocker):
         vectors.append(v)
 
     unassigned = [
-        {"source_type": "journal_entry", "source_id": i, "vector": v, "created_at": "2024-01-01T10:00:00Z"}
+        {"source_type": "reflection", "source_id": i, "vector": v, "created_at": "2024-01-01T10:00:00Z"}
         for i, v in enumerate(vectors)
     ]
     mocker.patch("agent.database.db.get_unassigned_embeddings", return_value=unassigned)
@@ -89,7 +89,7 @@ def test_discover_themes(engine, mocker):
     # Mock database creation
     mocker.patch("agent.database.db.create_theme", return_value=50)
     mocker.patch("agent.database.db.add_theme_occurrence")
-    mocker.patch("agent.database.db.get_journal_entry_content", return_value="Sample content")
+    mocker.patch("agent.database.db.get_content_for_source", return_value="Sample content")
 
     # Run discovery
     new_themes = engine.discover_themes()

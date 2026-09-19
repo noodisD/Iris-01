@@ -164,17 +164,24 @@ def test_a_committed_import_can_be_undone(client, test_user, process_queue):
     batch = _upload(client, _dated_export(["2024-03-01", "2024-03-02"]))
     client.post(f"/api/import/batches/{batch['id']}/commit")
     process_queue()
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT array_agg(id) FROM reflections WHERE user_id = %s;", (test_user["id"],))
+        ids = cur.fetchone()[0]
+    assert len(ids) == 2
 
     r = client.delete(f"/api/import/batches/{batch['id']}?withReflections=true")
     assert r.status_code == 200, r.text
     assert r.json()["reflections_removed"] == 2
 
+    # Counted for these entries only: other tests' rows share the table.
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM reflections WHERE user_id = %s;", (test_user["id"],))
         assert cur.fetchone()[0] == 0
-        cur.execute("SELECT count(*) FROM embeddings WHERE source_type = 'reflection';")
+        cur.execute("SELECT count(*) FROM embeddings WHERE source_type = 'reflection' "
+                    "AND source_id = ANY(%s);", (ids,))
         assert cur.fetchone()[0] == 0, "embeddings go with the entries"
-        cur.execute("SELECT count(*) FROM theme_occurrences WHERE source_type = 'reflection';")
+        cur.execute("SELECT count(*) FROM theme_occurrences WHERE source_type = 'reflection' "
+                    "AND source_id = ANY(%s);", (ids,))
         assert cur.fetchone()[0] == 0, "and so does the evidence built on them"
 
 

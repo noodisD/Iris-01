@@ -20,8 +20,8 @@ def _faded_theme(user_id: int, summary: str = "Test Theme") -> int:
                                (now - timedelta(days=60)).isoformat(), now.isoformat())
     for i in range(5):
         at = now - timedelta(days=30 + i * 5)
-        entry_id = db.create_journal_entry(user_id, f"Entry {i}", {}, created_at=at.isoformat())
-        db.add_theme_occurrence(theme_id, "journal_entry", entry_id, "snippet", 0.95, at.isoformat())
+        entry_id = db.create_reflection(user_id, f'Entry {i}', reflection_date=at.isoformat())
+        db.add_theme_occurrence(theme_id, "reflection", entry_id, "snippet", 0.95, at.isoformat())
         db.update_theme_stats(theme_id, at.isoformat())
     return theme_id
 

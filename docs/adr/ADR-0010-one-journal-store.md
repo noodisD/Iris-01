@@ -44,3 +44,12 @@ them. So `journal_entry` remains a valid source type in the data layer and in
 test fixtures, and `EVIDENCE_WEIGHTS` keeps its entry. Nothing in the product
 writes it. Code that adds a *new* write to `journal_entries` is a regression
 against this ADR.
+
+## Amendment — 2026-09-19
+The evidence references that justified keeping the table no longer exist: on
+the owner's database the table, and every embedding, occurrence and queued job
+pointing at it, were empty, and only the test suite still filled it. Migration
+0015 drops it, refusing to run on any database where a row or a reference
+remains. `journal_entry` is no longer a source type, `EVIDENCE_WEIGHTS` loses
+its entry, and `tests/test_context_guards.py` fails the build if code uses the
+table or the source type again.

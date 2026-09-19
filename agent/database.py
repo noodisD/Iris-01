@@ -188,38 +188,6 @@ class Database:
         return user["id"] if user else self.create_user(username)
 
     # ============================================================================
-    # Journal Entry Methods
-    # ============================================================================
-
-    def create_journal_entry(self, user_id: int, raw_text: str, wellbeing_data: dict,
-                             created_at=None) -> int:
-        """Creates a new journal entry and returns its ID.
-
-        `created_at` defaults to now, which is what the application always wants:
-        an entry happens when it is written. It is settable so that tests can
-        build a history that actually happened over time. Without it, a fixture
-        could backdate a theme *occurrence* but not the entry behind it, so the
-        record said the user had written everything today — and anything
-        measuring observation over a past window read zero.
-        """
-        with self.connection() as conn, conn.cursor() as cur:
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO journal_entries (user_id, raw_text, wellbeing_data, created_at)
-                    VALUES (%s, %s, %s, COALESCE(%s::timestamptz, NOW())) RETURNING id;
-                    """,
-                    (user_id, raw_text, Json(wellbeing_data), created_at)
-                )
-                entry_id = cur.fetchone()[0]
-                conn.commit()
-                return entry_id
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Failed to create journal entry for user {user_id}: {e}")
-                raise
-
-    # ============================================================================
     # Conversation Message Methods
     # ============================================================================
 
@@ -304,8 +272,6 @@ class Database:
                     SELECT e.source_type, e.source_id, e.vector <=> %s::vector AS distance
                     FROM embeddings e
                     WHERE (
-                        (e.source_type = 'journal_entry' AND e.source_id IN (
-                            SELECT id FROM journal_entries WHERE user_id = %s)) OR
                         (e.source_type = 'reflection' AND e.source_id IN (
                             SELECT id FROM reflections WHERE user_id = %s)) OR
                         (e.source_type = 'message' AND e.source_id IN (
@@ -317,7 +283,7 @@ class Database:
                     ORDER BY distance ASC
                     LIMIT %s;
                     """,
-                    (query_vector, user_id, user_id, user_id, user_id, n_results)
+                    (query_vector, user_id, user_id, user_id, n_results)
                 )
                 rows = cur.fetchall()
                 return [
@@ -333,9 +299,8 @@ class Database:
     # ============================================================================
 
     def update_processing_status(self, source_type: str, source_id: int, status: str):
-        """Updates the processing status of an item (e.g., a journal entry)."""
+        """Updates the processing status of an item (e.g., a reflection)."""
         table_map = {
-            'journal_entry': 'journal_entries',
             'message': 'conversation_messages',
             'reflection': 'reflections',
             'habit': 'habits',
@@ -365,7 +330,6 @@ class Database:
         instead of storing an embedding of words that no longer exist.
         """
         table, id_col = {
-            'journal_entry': ('journal_entries', 'id'),
             'message': ('conversation_messages', 'id'),
             'reflection': ('reflections', 'id'),
             'habit': ('habits', 'id'),
@@ -388,7 +352,6 @@ class Database:
         under the caller's id.
         """
         table_map = {
-            'journal_entry': 'journal_entries',
             'message': 'conversation_messages',
             'reflection': 'reflections',
             'habit': 'habits',
@@ -403,24 +366,7 @@ class Database:
         scope = f" AND {id_col} = %s" if source_id is not None else ""
         params = (status, source_id, limit) if source_id is not None else (status, limit)
         with self.connection() as conn, conn.cursor() as cur:
-            if source_type == 'journal_entry':
-                cur.execute(
-                    f"SELECT id, user_id, raw_text as content, created_at FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
-                    params
-                )
-                items = cur.fetchall()
-                return [
-                    {
-                        "id": row[0],
-                        "user_id": row[1],
-                        "content": row[2],
-                        "created_at": row[3],
-                        "occurred_at": row[3]
-                    }
-                    for row in items
-                ]
-
-            elif source_type == 'message':
+            if source_type == 'message':
                 cur.execute(
                     f"SELECT id, user_id, content, created_at, role FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
                     params
@@ -1138,9 +1084,7 @@ class Database:
             cur.execute(
                 """
                 SELECT MAX(d) FROM (
-                    SELECT MAX(created_at::date) AS d FROM journal_entries WHERE user_id = %s
-                    UNION ALL
-                    SELECT MAX(reflection_date) FROM reflections
+                    SELECT MAX(reflection_date) AS d FROM reflections
                      WHERE user_id = %s AND evidence_eligible
                     UNION ALL
                     SELECT MAX(hc.completion_date) FROM habit_completions hc
@@ -1148,7 +1092,7 @@ class Database:
                      WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
                 ) days;
                 """,
-                (user_id, user_id, user_id),
+                (user_id, user_id),
             )
             return cur.fetchone()[0]
 
@@ -1176,15 +1120,6 @@ class Database:
             cur.execute(
                 """
                 SELECT COUNT(DISTINCT d) FROM (
-                    -- Compared as timestamps where the column is one, so a
-                    -- window ending 'now' still counts what was written earlier
-                    -- today. Truncating both sides to dates made the end bound
-                    -- exclude the current day entirely, and the window that
-                    -- matters most -- the silence, which ends now -- always read
-                    -- as zero days observed.
-                    SELECT created_at::date AS d FROM journal_entries
-                     WHERE user_id = %s AND created_at > %s AND created_at <= %s
-                    UNION
                     -- Exclusive start, inclusive end, on every source: two
                     -- touching windows share their boundary day, and it must
                     -- count in one of them, not both. With the start inclusive,
@@ -1204,7 +1139,7 @@ class Database:
                        AND hc.completion_date <= %s::date
                 ) days;
                 """,
-                (user_id, start, end, user_id, start, end, user_id, start, end),
+                (user_id, start, end, user_id, start, end),
             )
             return int(cur.fetchone()[0])
 
@@ -1227,8 +1162,6 @@ class Database:
                        -- a different date depending on whether it joined an
                        -- existing theme or founded one.
                        CASE e.source_type
-                           WHEN 'journal_entry' THEN
-                               (SELECT j.created_at FROM journal_entries j WHERE j.id = e.source_id)
                            WHEN 'reflection' THEN
                                (SELECT r.reflection_date::timestamp AT TIME ZONE 'UTC'
                                   FROM reflections r WHERE r.id = e.source_id)
@@ -1248,7 +1181,6 @@ class Database:
                 -- and never did found a theme and count as an occurrence of it.
                 -- Completions still qualify; skipped ones already do not.
                 AND (
-                    (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s)) OR
                     -- evidence_eligible is false for copied setup text and
                     -- placeholders: still searchable, no longer proof that
                     -- anything recurred (ADR-0003).
@@ -1260,7 +1192,7 @@ class Database:
                 )
                 ORDER BY e.created_at DESC;
                 """,
-                (user_id, user_id, user_id)
+                (user_id, user_id)
             )
             rows = cur.fetchall()
             return [
@@ -1302,14 +1234,13 @@ class Database:
             cur.execute(
                 """
                 SELECT COUNT(*), AVG(e.vector) FROM embeddings e
-                WHERE (e.source_type = 'journal_entry' AND e.source_id IN (SELECT id FROM journal_entries WHERE user_id = %s))
-                   OR (e.source_type = 'reflection' AND e.source_id IN (
+                WHERE (e.source_type = 'reflection' AND e.source_id IN (
                         SELECT id FROM reflections WHERE user_id = %s AND evidence_eligible))
                    OR (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
                         WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE));
                 """,
-                (user_id, user_id, user_id)
+                (user_id, user_id)
             )
             count, mean = cur.fetchone()
             return int(count), mean
@@ -1341,7 +1272,6 @@ class Database:
         """
         queries = {
             "reflection": ("journal", "SELECT content, reflection_date FROM reflections WHERE id = %s;"),
-            "journal_entry": ("journal", "SELECT raw_text, created_at::date FROM journal_entries WHERE id = %s;"),
             "message": ("said in chat", "SELECT content, created_at::date FROM conversation_messages WHERE id = %s;"),
             "habit_completion": ("habit", """SELECT CASE WHEN hc.is_skipped
                                                      THEN 'Skipped ' || h.name || COALESCE(': ' || hc.skip_reason, '')
@@ -1486,12 +1416,6 @@ class Database:
                  WHERE e.source_type = 'reflection'
                    AND r.user_id = %s AND r.evidence_eligible
 
-                UNION ALL
-
-                SELECT e.source_type, e.source_id, e.vector, j.raw_text, j.created_at::date
-                  FROM embeddings e
-                  JOIN journal_entries j ON j.id = e.source_id
-                 WHERE e.source_type = 'journal_entry' AND j.user_id = %s
 
                 UNION ALL
 
@@ -1507,7 +1431,7 @@ class Database:
 
                  ORDER BY 5;
                 """,
-                (user_id, user_id, user_id)
+                (user_id, user_id)
             )
             return [
                 {"source_type": r[0], "source_id": r[1], "vector": r[2],
@@ -1541,51 +1465,10 @@ class Database:
             return [{"id": r[0], "date": r[1], "content": r[2],
                      "source_type": "reflection"} for r in cur.fetchall()]
 
-    def get_entry_count(self, user_id: int) -> int:
-        """Returns the number of journal entries for a user."""
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM journal_entries WHERE user_id = %s;", (user_id,))
-            return cur.fetchone()[0]
-
-    def get_journal_entry_content(self, entry_id: int) -> str:
-        """Retrieves the raw text of a journal entry."""
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (entry_id,))
-            result = cur.fetchone()
-            return result[0] if result else None
-
-    def get_recent_journal_entries(self, user_id: int, limit: int = 3) -> list:
-        """Retrieves the most recent journal entries for a user, newest first."""
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, raw_text, wellbeing_data, created_at
-                FROM journal_entries
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                LIMIT %s;
-                """,
-                (user_id, limit)
-            )
-            rows = cur.fetchall()
-            return [
-                {
-                    "id": row[0],
-                    "raw_text": row[1],
-                    "wellbeing_data": row[2],
-                    "created_at": row[3],
-                }
-                for row in rows
-            ]
-
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         """Retrieves text content for any source type."""
         with self.connection() as conn, conn.cursor() as cur:
-            if source_type == 'journal_entry':
-                cur.execute("SELECT raw_text FROM journal_entries WHERE id = %s;", (source_id,))
-                res = cur.fetchone()
-                return res[0] if res else ""
-            elif source_type == 'reflection':
+            if source_type == 'reflection':
                 cur.execute("SELECT content, mood, energy_level, clarity_level FROM reflections WHERE id = %s;", (source_id,))
                 res = cur.fetchone()
                 if not res: return ""

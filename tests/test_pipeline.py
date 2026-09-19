@@ -20,7 +20,7 @@ def test_generate_embedding(mocker):
     assert len(embedding) == 1536
 
 
-@pytest.mark.parametrize("source_type", ["journal_entry", "message"])
+@pytest.mark.parametrize("source_type", ["reflection", "message"])
 def test_run_processing_pipeline(mocker, test_user, source_type):
     """
     Test the full processing pipeline orchestration.
@@ -32,8 +32,8 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
 
     # 2. Create a source item in the database
     content = "This is a test with an idea:\n- A new social network."
-    if source_type == "journal_entry":
-        source_id = db.create_journal_entry(test_user["id"], content, {"mood": 5})
+    if source_type == "reflection":
+        source_id = db.create_reflection(test_user['id'], content)
     else: # message
         source_id = db.create_conversation_message(test_user["id"], "test_session", "user", content)
 
@@ -41,10 +41,11 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
     run_processing_pipeline(source_type, source_id)
 
     # 4. Assertions
-    # Content is passed as-is to generate_embedding, which handles newline replacement internally
-
-    # Assert embedding was generated
-    mock_generate_embedding.assert_called_once_with(content, model="text-embedding-3-small")
+    # The owner's words reach the embedder; a reflection's arrive inside the
+    # header it is embedded with.
+    mock_generate_embedding.assert_called_once()
+    assert content in mock_generate_embedding.call_args.args[0]
+    assert mock_generate_embedding.call_args.kwargs == {"model": "text-embedding-3-small"}
 
     # Assert embedding was stored in PostgreSQL
     conn = db.get_connection()
@@ -59,7 +60,7 @@ def test_run_processing_pipeline(mocker, test_user, source_type):
     # Focus here is on embedding storage and pipeline execution
 
     # Assert processing status is 'complete'
-    table_name = "journal_entries" if source_type == "journal_entry" else "conversation_messages"
+    table_name = "reflections" if source_type == "reflection" else "conversation_messages"
     with conn.cursor() as cur:
         cur.execute(f"SELECT processing_status FROM {table_name} WHERE id = %s;", (source_id,))
         status = cur.fetchone()[0]

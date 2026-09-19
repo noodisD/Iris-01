@@ -53,15 +53,10 @@ def test_live_system_flow(test_user):
     ]
 
     for dt, text, tag in entries:
-        eid = db.create_journal_entry(user_id, text, {"tag": tag})
-        # Set historical date
-        conn = db.get_connection()
-        with conn.cursor() as cur:
-            cur.execute("UPDATE journal_entries SET created_at = %s WHERE id = %s", (dt, eid))
-            conn.commit()
+        eid = db.create_reflection(user_id, text, reflection_date=dt.date())
 
         # Run real pipeline (Generates real OpenAI embeddings)
-        run_processing_pipeline('journal_entry', eid)
+        run_processing_pipeline('reflection', eid)
 
     # 2. Theme Discovery
     print("\n[2/5] Running Theme Discovery (complete linkage on real vectors)...")

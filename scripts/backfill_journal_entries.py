@@ -33,6 +33,10 @@ def main() -> int:
 
     with db.connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('journal_entries');")
+            if cur.fetchone()[0] is None:
+                print("Nothing to migrate: the legacy table was retired (migration 0015).")
+                return 0
             cur.execute("""
                 SELECT id, user_id, raw_text, wellbeing_data, created_at
                 FROM journal_entries

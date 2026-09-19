@@ -129,7 +129,7 @@ class PersistenceEngine:
 
         Args:
             embedding: The embedding vector (1536-dim)
-            source_type: 'journal_entry' or 'message'
+            source_type: 'reflection' or 'habit_completion'
             source_id: ID of the source entry
             content: The text content
             occurred_at: When this occurred
@@ -731,7 +731,7 @@ Subject:"""
 
         return float(similarities.min()) >= (PERSISTENCE_MATCH_THRESHOLD if threshold is None else threshold)
 
-    def _get_entry_snippet(self, entry_id: int, source_type: str = 'journal_entry', max_length: int = 200) -> str:
+    def _get_entry_snippet(self, entry_id: int, source_type: str, max_length: int = 200) -> str:
         """The owner's own words for an entry; see `entry_snippet`."""
         return entry_snippet(source_type, entry_id, max_length)
 

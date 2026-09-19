@@ -24,7 +24,6 @@ PERSISTENCE_STYLE_CLUSTER_THRESHOLD = 0.50  # Form a new theme, shared voice rem
 # Evidence Weights (Source Reliability)
 EVIDENCE_WEIGHTS = {
     "reflection": 1.0,
-    "journal_entry": 0.9,
     "habit_completion": 0.5,          # Default tick
     "habit_completion_with_notes": 0.8 # Tick with context
 }

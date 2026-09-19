@@ -40,9 +40,8 @@ def _theme_with_occurrences(user_id: int, days_ago: list[int], summary: str = "A
     )
     for i, days in enumerate(days_ago):
         occurred = now - timedelta(days=days)
-        entry_id = db.create_journal_entry(
-            user_id, f"occurrence {i}", {}, created_at=occurred.isoformat())
-        db.add_theme_occurrence(theme_id, "journal_entry", entry_id, "snippet", 0.9,
+        entry_id = db.create_reflection(user_id, f'occurrence {i}', reflection_date=occurred.isoformat())
+        db.add_theme_occurrence(theme_id, "reflection", entry_id, "snippet", 0.9,
                                 occurred.isoformat())
     return theme_id
 
@@ -50,8 +49,7 @@ def _theme_with_occurrences(user_id: int, days_ago: list[int], summary: str = "A
 def _kept_writing(user_id: int, days_ago: list[int]) -> None:
     now = utc_now()
     for i, days in enumerate(days_ago):
-        db.create_journal_entry(user_id, f"still writing {i}", {},
-                                created_at=(now - timedelta(days=days)).isoformat())
+        db.create_reflection(user_id, f'still writing {i}', reflection_date=(now - timedelta(days=days)).isoformat())
 
 
 # --- the engine ---------------------------------------------------------------
@@ -110,8 +108,7 @@ def test_the_boundary_day_is_observed_once_not_twice(test_user):
     continuity credit."""
     now = utc_now()
     last_day = now - timedelta(days=30)
-    db.create_journal_entry(test_user["id"], "the last thing written", {},
-                            created_at=last_day.isoformat())
+    db.create_reflection(test_user['id'], 'the last thing written', reflection_date=last_day.isoformat())
 
     during = db.count_observed_days(test_user["id"], last_day, now)
     before = db.count_observed_days(test_user["id"], last_day - timedelta(days=30), last_day)
@@ -124,7 +121,7 @@ def test_todays_writing_still_counts_as_observed(test_user):
     """The end of the window stays inclusive: an entry written earlier today is
     the clearest evidence that someone is still logging."""
     now = utc_now()
-    db.create_journal_entry(test_user["id"], "written today", {}, created_at=now.isoformat())
+    db.create_reflection(test_user['id'], 'written today', reflection_date=now.isoformat())
 
     assert db.count_observed_days(test_user["id"], now - timedelta(days=7), now) == 1
 

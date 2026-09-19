@@ -38,12 +38,9 @@ def seeded_theme(test_user):
     )
     for i in range(5):
         occurred = datetime.now() - timedelta(days=i * 2)
-        entry_id = db.create_journal_entry(
-            test_user["id"], "I'm anxious about whether we'll ship on time", {},
-            created_at=occurred.isoformat(),
-        )
+        entry_id = db.create_reflection(test_user['id'], "I'm anxious about whether we'll ship on time", reflection_date=occurred.isoformat())
         db.add_theme_occurrence(
-            tid, "journal_entry", entry_id,
+            tid, "reflection", entry_id,
             "I'm anxious about whether we'll ship on time",
             0.9, occurred.isoformat(),
         )

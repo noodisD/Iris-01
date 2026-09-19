@@ -262,8 +262,8 @@ def _purge_user(user_id: int) -> None:
     """Remove every row a test user can create.
 
     Only habits, reflections, user_preferences, user_app_settings,
-    preference_audit and insight_status cascade from users; journal entries,
-    messages and themes do not, and embeddings and the pattern_* caches are
+    preference_audit and insight_status cascade from users; messages and
+    themes do not, and embeddings and the pattern_* caches are
     keyed by (source_type, source_id) / (pattern_type, pattern_id) rather than
     by user, so they have to be matched explicitly and deleted first.
     """
@@ -276,14 +276,13 @@ def _purge_user(user_id: int) -> None:
         cur.execute(
             """
             DELETE FROM embeddings WHERE
-                (source_type = 'journal_entry' AND source_id IN (SELECT id FROM journal_entries WHERE user_id = %s))
-             OR (source_type = 'reflection'    AND source_id IN (SELECT id FROM reflections WHERE user_id = %s))
+                (source_type = 'reflection'    AND source_id IN (SELECT id FROM reflections WHERE user_id = %s))
              OR (source_type = 'message'       AND source_id IN (SELECT id FROM conversation_messages WHERE user_id = %s))
              OR (source_type IN ('habit', 'habit_completion') AND source_id IN (
                     SELECT c.id FROM habit_completions c
                     JOIN habits h ON h.id = c.habit_id WHERE h.user_id = %s));
             """,
-            (user_id, user_id, user_id, user_id),
+            (user_id, user_id, user_id),
         )
 
         # Analytical caches keyed by pattern, not by user.
@@ -301,10 +300,8 @@ def _purge_user(user_id: int) -> None:
         # Rows that do not cascade from users.
         cur.execute("DELETE FROM theme_occurrences WHERE theme_id = ANY(%s);", (theme_ids,))
         cur.execute("DELETE FROM themes WHERE user_id = %s;", (user_id,))
-        # Since migration 0003 these three cascade from users, so the
-        # explicit deletes are belt-and-braces rather than load-bearing;
-        # they also keep the ordering obvious for the caches below.
-        cur.execute("DELETE FROM journal_entries WHERE user_id = %s;", (user_id,))
+        # Since migration 0003 this cascades from users, so the explicit
+        # delete is belt-and-braces rather than load-bearing.
         cur.execute("DELETE FROM conversation_messages WHERE user_id = %s;", (user_id,))
         # habits -> habit_completions and reflections cascade with the user.
         cur.execute("DELETE FROM users WHERE id = %s;", (user_id,))
@@ -322,16 +319,14 @@ def journalled_recently(test_user):
     they describe (someone journalling for months) never existed. This supplies
     the missing half: the logging itself.
     """
-    from datetime import datetime, timedelta
+    from datetime import date, timedelta
 
     from agent.database import db as _db
 
     def wrote(days_ago=(1, 4, 8, 13, 19)):
         for offset in days_ago:
-            _db.create_journal_entry(
-                test_user["id"], f"logged {offset} days ago", {},
-                created_at=(datetime.now() - timedelta(days=offset)).isoformat(),
-            )
+            _db.create_reflection(test_user["id"], f"logged {offset} days ago",
+                                  reflection_date=date.today() - timedelta(days=offset))
         return len(days_ago)
 
     return wrote

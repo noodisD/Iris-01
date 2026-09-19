@@ -32,12 +32,10 @@ def test_theme_dissipates_after_silence(test_user, resolution_engine):
     # 3 occurrences to reach RESOLUTION_MIN_DATA_POINTS
     for i in range(3):
         occurred = now - timedelta(days=40 + i)
-        entry_id = db.create_journal_entry(
-            test_user['id'], f"past occurrence {i}", {}, created_at=occurred.isoformat()
-        )
+        entry_id = db.create_reflection(test_user['id'], f'past occurrence {i}', reflection_date=occurred.isoformat())
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=entry_id,
             snippet="past occurrence",
             similarity_score=0.9,
@@ -48,9 +46,7 @@ def test_theme_dissipates_after_silence(test_user, resolution_engine):
     # is one we actually observed.
     for i in range(6):
         since = now - timedelta(days=35 - i * 6)
-        db.create_journal_entry(
-            test_user['id'], f"still writing {i}", {}, created_at=since.isoformat()
-        )
+        db.create_reflection(test_user['id'], f'still writing {i}', reflection_date=since.isoformat())
 
     # 3. Analyze (Recent count will be 0 as occurrences are > 21 days ago)
     analysis = resolution_engine.analyze_theme(theme_id, force_recompute=True)
@@ -79,12 +75,10 @@ def test_an_unobserved_silence_is_not_a_confident_dissipation(test_user, resolut
 
     for i in range(5):
         occurred = now - timedelta(days=40 + i)
-        entry_id = db.create_journal_entry(
-            test_user['id'], f"before the silence {i}", {}, created_at=occurred.isoformat()
-        )
+        entry_id = db.create_reflection(test_user['id'], f'before the silence {i}', reflection_date=occurred.isoformat())
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=entry_id,
             snippet="before the silence",
             similarity_score=0.9,
@@ -114,7 +108,7 @@ def test_theme_reappears_after_gap(test_user, resolution_engine):
     for i in range(3):
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=200+i,
             snippet="past occurrence",
             similarity_score=0.9,
@@ -124,7 +118,7 @@ def test_theme_reappears_after_gap(test_user, resolution_engine):
     # 3. Add occurrence in recent (within 21 days)
     db.add_theme_occurrence(
         theme_id=theme_id,
-        source_type='journal_entry',
+        source_type='reflection',
         source_id=210,
         snippet="recent occurrence",
         similarity_score=0.9,
@@ -161,7 +155,7 @@ def test_stabilized_pattern(test_user, resolution_engine):
     for i in range(9):
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=300+i,
             snippet="past",
             similarity_score=0.9,
@@ -172,7 +166,7 @@ def test_stabilized_pattern(test_user, resolution_engine):
     for i in range(2):
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=400+i,
             snippet="recent",
             similarity_score=0.9,
@@ -195,7 +189,7 @@ def test_false_dissipation_low_confidence(test_user, resolution_engine):
     # Only 1 occurrence (below RESOLUTION_MIN_DATA_POINTS=3)
     db.add_theme_occurrence(
         theme_id=theme_id,
-        source_type='journal_entry',
+        source_type='reflection',
         source_id=500,
         snippet="past",
         similarity_score=0.9,
@@ -219,7 +213,7 @@ def test_cache_invalidation(test_user, resolution_engine):
     for i in range(3):
         db.add_theme_occurrence(
             theme_id=theme_id,
-            source_type='journal_entry',
+            source_type='reflection',
             source_id=600+i,
             snippet="past",
             similarity_score=0.9,
@@ -238,7 +232,7 @@ def test_cache_invalidation(test_user, resolution_engine):
     # 3. Add a NEW occurrence (should invalidate cache)
     db.add_theme_occurrence(
         theme_id=theme_id,
-        source_type='journal_entry',
+        source_type='reflection',
         source_id=700,
         snippet="new",
         similarity_score=0.9,

@@ -20,7 +20,7 @@ from agent.persistence import PersistenceEngine
 
 # --- discovery must not invent themes ---------------------------------------
 
-def _unit_rows(vectors, source_type="journal_entry"):
+def _unit_rows(vectors, source_type="reflection"):
     """Shape vectors like get_unassigned_embeddings() returns them."""
     base = datetime(2026, 9, 1, tzinfo=UTC)
     return [
@@ -155,9 +155,9 @@ def test_each_theme_gets_only_its_own_evidence():
         {"id": 2, "summary": "Two", "occurrence_count": 9, "user_id": 1},
     ]
     occ = {
-        1: [{"occurred_at": now - timedelta(days=d), "source_type": "journal_entry"}
+        1: [{"occurred_at": now - timedelta(days=d), "source_type": "reflection"}
             for d in range(5)],
-        2: [{"occurred_at": now - timedelta(days=d), "source_type": "journal_entry"}
+        2: [{"occurred_at": now - timedelta(days=d), "source_type": "reflection"}
             for d in range(9)],
     }
 
@@ -363,7 +363,7 @@ def test_persistence_failure_does_not_mark_the_source_complete():
         pe.return_value.check_persistence.side_effect = RuntimeError("engine down")
 
         with pytest.raises(RuntimeError):
-            pipeline.run_processing_pipeline("journal_entry", 5)
+            pipeline.run_processing_pipeline("reflection", 5)
 
     assert "complete" not in statuses, (
         f"a failed analysis was acknowledged as success: {statuses}"
@@ -376,7 +376,7 @@ def test_the_queue_retries_a_failed_analysis_instead_of_deleting_it():
 
     deleted, failed = [], []
     with patch.object(work_queue, "_claim_due", return_value=[{
-            "id": 900, "user_id": 1, "source_type": "journal_entry",
+            "id": 900, "user_id": 1, "source_type": "reflection",
             "source_id": 5, "attempts": 1}]), \
          patch.object(work_queue, "run_processing_pipeline",
                       side_effect=RuntimeError("engine down")), \
@@ -409,7 +409,7 @@ def test_discovery_and_the_online_path_admit_the_same_sources():
     assert "e.source_type = 'habit'" not in sql, (
         "habit definitions are not evidence"
     )
-    for source in ("journal_entry", "reflection", "habit_completion"):
+    for source in ("reflection", "habit_completion"):
         assert source in sql, f"{source} must stay eligible for discovery"
         assert source in online, f"{source} must stay eligible online"
 
@@ -509,7 +509,7 @@ def test_tension_divides_shared_days_by_active_days():
 
     def occ(day, n=1):
         return [{"occurred_at": base + timedelta(days=day, hours=h),
-                 "source_type": "journal_entry", "source_id": day * 10 + h}
+                 "source_type": "reflection", "source_id": day * 10 + h}
                 for h in range(n)]
 
     sparse = occ(0) + occ(1) + occ(2)
@@ -605,9 +605,9 @@ def test_a_discovered_theme_is_dated_by_the_event_not_the_embedding():
 
         vectors = np.ones((2, 1536), dtype=np.float32)
         entries = [
-            {"source_type": "journal_entry", "source_id": 1,
+            {"source_type": "reflection", "source_id": 1,
              "created_at": embedded_at, "occurred_at": happened_at},
-            {"source_type": "journal_entry", "source_id": 2,
+            {"source_type": "reflection", "source_id": 2,
              "created_at": embedded_at, "occurred_at": happened_at + timedelta(days=1)},
         ]
         engine._create_theme_from_cluster(vectors, entries)

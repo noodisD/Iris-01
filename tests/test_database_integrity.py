@@ -34,7 +34,7 @@ def test_invalidation_propagation(test_user):
         assert cur.fetchone()[0] is not None
 
     # 3. Propagate Invalidation (Add occurrence)
-    db.add_theme_occurrence(t_id, 'journal_entry', 1, "snippet", 0.9, datetime.now().isoformat())
+    db.add_theme_occurrence(t_id, 'reflection', 1, "snippet", 0.9, datetime.now().isoformat())
 
     # 4. Verify propagation
     with conn.cursor() as cur:
@@ -62,8 +62,8 @@ def test_audit_immutability(test_user):
 def test_unique_constraints(test_user):
     # Use a high random ID to avoid collision with other tests
     test_sid = 99999
-    db.add_embedding('journal_entry', test_sid, 'model', [0.1]*1536)
-    db.add_embedding('journal_entry', test_sid, 'model', [0.2]*1536) # Should update, not fail
+    db.add_embedding('reflection', test_sid, 'model', [0.1]*1536)
+    db.add_embedding('reflection', test_sid, 'model', [0.2]*1536) # Should update, not fail
 
     conn = db.get_connection()
     with conn.cursor() as cur:
@@ -74,7 +74,7 @@ def test_unique_constraints(test_user):
 def test_deleting_a_user_takes_their_data_with_them():
     """Twelve of the fifteen foreign keys to users(id) cascaded; three did not,
     so DELETE FROM users raised a foreign key violation unless
-    conversation_messages, journal_entries and themes were cleared by hand
+    conversation_messages, the legacy entry table and themes were cleared by hand
     first. "Delete everything about me" could not be implemented correctly
     without remembering those three exceptions. Migration 0003 made them
     consistent."""
@@ -85,7 +85,7 @@ def test_deleting_a_user_takes_their_data_with_them():
         )
         user_id = cur.fetchone()[0]
         cur.execute(
-            "INSERT INTO journal_entries (user_id, raw_text) VALUES (%s,'j');", (user_id,)
+            "INSERT INTO reflections (user_id, content) VALUES (%s,'j');", (user_id,)
         )
         cur.execute(
             """INSERT INTO conversation_messages (user_id, session_id, role, content)
@@ -102,7 +102,7 @@ def test_deleting_a_user_takes_their_data_with_them():
         cur.execute(
             """INSERT INTO theme_occurrences (theme_id, source_type, source_id,
                                               snippet, similarity_score, occurred_at)
-               VALUES (%s,'journal_entry',1,'s',0.9,NOW());""",
+               VALUES (%s,'reflection',1,'s',0.9,NOW());""",
             (theme_id,),
         )
         conn.commit()
@@ -111,7 +111,7 @@ def test_deleting_a_user_takes_their_data_with_them():
         cur.execute("DELETE FROM users WHERE id = %s;", (user_id,))
         conn.commit()
 
-        for table in ("journal_entries", "conversation_messages", "themes"):
+        for table in ("reflections", "conversation_messages", "themes"):
             cur.execute(f"SELECT count(*) FROM {table} WHERE user_id = %s;", (user_id,))
             assert cur.fetchone()[0] == 0, f"{table} rows outlived the user"
         cur.execute(

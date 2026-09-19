@@ -59,7 +59,7 @@ class ConfidenceEngine:
             pattern_id: The ID of the pattern.
             timestamps: List of occurrences.
             directions: Optional list of labels to assess consistency.
-            sources: Optional list of source types (e.g. 'journal_entry') to apply evidence tiering.
+            sources: Optional list of source types (e.g. 'reflection') to apply evidence tiering.
 
         Returns:
             Dictionary containing label, score, and raw components.

@@ -410,12 +410,11 @@ class InsightsService:
         """
         out = observation_coverage(self.user_id).as_dict()
         with db.connection() as conn, conn.cursor() as cur:
-            # Everything the owner deliberately logged, by ADR-0003's definition
-            # of evidence — not reflections alone.
+            # Everything the owner wrote. A journal entry is a reflection
+            # (ADR-0010); the separate legacy table is gone (migration 0015).
             cur.execute(
-                """SELECT (SELECT count(*) FROM reflections WHERE user_id = %s)
-                        + (SELECT count(*) FROM journal_entries WHERE user_id = %s);""",
-                (self.user_id, self.user_id),
+                "SELECT count(*) FROM reflections WHERE user_id = %s;",
+                (self.user_id,),
             )
             out["entries"] = cur.fetchone()[0]
             # Keyed on (source_type, source_id): the same number identifies a
