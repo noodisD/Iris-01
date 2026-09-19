@@ -22,6 +22,7 @@ from datetime import date, timedelta
 import pytest
 
 from agent import constructs
+from reading_fakes import every_quote_supports, is_support_check
 from agent.database import db
 from agent.observations import ObservationEngine
 from agent.trackers.reflections import ReflectionService
@@ -55,6 +56,8 @@ class FakeModel:
         self.calls = 0
 
     def chat(self, messages, system_prompt, **kwargs):
+        if is_support_check(system_prompt):
+            return every_quote_supports(messages)  # not a reading pass: not counted
         self.calls += 1
         reply = self.replies.pop(0) if self.replies else '{"observations": []}'
         if isinstance(reply, Exception):

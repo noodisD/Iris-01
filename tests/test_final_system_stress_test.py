@@ -118,8 +118,8 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic, journalled
     # Conflict: Trajectory(increasing) vs Resolution(dissipated).
     # Resolution has higher priority in constants.
     assert "Work Stress" in prompt
-    assert "appeared frequently in the past but has not appeared recently" in prompt # Winner
-    assert "is increasing in frequency" not in prompt # Suppressed
+    assert "it has gone quiet" in prompt # Winner
+    assert "' increased:" not in prompt # Suppressed
 
     logger.info("--- PHASE 5: VERIFYING NOISE GATE ---")
     assert "Spurious Noise" not in prompt # Blocked by Confidence Engine

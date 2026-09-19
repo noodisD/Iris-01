@@ -97,6 +97,9 @@ def drop_unsupported(insights: list[dict]) -> list[dict]:
         if i.get("current_state_supported") is not False
         and i.get("resolution_label") != "unsupported"
         and i.get("label") != "unsupported"
+        # Trajectory's word for "too few points to fit a trend". It reached the
+        # Insights screen as though it were a finding about the pattern.
+        and i.get("trajectory_label") != "insufficient data"
     ]
 
 

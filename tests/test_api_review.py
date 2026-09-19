@@ -40,9 +40,27 @@ def test_review_latest_returns_contract(client, seeded_week):
     for key in ("weekStart", "weekEnd", "letter", "metrics", "days", "themes", "lookahead"):
         assert key in week, f"missing {key}"
     assert isinstance(week["letter"], str) and week["letter"]
-    for key in ("energyAvg", "energyDelta",
-                "habitsHit", "habitsTotal", "winsLogged"):
+    for key in ("energyAvg", "energyDelta", "habitsHit", "habitsTotal"):
         assert key in week["metrics"], f"missing metric {key}"
+
+
+def test_the_week_is_not_scored(client, seeded_week):
+    """"Wins" were entries with energy of 7 or more, and each day got a word
+    bucketed from its energy — IRIS scoring the owner's week. A day now shows
+    what the owner reported, or that nothing was written."""
+    week = client.get("/api/review/latest").json()
+    assert "winsLogged" not in week["metrics"] and "winThatMattered" not in week
+    words = {d["word"] for d in week["days"]}
+    assert not words & {"bright", "steady", "mixed", "heavy", "quiet"}
+    assert "8/10" in words or "4/10" in words, "the owner's own number, as reported"
+
+
+def test_a_week_with_no_energy_reported_has_no_average(client, test_user):
+    """0.0 stood in for "nothing reported": the lowest week possible, and the
+    next week a large rise against it."""
+    ReflectionService(test_user["id"]).create_reflection(content="Just a note.")
+    metrics = client.get("/api/review/latest").json()["metrics"]
+    assert metrics["energyAvg"] is None and metrics["energyDelta"] is None
 
 
 def test_review_days_and_themes_shape(client, seeded_week):

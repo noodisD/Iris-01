@@ -19,6 +19,9 @@ re-litigated by accident, only deliberately.
 | [0011](ADR-0011-durable-ingest-queue.md) | Writing is separated from analysing | Why analysis is eventually consistent |
 | [0012](ADR-0012-migrations.md) | Migrations own the schema | How to change a constraint |
 | [0013](ADR-0013-importing.md) | Imported entries are reflections, dated when they happened | Why an import must be reviewed before it lands |
+| [0014](ADR-0014-themes-in-what-differs.md) | Themes are found in what differs between entries | Why comparison is mean-centred and linkage is complete |
+| [0015](ADR-0015-reading-entries.md) | Reading entries, with every quote verified | Why a finding without verbatim quotes is dropped |
+| [0016](ADR-0016-stored-candidates.md) | What reading finds is a proposal until confirmed | Why candidates exist and nothing measures them |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

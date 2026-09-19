@@ -1319,11 +1319,12 @@ class ObservationRequest(BaseModel):
 def read_entries(body: ObservationRequest, user_id: int = Depends(get_current_user_id)):
     """Read the owner's entries and report what recurs, with verbatim quotes.
 
-    This is the only path that sends journal entries to the model for analysis,
-    and it exists as a POST with no caller inside IRIS: it happens when the
-    owner asks for it, and at no other time. Nothing is stored — what comes back
-    is something IRIS noticed while reading, shown with its receipts, not a new
-    fact filed away about them.
+    One of the two paths that send journal entries to the model for analysis;
+    the other is discovery (/api/constructs/discover). Both are POSTs with no
+    caller inside IRIS: they happen when the owner asks, and at no other time.
+    This quick read stores nothing — what comes back is something IRIS noticed
+    while reading, shown with its receipts. Discovery stores what it finds as
+    proposals the owner reviews (ADR-0016).
     """
     engine = ObservationEngine(user_id)
     observations = apply_preferences(engine.read(limit=body.limit, since=body.since), user_id)
@@ -1412,28 +1413,25 @@ def resolve_insight(insight_id: str, user_id: int = Depends(get_current_user_id)
 # REVIEW ENDPOINTS (single-user; weekly aggregation + LLM letter)
 # ============================================================================
 
-def _energy_word(energy) -> str:
-    """A single-word descriptor for a day's energy (1-10)."""
-    if not energy:
-        return "quiet"
-    if energy >= 8:
-        return "bright"
-    if energy >= 6:
-        return "steady"
-    if energy >= 4:
-        return "mixed"
-    return "heavy"
+def _avg_energy(reflections) -> float | None:
+    """Mean self-reported energy, or None when none was reported.
 
-
-def _avg_energy(reflections) -> float:
-    energies = [r["energy_level"] for r in reflections if r.get("energy_level")]
-    return round(sum(energies) / len(energies), 1) if energies else 0.0
+    0.0 used to stand in for "nothing reported", so a week with no energy scores
+    read as the lowest week possible and the next one as a large rise.
+    """
+    energies = [r["energy_level"] for r in reflections if r.get("energy_level") is not None]
+    return round(sum(energies) / len(energies), 1) if energies else None
 
 
 def _build_review_week(user_id: int, week_start: date) -> dict:
-    """Assemble the frontend `ReviewWeek` from reflections, habits, and themes.
+    """Assemble the frontend `ReviewWeek` from reflections, habits and findings.
 
-    Sleep/HRV metrics are absent — there is no body data source (by design)."""
+    No scores. "Wins" were entries with energy of 7 or more, and each day got a
+    word bucketed from its energy — IRIS scoring the owner's week in a product
+    whose rule is that it does not. A day shows the energy the owner reported,
+    or that nothing was written. Sleep/HRV are absent: there is no body data
+    source, by design.
+    """
     week_end = week_start + timedelta(days=6)
     service = ReflectionService(user_id)
 
@@ -1443,27 +1441,28 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
         end_date=week_start - timedelta(days=1),
     )
     energy_avg = _avg_energy(this_week)
-    energy_delta = round(energy_avg - _avg_energy(prev_week), 1)
-    wins = sum(1 for r in this_week if (r.get("energy_level") or 0) >= 7)
+    previous = _avg_energy(prev_week)
+    energy_delta = (round(energy_avg - previous, 1)
+                    if energy_avg is not None and previous is not None else None)
 
-    # Daily energy by date (latest reflection's energy that day).
-    by_date = {}
+    # The owner's own energy for each day, when they gave one.
+    written_on, by_date = set(), {}
     for r in this_week:
-        d = r["reflection_date"]
-        if r.get("energy_level"):
-            by_date.setdefault(d, r["energy_level"])
+        written_on.add(r["reflection_date"])
+        if r.get("energy_level") is not None:
+            by_date.setdefault(r["reflection_date"], r["energy_level"])
     days = []
     for i in range(7):
         d = week_start + timedelta(days=i)
-        energy = by_date.get(d, 0)
+        energy = by_date.get(d)
         days.append({
             "date": d.isoformat(),
             "shortName": d.strftime("%a").lower(),
             "energy": energy,
-            "word": _energy_word(energy),
+            "word": (f"{energy}/10" if energy is not None
+                     else "written" if d in written_on else "no entry"),
         })
 
-    # Habits hit this week.
     tracker = HabitTracker(user_id)
     habits = tracker.get_habits(active_only=True)
     habits_hit = 0
@@ -1474,7 +1473,6 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
 
     themes_list = [t["summary"] for t in db.get_themes(user_id)[:3] if t.get("summary")]
 
-    # Lookahead from configured check-in times.
     settings = db.get_app_settings(user_id) or {}
     lookahead = []
     if settings.get("weekly_review_time"):
@@ -1482,62 +1480,58 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
     if settings.get("daily_checkin_time"):
         lookahead.append({"when": f"Daily {settings['daily_checkin_time']}", "what": "Check-in"})
 
-    letter = _generate_review_letter(
-        user_id, week_start, week_end, energy_avg, energy_delta,
-        habits_hit, len(habits), wins, themes_list, days,
-    )
+    letter = _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
+                            habits_hit, len(habits))
 
-    week = {
+    return {
         "weekStart": week_start.isoformat(),
         "weekEnd": week_end.isoformat(),
         "letter": letter,
         "metrics": {
             "energyAvg": energy_avg,
             "energyDelta": energy_delta,
-            # No sleep or HRV metrics: there is no body data source, and a
-            # metric hardcoded to 0 reads as a measurement of zero rather than
-            # as an absence.
             "habitsHit": habits_hit,
             "habitsTotal": len(habits),
-            "winsLogged": wins,
         },
         "days": days,
         "themes": themes_list,
         "lookahead": lookahead,
     }
-    if themes_list and wins:
-        week["winThatMattered"] = themes_list[0]
-    return week
 
 
-def _generate_review_letter(user_id, week_start, week_end, energy_avg, energy_delta,
-                            habits_hit, habits_total, wins, themes_list, days) -> str:
-    """Write IRIS's weekly letter via the LLM (mocked in tests)."""
+def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
+                   habits_hit, habits_total) -> str:
+    """The week's letter, held to the rules (agent/review_letter.py)."""
     import agent.core as core_module
-    system = (
-        "You are IRIS, a reflective AI companion writing a short weekly letter to the "
-        "user. Write 2-3 warm, grounded paragraphs in second person. Use only the data "
-        "provided — do not invent events. No bullet points, no headings."
-    )
-    daily = ", ".join(f"{d['shortName']}:{d['energy']}" for d in days)
-    prompt = (
-        f"Week {week_start.isoformat()} to {week_end.isoformat()}.\n"
-        f"Average energy (1-10): {energy_avg} (change vs last week: {energy_delta}).\n"
-        f"Habits hit: {habits_hit} of {habits_total}. Wins logged: {wins}.\n"
-        f"Daily energy: {daily}.\n"
-        f"Recurring themes: {'; '.join(themes_list) if themes_list else 'none yet'}.\n"
-        "Write the letter."
-    )
+    from agent import review_letter
+    from agent.narrative import NarrativeFormatter
+    from agent.pipeline_orchestrator import admit
+    from agent.prioritization import InsightPrioritizationEngine
+
+    n = len(this_week)
+    facts = [f"You wrote {n} entr{'y' if n == 1 else 'ies'} on {len(written_on)} of the 7 days."
+             if n else "Nothing was written this week."]
+    if energy_avg is not None:
+        facts.append(f"The energy you reported averaged {energy_avg}"
+                     + (f", {abs(energy_delta)} {'higher' if energy_delta > 0 else 'lower'} than the week before."
+                        if energy_delta else "."))
+    if habits_total:
+        facts.append(f"You kept {habits_hit} of {habits_total} habits at least once.")
+
+    try:
+        admission = admit(user_id)
+        chosen = InsightPrioritizationEngine(user_id).select(admission.findings, 3)
+        findings = NarrativeFormatter.format_all(chosen)
+    except Exception as e:
+        logger.warning(f"Findings unavailable for the letter: {e}")
+        findings = []
+
     try:
         intelligence = core_module.Intelligence()
-        text = intelligence.chat(
-            messages=[{"role": "user", "content": prompt}],
-            system_prompt=system,
-        )
-        return text or "This week is still taking shape — not enough yet for a full letter."
-    except Exception as e:  # pragma: no cover - defensive (e.g. missing API key)
-        logger.warning(f"Review letter generation failed: {e}")
-        return "I couldn't write your letter this week, but your numbers are above."
+    except Exception as e:  # pragma: no cover - no API key
+        logger.warning(f"No model for the letter: {e}")
+        intelligence = None
+    return review_letter.compose(facts, findings, [r["content"] for r in this_week], intelligence)
 
 
 @app.get("/api/review/latest")

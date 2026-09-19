@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import constructs
+from reading_fakes import every_quote_supports, is_support_check
 from agent.database import db
 from agent.observations import Citation, Observation
 from agent.trackers.reflections import ReflectionService
@@ -151,6 +152,8 @@ def test_discovery_stages_candidates_without_measuring_them(client, test_user, p
 
     class FakeModel:
         def chat(self, messages, system_prompt, **kwargs):
+            if is_support_check(system_prompt):
+                return every_quote_supports(messages)
             return _json.dumps(payload)
 
     monkeypatch.setattr("agent.observations.Intelligence", lambda *a, **kw: FakeModel())

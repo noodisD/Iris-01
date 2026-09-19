@@ -125,9 +125,9 @@ def test_resolution_override_survives_pipeline(test_user, monkeypatch, journalle
     else:
         print("✗ Theme name NOT found in prompt")
 
-    if "appeared frequently in the past but has not appeared recently" in prompt:
+    if "it has gone quiet" in prompt:
         print("✓ Dissipated narrative found!")
-    elif "appeared frequently in the past but persisting recently" in prompt:
+    elif "it has continued" in prompt:
         print("✗ WRONG narrative: persisting instead of dissipated")
         print(f"\nFull prompt:\n{prompt}\n")
         raise AssertionError("Resolution narrative shows 'persisting' instead of 'dissipated'")

@@ -1,7 +1,7 @@
 # ADR-0015: One engine reads the entries, and must prove it read them
 
 ## Status
-Accepted — 2026-09-18
+Accepted — 2026-09-18 · "Never stored" amended by [ADR-0016](ADR-0016-stored-candidates.md)
 
 ## Context
 Every analytical engine counts. Trajectory counts occurrences per week, tension

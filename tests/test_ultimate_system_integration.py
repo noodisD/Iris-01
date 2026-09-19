@@ -176,7 +176,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline, journalled_recently)
 
     # 5. Verify Conflict Suppression actually worked
     # 'Work Stress' should NOT have an 'increasing' trajectory because it was suppressed by our manual dissipated resolution
-    assert "is increasing in frequency" not in prompt, "Conflict Suppression failed to silence contradictory insight"
+    assert "' increased:" not in prompt, "Conflict Suppression failed to silence contradictory insight"
     print("Conflict suppression verified [OK]")
 
     report.print_report()

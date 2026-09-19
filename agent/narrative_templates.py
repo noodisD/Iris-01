@@ -12,15 +12,15 @@ from .constants import ENGINE_PRIORITY
 ENGINE_NAMES = set(ENGINE_PRIORITY)
 
 NARRATIVE_TEMPLATES = {
-    "trajectory": "The pattern '{pattern_name}' {label} in frequency over the recent period.",
+    "trajectory": "The pattern '{pattern_name}' {label}: {recent_count} times in the last {trajectory_recent_days} days, against {past_count} in the {trajectory_baseline_days} days before.",
 
-    "tension": "The patterns '{pattern_name}' and '{target_name}' frequently appeared during the same periods with diverging activity levels.",
+    "tension": "The patterns '{pattern_name}' and '{target_name}' appeared on {cooccurrence_count} of the same days, with diverging activity levels.",
 
-    "resolution": "The pattern '{pattern_name}' appeared frequently in the past but {label} recently.",
+    "resolution": "The pattern '{pattern_name}' appeared {past_count} times in the {resolution_baseline_days} days before the last {resolution_recent_days}, and {recent_count} times in them; it {label}.",
 
-    "leverage": "The pattern '{pattern_name}' frequently preceded other patterns within a short temporal window.",
+    "leverage": "The pattern '{pattern_name}' was followed by '{target_name}' within {leverage_lag_days} days more often than the reverse, across {cooccurrence_count} co-occurrences.",
 
-    "decision_impact": "Following occurrences of '{pattern_name}', the pattern '{target_name}' {label} in the subsequent {time_window} days.",
+    "decision_impact": "Following occurrences of '{pattern_name}', the pattern '{target_name}' {label} in the subsequent {decision_window_days} days.",
 
     # Says when it started and how the occurrences sat across the span, never
     # how things are now — this engine makes no present-tense claim, which is

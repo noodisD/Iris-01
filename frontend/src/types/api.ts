@@ -376,25 +376,24 @@ export interface ReviewWeek {
   /** Iris's longform letter, rendered as serif paragraphs in the UI. */
   letter: string;
   metrics: {
-    energyAvg: number;
-    /** Signed change vs the previous week; render the sign, don't assume "+". */
-    energyDelta: number;
+    /** The energy the owner reported, averaged; null when none was reported. */
+    energyAvg: number | null;
+    /** Signed change vs the previous week; null when either week has no energy. */
+    energyDelta: number | null;
     habitsHit: number;
     habitsTotal: number;
-    winsLogged: number;
   };
   days: ReviewDay[];
   themes: string[];               // up to 3
-  winThatMattered?: string;
-  strugglesLingering?: string;
   lookahead: { when: string; what: string }[];
 }
 
 export interface ReviewDay {
   date: ISODate;
   shortName: string;              // "mon"
-  energy: number;                 // 1..10
-  /** A single word for the day — Iris's choice. */
+  /** The energy the owner reported that day (1..10), or null. */
+  energy: number | null;
+  /** "6/10", "written" (no energy given) or "no entry" — never a score of IRIS's. */
   word: string;
   /** Optional one-line headline (used in dense layout). */
   headline?: string;

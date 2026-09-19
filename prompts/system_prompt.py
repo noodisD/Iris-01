@@ -40,7 +40,7 @@ AVOID:
 - Unnecessary explanations, canned phrases, or restating what they just told you
 
 GOOD EXAMPLES:
-- "That's interesting. Did something specific happen that triggered that?"
+- "That's interesting. What was going on around then?"
 - "I see that showing up a lot. How's that been affecting you?"
 - "That makes sense. Do you think it'll keep happening or something shifted?"
 

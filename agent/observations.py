@@ -30,9 +30,14 @@ stopped:
   phrased about that span. It never claims the present, so it never needs the
   coverage gate to tell it not to.
 
-What comes back is not stored. An observation is something IRIS noticed while
-reading, offered to the owner with its receipts — not a new fact about them
-filed away to be counted later.
+- Every quote must also *support* the claim, not merely exist: a quote that
+  contradicts it drops the finding, and one that only mentions the subject is
+  not counted as evidence (`check_support`).
+
+What a quick read (`read`) returns is not stored. What a discovery run
+(`read_archive`) finds is stored as a proposal — a candidate the engines cannot
+see, anchored in the owner's own sentences — and counted only once the owner
+confirms it (ADR-0016).
 """
 
 from __future__ import annotations
@@ -293,6 +298,82 @@ def synthesise(observations: list[Observation], intelligence) -> list[Observatio
     return out
 
 
+SUPPORT_PROMPT = """You are checking one claim about a person's journal against quotes from it.
+
+The quotes are real: each was found word for word in the entry it came from. The
+question is only what each one says about the claim.
+
+For each quote, give one verdict:
+- "supports" — the quote is an instance of what the claim describes.
+- "denies" — the quote says the opposite, or says it did not happen.
+- "mentions" — the quote touches the subject but is not an instance of the claim.
+
+If you are unsure, say "mentions".
+
+Return JSON only:
+{"quotes": [{"i": 0, "verdict": "supports"}]}"""
+
+
+def check_support(observations: list[Observation], intelligence) -> list[Observation]:
+    """Keep a finding only if its quotes are instances of it.
+
+    A quote found verbatim proves the words exist, not that they support the
+    claim. Two authentic quotes that *deny* a behaviour passed every check
+    here and came out as evidence for it — so nothing could be allowed to claim
+    a behaviour, and confirming one was refused outright.
+
+    So each finding is put to one narrow question about quotes already verified:
+    does this one support the claim, deny it, or merely mention the subject? A
+    single denial drops the finding. A quote that only mentions the subject is
+    not evidence for it and is removed; what remains must still meet the same
+    minimums as before. This is not a second reader grading the journal — it
+    judges nothing except the relation between a sentence it is shown and a
+    claim it is shown.
+
+    It fails closed. A finding whose support could not be checked is dropped:
+    unlike an unmerged restatement, an unchecked claim on screen is not harmless.
+    """
+    if intelligence is None:
+        return []
+    kept: list[Observation] = []
+    for obs in observations:
+        listing = "\n".join(f"[{i}] {c.text}" for i, c in enumerate(obs.citations))
+        try:
+            reply = intelligence.chat(
+                messages=[{"role": "user", "content": f"Claim: {obs.claim}\n\nQuotes:\n{listing}"}],
+                system_prompt=SUPPORT_PROMPT,
+                max_tokens=OBSERVATION_MAX_TOKENS,
+            )
+            verdicts = {int(v["i"]): str(v["verdict"])
+                        for v in json.loads(_strip_fence(reply)).get("quotes") or []
+                        if isinstance(v, dict)}
+        except Exception as e:
+            logger.warning(f"Support could not be checked, finding dropped: {obs.claim[:60]} ({e})")
+            continue
+
+        if len(verdicts) != len(obs.citations) or not all(
+                verdicts.get(i) in ("supports", "denies", "mentions")
+                for i in range(len(obs.citations))):
+            logger.info(f"Support check answered incompletely, finding dropped: {obs.claim[:60]}")
+            continue
+        if any(v == "denies" for v in verdicts.values()):
+            logger.info(f"A quote denies the claim, finding dropped: {obs.claim[:60]}")
+            continue
+
+        supporting = tuple(c for i, c in enumerate(obs.citations) if verdicts[i] == "supports")
+        if (len(supporting) < OBSERVATION_MIN_CITATIONS
+                or len({c.key for c in supporting}) < OBSERVATION_MIN_ENTRIES_CITED):
+            logger.info(f"Too few quotes support the claim, finding dropped: {obs.claim[:60]}")
+            continue
+
+        span = (obs.span_end - obs.span_start).days if obs.span_start and obs.span_end else 0
+        kept.append(Observation(
+            claim=obs.claim, citations=supporting, span_start=obs.span_start,
+            span_end=obs.span_end, entries_read=obs.entries_read,
+            confidence_level=_confidence(supporting, span), merged_from=obs.merged_from))
+    return kept
+
+
 class ObservationEngine:
     """Reads entries on request and reports what it can prove it read."""
 
@@ -325,7 +406,7 @@ class ObservationEngine:
             logger.error(f"Observation read failed for user {self.user_id}: {e}")
             return []
 
-        return self._verified(_parse_reply(reply), entries)
+        return check_support(self._verified(_parse_reply(reply), entries), self.intelligence)
 
     def read_archive(self, include_staged: bool = True) -> tuple[list[Observation], int | None]:
         """Read everything, in passes, and record what the reading covered.
@@ -382,7 +463,8 @@ class ObservationEngine:
         # another read.
         raw = [o.as_dict() for o in found]
 
-        merged = synthesise(consolidate(found), self.intelligence)
+        merged = check_support(synthesise(consolidate(found), self.intelligence),
+                               self.intelligence)
 
         if completed == 0:
             status = "failed"
@@ -579,10 +661,13 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
     produced thirteen near-identical "breakthroughs" in two days — a screen full
     of restatement reading as a screen full of findings.
 
-    Two observations are the same finding when they cite any of the same
-    writing. The merged claim is the longest of them (the one that says most),
-    and it keeps every citation, so merging strengthens the evidence rather
-    than discarding any of it.
+    Two observations are the same finding when they share enough of their
+    evidence — at least OBSERVATION_MERGE_OVERLAP of it, as a Jaccard ratio over
+    the entries they cite — or when their wording is identical. Any single entry
+    in common is not enough: a long recording cited by several unrelated
+    findings would glue them together. The merged claim is the longest of them
+    (the one that says most), and it keeps every citation, so merging
+    strengthens the evidence rather than discarding any of it.
     """
     # Connected components, not first-match-wins. The previous loop joined an
     # observation to the first group it happened to touch and stopped, so a

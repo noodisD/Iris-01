@@ -80,8 +80,8 @@ def test_full_system_with_meta_controls(test_user, mock_external_services):
 
     print("\n--- CONFLICT ANALYSIS ---")
     # Section check
-    stress_increasing = "is increasing in frequency" in prompt or "Work Stress" in prompt
-    stress_dissipated = "appeared frequently in the past but has not appeared recently" in prompt
+    stress_increasing = "' increased:" in prompt or "Work Stress" in prompt
+    stress_dissipated = "it has gone quiet" in prompt
 
     status_inc = "[OK]" if stress_increasing else "[MISSING]"
     status_dis = "[SUPPRESSED]" if not stress_dissipated else "[CONFLICT DETECTED]"

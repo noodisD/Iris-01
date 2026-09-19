@@ -444,7 +444,13 @@ class PersonalAICompanion:
         Does not require a user message to trigger.
         """
         if action_type == "reflection":
-            prompt_hint = f"The user just shared a reflection: \"{details.get('content')}\". It's marked with mood '{details.get('mood')}' and energy {details.get('energy_level')}. Start a conversation by offering a brief, empathetic observation or a gentle follow-up question."
+            # Only what the owner recorded. The mood was inferred from tags —
+            # "okay" when there were none — and the context builder already
+            # refuses to show it as though it had been given; this hint handed
+            # it to the model anyway. Energy is said only when there is one.
+            energy = details.get('energy_level')
+            recorded = f" They gave their energy as {energy}/10." if energy is not None else ""
+            prompt_hint = f"The user just shared a reflection: \"{details.get('content')}\".{recorded} Start a conversation by offering a brief, empathetic observation or a gentle follow-up question."
         elif action_type == "habit_skip":
             prompt_hint = f"The user just skipped their habit '{details.get('habit_name')}' with reason: \"{details.get('reason') or 'No reason provided'}\". Offer a supportive, non-judgmental comment to help them stay encouraged."
         elif action_type == "habit_complete":

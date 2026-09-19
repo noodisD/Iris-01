@@ -2,9 +2,9 @@ import { useReview } from '@/hooks/useData';
 import { LoadingState, ErrorState } from '@/components/states';
 
 /** Render a delta with its real sign — a hardcoded '+' turned -1.2 into '+-1.2'. */
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+const signed = (n: number | null) => (n === null ? 'no comparison' : n > 0 ? `+${n}` : `${n}`);
 
-/** Cinematic weekly review — Iris's letter + numbers + word-poem. */
+/** The week: Iris's letter, what was kept, and the energy you reported each day. */
 export function ReviewScreen() {
   const { data, isLoading, isError, refetch } = useReview();
   if (isLoading) return <LoadingState label="Iris is composing your week…" />;
@@ -32,9 +32,8 @@ export function ReviewScreen() {
 
         <div className="row" style={{ gap: 48, marginTop: 64, padding: '32px 56px 0', borderTop: '1px dashed var(--line)', maxWidth: 760, width: '100%' }}>
           {[
-            { v: m.energyAvg.toFixed(1), l: `energy · ${signed(m.energyDelta)}`, c: 'var(--sage)' },
-            { v: `${m.habitsHit}/${m.habitsTotal}`, l: 'habits hit', c: 'var(--ink)' },
-            { v: String(m.winsLogged), l: 'wins logged', c: 'var(--amber)' },
+            { v: m.energyAvg === null ? '—' : m.energyAvg.toFixed(1), l: m.energyAvg === null ? 'no energy reported' : `energy you reported · ${signed(m.energyDelta)}`, c: 'var(--sage)' },
+            { v: `${m.habitsHit}/${m.habitsTotal}`, l: 'habits kept', c: 'var(--ink)' },
           ].map((s, i) => (
             <div key={i} className="col" style={{ gap: 2 }}>
               <span className="numerals" style={{ fontSize: 40, color: s.c }}>{s.v}</span>
@@ -45,10 +44,10 @@ export function ReviewScreen() {
       </section>
 
       <section style={{ padding: '40px 56px 30px', borderTop: '1px solid var(--line-soft)' }}>
-        <div className="kicker" style={{ marginBottom: 24, textAlign: 'center' }}>· seven words for seven days ·</div>
+        <div className="kicker" style={{ marginBottom: 24, textAlign: 'center' }}>· your energy, day by day ·</div>
         <div className="row" style={{ justifyContent: 'space-between', gap: 14, maxWidth: 1080, margin: '0 auto', alignItems: 'flex-end' }}>
           {data.days.map((d, i) => {
-            const intensity = d.energy / 10;
+            const intensity = (d.energy ?? 0) / 10;
             return (
               <div key={i} className="col" style={{ alignItems: 'center', gap: 10, flex: 1 }}>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{d.shortName}</span>
@@ -60,16 +59,12 @@ export function ReviewScreen() {
         </div>
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '32px 56px 48px', borderTop: '1px solid var(--line-soft)' }}>
+      <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '32px 56px 48px', borderTop: '1px solid var(--line-soft)' }}>
         <div className="col" style={{ gap: 8, padding: '0 32px 0 0' }}>
           <div className="kicker">three themes</div>
           <ol style={{ margin: 0, paddingLeft: 22, color: 'var(--ink)' }}>
             {data.themes.map((t, i) => <li key={i} className="serif" style={{ fontSize: 18, fontStyle: 'italic', lineHeight: 1.4, marginBottom: 6, color: i === 0 ? 'var(--ink)' : 'var(--ink-2)' }}>{t}</li>)}
           </ol>
-        </div>
-        <div className="col" style={{ gap: 8, padding: '0 32px', borderLeft: '1px dashed var(--line)' }}>
-          <div className="kicker">the win that mattered</div>
-          <div className="serif" style={{ fontSize: 22, fontStyle: 'italic', lineHeight: 1.3, color: 'var(--ink)' }}>"{data.winThatMattered}"</div>
         </div>
         <div className="col" style={{ gap: 8, padding: '0 0 0 32px', borderLeft: '1px dashed var(--line)' }}>
           <div className="kicker">looking ahead</div>

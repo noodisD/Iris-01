@@ -21,6 +21,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from reading_fakes import every_quote_supports, is_support_check
 from agent.constants import OBSERVATION_MIN_QUOTE_CHARS
 from agent.observations import ObservationEngine, apply_preferences
 from agent.preferences import UserPreferencesService
@@ -52,6 +53,8 @@ class FakeModel:
         self.prompts: list[str] = []
 
     def chat(self, messages, system_prompt, **kwargs):
+        if is_support_check(system_prompt):
+            return every_quote_supports(messages)
         self.prompts.append(messages[0]["content"])
         return self.payload if isinstance(self.payload, str) else json.dumps(self.payload)
 

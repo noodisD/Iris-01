@@ -10,6 +10,14 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from .constants import (
+    DECISION_IMPACT_WINDOW_DAYS,
+    LEVERAGE_TIME_LAG_DAYS,
+    RESOLUTION_BASELINE_DAYS,
+    RESOLUTION_RECENT_DAYS,
+    TRAJECTORY_BASELINE_DAYS,
+    TRAJECTORY_RECENT_DAYS,
+)
 from .narrative_policy import FORBIDDEN_REGEX, NARRATIVE_FAIL_MODE
 from .narrative_templates import NARRATIVE_TEMPLATES
 
@@ -82,7 +90,11 @@ class NarrativeFormatter:
         """Maps insight fields to template placeholders."""
         # Generic mappings
         data = {
-            "pattern_name": ins.get('summary') or ins.get('theme_summary') or "Unknown Pattern",
+            # theme_a_summary: a tension names its two themes and has no
+            # `summary`, so its sentence used to open "The patterns 'Unknown
+            # Pattern' and …".
+            "pattern_name": (ins.get('summary') or ins.get('theme_summary')
+                             or ins.get('theme_a_summary') or "Unknown Pattern"),
             "target_name": ins.get('target_summary') or ins.get('theme_b_summary') or "Related Pattern",
             "metric_value": ins.get('occurrence_count') or ins.get('delta_score') or 0,
             "label": NarrativeFormatter._sanitize_label(ins),
@@ -90,6 +102,19 @@ class NarrativeFormatter:
             # How much of the count cannot be placed in time. Zero for every
             # engine that has no such notion, which is all of them but one.
             "undated_count": ins.get('undated_occurrences', 0),
+            # The counts each sentence quotes, and the windows they were counted
+            # over — taken from the engines' own constants, so a sentence cannot
+            # name a window the engine did not use. "Frequently" was never
+            # measured by anything; these were.
+            "recent_count": ins.get('recent_count', 0),
+            "past_count": ins.get('past_count', 0),
+            "cooccurrence_count": ins.get('cooccurrence_count', 0),
+            "trajectory_recent_days": TRAJECTORY_RECENT_DAYS,
+            "trajectory_baseline_days": TRAJECTORY_BASELINE_DAYS,
+            "resolution_recent_days": RESOLUTION_RECENT_DAYS,
+            "resolution_baseline_days": RESOLUTION_BASELINE_DAYS,
+            "leverage_lag_days": LEVERAGE_TIME_LAG_DAYS,
+            "decision_window_days": DECISION_IMPACT_WINDOW_DAYS,
         }
         return data
 
@@ -109,8 +134,11 @@ class NarrativeFormatter:
         mappings = {
             "increasing": "increased",
             "fading": "decreased",
+            # Otherwise printed raw: "… stable in frequency", "it persisting".
+            "stable": "held steady",
+            "persisting": "has continued",
             "emerging": "emerged",
-            "dissipated": "has not appeared",
+            "dissipated": "has gone quiet",
             "reappearing": "has reappeared",
             "stabilized": "stabilized",
             "emergence": "emerged",
@@ -130,9 +158,6 @@ class NarrativeFormatter:
                 first = datetime.fromisoformat(str(first))
             return first.strftime("%Y-%m-%d")
 
-        # Fallback for engine-specific window constants
-        if ins.get('engine_name') == 'decision_impact':
-            return "14"
         return "the recent period"
 
     @staticmethod

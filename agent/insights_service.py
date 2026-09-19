@@ -14,6 +14,7 @@ import logging
 from datetime import UTC, datetime
 
 from .coverage import observation_coverage
+from .narrative_policy import FORBIDDEN_REGEX
 from .constants import (
     DECISION_IMPACT_BASELINE_DAYS,
     DECISION_IMPACT_WINDOW_DAYS,
@@ -564,7 +565,11 @@ class InsightsService:
         parts.append(
             f"That is {raw['confidence_level']} confidence on the evidence logged so far."
         )
-        return " ".join(parts)
+        # The firewall ran on chat's templates and nowhere else, and this text
+        # carries a theme's summary — written by a model after the fact. A
+        # sentence that says what caused what, or what to do, is dropped here
+        # as it would be there.
+        return " ".join(p for p in parts if not FORBIDDEN_REGEX.search(p))
 
     def _evidence(self, raw: dict) -> list:
         """Only what the engine measured, each value labelled with its window."""
