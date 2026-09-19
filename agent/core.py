@@ -22,6 +22,7 @@ from .database import (
     journals,
     leverage,
 )
+from .lifelong import LifelongEngine
 from .intelligence import Intelligence
 from .journal_entry import JournalEntry
 from .memory import ConversationMemory
@@ -188,6 +189,14 @@ class PersonalAICompanion:
         self.analysis_pipeline.register_engine(
             'decision_impact',
             lambda: decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
+        )
+
+        # The whole record, not the last fortnight. Every other engine measures
+        # inside 14 to 90 days; on an archive spanning years that window can be
+        # empty while the archive is full.
+        self.analysis_pipeline.register_engine(
+            'lifelong',
+            lambda: LifelongEngine(self.user_id).analyze_all_themes()
         )
 
         # Register gates in order. Budget is deliberately NOT registered here:

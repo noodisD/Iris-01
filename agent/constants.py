@@ -127,6 +127,21 @@ CONF_ABSENCE_MIN_BASELINE_SPAN_DAYS = 7  # a burst on one day is one observation
 # life, not a basis for saying how things are (agent/coverage.py).
 COVERAGE_MIN_OBSERVED_DAYS = 3
 
+# --- Lifelong scale (agent/lifelong.py) -------------------------------------
+# The other engines look through a 14-to-90-day window. On an archive spanning
+# 27 months that is a keyhole: 0 of 19 themes had an occurrence in the last 90
+# days, while 14 of them had three or more across the whole record. The evidence
+# was there and no engine could reach it.
+#
+# This scale counts the same occurrences over the whole span. It makes no claim
+# about the present — it says what recurred and when — so the coverage gate
+# lets it through where it withholds a present-tense finding.
+LIFELONG_MIN_OCCURRENCES = 3      # below this it is an incident, not a pattern
+LIFELONG_MIN_SPAN_DAYS = 90       # three occurrences in a week is a burst
+#: When most of a pattern's occurrences fall in one year, say so rather than
+#: implying it ran evenly throughout.
+LIFELONG_CONCENTRATION_SHARE = 0.6
+
 # --- Reading entries (agent/observations.py) --------------------------------
 # A claim resting on one entry is an anecdote. Two entries is the floor for
 # calling something recurrent, and the confidence levels below need more.
@@ -179,7 +194,11 @@ ENGINE_PRIORITY = [
     "leverage",
     "decision_impact",
     "trajectory",
-    "resolution"
+    "resolution",
+    # Last in the tie-break: a finding about a two-year span should yield to one
+    # about this fortnight when both describe the same theme and only one can be
+    # shown. It is the wider context, not the news.
+    "lifelong",
 ]
 
 # Every engine the owner may switch on or off. Not the same list as the one

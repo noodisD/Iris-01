@@ -30,6 +30,7 @@ from .constants import (
 from .database import db
 from .decision_impact import DecisionImpactEngine
 from .leverage import LeverageEngine
+from .lifelong import LifelongEngine
 from .preferences import UserPreferencesService
 from .resolution import ResolutionEngine
 from .tension import TensionEngine
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 # rates before and after an anchor: both are temporal association, and labelling
 # them "causal" on screen asserted something the mathematics never established.
 KIND_MAP = {
+    "lifelong": "temporal",
     "trajectory": "temporal",
     "resolution": "temporal",
     "tension": "linguistic",
@@ -100,6 +102,35 @@ class InsightsService:
         value carrying the window it was measured over. Engines that do not
         compare a recent window against an earlier one do not report one."""
         out = []
+
+        try:
+            for r in LifelongEngine(self.user_id).analyze_all_themes():
+                months = max(1, r["span_days"] // 30)
+                out.append({
+                    "engine": "lifelong",
+                    "pattern_key": str(r["theme_id"]),
+                    "theme_id": r["theme_id"],
+                    "summary": r.get("theme_summary") or "",
+                    "label": r.get("lifelong_label") or "observed",
+                    "measures_label": "Across the whole record",
+                    "measures": [
+                        _measure("Occurrences", r["occurrence_count"],
+                                 f"over {months} months"),
+                        _measure(f"In {r['densest_year']}", r["densest_count"],
+                                 f"{r['share_in_densest']:.0%} of them"),
+                        _measure("Months with entries", r["active_months"], None),
+                    ],
+                    "headline_metric": (
+                        f"{r['occurrence_count']} times across {months} months · "
+                        f"last {r['days_since_last']}d ago"
+                    ),
+                    "confidence_level": r.get("confidence_level", "low"),
+                    # Describes a span, so a quiet recent window does not make it
+                    # untrue — the coverage gate lets it through (ADR-0007).
+                    "claims_present": False,
+                })
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Lifelong insights unavailable: {e}")
 
         try:
             for r in TrajectoryEngine(self.user_id).analyze_all_themes():

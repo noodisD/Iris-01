@@ -100,11 +100,27 @@ def drop_unsupported(insights: list[dict]) -> list[dict]:
     ]
 
 
+def claims_present(insight: dict) -> bool:
+    """Whether this finding says something about how things are *now*.
+
+    Defaults to True, which is the safe reading: a finding that has not said
+    otherwise is treated as a claim about the present and gated accordingly. A
+    finding that forgets to declare itself is withheld, never admitted.
+    """
+    return insight.get("claims_present", True) is not False
+
+
 def current_state_gate(insights: list[dict], context: dict) -> list[dict]:
     """Withhold present-tense findings while nothing recent has been logged.
 
     Shaped as a pipeline gate (insights, context) -> insights so the chat
     pipeline can register it beside enablement and confidence.
+
+    Findings about a *span* are exempt, and that is the point of the exemption
+    rather than a loophole in it. "Twelve times across two years, none since
+    March" needs no recent writing to be true; withholding it because this month
+    is quiet would suppress a fact precisely when it is most worth knowing. What
+    stays gated is the present tense: anything claiming how things *are*.
     """
     user_id = context.get("user_id")
     if user_id is None or not insights:
@@ -123,9 +139,11 @@ def current_state_gate(insights: list[dict], context: dict) -> list[dict]:
     if coverage.supports_current_state:
         return insights
 
+    historical = [i for i in insights if not claims_present(i)]
     logger.info(
-        f"Coverage gate: {len(insights)} finding(s) withheld - "
+        f"Coverage gate: {len(insights) - len(historical)} present-tense finding(s) withheld, "
+        f"{len(historical)} about a span kept - "
         f"{coverage.observed_days_in_window} of {COVERAGE_MIN_OBSERVED_DAYS} days logged in the last "
         f"{coverage.window_days} (last entry {coverage.last_observed_day}, available={coverage.available})"
     )
-    return []
+    return historical

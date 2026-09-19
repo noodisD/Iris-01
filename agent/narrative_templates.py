@@ -21,7 +21,12 @@ NARRATIVE_TEMPLATES = {
 
     "leverage": "The pattern '{pattern_name}' frequently preceded other patterns within a short temporal window.",
 
-    "decision_impact": "Following occurrences of '{pattern_name}', the pattern '{target_name}' {label} in the subsequent {time_window} days."
+    "decision_impact": "Following occurrences of '{pattern_name}', the pattern '{target_name}' {label} in the subsequent {time_window} days.",
+
+    # Says when it started and how the occurrences sat across the span, never
+    # how things are now — this engine makes no present-tense claim, which is
+    # what lets it past the coverage gate.
+    "lifelong": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}; its occurrences were {label}."
 }
 
 # Runtime coverage check
