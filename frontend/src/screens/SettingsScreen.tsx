@@ -13,6 +13,8 @@ const ENGINE_LABELS: Record<string, string> = {
   resolution: 'whether a pattern has settled',
   leverage: 'what tends to come before what',
   decision_impact: 'what changed after a decision',
+  lifelong: 'how often something recurred across the whole record',
+  observations: 'what reading your entries noticed',
 };
 
 export function SettingsScreen() {
@@ -25,7 +27,14 @@ export function SettingsScreen() {
   if (isLoading) return <LoadingState label="Iris is gathering what she knows…" />;
   if (isError || !connectors) return <ErrorState onRetry={() => refetch()} />;
 
-  const forget = async (id: string) => {
+  // A cluster is found by the machine and can be found again. A confirmed
+  // pattern is the owner's decision: forgetting it stops it being counted and
+  // it will not be proposed again, so it asks first.
+  const forget = async (id: string, source: string) => {
+    if (source === 'confirmed' &&
+        !window.confirm('Stop counting this confirmed pattern? Its occurrences are removed and it will not be proposed again.')) {
+      return;
+    }
     await forgetFact(id);
     qc.invalidateQueries({ queryKey: qk.knowledge });
   };
@@ -74,7 +83,10 @@ export function SettingsScreen() {
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>{k.source}</span>
                 <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)' }}>{k.ageDays}d</span>
-                  {k.editable && <button className="btn ghost" style={{ fontSize: 11, color: 'var(--rose)' }} aria-label="forget" onClick={() => forget(k.id)}>×</button>}
+                  {k.editable && <button className="btn ghost" style={{ fontSize: 11, color: 'var(--rose)' }}
+                    aria-label={k.source === 'confirmed' ? 'stop counting' : 'forget'}
+                    title={k.source === 'confirmed' ? 'Stop counting this confirmed pattern' : 'Forget this pattern; it can be found again'}
+                    onClick={() => forget(k.id, k.source)}>×</button>}
                 </div>
               </div>
             ))}

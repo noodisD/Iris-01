@@ -34,7 +34,7 @@ load_dotenv()
 
 # Import the companion system
 try:
-    from agent.constants import OBSERVATION_MAX_ENTRIES_READ
+    from agent.constants import OBSERVATION_MAX_ENTRIES_READ, SELECTABLE_ENGINES
     from agent.core import PersonalAICompanion
     from agent.database import db
     from agent.insights_service import InsightsService
@@ -1185,11 +1185,6 @@ _ANALYSIS_KEY_MAP = {
     "showSuppressed": "show_suppressed",
 }
 
-#: Every engine the pipeline can run, so the UI does not carry its own copy.
-ALL_ENGINES = ["persistence", "trajectory", "tension", "resolution",
-               "leverage", "decision_impact"]
-
-
 def _analysis_to_contract(prefs: dict) -> dict:
     return {
         "minConfidence": prefs.get("min_confidence", "medium"),
@@ -1198,7 +1193,11 @@ def _analysis_to_contract(prefs: dict) -> dict:
         # the UI needs to tell those apart to render the toggles.
         "enabledEngines": prefs.get("enabled_engines"),
         "showSuppressed": bool(prefs.get("show_suppressed", False)),
-        "availableEngines": ALL_ENGINES,
+        # The same set PATCH validates against. This used to be a second list,
+        # frozen at the six engines of 2024: the owner could be shown a
+        # two-year count and had no switch for it, and the observations engine
+        # this set was widened for was still missing from the menu.
+        "availableEngines": sorted(SELECTABLE_ENGINES),
     }
 
 
@@ -1242,7 +1241,10 @@ def list_knowledge(user_id: int = Depends(get_current_user_id)):
         {
             "id": str(t["id"]),
             "fact": t["summary"],
-            "source": "pattern",
+            # A pattern the owner confirmed is not the same kind of thing as a
+            # cluster the machine found, and forgetting them does different
+            # things — the screen has to be able to say which.
+            "source": "confirmed" if t.get("origin") == "observed" else "pattern",
             "ageDays": _age_days(t.get("first_seen_at")),
             "editable": True,
         }
@@ -1252,12 +1254,25 @@ def list_knowledge(user_id: int = Depends(get_current_user_id)):
 
 @app.delete("/api/knowledge/{fact_id}")
 def forget_knowledge(fact_id: int, user_id: int = Depends(get_current_user_id)):
-    """Forget a fact (delete the underlying theme), guarding ownership."""
+    """Forget a fact, guarding ownership.
+
+    A cluster is derived — found by the machine, and found again by a rebuild —
+    so forgetting one deletes it. A construct is the owner's record: a pattern
+    they read the quotes for and confirmed. This route used to delete those too,
+    one click labelled like trivia, cascading away the prototypes and the
+    decision itself. Forgetting one now retracts it, exactly as the Noticed
+    screen does: it stops being counted, its evidence goes, and the sentences
+    it was built from and the fact that it was declined are kept, so a rerun of
+    discovery cannot propose it again.
+    """
     theme = db.get_theme_by_id(fact_id)
     if not theme or theme.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Fact not found")
+    if theme.get("origin") == "observed":
+        db.retract_construct(fact_id)
+        return {"ok": True, "retracted": True}
     db.delete_theme(fact_id)
-    return {"ok": True}
+    return {"ok": True, "retracted": False}
 
 
 @app.get("/api/connectors")

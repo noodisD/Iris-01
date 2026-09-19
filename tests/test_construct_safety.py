@@ -145,6 +145,34 @@ def test_rejecting_keeps_the_owners_own_sentences(test_user, archive):
     assert db.get_theme_prototypes(theme_id), "the record of what was proposed is kept"
 
 
+# --- forgetting from Settings is a retraction, not a deletion -------------------
+
+def test_forgetting_a_confirmed_pattern_retracts_it(test_user, archive):
+    """Settings offered every theme as a removable fact and the route deleted the
+    row — a confirmed construct, its prototypes and the decision itself, one
+    click labelled like trivia. The owner's record is retracted instead, the way
+    the Noticed screen does it."""
+    from fastapi.testclient import TestClient
+    from iris_api import app, get_current_user_id
+
+    theme_id = _candidate(test_user["id"], archive)
+    constructs.confirm(theme_id)
+    app.dependency_overrides[get_current_user_id] = lambda: test_user["id"]
+    try:
+        client = TestClient(app)
+        listed = {f["id"]: f for f in client.get("/api/knowledge").json()}
+        response = client.delete(f"/api/knowledge/{theme_id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert listed[str(theme_id)]["source"] == "confirmed", "the screen can tell it apart"
+    assert response.json()["retracted"] is True
+    theme = db.get_theme_by_id(theme_id)
+    assert theme is not None and theme["status"] == "rejected", "the decision survives"
+    assert db.get_theme_prototypes(theme_id), "and so do the owner's sentences"
+    assert db.get_theme_occurrences(theme_id, include_undated=True) == []
+
+
 # --- C-06: cluster maintenance is not a decision eraser ------------------------
 
 def test_rebuilding_clusters_preserves_constructs_and_decisions(test_user, archive):

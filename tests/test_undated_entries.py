@@ -329,6 +329,73 @@ def test_without_undated_evidence_the_sentence_is_unchanged(test_user):
     assert "; its occurrences were" in rendered
 
 
+# --- nothing present-tense may be said about undated-only evidence --------------
+
+def test_undated_only_evidence_is_not_reported_as_persisting(test_user):
+    """Two live themes reached this. With no dated occurrence the resolution
+    engine compared two empty windows and called the result `persisting`, 0 and
+    0 — a pattern that is "still going" on no evidence at all."""
+    from agent.resolution import ResolutionEngine
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 6, dated=False)
+
+    result = ResolutionEngine(test_user["id"]).analyze_theme(theme_id, force_recompute=True)
+
+    assert result["resolution_label"] == "unsupported"
+    assert result["current_state_supported"] is False
+
+
+def test_neither_surface_shows_it_even_at_the_lowest_floor(test_user, journalled_recently):
+    """The label was only hidden by accident: low confidence under a `medium`
+    floor, and no recent writing for the coverage gate. Remove both and it
+    reached the screen."""
+    from agent.insights_service import InsightsService
+    from agent.preferences import UserPreferencesService
+    journalled_recently()  # enough recent writing that the coverage gate opens
+    UserPreferencesService(test_user["id"]).update_pref("min_confidence", "low")
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 6, dated=False)
+
+    svc = InsightsService(test_user["id"])
+    shown = svc._apply_policy(svc._normalize())
+
+    assert not [i for i in shown if i["engine"] == "resolution"]
+
+
+def test_a_span_is_described_in_the_past_tense(test_user):
+    """"Is spread" read a two-year count as though it were how things are this
+    morning — for the one engine that passes the coverage gate on the promise
+    that it claims nothing about now."""
+    from agent.insights_service import InsightsService
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 6, dated=True)  # medium confidence clears the default floor
+
+    svc = InsightsService(test_user["id"])
+    summary = svc.list_summaries()[0]
+    card = _lifelong_cards(test_user["id"])[0]
+
+    assert summary["headline"]["line2"].startswith("recurred")
+    assert "I keep noticing" not in svc._iris_read(card)
+    assert "claim about how things are now" in svc._methodology("lifelong")
+
+
+def test_rewriting_snippets_reaches_undated_occurrences(test_user):
+    """The maintenance rewrite read occurrences through the dated-only default,
+    so it silently skipped exactly the rows it existed to repair."""
+    from agent.persistence import PersistenceEngine
+    reflection_id = ReflectionService(test_user["id"]).create_reflection(
+        content=RECORDING, undated=True)
+    theme_id = _theme(test_user["id"])
+    db.add_theme_occurrence(theme_id, "reflection", reflection_id,
+                            "Anchor: Self-Reflection | Source: Reflection | Content: x",
+                            0.9, None)
+
+    PersistenceEngine(test_user["id"]).refresh_snippets()
+
+    occurrence = themes.get_occurrences(theme_id, include_undated=True)[0]
+    assert occurrence["snippet"] == RECORDING
+
+
 # --- resolving the absence later -----------------------------------------------
 
 def test_dating_an_entry_dates_the_occurrences_it_already_has(test_user):

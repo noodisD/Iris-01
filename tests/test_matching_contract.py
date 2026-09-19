@@ -205,3 +205,25 @@ def test_an_unconfirmed_construct_gains_nothing_from_new_writing(test_user, proc
 
     assert db.get_theme_occurrences(theme_id) == [], (
         "a proposal nobody has agreed to was accruing evidence")
+
+
+# --- a quote is the owner's words, not the text that was embedded ---------------
+
+def test_a_matched_entry_is_quoted_in_its_own_words(confirmed, test_user, process_queue):
+    """Both online writers — the cluster matcher and the construct classifier —
+    were handed the embedded text, which wraps a reflection in "Anchor: ... |
+    Mood: okay ... | Content: ...", and stored a slice of it as the quote. One
+    day's ingest produced 47 of them, invented mood included."""
+    uid = test_user["id"]
+    _write(uid, LATER, 10)
+    for text in FILLER[:3]:  # arrivals that match the clusters the voice formed
+        _write(uid, text, 5)
+    process_queue()
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT t.origin, o.snippet FROM theme_occurrences o
+                         JOIN themes t ON t.id = o.theme_id WHERE t.user_id = %s;""", (uid,))
+        rows = cur.fetchall()
+
+    assert {origin for origin, _ in rows} >= {"observed", "clustered"}, "both writers ran"
+    assert not [s for _, s in rows if (s or "").startswith("Anchor:")]

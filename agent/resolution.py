@@ -340,14 +340,23 @@ class ResolutionEngine:
         return 'low'
 
     def _empty_result(self, theme_id: int, summary: str) -> dict:
-        """Standard empty result for themes with no data."""
+        """A theme with no dated occurrence has nothing to compare.
+
+        This used to say `persisting`, with counts of 0 and 0 — harmless while
+        every theme had at least one dated occurrence, which made the path
+        almost unreachable. Once undated writing could found a theme, two real
+        themes reached it, and a comparison of two empty windows was reported
+        as a pattern that is still going. `unsupported` is what the engine
+        already says when both windows are empty, and every surface drops it.
+        """
         return {
             "theme_id": theme_id,
             "summary": summary,
-            "resolution_label": "persisting",
+            "resolution_label": "unsupported",
             "attenuation_score": 0.0,
             "confidence_level": "low",
             "recent_count": 0,
             "past_count": 0,
+            "current_state_supported": False,
             "last_computed_at": utc_now()
         }

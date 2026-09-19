@@ -203,6 +203,7 @@ export type InsightKind =
   | 'temporal'      // day-of-week, time-of-day
   | 'causal'        // X → Y over time
   | 'linguistic'    // word patterns
+  | 'co-occurrence' // two themes on the same days
   | 'embodied';     // body-vocabulary
 
 export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
@@ -313,7 +314,7 @@ export interface InsightSuggestion {
 export interface KnownFact {
   id: ID;
   fact: string;
-  source: 'chat' | 'journal' | 'pattern' | 'derived' | 'air' | 'language' | 'fusion';
+  source: 'chat' | 'journal' | 'pattern' | 'confirmed' | 'derived' | 'air' | 'language' | 'fusion';
   /** Days since Iris learned it. */
   ageDays: number;
   /** Can the user edit/forget this one? Usually yes. */

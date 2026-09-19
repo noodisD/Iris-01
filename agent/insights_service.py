@@ -46,7 +46,9 @@ KIND_MAP = {
     "lifelong": "temporal",
     "trajectory": "temporal",
     "resolution": "temporal",
-    "tension": "linguistic",
+    # It counts days two themes share — a co-occurrence, not anything about
+    # words, which is what the old kicker claimed on every tension card.
+    "tension": "co-occurrence",
     "leverage": "temporal",
     "decision_impact": "temporal",
 }
@@ -68,6 +70,15 @@ def _measure(label: str, value, sub: str | None = None) -> dict:
     A measure names what it counted and over what window instead.
     """
     return {"label": label, "value": value, "sub": sub}
+
+
+def _describes_span(raw: dict) -> bool:
+    """A finding about a stretch of the past rather than about now.
+
+    The engine's own `claims_present: False` — the same flag that earns it the
+    coverage gate's exemption — decides the tense it is described in.
+    """
+    return raw.get("claims_present") is False
 
 
 def _lifelong_card(r: dict) -> tuple[list, str]:
@@ -374,7 +385,12 @@ class InsightsService:
             "status": "active" if seen else "new",
             "headline": {
                 "line1": (raw["summary"] or "A pattern")[:48],
-                "line2": f"is {raw['label']}",
+                # A span is described in the past tense. "Is spread" read a
+                # two-year count as though it were how things are this morning,
+                # for the one engine whose point is that it claims nothing
+                # about now (it passes the coverage gate on that promise).
+                "line2": (f"recurred · {raw['label']}" if _describes_span(raw)
+                          else f"is {raw['label']}"),
                 "line3": self._headline_metric(raw),
             },
             "summary": f'"{raw["summary"]}" — {raw["label"]}. '
@@ -566,7 +582,15 @@ class InsightsService:
         This used to assert "that shift is what caught my attention" for every
         engine, including the three that never measured a shift.
         """
-        parts = [f'I keep noticing "{raw["summary"]}". It reads as {raw["label"]}.']
+        if _describes_span(raw) and raw["label"] == "undated":
+            opening = (f'"{raw["summary"]}" recurred in writing that carries no date, '
+                       f'so no span can be given.')
+        elif _describes_span(raw):
+            opening = (f'Across the whole record, "{raw["summary"]}" recurred, and its '
+                       f'occurrences were {raw["label"]}.')
+        else:
+            opening = f'I keep noticing "{raw["summary"]}". It reads as {raw["label"]}.'
+        parts = [opening]
         for m in raw.get("measures", []):
             window = f" ({m['sub']})" if m.get("sub") else ""
             parts.append(f"{m['label']}: {m['value']}{window}.")
@@ -640,4 +664,10 @@ class InsightsService:
             "decision_impact": "Compares how often a theme occurs in the period "
                                "following an anchor pattern against the period "
                                "before it. Association over time, not cause.",
+            "lifelong": "Counts every occurrence of the theme across the whole "
+                        "record: when it first and last appeared, the year that "
+                        "holds most of them, and how long since the last. "
+                        "Occurrences in writing with no date are counted "
+                        "separately and never placed in the span. It describes "
+                        "the past and makes no claim about how things are now.",
         }.get(engine, "Derived from longitudinal pattern analysis over your entries.")

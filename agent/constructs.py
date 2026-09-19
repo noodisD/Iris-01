@@ -35,6 +35,7 @@ import numpy as np
 
 from .comparison import ComparisonSpace
 from .database import db
+from .persistence import entry_snippet
 from .timeutils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -335,7 +336,9 @@ def classify(user_id: int, source_type: str, source_id: int, embedding,
             theme_id=theme["id"],
             source_type=source_type,
             source_id=source_id,
-            snippet=(content or "")[:500],
+            # The entry's own words. `content` here is the embedded text, which
+            # wraps a reflection in application metadata.
+            snippet=entry_snippet(source_type, source_id, 500),
             similarity_score=similarity,
             # str(occurred_at) was the fallback here, which turned a missing
             # date into the literal string "None" on its way to a timestamp

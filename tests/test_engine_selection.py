@@ -110,3 +110,23 @@ def test_the_count_that_picks_the_regime_counts_evidence_only(test_user, process
 
     count, _ = db.get_evidence_style(test_user["id"])
     assert count == 1, f"five placeholders counted toward the regime threshold: {count}"
+
+
+def test_the_settings_menu_offers_every_selectable_engine(test_user):
+    """The allow-list was fixed so a customised Settings could not silently drop
+    observations — and the menu that produces the allow-list was still a second,
+    hand-kept list of the 2024 six. Lifelong could be shown and never switched
+    off; observations could be selected by nothing on screen."""
+    from fastapi.testclient import TestClient
+
+    from agent.constants import SELECTABLE_ENGINES
+    from iris_api import app, get_current_user_id
+
+    app.dependency_overrides[get_current_user_id] = lambda: test_user["id"]
+    try:
+        body = TestClient(app).get("/api/user/analysis").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert body["availableEngines"] == sorted(SELECTABLE_ENGINES)
+    assert {"lifelong", "observations"} <= set(body["availableEngines"])

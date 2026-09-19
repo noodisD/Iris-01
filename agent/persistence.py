@@ -65,6 +65,28 @@ def cosine_similarity_manual(vec1, vec2):
 
 logger = logging.getLogger(__name__)
 
+def entry_snippet(source_type: str, source_id: int, max_length: int = 200) -> str:
+    """The owner's own words from an entry, for quoting back to them.
+
+    Every occurrence writer must use this rather than trimming the text it was
+    handed. The ingest pipeline hands over the text that was *embedded*, which
+    wraps a reflection in "Anchor: Self-Reflection | ... | Mood: okay ... |
+    Content: ..." — so snipping it stored application metadata, and an invented
+    mood, as a quote. The cluster path had already learned this; the online
+    matcher and the construct classifier had not, and 47 snippets from one day's
+    ingest came out wrapped.
+    """
+    from .database import db
+
+    item = db.get_memory_item(source_type, source_id)
+    if item and item.get("text"):
+        return " ".join(item["text"].split())[:max_length]
+    # A source the memory lookup does not know: fall back rather than lose the
+    # quote entirely.
+    text = embeddings.get_content_for_source(source_type, source_id)
+    return text[:max_length] if text else ""
+
+
 #: Sorts alongside real timestamps in the undated arm of a sort key, where the
 #: leading flag has already separated dated from undated. Never read as a date.
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -173,7 +195,7 @@ class PersistenceEngine:
             theme_id=theme["id"],
             source_type=source_type,
             source_id=source_id,
-            snippet=self._extract_snippet(content),
+            snippet=entry_snippet(source_type, source_id),
             similarity_score=similarity,
             occurred_at=occurred_at.isoformat() if occurred_at else None,
         )
@@ -704,31 +726,9 @@ Subject:"""
 
         return float(similarities.min()) >= (PERSISTENCE_MATCH_THRESHOLD if threshold is None else threshold)
 
-    def _extract_snippet(self, text: str, max_length: int = 200) -> str:
-        """Extract a snippet from text."""
-        if not text:
-            return ""
-        return text[:max_length]
-
     def _get_entry_snippet(self, entry_id: int, source_type: str = 'journal_entry', max_length: int = 200) -> str:
-        """The owner's own words, for quoting back to them.
-
-        get_content_for_source returns the text that was *embedded*, which wraps
-        a reflection in "Anchor: Self-Reflection | ... | Mood: okay (Energy:
-        ?/10 ...) | Content: ...". All 74 stored snippets began that way and the
-        Insights screen printed them as pull quotes, so application metadata was
-        presented as something the owner had written. get_memory_item returns
-        the entry itself.
-        """
-        from .database import db
-
-        item = db.get_memory_item(source_type, entry_id)
-        if item and item.get("text"):
-            return self._extract_snippet(" ".join(item["text"].split()), max_length)
-        # A source the memory lookup does not know: fall back rather than lose
-        # the quote entirely.
-        text = embeddings.get_content_for_source(source_type, entry_id)
-        return self._extract_snippet(text, max_length) if text else ""
+        """The owner's own words for an entry; see `entry_snippet`."""
+        return entry_snippet(source_type, entry_id, max_length)
 
     def refresh_snippets(self) -> int:
         """Rewrite stored occurrence snippets in the owner's own words.
@@ -741,7 +741,9 @@ Subject:"""
 
         updated = 0
         for theme in themes.get_all_themes(self.user_id):
-            for occ in db.get_theme_occurrences(theme["id"]):
+            # Undated occurrences included: the default read is dated-only,
+            # and the rows this exists to repair were undated ones.
+            for occ in db.get_theme_occurrences(theme["id"], include_undated=True):
                 snippet = self._get_entry_snippet(occ["source_id"], occ["source_type"])
                 if snippet and snippet != occ.get("snippet"):
                     with db.connection() as conn, conn.cursor() as cur:
