@@ -663,10 +663,11 @@ def apply_preferences(observations: list[Observation], user_id: int) -> list[Obs
         logger.error(f"Preferences unavailable for user {user_id}, withholding: {e}")
         return []
 
-    enabled = prefs.get("enabled_engines")
-    if enabled is not None and ENGINE_NAME not in enabled:
-        return []
+    # The same two functions the gates call, not a third copy of them. Coverage,
+    # conflict and ranking do not apply: an observation describes a span, and
+    # it is reviewed and confirmed rather than ranked against other findings.
+    from .pipeline_orchestrator import engine_enabled, meets_floor
 
-    levels = {"low": 0, "medium": 1, "high": 2}
-    minimum = levels.get(prefs.get("min_confidence", "medium"), 1)
-    return [o for o in observations if levels.get(o.confidence_level, 0) >= minimum]
+    if not engine_enabled(ENGINE_NAME, prefs):
+        return []
+    return [o for o in observations if meets_floor(o.confidence_level, prefs)]

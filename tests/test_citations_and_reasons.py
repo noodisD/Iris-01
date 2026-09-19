@@ -122,7 +122,7 @@ def test_resolving_everything_is_reported_as_resolved_not_as_nothing_found(
 def test_a_failed_breakdown_reads_as_unknown_not_as_zero(test_user, monkeypatch):
     """A check that could not run must not come back as a measured absence."""
     service = InsightsService(test_user["id"])
-    monkeypatch.setattr(InsightsService, "_normalize",
+    monkeypatch.setattr(InsightsService, "_findings",
                         lambda self: (_ for _ in ()).throw(RuntimeError("engines down")))
 
     cov = service.coverage()

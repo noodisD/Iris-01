@@ -148,7 +148,7 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic, journalled
         assert reason, "every suppression must carry a reason"
 
     # 2. Muzzle Engine: Disable Decision Impact
-    companion.pref_service.update_pref('enabled_engines', ['persistence', 'trajectory', 'resolution'])
+    companion.pref_service.update_pref('enabled_engines', ['trajectory', 'resolution'])
     companion.chat("Muzzle check.")
     prompt_muzzled = companion.intelligence.chat.call_args[1]['system_prompt']
     assert "Following occurrences of 'Meditation'" not in prompt_muzzled

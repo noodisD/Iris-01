@@ -34,10 +34,17 @@ def client(test_user):
 
 
 def _raw(engine, key, confidence, theme_id=1):
+    """A finding as the engines produce it and the shared admission reads it.
+
+    These tests inject findings, not cards: the screen no longer collects its
+    own, it renders what the same admission as chat let through.
+    """
     return {
-        "engine": engine, "pattern_key": key, "theme_id": theme_id,
-        "summary": f"{key} theme", "label": "persisting",
-        "recent": 3, "past": 5, "confidence_level": confidence,
+        "engine_name": engine, "pattern_type": "theme", "pattern_id": theme_id,
+        "pattern_key": key, "theme_id": theme_id,
+        "summary": f"{key} theme", "theme_summary": f"{key} theme",
+        f"{engine}_label": "persisting", "label": "persisting",
+        "recent_count": 3, "past_count": 5, "confidence_level": confidence,
     }
 
 
@@ -46,7 +53,7 @@ def test_defaults_are_returned_before_anything_is_set(client, test_user):
     assert body["minConfidence"] == "medium"
     assert body["maxItems"] == 5
     assert body["enabledEngines"] is None, "null means every engine"
-    assert "persistence" in body["availableEngines"], (
+    assert "lifelong" in body["availableEngines"], (
         "the UI takes the engine list from the server rather than keeping its own"
     )
 
@@ -64,7 +71,7 @@ def test_raising_the_threshold_changes_what_iris_will_say(client, test_user, mon
     """The point of the whole feature: the control reaches the gate."""
     def _service():
         s = InsightsService(test_user["id"])
-        monkeypatch.setattr(s, "_normalize", lambda: [_raw("trajectory", "b", "medium", 2)])
+        monkeypatch.setattr(s, "_findings", lambda: [_raw("trajectory", "b", "medium", 2)])
         return s
 
     client.patch("/api/user/analysis", json={"minConfidence": "medium"})
@@ -79,8 +86,7 @@ def test_raising_the_threshold_changes_what_iris_will_say(client, test_user, mon
 def test_disabling_an_engine_silences_it(client, test_user, monkeypatch):
     def _service():
         s = InsightsService(test_user["id"])
-        monkeypatch.setattr(
-            s, "_normalize",
+        monkeypatch.setattr(s, "_findings",
             lambda: [_raw("resolution", "a", "high", 1), _raw("trajectory", "b", "high", 2)],
         )
         return s

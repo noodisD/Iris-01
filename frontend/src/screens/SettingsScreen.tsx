@@ -7,7 +7,6 @@ import { qk } from '@/lib/queryClient';
 
 /** Engine names as a person would describe what each one watches for. */
 const ENGINE_LABELS: Record<string, string> = {
-  persistence: 'patterns that keep returning',
   trajectory: 'whether something is growing or fading',
   tension: 'themes pulling in different directions',
   resolution: 'whether a pattern has settled',

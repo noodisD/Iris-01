@@ -218,7 +218,14 @@ def test_discovery_reads_the_snippet_from_the_source_type_it_was_given():
 # --- presentation must not invent numbers -----------------------------------
 
 def _service_over(engine_results: dict):
-    """An InsightsService whose engines return exactly these results."""
+    """An InsightsService whose engines return exactly these results.
+
+    The engines are patched in their own modules: the screen no longer calls
+    them, the shared collection does (agent/pipeline_orchestrator.py), and it
+    imports each one from where it lives.
+    """
+    import importlib
+
     from agent import insights_service as mod
 
     service = mod.InsightsService(user_id=1)
@@ -226,7 +233,7 @@ def _service_over(engine_results: dict):
     for name, cls in [
         ("trajectory", "TrajectoryEngine"), ("resolution", "ResolutionEngine"),
         ("tension", "TensionEngine"), ("leverage", "LeverageEngine"),
-        ("decision_impact", "DecisionImpactEngine"),
+        ("decision_impact", "DecisionImpactEngine"), ("lifelong", "LifelongEngine"),
     ]:
         instance = MagicMock()
         results = engine_results.get(name, [])
@@ -234,7 +241,8 @@ def _service_over(engine_results: dict):
         instance.analyze_all_tensions.return_value = results
         instance.analyze_all_leverage.return_value = results
         instance.analyze_all_anchors.return_value = results
-        patches.append(patch.object(mod, cls, return_value=instance))
+        patches.append(patch.object(importlib.import_module(f"agent.{name}"), cls,
+                                    return_value=instance))
     for p in patches:
         p.start()
     try:

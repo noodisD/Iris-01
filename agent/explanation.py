@@ -30,6 +30,12 @@ class ExplanationEngine:
         """
         # 1. Fetch confidence first to check guardrail
         conf = conf_repo.get_confidence(pattern_type, pattern_id)
+        if not conf and pattern_type == 'theme':
+            # A theme's record is computed on request rather than left to
+            # whichever surface last happened to compute it.
+            from .persistence import PersistenceEngine
+            PersistenceEngine(self.user_id).theme_confidence(pattern_id)
+            conf = conf_repo.get_confidence(pattern_type, pattern_id)
         if not conf:
             return {"summary": "No analytical record found.", "evidence": []}
 

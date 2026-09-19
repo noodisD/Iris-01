@@ -42,6 +42,13 @@ class UserPreferencesService:
         # Merge stored with defaults to ensure all keys exist
         prefs = self.DEFAULT_PREFS.copy()
         prefs.update(stored)
+        # A saved engine list, minus any engine that no longer exists. Retiring
+        # an engine must not strand a choice made while it existed: Settings
+        # would send the list back and fail validation on a name it never
+        # offered.
+        if prefs.get("enabled_engines") is not None:
+            prefs["enabled_engines"] = [e for e in prefs["enabled_engines"]
+                                        if e in SELECTABLE_ENGINES]
         return prefs
 
     def update_pref(self, key: str, value: Any) -> dict[str, Any]:

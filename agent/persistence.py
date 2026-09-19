@@ -601,34 +601,9 @@ Subject:"""
                 logger.info(f"Theme {t['id']} SKIPPED: Low temporal density ({recent_count} < 3)")
                 continue # Skip this theme, it's dormant or noise
 
-            # Each theme's bundle must record that theme's own metrics. The
-            # buffer was initialised once per engine and only ever appended to,
-            # so a run over several themes stored theme 1's numbers inside
-            # theme 2's bundle and the explanation quoted the wrong evidence.
-            self._evidence = []
-
             # If confirmed, proceed to confidence
             if not conf or conf.get('last_computed_at') is None:
-                # Improved 5: Pass source_types for Evidence Tiering
-                conf = self.conf_engine.compute_confidence(
-                    'theme', t['id'], timestamps, sources=source_types
-                )
-
-                # Emit raw components as evidence
-                self.emit_evidence('count', 'occurrence_count', conf['data_points_count'])
-                self.emit_evidence('window', 'time_coverage_days', conf['time_coverage_days'])
-                self.emit_evidence('rate', 'recency_score', conf['recency_score'])
-
-                # 3. Store in central registry
-                confidence_repo.create_or_update(
-                    'theme', t['id'],
-                    conf['confidence_level'], conf['confidence_score'],
-                    conf['data_points_count'], conf['time_coverage_days'],
-                    conf['consistency_score'], conf['recency_score']
-                )
-
-                # 4. Record evidence bundle
-                self.ev_engine.record_evidence('persistence', 'theme', t['id'], self._evidence)
+                conf = self._store_theme_confidence(t['id'], timestamps, source_types)
 
             # `confidence_level` is the key the pipeline's admission gate reads.
             # Emitting only `confidence` meant the orchestrator filled the
@@ -641,6 +616,59 @@ Subject:"""
             persistent.append(t)
 
         return persistent
+
+    def theme_confidence(self, theme_id: int) -> dict:
+        """How much evidence stands behind one theme: computed, stored, returned.
+
+        The explanation of a theme reads this record, and the only thing that
+        used to write it was the persistence *finding* — computed only for themes
+        with three occurrences in the last thirty days, and only when a chat
+        turn happened to run that finding. So "explain this theme" depended on
+        which surface had run what, and on an archive with no recent writing it
+        answered "No analytical record found." for every theme. Confidence is
+        about the evidence behind a theme, not about whether it is recent, so it
+        is computed here on request.
+        """
+        timestamps, source_types = [], []
+        for o in self.get_theme_evidence(theme_id):
+            timestamps.append(to_utc(o['occurred_at']))
+            st, snippet = o['source_type'], o.get('snippet', '')
+            if st == 'habit_completion' and ("Notes:" in snippet or "Reason:" in snippet):
+                source_types.append('habit_completion_with_notes')
+            else:
+                source_types.append(st)
+        if not timestamps:
+            return {}
+        return self._store_theme_confidence(theme_id, timestamps, source_types)
+
+    def _store_theme_confidence(self, theme_id: int, timestamps: list, source_types: list) -> dict:
+        # Each theme's bundle must record that theme's own metrics. The
+        # buffer was initialised once per engine and only ever appended to,
+        # so a run over several themes stored theme 1's numbers inside
+        # theme 2's bundle and the explanation quoted the wrong evidence.
+        self._evidence = []
+
+        # Improved 5: Pass source_types for Evidence Tiering
+        conf = self.conf_engine.compute_confidence(
+            'theme', theme_id, timestamps, sources=source_types
+        )
+
+        # Emit raw components as evidence
+        self.emit_evidence('count', 'occurrence_count', conf['data_points_count'])
+        self.emit_evidence('window', 'time_coverage_days', conf['time_coverage_days'])
+        self.emit_evidence('rate', 'recency_score', conf['recency_score'])
+
+        # Store in central registry
+        confidence_repo.create_or_update(
+            'theme', theme_id,
+            conf['confidence_level'], conf['confidence_score'],
+            conf['data_points_count'], conf['time_coverage_days'],
+            conf['consistency_score'], conf['recency_score']
+        )
+
+        # Record evidence bundle
+        self.ev_engine.record_evidence('persistence', 'theme', theme_id, self._evidence)
+        return conf
 
     def get_theme_evidence(self, theme_id: int) -> list[dict]:
         """

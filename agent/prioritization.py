@@ -22,7 +22,6 @@ from .constants import (
     PRIORITY_CONFIDENCE_WEIGHT,
     PRIORITY_ENGINE_WEIGHT,
     PRIORITY_MAGNITUDE_WEIGHT,
-    PRIORITY_MAX_ITEMS,
     PRIORITY_NOVELTY_WEIGHT,
     PRIORITY_RECENCY_WEIGHT,
     PRIORITY_RECENT_DECAY_DAYS,
@@ -44,21 +43,15 @@ class InsightPrioritizationEngine:
         self.confidence_map = {"high": 1.0, "medium": 0.6}
         self.engine_tiebreak_prio = {name: i for i, name in enumerate(ENGINE_PRIORITY)}
 
-    def rank_insights(self, insights: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Calculates priority scores, sorts them, and selects top-N unique patterns.
-        """
-        if not insights:
-            # Nothing ranked means the previous ranking is no longer current.
-            # Retiring only on the way *through* left five rows describing a
-            # selection that no longer existed, timestamped as if it did.
-            try:
-                db.retire_insight_priorities([])
-            except Exception as e:
-                logger.warning(f"Could not retire superseded priorities: {e}")
-            return []
+    def rank(self, insights: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Score and order every admitted finding. No cut, no writes.
 
-        # 1. Scoring
+        This used to keep one finding per pattern and stop at
+        PRIORITY_MAX_ITEMS = 5 before the caller's own budget was applied, so
+        an owner who set Settings to 10 got 5 and never learned why — and the
+        Insights screen, which ranks nothing away, could not share it. Ordering
+        is the shared step; how many to keep is the caller's.
+        """
         scored_list = []
         for ins in insights:
             score_breakdown = self._calculate_score(ins)
@@ -66,7 +59,6 @@ class InsightPrioritizationEngine:
             ins['priority_breakdown'] = score_breakdown
             scored_list.append(ins)
 
-        # 2. Sorting (Deterministic Tie-Breaking)
         # Sequence: Score DESC -> Conf -> Recency -> Engine Prio -> ID
         def sort_key(i):
             conf_val = self.confidence_map.get((i.get('confidence') or i.get('confidence_level') or 'low').lower(), 0)
@@ -91,32 +83,41 @@ class InsightPrioritizationEngine:
             )
 
         scored_list.sort(key=sort_key, reverse=True)
+        return scored_list
 
-        # 3. Diversity Rule: One slot per Pattern ID
-        final_list = []
-        seen_patterns = set()
+    def select(self, ranked: list[dict[str, Any]], max_items: int) -> list[dict[str, Any]]:
+        """What fits in a prompt: one finding per pattern, at most `max_items`.
 
-        for ins in scored_list:
-            p_key = (ins['pattern_type'], ins['pattern_id'])
-            if p_key not in seen_patterns:
-                final_list.append(ins)
-                seen_patterns.add(p_key)
+        One per pattern because a prompt has room for a few things and two
+        engines describing the same theme would spend both. A pattern is a
+        theme, or for the pair engines the pair — a tension between A and B is
+        not one more thing said about A. The selection is recorded for audit.
+        """
+        if not ranked:
+            # Nothing selected means the previous selection is no longer
+            # current, so it is retired rather than left looking live.
+            try:
+                db.retire_insight_priorities([])
+            except Exception as e:
+                logger.warning(f"Could not retire superseded priorities: {e}")
+            return []
 
-            if len(final_list) >= PRIORITY_MAX_ITEMS:
+        final_list, seen = [], set()
+        for ins in ranked:
+            key = (ins['pattern_type'], ins.get('pattern_key', ins['pattern_id']))
+            if key in seen:
+                continue
+            final_list.append(ins)
+            seen.add(key)
+            if len(final_list) >= max_items:
                 break
 
-        # 4. Persistence for audit. Superseded selections are retired first:
-        # upserting the current ranks on top of an older, longer list left rows
-        # that read as current selections and never expired.
+        ids = [self._audit_id(i) for i in final_list]
         try:
-            db.retire_insight_priorities(
-                [f"{i['engine_name']}:{i['pattern_type']}:{i['pattern_id']}" for i in final_list]
-            )
+            db.retire_insight_priorities(ids)
         except Exception as e:
             logger.warning(f"Could not retire superseded priorities: {e}")
-
-        for idx, ins in enumerate(final_list):
-            insight_id = f"{ins['engine_name']}:{ins['pattern_type']}:{ins['pattern_id']}"
+        for idx, (ins, insight_id) in enumerate(zip(final_list, ids)):
             db.create_or_update_insight_priority(
                 insight_id=insight_id,
                 engine_name=ins['engine_name'],
@@ -125,8 +126,11 @@ class InsightPrioritizationEngine:
                 priority_score=ins['priority_score'],
                 rank=idx + 1
             )
-
         return final_list
+
+    @staticmethod
+    def _audit_id(ins: dict[str, Any]) -> str:
+        return f"{ins['engine_name']}:{ins['pattern_type']}:{ins.get('pattern_key', ins['pattern_id'])}"
 
     def _calculate_score(self, ins: dict) -> dict:
         """Weighted sum aggregate."""

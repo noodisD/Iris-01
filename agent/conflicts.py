@@ -30,18 +30,12 @@ CONFLICT_RULES = [
         },
         "reason": "A stable pattern contradicts the definition of a newly emerging one."
     },
-    {
-        "patterns": {
-            ("resolution", "dissipated"),
-            ("leverage", "high") # Assuming 'high' is used or the label from engine
-        },
-        "reason": "A dissipated pattern cannot act as a current structural driver."
-    },
-    {
-        "patterns": {
-            ("decision_impact", "fade"),
-            ("trajectory", "increasing")
-        },
-        "reason": "A post-anchor fade contradicts an overall increasing trend."
-    }
+    # Two rules that were here compared a pair engine against a single theme,
+    # and neither could hold. Leverage never emits "high", so "a dissipated
+    # pattern cannot drive another" never fired. And a fade in decision impact
+    # is a fade in the *target* after an anchor, while the rule set it against
+    # the *anchor's* own trajectory — a different theme; even compared with the
+    # right one, a dip after one kind of event does not contradict a rise
+    # overall. Pair findings are grouped by pair now, so neither could be
+    # matched anyway.
 ]

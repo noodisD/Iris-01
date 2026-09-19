@@ -38,7 +38,9 @@ class ConflictSuppressionEngine:
         # 1. Grouping by (type, id)
         groups = {}
         for insight in insights:
-            key = (insight['pattern_type'], insight['pattern_id'])
+            # A pair engine's finding is about the pair, so it is grouped by the
+            # pair and cannot be set against a finding about one of its themes.
+            key = (insight['pattern_type'], insight.get('pattern_key', insight['pattern_id']))
             if key not in groups:
                 groups[key] = []
             groups[key].append(insight)

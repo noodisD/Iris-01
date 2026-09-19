@@ -190,15 +190,17 @@ CONFLICT_MIN_CONFIDENCE = "medium"
 
 # Priority order (higher index = higher priority)
 ENGINE_PRIORITY = [
+    # First, which is the lowest priority: a finding about a two-year span
+    # should yield to one about this fortnight when both describe the same theme
+    # and only one can be shown. It is the wider context, not the news. It sat
+    # last, under a comment saying it yielded — and since a higher index wins,
+    # it won every tie it was meant to lose.
+    "lifelong",
     "tension",
     "leverage",
     "decision_impact",
     "trajectory",
     "resolution",
-    # Last in the tie-break: a finding about a two-year span should yield to one
-    # about this fortnight when both describe the same theme and only one can be
-    # shown. It is the wider context, not the news.
-    "lifelong",
 ]
 
 # Every engine the owner may switch on or off. Not the same list as the one
@@ -210,7 +212,7 @@ ENGINE_PRIORITY = [
 # never a valid value. The moment the owner customised their engines at all,
 # apply_preferences dropped every observation, and nothing in Settings could
 # put it back.
-SELECTABLE_ENGINES = set(ENGINE_PRIORITY) | {"persistence", "observations"}
+SELECTABLE_ENGINES = set(ENGINE_PRIORITY) | {"observations"}
 
 # Insight Prioritization Engine Configuration
 # 1. Scoring Weights
@@ -227,10 +229,12 @@ ENGINE_BASE_WEIGHTS = {
     "decision_impact": 0.85,
     "leverage": 0.8,
     "tension": 0.7,
-    "persistence": 0.6
+    # The lowest, for the reason ENGINE_PRIORITY puts it first. Absent, it took
+    # the 0.6 default — the weight of persistence, which is not a finding any
+    # more: lifelong reports the same counts over the span they belong to.
+    "lifelong": 0.5,
 }
 
-PRIORITY_MAX_ITEMS = 5
 PRIORITY_MIN_CONFIDENCE = "medium"
 PRIORITY_RECENT_DECAY_DAYS = 30
 PRIORITY_NOVELTY_LOOKBACK_DAYS = 90

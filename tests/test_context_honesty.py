@@ -26,10 +26,16 @@ INSIGHT = {
 
 
 def _patterns_block(user_id, gated, suppression_log):
+    """The patterns block, given what the shared admission let through and why
+    the rest was held back — ranked by the real ranker, as production does."""
+    from agent.pipeline_orchestrator import Admission
+    from agent.prioritization import InsightPrioritizationEngine
+
     companion = PersonalAICompanion(user_id)
-    with patch.object(companion.analysis_pipeline, "run", return_value=gated), \
-         patch.object(companion.analysis_pipeline, "get_suppression_log",
-                      return_value=suppression_log):
+    admission = Admission(
+        findings=InsightPrioritizationEngine(user_id).rank([dict(g) for g in gated]),
+        suppression_log=suppression_log)
+    with patch("agent.core.admit", return_value=admission):
         ctx = companion._get_aggregated_context("anything showing up?")
     return ctx.split("Observed Temporal Sequences:")[1].strip()
 

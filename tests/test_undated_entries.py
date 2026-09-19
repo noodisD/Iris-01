@@ -357,7 +357,7 @@ def test_neither_surface_shows_it_even_at_the_lowest_floor(test_user, journalled
     _occur(theme_id, 6, dated=False)
 
     svc = InsightsService(test_user["id"])
-    shown = svc._apply_policy(svc._normalize())
+    shown = svc._admitted()
 
     assert not [i for i in shown if i["engine"] == "resolution"]
 

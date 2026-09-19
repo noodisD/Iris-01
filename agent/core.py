@@ -11,33 +11,23 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Main services
-from .conflict import ConflictSuppressionEngine
 from .timeutils import utc_now
-from .coverage import current_state_gate
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .database import (
     db,
-    decision_impacts,
     habits,
     journals,
-    leverage,
 )
-from .lifelong import LifelongEngine
 from .intelligence import Intelligence
 from .journal_entry import JournalEntry
 from .memory import ConversationMemory
 from .narrative import NarrativeFormatter
-from .persistence import PersistenceEngine
 
 # New architecture components
 from .pipeline import generate_embedding
-from .pipeline_orchestrator import AnalysisPipeline, confidence_gate, engine_enablement_gate
+from .pipeline_orchestrator import admit
 from .preferences import UserPreferencesService
-from .preferences_guard import PreferencesGuard
 from .prioritization import InsightPrioritizationEngine
-from .resolution import ResolutionEngine
-from .tension import TensionEngine
-from .trajectory import TrajectoryEngine
 
 # Handle both package and direct imports
 try:
@@ -141,80 +131,12 @@ class PersonalAICompanion:
         self.intelligence = Intelligence(model=model)
         self.memory = ConversationMemory(user_id=self.user_id, session_id=self.session_id)
         self.journal_entry_service = JournalEntry(user_id=self.user_id)
-        self.conflict_engine = ConflictSuppressionEngine()
         self.pref_service = UserPreferencesService(user_id=self.user_id)
-
-        # Initialize preferences guard for validation
-        prefs = self.pref_service.get_prefs()
-        self.prefs_guard = PreferencesGuard(user_id=self.user_id, prefs_dict=prefs)
 
         # Session-scoped cache for transparency
         self.last_suppressed_insights = {}
 
-        # Initialize analysis pipeline
-        self._init_analysis_pipeline()
-
         logger.info(f"PersonalAICompanion initialized for user {self.user_id} and session {self.session_id}")
-
-    def _init_analysis_pipeline(self) -> None:
-        """Initialize and configure the analysis pipeline with all engines."""
-        self.analysis_pipeline = AnalysisPipeline(self.user_id)
-
-        # Register analytical engines
-        self.analysis_pipeline.register_engine(
-            'persistence',
-            lambda: PersistenceEngine(self.user_id).get_persistent_themes()
-        )
-
-        self.analysis_pipeline.register_engine(
-            'trajectory',
-            lambda: TrajectoryEngine(self.user_id).analyze_all_themes()
-        )
-
-        self.analysis_pipeline.register_engine(
-            'tension',
-            lambda: TensionEngine(self.user_id).analyze_all_tensions()
-        )
-
-        self.analysis_pipeline.register_engine(
-            'resolution',
-            lambda: ResolutionEngine(self.user_id).analyze_all_themes()
-        )
-
-        self.analysis_pipeline.register_engine(
-            'leverage',
-            lambda: leverage.get_high_leverage_sources(self.user_id, min_confidence='low')
-        )
-
-        self.analysis_pipeline.register_engine(
-            'decision_impact',
-            lambda: decision_impacts.get_significant_impacts(self.user_id, min_confidence='low')
-        )
-
-        # The whole record, not the last fortnight. Every other engine measures
-        # inside 14 to 90 days; on an archive spanning years that window can be
-        # empty while the archive is full.
-        self.analysis_pipeline.register_engine(
-            'lifelong',
-            lambda: LifelongEngine(self.user_id).analyze_all_themes()
-        )
-
-        # Register gates in order. Budget is deliberately NOT registered here:
-        # budget_gate truncates to max_items and its own docstring says it
-        # "assumes insights are already ranked by priority", but this pipeline
-        # runs before conflict suppression and prioritisation. Registering it
-        # here cut the list down in engine-registration order, so whenever
-        # persistence and trajectory produced max_items insights between them,
-        # resolution — the highest-weighted engine at 1.0 — never reached the
-        # ranking step at all. The single budget slice now happens in
-        # _get_aggregated_context, after ranking, matching CONTEXT.md's
-        # documented order: enablement -> confidence -> conflict ->
-        # prioritisation -> budget.
-        # Order 0: before anything else. A finding about the present is
-        # withheld while nothing recent has been logged (agent/coverage.py).
-        self.analysis_pipeline.register_gate('coverage', current_state_gate, order=0)
-        self.analysis_pipeline.register_gate('enablement', engine_enablement_gate, order=1)
-        self.analysis_pipeline.register_gate('confidence', confidence_gate, order=2)
 
     def shutdown(self):
         """Gracefully closes all backing service connections."""
@@ -278,45 +200,30 @@ class PersonalAICompanion:
         habits_context = self._get_habits_context()
         reflections_context = self._get_reflections_context()
 
-        # 3. Run analysis pipeline with enablement and confidence gates
-        gated_insights = self.analysis_pipeline.run(prefs=prefs)
-
-        logger.debug(f"After pipeline.run(): {len(gated_insights)} gated insights")
-        for gi in gated_insights:
-            logger.debug(f"  - engine={gi.get('engine_name')}, resolution_label={gi.get('resolution_label')}, theme_id={gi.get('theme_id')}")
-
-        # Track suppressions from pipeline
-        suppression_log = self.analysis_pipeline.get_suppression_log()
+        # 3. What IRIS has noticed, admitted by the same policy the Insights
+        # screen uses (ADR-0007): coverage, the owner's engines and floor,
+        # conflicts, then ranking.
+        admission = admit(self.user_id, prefs)
+        suppression_log = admission.suppression_log
         for reason, items in suppression_log.items():
             for item_str in items:
                 self.last_suppressed_insights[item_str] = reason
-
-        # 4. Conflict Suppression (custom logic)
-        suppression_result = self.conflict_engine.suppress(gated_insights)
-        clean_insights = suppression_result['visible']
-
-        logger.debug(f"After conflict_engine.suppress(): {len(clean_insights)} clean insights")
-        for ci in clean_insights:
-            logger.debug(f"  - engine={ci.get('engine_name')}, resolution_label={ci.get('resolution_label')}, theme_id={ci.get('theme_id')}")
-        for s in suppression_result['suppressed']:
+        for s in admission.conflicts:
             self._record_suppression(s['insight'], "conflict")
 
-        # 5. Prioritization & Final Ranking
-        priority_engine = InsightPrioritizationEngine(self.user_id)
-        ranked_insights = priority_engine.rank_insights(clean_insights)
+        # 4. What fits: one finding per pattern, at most the owner's max_items.
+        # The only step that differs from the screen, which shows everything.
+        final_insights = InsightPrioritizationEngine(self.user_id).select(
+            admission.findings, prefs['max_items'])
+        chosen = {id(i) for i in final_insights}
+        for i in admission.findings:
+            if id(i) not in chosen:
+                self._record_suppression(i, "priority_cutoff")
 
-        # Budget slice (User Overridden)
-        top_k = min(prefs['max_items'], len(ranked_insights))
-        final_insights = ranked_insights[:top_k]
-
-        # Track Budget suppressions
-        for i in ranked_insights[top_k:]:
-            self._record_suppression(i, "priority_cutoff")
-
-        # 6. Narrative Formatting
+        # 5. Narrative Formatting
         narratives = NarrativeFormatter.format_all(final_insights)
 
-        # 7. Final Assembly
+        # 6. Final Assembly
         header = "# Observed Structural Patterns & Observed Temporal Sequences:"
         body = self._format_pattern_body(narratives, suppression_log, prefs)
 
@@ -426,22 +333,13 @@ class PersonalAICompanion:
 
     def _record_suppression(self, insight: dict, reason: str):
         """Buffers a suppressed insight for transparency audit."""
-        key = f"{insight['engine_name']}:{insight['pattern_type']}:{insight['pattern_id']}"
+        key = (f"{insight['engine_name']}:{insight['pattern_type']}:"
+               f"{insight.get('pattern_key', insight['pattern_id'])}")
         self.last_suppressed_insights[key] = {
             "insight": insight,
             "reason": reason,
             "timestamp": utc_now().isoformat()
         }
-
-    def _filter_by_confidence(self, items: list[dict], min_level: str = "medium") -> list[dict]:
-        ranks = {'low': 0, 'medium': 1, 'high': 2}
-        min_val = ranks.get(min_level, 1)
-        filtered = []
-        for item in items:
-            label = (item.get('confidence') or item.get('confidence_level') or 'low').lower()
-            if ranks.get(label, 0) >= min_val:
-                filtered.append(item)
-        return filtered
 
     def _get_relevant_context(self, text: str, n_results: int = 5) -> str:
         logger.info("Retrieving relevant context using pgvector...")

@@ -7,12 +7,11 @@ No interpretation slots allowed.
 
 from .constants import ENGINE_PRIORITY
 
-# Add persistence to the list of engines requiring templates
-ENGINE_NAMES = set(ENGINE_PRIORITY) | {"persistence"}
+# Every engine whose findings reach a conversation. Persistence used to be added
+# here; it still finds themes, but lifelong reports on them now.
+ENGINE_NAMES = set(ENGINE_PRIORITY)
 
 NARRATIVE_TEMPLATES = {
-    "persistence": "The pattern '{pattern_name}' appeared frequently, totaling {metric_value} occurrences since {time_window}.",
-
     "trajectory": "The pattern '{pattern_name}' {label} in frequency over the recent period.",
 
     "tension": "The patterns '{pattern_name}' and '{target_name}' frequently appeared during the same periods with diverging activity levels.",

@@ -13,8 +13,7 @@ status survives the on-the-fly recomputation.
 import logging
 from datetime import UTC, datetime
 
-from .conflict import ConflictSuppressionEngine
-from .coverage import current_state_gate, drop_unsupported, observation_coverage
+from .coverage import observation_coverage
 from .constants import (
     DECISION_IMPACT_BASELINE_DAYS,
     DECISION_IMPACT_WINDOW_DAYS,
@@ -28,13 +27,7 @@ from .constants import (
     TRAJECTORY_RECENT_DAYS,
 )
 from .database import db
-from .decision_impact import DecisionImpactEngine
-from .leverage import LeverageEngine
-from .lifelong import LifelongEngine
-from .preferences import UserPreferencesService
-from .resolution import ResolutionEngine
-from .tension import TensionEngine
-from .trajectory import TrajectoryEngine
+from .pipeline_orchestrator import admit_findings, collect_findings
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +130,170 @@ def _iso(ts) -> str:
     return str(ts)
 
 
+# --- cards: one finding, as the screen shows it ------------------------------
+#
+# Each takes a finding exactly as the engines produced it and the shared
+# admission passed it (agent/pipeline_orchestrator.py). Moved verbatim from the
+# per-engine loops that used to call the engines themselves: the screen now
+# renders what was admitted instead of collecting its own.
+
+def _lifelong_to_card(r: dict) -> dict | None:
+    measures, headline = _lifelong_card(r)
+    return {
+        "engine": "lifelong",
+        "pattern_key": r.get("pattern_key") or str(r["theme_id"]),
+        "theme_id": r["theme_id"],
+        "summary": r.get("theme_summary") or "",
+        "label": r.get("lifelong_label") or "observed",
+        "measures_label": "Across the whole record",
+        "measures": measures,
+        "headline_metric": headline,
+        "confidence_level": r.get("confidence_level", "low"),
+        # Describes a span, so a quiet recent window does not make it
+        # untrue — the coverage gate lets it through (ADR-0007).
+        "claims_present": False,
+    }
+
+
+def _trajectory_to_card(r: dict) -> dict | None:
+    return {
+        "engine": "trajectory",
+        "pattern_key": r.get("pattern_key") or str(r["theme_id"]),
+        "theme_id": r["theme_id"],
+        "summary": r.get("theme_summary") or "",
+        "label": r.get("trajectory_label") or "observed",
+        "measures_label": "Occurrences by window",
+        "measures": [
+            _measure("Recent", r.get("recent_count", 0),
+                     f"last {TRAJECTORY_RECENT_DAYS} days"),
+            _measure("Earlier", r.get("past_count", 0),
+                     f"prior {TRAJECTORY_BASELINE_DAYS} days"),
+        ],
+        "headline_metric": (
+            f"{r.get('recent_count', 0)} in {TRAJECTORY_RECENT_DAYS}d · "
+            f"{r.get('past_count', 0)} in the {TRAJECTORY_BASELINE_DAYS}d before"
+        ),
+        "confidence_level": r.get("confidence_level", "low"),
+    }
+
+
+def _resolution_to_card(r: dict) -> dict | None:
+    if r.get("resolution_label") == "unsupported":
+        return None  # both windows empty: nothing was compared
+    return {
+        "engine": "resolution",
+        "pattern_key": r.get("pattern_key") or str(r["theme_id"]),
+        "theme_id": r["theme_id"],
+        "summary": r.get("summary") or "",
+        "label": r.get("resolution_label") or "observed",
+        "measures_label": "Occurrences by window",
+        "measures": [
+            _measure("Recent", r.get("recent_count", 0),
+                     f"last {RESOLUTION_RECENT_DAYS} days"),
+            _measure("Earlier", r.get("past_count", 0),
+                     f"prior {RESOLUTION_BASELINE_DAYS} days"),
+        ],
+        "headline_metric": (
+            f"{r.get('recent_count', 0)} in {RESOLUTION_RECENT_DAYS}d · "
+            f"{r.get('past_count', 0)} in the {RESOLUTION_BASELINE_DAYS}d before"
+        ),
+        "confidence_level": r.get("confidence_level", "low"),
+    }
+
+
+def _tension_to_card(r: dict) -> dict | None:
+    a, b = r.get("theme_a_id"), r.get("theme_b_id")
+    return {
+        "engine": "tension",
+        "pattern_key": r.get("pattern_key") or f"{a}-{b}",
+        "theme_id": a,
+        "summary": f"{r.get('theme_a_summary','')} vs {r.get('theme_b_summary','')}".strip(),
+        "label": r.get("tension_label") or "tension",
+        # The engine already returns the recent/earlier split; this
+        # adapter was passing the all-time total as "recent" and
+        # hardcoding zero for "earlier".
+        "measures_label": "Days both themes appeared",
+        "measures": [
+            _measure("Recent", r.get("recent_cooccurrence_count", 0),
+                     f"last {TENSION_RECENT_DAYS} days"),
+            _measure("Earlier", r.get("past_cooccurrence_count", 0),
+                     f"prior {TENSION_BASELINE_DAYS} days"),
+            _measure("All time", r.get("cooccurrence_count", 0), None),
+        ],
+        "headline_metric": (
+            f"{r.get('recent_cooccurrence_count', 0)} shared days in "
+            f"{TENSION_RECENT_DAYS}d · "
+            f"{r.get('past_cooccurrence_count', 0)} before"
+        ),
+        "confidence_level": r.get("confidence_level", "low"),
+    }
+
+
+def _leverage_to_card(r: dict) -> dict | None:
+    s, t = r.get("source_id"), r.get("target_id")
+    return {
+        "engine": "leverage",
+        "pattern_key": r.get("pattern_key") or f"{s}-{t}",
+        "theme_id": s,
+        "summary": f"{r.get('source_summary','')} → {r.get('target_summary','')}".strip(),
+        # "influence" overstated it: this is a forward/reverse
+        # co-occurrence proportion within a lag window.
+        "label": "associated",
+        "measures_label": "Temporal association",
+        "measures": [
+            _measure("Directional lift",
+                     round(float(r.get("directional_lift") or 0.0), 2),
+                     f"forward vs reverse within {LEVERAGE_TIME_LAG_DAYS} days"),
+            _measure("Association score",
+                     round(float(r.get("influence_score") or 0.0), 2), None),
+            _measure("Co-occurrences", r.get("cooccurrence_count", 0),
+                     f"last {LEVERAGE_WINDOW_DAYS} days"),
+        ],
+        "headline_metric": (
+            f"{r.get('cooccurrence_count', 0)} co-occurrences within "
+            f"{LEVERAGE_TIME_LAG_DAYS}d"
+        ),
+        "confidence_level": r.get("confidence_level", "low"),
+    }
+
+
+def _decision_impact_to_card(r: dict) -> dict | None:
+    a, t = r.get("anchor_id"), r.get("target_id")
+    return {
+        "engine": "decision_impact",
+        "pattern_key": r.get("pattern_key") or f"{a}-{t}",
+        "theme_id": a,
+        "summary": f"{r.get('anchor_summary','')} → {r.get('target_summary','')}".strip(),
+        "label": r.get("effect_direction") or "shift",
+        # target_total_count is every occurrence the target has ever
+        # had, not post-anchor support, so it was not a "recent"
+        # count and there was never an "earlier" one to compare it to.
+        "measures_label": "Change following the anchor",
+        "measures": [
+            _measure("Relative change in rate",
+                     round(float(r.get("delta_score") or 0.0), 2),
+                     f"{DECISION_IMPACT_WINDOW_DAYS}d after vs "
+                     f"{DECISION_IMPACT_BASELINE_DAYS}d before each anchor"),
+            _measure("Direction agreement",
+                     round(float(r.get("consistency_ratio") or 0.0), 2),
+                     "across anchor events"),
+            _measure("Target occurrences", r.get("target_total_count", 0),
+                     "all time"),
+        ],
+        "headline_metric": _relative_change(r.get("delta_score")),
+        "confidence_level": r.get("confidence_level", "low"),
+    }
+
+
+_CARD_BUILDERS = {
+    "lifelong": _lifelong_to_card,
+    "trajectory": _trajectory_to_card,
+    "resolution": _resolution_to_card,
+    "tension": _tension_to_card,
+    "leverage": _leverage_to_card,
+    "decision_impact": _decision_impact_to_card,
+}
+
 class InsightsService:
     """Fans out across the engines and normalizes results to the contract."""
 
@@ -145,235 +302,45 @@ class InsightsService:
 
     # --- raw normalization -------------------------------------------------
 
+    # --- findings -------------------------------------------------------------
+
+    def _findings(self) -> list[dict]:
+        """What the engines found: the same collection chat admits from."""
+        return collect_findings(self.user_id)
+
+    @staticmethod
+    def _to_card(finding: dict) -> dict | None:
+        builder = _CARD_BUILDERS.get(finding.get("engine_name"))
+        return builder(finding) if builder else None
+
     def _normalize(self) -> list:
-        """Collect normalized {engine, pattern_key, summary, label, measures,
-        confidence_level, theme_id} dicts across the engines. Engines that fail
-        or have no data are skipped so a partial backend still yields insights.
+        """Every finding as a card, admitted or not.
 
-        `measures` is engine-specific: what that engine actually computed, each
-        value carrying the window it was measured over. Engines that do not
-        compare a recent window against an earlier one do not report one."""
-        out = []
-
-        try:
-            for r in LifelongEngine(self.user_id).analyze_all_themes():
-                measures, headline = _lifelong_card(r)
-                out.append({
-                    "engine": "lifelong",
-                    "pattern_key": str(r["theme_id"]),
-                    "theme_id": r["theme_id"],
-                    "summary": r.get("theme_summary") or "",
-                    "label": r.get("lifelong_label") or "observed",
-                    "measures_label": "Across the whole record",
-                    "measures": measures,
-                    "headline_metric": headline,
-                    "confidence_level": r.get("confidence_level", "low"),
-                    # Describes a span, so a quiet recent window does not make it
-                    # untrue — the coverage gate lets it through (ADR-0007).
-                    "claims_present": False,
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Lifelong insights unavailable: {e}")
-
-        try:
-            for r in TrajectoryEngine(self.user_id).analyze_all_themes():
-                out.append({
-                    "engine": "trajectory",
-                    "pattern_key": str(r["theme_id"]),
-                    "theme_id": r["theme_id"],
-                    "summary": r.get("theme_summary") or "",
-                    "label": r.get("trajectory_label") or "observed",
-                    "measures_label": "Occurrences by window",
-                    "measures": [
-                        _measure("Recent", r.get("recent_count", 0),
-                                 f"last {TRAJECTORY_RECENT_DAYS} days"),
-                        _measure("Earlier", r.get("past_count", 0),
-                                 f"prior {TRAJECTORY_BASELINE_DAYS} days"),
-                    ],
-                    "headline_metric": (
-                        f"{r.get('recent_count', 0)} in {TRAJECTORY_RECENT_DAYS}d · "
-                        f"{r.get('past_count', 0)} in the {TRAJECTORY_BASELINE_DAYS}d before"
-                    ),
-                    "confidence_level": r.get("confidence_level", "low"),
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Trajectory insights unavailable: {e}")
-
-        try:
-            for r in ResolutionEngine(self.user_id).analyze_all_themes():
-                if r.get("resolution_label") == "unsupported":
-                    continue  # both windows empty: nothing was compared
-                out.append({
-                    "engine": "resolution",
-                    "pattern_key": str(r["theme_id"]),
-                    "theme_id": r["theme_id"],
-                    "summary": r.get("summary") or "",
-                    "label": r.get("resolution_label") or "observed",
-                    "measures_label": "Occurrences by window",
-                    "measures": [
-                        _measure("Recent", r.get("recent_count", 0),
-                                 f"last {RESOLUTION_RECENT_DAYS} days"),
-                        _measure("Earlier", r.get("past_count", 0),
-                                 f"prior {RESOLUTION_BASELINE_DAYS} days"),
-                    ],
-                    "headline_metric": (
-                        f"{r.get('recent_count', 0)} in {RESOLUTION_RECENT_DAYS}d · "
-                        f"{r.get('past_count', 0)} in the {RESOLUTION_BASELINE_DAYS}d before"
-                    ),
-                    "confidence_level": r.get("confidence_level", "low"),
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Resolution insights unavailable: {e}")
-
-        try:
-            for r in TensionEngine(self.user_id).analyze_all_tensions():
-                a, b = r.get("theme_a_id"), r.get("theme_b_id")
-                out.append({
-                    "engine": "tension",
-                    "pattern_key": f"{a}-{b}",
-                    "theme_id": a,
-                    "summary": f"{r.get('theme_a_summary','')} vs {r.get('theme_b_summary','')}".strip(),
-                    "label": r.get("tension_label") or "tension",
-                    # The engine already returns the recent/earlier split; this
-                    # adapter was passing the all-time total as "recent" and
-                    # hardcoding zero for "earlier".
-                    "measures_label": "Days both themes appeared",
-                    "measures": [
-                        _measure("Recent", r.get("recent_cooccurrence_count", 0),
-                                 f"last {TENSION_RECENT_DAYS} days"),
-                        _measure("Earlier", r.get("past_cooccurrence_count", 0),
-                                 f"prior {TENSION_BASELINE_DAYS} days"),
-                        _measure("All time", r.get("cooccurrence_count", 0), None),
-                    ],
-                    "headline_metric": (
-                        f"{r.get('recent_cooccurrence_count', 0)} shared days in "
-                        f"{TENSION_RECENT_DAYS}d · "
-                        f"{r.get('past_cooccurrence_count', 0)} before"
-                    ),
-                    "confidence_level": r.get("confidence_level", "low"),
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Tension insights unavailable: {e}")
-
-        try:
-            for r in LeverageEngine(self.user_id).analyze_all_leverage():
-                s, t = r.get("source_id"), r.get("target_id")
-                out.append({
-                    "engine": "leverage",
-                    "pattern_key": f"{s}-{t}",
-                    "theme_id": s,
-                    "summary": f"{r.get('source_summary','')} → {r.get('target_summary','')}".strip(),
-                    # "influence" overstated it: this is a forward/reverse
-                    # co-occurrence proportion within a lag window.
-                    "label": "associated",
-                    "measures_label": "Temporal association",
-                    "measures": [
-                        _measure("Directional lift",
-                                 round(float(r.get("directional_lift") or 0.0), 2),
-                                 f"forward vs reverse within {LEVERAGE_TIME_LAG_DAYS} days"),
-                        _measure("Association score",
-                                 round(float(r.get("influence_score") or 0.0), 2), None),
-                        _measure("Co-occurrences", r.get("cooccurrence_count", 0),
-                                 f"last {LEVERAGE_WINDOW_DAYS} days"),
-                    ],
-                    "headline_metric": (
-                        f"{r.get('cooccurrence_count', 0)} co-occurrences within "
-                        f"{LEVERAGE_TIME_LAG_DAYS}d"
-                    ),
-                    "confidence_level": r.get("confidence_level", "low"),
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Leverage insights unavailable: {e}")
-
-        try:
-            for r in DecisionImpactEngine(self.user_id).analyze_all_anchors():
-                a, t = r.get("anchor_id"), r.get("target_id")
-                out.append({
-                    "engine": "decision_impact",
-                    "pattern_key": f"{a}-{t}",
-                    "theme_id": a,
-                    "summary": f"{r.get('anchor_summary','')} → {r.get('target_summary','')}".strip(),
-                    "label": r.get("effect_direction") or "shift",
-                    # target_total_count is every occurrence the target has ever
-                    # had, not post-anchor support, so it was not a "recent"
-                    # count and there was never an "earlier" one to compare it to.
-                    "measures_label": "Change following the anchor",
-                    "measures": [
-                        _measure("Relative change in rate",
-                                 round(float(r.get("delta_score") or 0.0), 2),
-                                 f"{DECISION_IMPACT_WINDOW_DAYS}d after vs "
-                                 f"{DECISION_IMPACT_BASELINE_DAYS}d before each anchor"),
-                        _measure("Direction agreement",
-                                 round(float(r.get("consistency_ratio") or 0.0), 2),
-                                 "across anchor events"),
-                        _measure("Target occurrences", r.get("target_total_count", 0),
-                                 "all time"),
-                    ],
-                    "headline_metric": _relative_change(r.get("delta_score")),
-                    "confidence_level": r.get("confidence_level", "low"),
-                })
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning(f"Decision-impact insights unavailable: {e}")
-
-        return out
-
-    # --- admission policy --------------------------------------------------
-
-    def _apply_policy(self, raw: list[dict]) -> list[dict]:
-        """Apply the admission policy the chat context uses.
-
-        The Insights screen and the chat context are two answers to the same
-        question — what has IRIS noticed — and they must not disagree. This
-        service called the engines directly with no gating at all, so a finding
-        suppressed in chat as low-confidence or self-contradictory was still
-        presented on screen as something IRIS believed.
-
-        The user's own preferences apply: disabled engines and anything below
-        their confidence threshold are dropped, then conflict suppression
-        removes contradictions. The budget is deliberately *not* applied — that
-        is a limit on how much fits in an LLM prompt, not a statement about what
-        is true, and this screen is a list the user scrolls. Ordering by
-        strength replaces truncation.
+        Policy governs what is surfaced, not what is addressable (ADR-0007):
+        following a link to one insight should still open it.
         """
-        # A finding about now needs something logged now, and a finding its own
-        # engine calls unsupported is a non-finding at any threshold (ADR-0007:
-        # the same rule the chat pipeline applies as a gate).
-        raw = current_state_gate(drop_unsupported(raw), {"user_id": self.user_id})
+        return [c for c in (self._to_card(f) for f in self._findings()) if c]
 
-        prefs = UserPreferencesService(self.user_id).get_prefs()
-        levels = {"low": 0, "medium": 1, "high": 2}
-        minimum = levels.get(prefs.get("min_confidence", "medium"), 1)
-        enabled = prefs.get("enabled_engines")
+    def _admitted(self) -> list[dict]:
+        """The cards the list shows: chat's admission, without chat's budget.
 
-        admitted = []
-        filtered_out = 0
-        for item in raw:
-            if enabled is not None and item["engine"] not in enabled:
-                filtered_out += 1
-                continue
-            if levels.get(item.get("confidence_level", "low"), 0) < minimum:
-                filtered_out += 1
-                continue
-            admitted.append(item)
-
-        # Conflict suppression reads the pipeline's field names.
-        for item in admitted:
-            item.setdefault("pattern_type", "theme")
-            item.setdefault("pattern_id", item.get("theme_id"))
-            item.setdefault("engine_name", item["engine"])
-            item.setdefault(f"{item['engine']}_label", item.get("label"))
-
-        visible = ConflictSuppressionEngine().suppress(admitted)["visible"]
-        visible.sort(key=lambda i: levels.get(i.get("confidence_level", "low"), 0), reverse=True)
+        This used to be a second copy of the policy — enablement, confidence and
+        conflict re-implemented here in a different order, over findings this
+        screen collected for itself at a different grain, sorted by confidence
+        label and never ranked. Now it is the same function chat calls. The
+        budget is the one step left out: that is a limit on how much fits in a
+        prompt, and this is a list the owner scrolls.
+        """
+        admission = admit_findings(self._findings(), self.user_id)
         # Recorded so an empty screen can name its reason. "Nothing to show"
         # because the owner's filter hid it is a different sentence from
         # "nothing was found", and the screen must not merge the two.
         self.policy_counts = {
-            "suppressed_by_filter": filtered_out,
-            "conflict_suppressed": len(admitted) - len(visible),
-            "admitted": len(visible),
+            "suppressed_by_filter": admission.held_back_by_owner,
+            "conflict_suppressed": len(admission.conflicts),
+            "admitted": len(admission.findings),
         }
-        return visible
+        return [c for c in (self._to_card(f) for f in admission.findings) if c]
 
     # --- contract building -------------------------------------------------
 
@@ -472,7 +439,7 @@ class InsightsService:
         # Which of the remaining reasons applies: a filter the owner set, or
         # findings they have already dealt with.
         try:
-            admitted = self._apply_policy(self._normalize())
+            admitted = self._admitted()
             statuses = db.get_insight_statuses(self.user_id)
             now = datetime.now(UTC)
             hidden = 0
@@ -504,7 +471,7 @@ class InsightsService:
         # get_summary/get_detail deliberately do not filter: policy governs what
         # is *surfaced*, not what is *addressable* — following a link to one
         # specific insight should still show it.
-        for raw in self._apply_policy(self._normalize()):
+        for raw in self._admitted():
             iid = f"{raw['engine']}:{raw['pattern_key']}"
             s = statuses.get(iid)
             if s:

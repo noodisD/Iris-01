@@ -45,8 +45,10 @@ def test_fail_closed_silence_mode(monkeypatch):
 def test_order_preservation():
     # Prioritization returns a list. Narrative must follow that list EXACTLY.
     insights = [
-        {"engine_name": "persistence", "summary": "A", "occurrence_count": 10, "last_seen_at": "2026-01-01"},
-        {"engine_name": "persistence", "summary": "B", "occurrence_count": 5, "last_seen_at": "2026-01-01"}
+        {"engine_name": "lifelong", "summary": "A", "occurrence_count": 10,
+         "first_seen_at": "2025-01-01", "label": "spread"},
+        {"engine_name": "lifelong", "summary": "B", "occurrence_count": 5,
+         "first_seen_at": "2025-01-01", "label": "spread"}
     ]
 
     narratives = NarrativeFormatter.format_all(insights)

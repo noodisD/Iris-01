@@ -133,7 +133,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline, journalled_recently)
         i['pattern_type'] = 'theme'
         i['pattern_id'] = i.get('theme_id')
 
-    ranked = priority_engine.rank_insights(all_raw)
+    ranked = priority_engine.select(priority_engine.rank(all_raw), max_items=5)
     report.add_stage("Meta-Control & Ranking", time.time() - t2)
 
     # --- STAGE 4: FULL PIPELINE INTEGRITY ---

@@ -79,10 +79,17 @@ def test_persistence_respects_the_threshold_it_is_given(min_confidence, test_use
 # --- the Insights screen must not disagree with chat ------------------------
 
 def _raw(engine, key, confidence, label="persisting", theme_id=1):
+    """A finding as the engines produce it and the shared admission reads it.
+
+    These tests inject findings, not cards: the screen no longer collects its
+    own, it renders what the same admission as chat let through.
+    """
     return {
-        "engine": engine, "pattern_key": key, "theme_id": theme_id,
-        "summary": f"{key} theme", "label": label,
-        "recent": 3, "past": 5, "confidence_level": confidence,
+        "engine_name": engine, "pattern_type": "theme", "pattern_id": theme_id,
+        "pattern_key": key, "theme_id": theme_id,
+        "summary": f"{key} theme", "theme_summary": f"{key} theme",
+        f"{engine}_label": label, "label": label,
+        "recent_count": 3, "past_count": 5, "confidence_level": confidence,
     }
 
 
@@ -94,8 +101,7 @@ def test_insights_list_drops_what_chat_would_suppress(test_user, monkeypatch, jo
     from agent.insights_service import InsightsService
 
     service = InsightsService(test_user["id"])
-    monkeypatch.setattr(
-        service, "_normalize",
+    monkeypatch.setattr(service, "_findings",
         lambda: [_raw("resolution", "a", "high", theme_id=1),
                  _raw("trajectory", "b", "low", theme_id=2)],
     )
@@ -116,7 +122,7 @@ def test_insights_list_respects_a_lowered_threshold(test_user, monkeypatch, jour
     UserPreferencesService(test_user["id"]).update_pref("min_confidence", "low")
 
     service = InsightsService(test_user["id"])
-    monkeypatch.setattr(service, "_normalize", lambda: [_raw("trajectory", "b", "low", theme_id=2)])
+    monkeypatch.setattr(service, "_findings", lambda: [_raw("trajectory", "b", "low", theme_id=2)])
     assert {s["id"] for s in service.list_summaries()} == {"trajectory:b"}
 
 
@@ -125,7 +131,7 @@ def test_one_insight_stays_addressable_even_when_not_listed(test_user, monkeypat
     from agent.insights_service import InsightsService
 
     service = InsightsService(test_user["id"])
-    monkeypatch.setattr(service, "_normalize", lambda: [_raw("trajectory", "b", "low", theme_id=2)])
+    monkeypatch.setattr(service, "_findings", lambda: [_raw("trajectory", "b", "low", theme_id=2)])
 
     assert service.list_summaries() == []
     assert service.get_summary("trajectory:b") is not None
