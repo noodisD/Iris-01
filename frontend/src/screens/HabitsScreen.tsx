@@ -1,5 +1,5 @@
 import React from 'react';
-import { useHabits, useToggleHabit } from '@/hooks/useHabits';
+import { useCreateHabit, useHabits, useToggleHabit } from '@/hooks/useHabits';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
 import type { Habit } from '@/types/api';
@@ -77,6 +77,32 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
   );
 }
 
+/** A name, and optionally what it is for. Nothing else is needed to start one. */
+function AddHabit() {
+  const create = useCreateHabit();
+  const [name, setName] = React.useState('');
+  const [tag, setTag] = React.useState('');
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    create.mutate({ name: trimmed, tag: tag.trim() || undefined }, {
+      onSuccess: () => { setName(''); setTag(''); },
+    });
+  };
+
+  const field: React.CSSProperties = { background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', fontSize: 14 };
+  return (
+    <form onSubmit={submit} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <input aria-label="Habit name" placeholder="A new habit" value={name} onChange={e => setName(e.target.value)} style={{ ...field, minWidth: 220 }} />
+      <input aria-label="Tag" placeholder="tag (optional)" value={tag} onChange={e => setTag(e.target.value)} style={{ ...field, width: 150 }} />
+      <button className="btn primary" type="submit" disabled={!name.trim() || create.isPending}>+ add habit</button>
+      {create.isError && <span role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>It wasn't saved. Try again.</span>}
+    </form>
+  );
+}
+
 export function HabitsScreen() {
   const { data, isLoading, isError, refetch } = useHabits();
   const toggle = useToggleHabit();
@@ -122,7 +148,13 @@ export function HabitsScreen() {
         </div>
       )}
 
-      {view === 'list' ? (
+      <AddHabit />
+
+      {data.habits.length === 0 ? (
+        <div className="serif ital" style={{ fontSize: 20, color: 'var(--ink-3)' }}>
+          No habits yet. Name one above and tick it off here each day.
+        </div>
+      ) : view === 'list' ? (
         <div>
           {data.habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}
           <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: 0 }} />

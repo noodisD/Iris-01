@@ -35,3 +35,12 @@ export function useToggleHabit() {
     },
   });
 }
+
+/** Add a habit; the list refetches so its streak and colour come from the server. */
+export function useCreateHabit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: habitsApi.createHabit,
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.habits }),
+  });
+}
