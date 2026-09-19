@@ -6,8 +6,8 @@ It enforces the single source of truth principle. All data, including embeddings
 is stored here canonically.
 """
 
-import hashlib
 import logging
+import os
 from contextlib import contextmanager
 from typing import Any
 
@@ -21,11 +21,6 @@ from psycopg2.extras import Json
 from .config import settings
 
 logger = logging.getLogger(__name__)
-
-def hash_password(password: str) -> str:
-    """Hashes a password for secure storage."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
 
 class Database:
     """Manages the PostgreSQL connection pool and all data persistence."""
@@ -149,14 +144,14 @@ class Database:
     # User Methods
     # ============================================================================
 
-    def create_user(self, username: str, password: str) -> int:
-        """Creates a new user and returns the user ID."""
-        password_hash = hash_password(password)
+    def create_user(self, username: str) -> int:
+        """Creates a user and returns its id. There is no password: IRIS has one
+        local user and no login (ADR-0001, migration 0014)."""
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id;",
-                    (username, password_hash)
+                    "INSERT INTO users (username) VALUES (%s) RETURNING id;",
+                    (username,)
                 )
                 user_id = cur.fetchone()[0]
                 conn.commit()
@@ -171,24 +166,26 @@ class Database:
         """Retrieves a user by username."""
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                cur.execute("SELECT id, username, password_hash FROM users WHERE username = %s;", (username,))
+                cur.execute("SELECT id, username FROM users WHERE username = %s;", (username,))
                 user_data = cur.fetchone()
                 if user_data:
-                    return {"id": user_data[0], "username": user_data[1], "password_hash": user_data[2]}
+                    return {"id": user_data[0], "username": user_data[1]}
                 return None
             except Exception as e:
                 conn.rollback()
                 logger.error(f"Failed to get user {username}: {e}")
                 raise
 
-    def verify_user(self, username: str, password: str) -> dict:
-        """Verifies a user's password and returns user data if valid."""
+    def local_user_id(self, username: str | None = None) -> int:
+        """The one local user's id, created on first use.
+
+        The HTTP app and the CLI both resolve the owner through this, so the two
+        front doors cannot disagree about who is using IRIS — the CLI used to
+        have its own login and its own users.
+        """
+        username = username or os.getenv("IRIS_DEFAULT_USER", "local")
         user = self.get_user(username)
-        if user and user["password_hash"] == hash_password(password):
-            logger.info(f"Successfully verified user '{username}'.")
-            return user
-        logger.warning(f"Failed verification attempt for user '{username}'.")
-        return None
+        return user["id"] if user else self.create_user(username)
 
     # ============================================================================
     # Journal Entry Methods
@@ -1965,42 +1962,6 @@ class Database:
                 for row in rows
             ]
 
-    def get_high_leverage_sources(self, user_id: int, min_confidence: str = 'medium') -> list:
-        """
-        Retrieves top influential patterns for a user.
-        Groups by source to see which patterns have the most collective outbound influence.
-        """
-        conf_map = {'low': 0, 'medium': 1, 'high': 2}
-        min_val = conf_map.get(min_confidence, 1)
-
-        with self.connection() as conn, conn.cursor() as cur:
-            # We aggregate influence across targets
-            cur.execute("""
-                SELECT pl.source_type, pl.source_id, AVG(pl.influence_score) as avg_influence,
-                       COUNT(pl.target_id) as targets_count, t.summary
-                FROM pattern_leverage pl
-                JOIN themes t ON pl.source_id = t.id
-                WHERE pl.source_type = 'theme' AND t.user_id = %s
-                  AND pl.last_computed_at IS NOT NULL
-                  AND (CASE WHEN pl.confidence_level = 'high' THEN 2 
-                            WHEN pl.confidence_level = 'medium' THEN 1 
-                            ELSE 0 END) >= %s
-                GROUP BY pl.source_type, pl.source_id, t.summary
-                HAVING AVG(pl.influence_score) > 0.1
-                ORDER BY avg_influence DESC, targets_count DESC;
-            """, (user_id, min_val))
-            rows = cur.fetchall()
-            return [
-                {
-                    "source_type": row[0],
-                    "source_id": row[1],
-                    "avg_influence": row[2],
-                    "targets_count": row[3],
-                    "summary": row[4]
-                }
-                for row in rows
-            ]
-
     def invalidate_leverage_for_source(self, source_type: str, source_id: int) -> None:
         """Mark leverage records as stale (last_computed_at = NULL)."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -2075,41 +2036,6 @@ class Database:
                     "target_count": row[5],
                     "confidence_level": row[6],
                     "target_summary": row[7]
-                }
-                for row in rows
-            ]
-
-    def get_significant_decision_impacts(self, user_id: int, min_confidence: str = 'medium') -> list:
-        """Retrieves top significant decision impacts for a user."""
-        conf_map = {'low': 0, 'medium': 1, 'high': 2}
-        min_val = conf_map.get(min_confidence, 1)
-
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT di.anchor_type, di.anchor_id, t1.summary as anchor_summary,
-                       di.target_type, di.target_id, t2.summary as target_summary,
-                       di.effect_direction, di.delta_score, di.confidence_level
-                FROM decision_impacts di
-                JOIN themes t1 ON di.anchor_id = t1.id
-                JOIN themes t2 ON di.target_id = t2.id
-                WHERE t1.user_id = %s AND di.last_computed_at IS NOT NULL
-                  AND (CASE WHEN di.confidence_level = 'high' THEN 2 
-                            WHEN di.confidence_level = 'medium' THEN 1 
-                            ELSE 0 END) >= %s
-                ORDER BY ABS(di.delta_score) DESC;
-            """, (user_id, min_val))
-            rows = cur.fetchall()
-            return [
-                {
-                    "anchor_type": row[0],
-                    "anchor_id": row[1],
-                    "anchor_summary": row[2],
-                    "target_type": row[3],
-                    "target_id": row[4],
-                    "target_summary": row[5],
-                    "effect_direction": row[6],
-                    "delta_score": row[7],
-                    "confidence_level": row[8]
                 }
                 for row in rows
             ]

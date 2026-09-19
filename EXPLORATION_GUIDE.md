@@ -12,9 +12,9 @@ These modules establish the data layer and patterns used everywhere else.
 **Why:** Everything flows through the database. Understanding the schema is foundational.
 
 **Files to explore:**
-1. `agent/database.py` (110KB)
+1. `agent/database.py`
    - Entry point: the `Database` singleton (`db`)
-   - Learn: schema definition, connection pooling, query helpers
+   - Learn: connection pooling and query helpers (the schema is in `migrations/`)
    - Key sections: `get_connection()`, the repositories, and the pooling in `_init_pool()`.
      The schema itself lives in `migrations/`, not here
 
@@ -268,21 +268,17 @@ These modules convert raw insights into natural language.
 ---
 
 ### Phase 13: Intelligence Service (LLM Integration)
-**Question:** "How do we talk to Claude/OpenAI/Gemini?"
+**Question:** "How do we talk to the model?"
 
 **Files:**
-1. `agent/intelligence.py` (200+ lines)
-   - Entry point: `Intelligence.chat(messages, system_prompt, ...)`
-   - Learn: multi-model support (OpenAI primary, Gemini fallback)
+1. `agent/intelligence.py`
+   - `Intelligence.chat(...)` for a whole reply; `Intelligence.stream(...)` for chat, fragment by fragment
+   - OpenAI only — there is no provider layer and no fallback
 
-2. `agent/llm_provider.py` (250+ lines)
-   - `LLMProvider` base class and adapters
-   - `OpenAIProvider` and `GeminiProvider`
-
-**Time estimate:** 30 min
+**Time estimate:** 15 min
 **Verify understanding:**
-- Which LLM is primary, and what's the fallback?
-- How does IRIS handle API failures?
+- Why is an empty reply raised as an error rather than returned?
+- Why is a failed call raised rather than returned as text?
 
 ---
 

@@ -143,6 +143,7 @@ class NarrativeFormatter:
             "stabilized": "stabilized",
             "emergence": "emerged",
             "increase": "increased",
+            "decrease": "decreased",  # was printed raw: "… the pattern 'X' decrease in …"
             "fade": "decreased"
         }
         result = mappings.get(raw.lower(), raw)

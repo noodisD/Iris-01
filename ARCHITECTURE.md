@@ -100,21 +100,24 @@ clears the creation threshold, so it cannot chain (ADR-0014).
 
 ## 4. Meta-control
 
-Findings pass through gates in this order, which `CONTEXT.md` and the pipeline
-contract both specify:
+Chat and the Insights screen admit findings through one function
+(`agent/pipeline_orchestrator.py`, ADR-0007), in this order:
 
-**enablement → confidence → conflict suppression → prioritisation → budget**
+**coverage → enablement → confidence → conflict suppression → ranking**
 
-The budget slice is last for a reason: it truncates to `max_items`, so applying
-it before ranking discarded insights in engine-registration order and the
-highest-weighted engine could never reach the ranker.
+Coverage is first: a finding about the present is withheld unless 3 of the last
+21 days were written in, while findings about a span (lifelong) pass, and
+findings their own engine calls unsupported are dropped. After ranking, chat
+keeps one finding per pattern and cuts to `max_items`; the screen shows the
+whole ranked list. The budget belongs to the caller because it is a limit on
+space, not a statement about what is true.
 
 - **Confidence** weights evidence by source (reflection 1.0, journal 0.9, habit
   with notes 0.8, bare tick 0.5) and scores sufficiency, consistency and recency
   at 40/40/20.
 - **Conflict suppression** silences logically incompatible pairs.
-- **Prioritisation** ranks by confidence, recency, magnitude, novelty and engine
-  weight, then the budget keeps the top *k* (default 5).
+- **Ranking** orders by confidence, recency, magnitude, novelty and engine
+  weight, with lifelong lowest; chat then keeps the top *k* (default 5).
 
 Every suppression is recorded with a reason, so what was hidden is auditable.
 

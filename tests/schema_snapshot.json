@@ -1358,7 +1358,7 @@
       },
       "password_hash": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "character varying"
       },
       "username": {
@@ -2146,10 +2146,6 @@
     "users": {
       "users_id_not_null": {
         "definition": "NOT NULL id",
-        "type": "n"
-      },
-      "users_password_hash_not_null": {
-        "definition": "NOT NULL password_hash",
         "type": "n"
       },
       "users_pkey": {

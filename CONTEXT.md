@@ -1,330 +1,232 @@
 # IRIS Domain Context
 
-IRIS is a local-first, multi-user AI companion that detects, verifies, and prioritizes long-term behavioral patterns. It operates under a strict **non-interpretive contract**: observe and report evidence, never assume causality or offer unsolicited advice.
+IRIS is a local-first AI companion for one person. It runs on one machine, as
+one process with one PostgreSQL database, for one local user with no login
+(ADR-0001). It detects, verifies and prioritises long-term patterns in what that
+person deliberately logs, under a strict **non-interpretive contract**: it
+reports observations and the evidence behind them, never assumes causality, and
+never offers unsolicited advice.
+
+Every label and number below is what the code does. `tests/test_context_guards.py`
+fails if a classifier emits a label this file does not name, or if an engine
+list here and in the code disagree.
 
 ## Glossary
 
 ### Theme
-A pattern identified across journal entries, reflections, and habits. Represents a semantic cluster of related occurrences.
+A pattern recurring across what the owner logged: a group of occurrences that
+say the same kind of thing.
 
 **Properties:**
-- `id` — unique identifier
-- `user_id` — owner
-- `vector` — 1536-dim semantic embedding (pgvector)
-- `summary` — natural language name (e.g., "Stress", "Deep focus")
-- `created_at` — timestamp of first occurrence
+- `id`, `user_id`, `summary` (a natural-language name)
+- `centroid_embedding` — 1536-dim vector the theme is matched against
+- `origin` — `"clustered"` (found by the persistence engine) or `"observed"` (a construct, found by reading)
+- `status` — `"active"`, `"candidate"` or `"rejected"`; only `"active"` themes are measured
+- `claim_kind` — `"mention"` (appears in the writing) or `"behaviour"` (the thing happened); constructs can only be confirmed as mentions (ADR-0016)
+- `occurrence_count` — occurrences that can be placed in time; `undated_occurrence_count` — those that cannot, counted beside it and never summed in (ADR-0013)
+- `first_seen_at`, `last_seen_at` — the dated span; `span_is_undated` says the span means nothing when no occurrence is dated
 
 **Invariants:**
-- Every theme has at least one occurrence
-- `themes.created_at ≤ min(occurrences[*].occurred_at)`
-- Themes are user-scoped (no cross-user themes)
+- Themes are user-scoped
 - Similarity is cosine on what differs between entries: once a user has `PERSISTENCE_STYLE_MIN_ENTRIES` (30) evidence embeddings, their average embedding — the voice every entry shares — is removed first (ADR-0014)
 - ≥ `PERSISTENCE_STYLE_CLUSTER_THRESHOLD` (0.50) to form a new theme; ≥ `PERSISTENCE_STYLE_MATCH_THRESHOLD` (0.40) to join the *closest* existing theme
 - Below 30 entries, raw cosine: ≥ `PERSISTENCE_CLUSTER_THRESHOLD` (0.78) to form, ≥ `PERSISTENCE_MATCH_THRESHOLD` (0.70) to join
+- A clustered theme needs `PERSISTENCE_MIN_CLUSTER_SIZE` (5) entries to form, with every pair clearing the bar (complete linkage)
+
+### Construct
+A theme found by *reading* rather than clustering (`origin = "observed"`). The
+reading engine proposes a claim with verbatim quotes; it is stored as a
+`"candidate"` that nothing measures; the owner confirms or rejects it. Its
+centroid is built from the owner's own quoted sentences, never from the claim.
+A rejection is remembered by `proposal_key`, so a rerun cannot propose it again.
 
 ### Occurrence
-An instance of a theme appearing in a source (journal entry, reflection, habit completion).
+An instance of a theme in one source.
 
 **Properties:**
-- `theme_id` — which theme this instantiates
-- `source_type` — "journal_entry", "reflection", "habit_completion", or "habit_completion_with_notes"
-- `source_id` — ID of the source in its table
-- `occurred_at` — timestamp (ISO 8601)
-- `evidence_weight` — reliability of this source (0.5–1.0 depending on source_type)
+- `theme_id`, `source_type` (`"reflection"`, `"journal_entry"`, `"habit_completion"`), `source_id`
+- `occurred_at` — when the source happened; **null** for writing that carries no date (ADR-0013)
+- `snippet` — the owner's own words from the entry, never the embedded text
+- `admission_basis` — `"citation"` (a sentence the owner read and confirmed) or `"similarity"` (a match a detector proposed)
 
 **Invariants:**
-- `occurred_at` must be ≤ `now()`
-- Evidence weight follows `EVIDENCE_WEIGHTS` policy
-- No duplicate occurrences (same theme × source × occurred_at)
+- One occurrence per theme × source
+- Every engine that measures in days reads dated occurrences only; lifelong is the one reader that also counts undated ones
+- Chat messages are embedded for recall and are never occurrences (ADR-0003)
 
 ### Source
-Raw data that contributes to pattern detection. Types: journal entries, reflections, habit completions.
+What the owner deliberately logged. Evidence is reflections (a journal entry *is*
+a reflection, ADR-0010), legacy `journal_entries` rows (read, no longer written),
+and habit completions. A skipped habit is not evidence. An entry marked
+memory-only (`evidence_eligible = false`) is searchable but never evidence.
 
-**Properties vary by type:**
-- **Journal Entry**: raw_text, created_at, vector (pgvector), wellbeing_data
-- **Reflection**: mood, energy_level, content, reflection_date
-- **Habit Completion**: habit_id, completed_at, notes (optional)
-
-**Invariants:**
-- Sources are immutable once created (except soft deletes)
-- Sources are user-scoped
-- Raw text is never empty for journal entries
+A reflection's `reflection_date` may be **null**: the owner said the day is not
+known. It is recalled and read, counted without a span, and kept out of every
+window until a date is supplied (`set_reflection_date`), which dates its
+occurrences too.
 
 ### Trajectory
-Directional trend of a theme: is it increasing, decreasing, stable, emerging, or fading?
+Whether a theme's recent rate differs from its baseline:
+`TRAJECTORY_RECENT_DAYS` (14) against the prior `TRAJECTORY_BASELINE_DAYS` (60).
 
-**Properties:**
-- `label` — one of: "increasing", "decreasing", "stable", "emerging", "fading"
-- `slope` — linear regression slope over the analyzed window
-- `recent_rate` — frequency (count/day) in last `TRAJECTORY_RECENT_DAYS` (14)
-- `baseline_rate` — frequency (count/day) in prior baseline window
-- `confidence_level` — "low", "medium", "high"
-
-**Invariants:**
-- Requires ≥ `TRAJECTORY_MIN_DATA_POINTS` (3) occurrences to classify
-- Slope is calculated only if ≥ `TRAJECTORY_MIN_SLOPE_POINTS` (2) time-distributed points
-- "emerging" is special: zero baseline occurrences, recent_rate > 0
-- "fading" is special: zero recent occurrences, baseline_rate > 0
+**Labels:**
+- `"insufficient data"` — fewer than `TRAJECTORY_MIN_DATA_POINTS` (3) occurrences; a non-finding, never shown
+- `"emerging"` — first seen within the last 30 days, with activity in the recent window
+- `"increasing"` / `"fading"` — the rate moved up / down by more than `TRAJECTORY_DELTA_THRESHOLD` (0.05), or, when the rate is flat, the weekly slope did
+- `"stable"` — neither
 
 ### Resolution
-State of a theme: is it dissolving, stabilizing, persisting, or reappearing?
+Whether a theme has gone quiet, settled, or come back: `RESOLUTION_RECENT_DAYS`
+(21) against the prior `RESOLUTION_BASELINE_DAYS` (90). Cached for
+`RESOLUTION_CACHE_TTL_HOURS` (24).
 
-**Properties:**
-- `label` — one of: "dissipated", "stabilized", "persisting", "reappearing"
-- `attenuation_score` — (1.0 - recent_rate / baseline_rate), clamped [-1.0, 1.0]
-- `recent_count` — occurrences in last `RESOLUTION_RECENT_DAYS` (21)
-- `past_count` — occurrences in prior baseline
-- `confidence_level` — "low", "medium", "high"
-
-**Invariants:**
-- "dissipated": `past_count ≥ RESOLUTION_MIN_DATA_POINTS` AND `recent_count == 0`
-- "reappearing": `past_count ≥ RESOLUTION_MIN_DATA_POINTS` AND `recent_count > 0` AND gap_detected
-- "stabilized": `|attenuation_score| ≤ RESOLUTION_DELTA_EPSILON` (0.05)
-- "persisting": fallback for all other cases
+**Labels:**
+- `"dissipated"` — `past_count ≥ RESOLUTION_MIN_DATA_POINTS` (3) and nothing recent
+- `"reappearing"` — the same baseline, recent activity, and a gap between them
+- `"unsupported"` — both windows empty, or no dated occurrence at all; a non-finding, never shown
+- `"stabilized"` — both windows non-empty and the relative change within `RESOLUTION_DELTA_EPSILON` (0.05)
+- `"persisting"` — otherwise
 
 ### Tension
-Co-occurrence of two or more themes that show contrasting behavioral signals (e.g., one rising while another falls).
+Two themes (always a pair) that appear on the same *days* while their
+trajectories move in opposite directions — shared days, because clustering puts
+an entry in one theme. Recent `TENSION_RECENT_DAYS` (14), baseline
+`TENSION_BASELINE_DAYS` (60).
 
-**Properties:**
-- `pattern_ids` — set of theme IDs (typically 2, may be > 2)
-- `co_occurrence_count` — # of overlapping windows (recent + baseline)
-- `divergence_score` — measure of how differently they're trending
-- `stability` — consistency of this pattern across time windows
-- `confidence_level` — "low", "medium", "high"
-
-**Invariants:**
-- Must have ≥ `TENSION_MIN_COOCCURRENCE` (3) overlapping windows
-- Each theme in tension must have ≥ `TENSION_MIN_OCCURRENCES` (5) total occurrences
-- Themes must show divergence (trajectory directions differ)
-- Stability must be ≥ `TENSION_MIN_STABILITY` (0.3)
+**Labels:** `"persistent"` (stability ≥ `TENSION_MIN_STABILITY` (0.3) and recent
+activity), `"emerging"` (recent only), `"fading"` (past only), `"intermittent"`.
+Each theme needs `TENSION_MIN_OCCURRENCES` (5); the pair needs
+`TENSION_MIN_COOCCURRENCE` (3) shared days and divergence ≥
+`TENSION_MIN_DIVERGENCE` (0.05).
 
 ### Leverage
-Directional influence: pattern A tends to precede or cause changes in pattern B.
+Temporal association, **not cause**: whether theme A is followed by theme B
+within `LEVERAGE_TIME_LAG_DAYS` (7) more often than B by A, over
+`LEVERAGE_WINDOW_DAYS` (60). Always a pair, labelled `"associated"`.
 
-**Properties:**
-- `source_id` — upstream theme (moves first)
-- `target_id` — downstream theme (moves in response)
-- `directional_lift` — P(B|A) - P(A|B), captures asymmetry
-- `time_lag_days` — max lag between source occurrence and target (≤ `LEVERAGE_TIME_LAG_DAYS`, 7)
-- `confidence_level` — "low", "medium", "high"
+**Invariants:** both themes need `LEVERAGE_MIN_OCCURRENCES` (5); the pair needs
+`LEVERAGE_MIN_CO_OCCURRENCES` (3); `directional_lift` must reach
+`LEVERAGE_ASYMMETRY_THRESHOLD` (0.15). Same-day occurrences are neutral.
+
+### Decision Impact
+Whether a target theme's rate changed in the `DECISION_IMPACT_WINDOW_DAYS` (14)
+after each occurrence of an anchor theme, against the prior
+`DECISION_IMPACT_BASELINE_DAYS` (60). Association over time, not cause.
+Directions: `"increase"`, `"decrease"`, `"emergence"`, `"fade"` (and `"none"`,
+which is not reported). Incomplete follow-up windows are right-censored.
+
+### Lifelong
+A theme's occurrences across the whole record: how many, between which dates,
+across how many months, which year holds most, and how long since the last.
+Never claims the present, so the coverage gate lets it through.
+
+**Labels:** `"spread"` or `"concentrated"` (at least
+`LIFELONG_CONCENTRATION_SHARE` (0.6) of dated occurrences in one year), and
+`"undated"` for a count over writing that has no dates — reported with no span.
+Needs `LIFELONG_MIN_OCCURRENCES` (3) over at least `LIFELONG_MIN_SPAN_DAYS` (90).
+
+### Observation
+What the reading engine (`agent/observations.py`) noticed, with quotes. It runs
+only when the owner asks, reads evidence only, never chat.
 
 **Invariants:**
-- Source and target must be distinct themes
-- Both must have ≥ `LEVERAGE_MIN_OCCURRENCES` (5) total
-- Co-occurrences (A then B within lag) ≥ `LEVERAGE_MIN_CO_OCCURRENCES` (3)
-- `|directional_lift| ≥ LEVERAGE_ASYMMETRY_THRESHOLD` (0.15) to qualify
+- Every quote is found verbatim in the entry it cites, or the whole finding is dropped
+- Every quote supports the claim: a contradicting quote drops the finding, a quote that only mentions the subject is not counted, and a check that cannot be made drops the finding
+- Two distinct entries at least; causal or prescriptive wording is dropped
+- A quick read (`POST /api/observations`) stores nothing; discovery stores candidates and a run record (ADR-0016)
 
 ### Confidence
-Reliability score for any insight (trajectory, resolution, tension, etc.).
+How much evidence stands behind a finding (`agent/confidence.py`).
 
-**Properties:**
-- `confidence_level` — "low", "medium", "high"
-- `confidence_score` — float [0.0, 1.0]
-- `data_points_count` — # of occurrences contributing to this insight
-- `time_coverage_days` — span from first to last occurrence
-- `consistency_score` — regularity of occurrences over time
-- `recency_score` — how recent the contributing data is
-
-**Scoring Weights:**
-- Sufficiency (data volume): 40%
-- Consistency (regularity): 40%
-- Recency (freshness): 20%
-
-**Classification Thresholds:**
-- `data_points_count < CONF_MIN_POINTS` (3) → "low"
-- `data_points_count < CONF_MEDIUM_POINTS` (5) → "medium"
-- `data_points_count ≥ CONF_HIGH_POINTS` (10) → potentially "high" (if consistency strong)
+- `sufficiency` — log-scaled weighted count against `CONF_HIGH_POINTS` (10); `recency` — exponential decay over `CONF_RECENCY_DAYS` (30); `consistency` — share of the dominant direction, when there is a direction
+- Score weights: sufficiency 0.4, consistency 0.4, recency 0.2 (consistency's weight is redistributed when there is no direction)
+- `"high"` — at least `CONF_HIGH_POINTS` weighted points, recency ≥ 0.5, a span of at least `CONF_MIN_COVERAGE_DAYS_FOR_HIGH` (7) days, and consistency ≥ `CONF_CONSISTENCY_THRESHOLD` (0.7) where there is a direction
+- `"medium"` — at least `CONF_MIN_POINTS` (3)
+- `"low"` — otherwise, or whenever recency < 0.2
+- A theme's stored confidence is recomputed once older than `CONFIDENCE_CACHE_TTL_HOURS` (24), and computed on request for an explanation
+- Dissipation is scored separately, on the silence and the logging around it
 
 ### Evidence
-Concrete facts supporting a classification decision.
+The facts a finding was computed from, append-only, time-stamped together:
+`evidence_type` (`"count"`, `"rate"`, `"delta"`, `"window"`, …), `key`, `value`,
+`engine_name`. Evidence supports or refutes; it never interprets.
 
-**Properties:**
-- `evidence_type` — "count", "rate", "delta", "gap", "stability", etc.
-- `key` — name of the fact (e.g., "recent_count", "attenuation_score")
-- `value` — numeric or boolean value
-- `engine_type` — which analytical engine produced this (e.g., "resolution")
+### Admission (Meta-Control)
+One function decides what IRIS has noticed, for chat and the Insights screen
+alike (`agent/pipeline_orchestrator.py`, ADR-0007):
 
-**Invariants:**
-- Evidence is immutable (append-only log)
-- All evidence for a single insight is time-stamped together
-- Evidence supports or refutes a conclusion; never interpretive
+1. **Collection** — trajectory, tension, resolution, leverage (pairs), decision impact, lifelong; one grain each
+2. **Coverage gate** — a finding about the present needs `COVERAGE_MIN_OBSERVED_DAYS` (3) days written in the last 21; findings about a span are exempt; `"unsupported"` and `"insufficient data"` are dropped
+3. **Enablement gate** — engines the owner switched off
+4. **Confidence gate** — below the owner's `min_confidence` (default `"medium"`)
+5. **Conflict suppression** — incompatible findings on the same pattern, among those of at least medium confidence (e.g. `"dissipated"` resolution with `"increasing"` trajectory)
+6. **Ranking** — confidence, recency, novelty and engine weight, with a deterministic tie-break
 
-### Insight
-An analyzed finding from the pipeline: a theme with a computed label and confidence.
-
-**Properties:**
-- `engine_name` — which analytical engine produced it ("trajectory", "resolution", "tension", "leverage", etc.)
-- `pattern_type` — "theme", "pair" (for tensions/leverage)
-- `pattern_id` — ID(s) of the theme(s)
-- `label` — computed classification (e.g., "dissipated", "increasing")
-- `confidence_level` — "low", "medium", "high"
-- `confidence_score` — float [0.0, 1.0]
-- `timestamp` — when this insight was computed
-
-**Invariants:**
-- Every insight traces back to at least one Confidence record
-- Confidence is computed fresh for each analysis run (no caching of confidence itself)
-- Insights are user-scoped
-
-### Meta-Control Layer
-System of gates and filters that prevent inappropriate insights from reaching the LLM.
-
-**Components:**
-
-1. **Enablement Gate** — checks user preferences for which engines to run (e.g., "disable tension")
-2. **Confidence Gate** — filters insights below `CONFLICT_MIN_CONFIDENCE` ("medium" by default)
-3. **Conflict Suppression** — silences logically incompatible insights (e.g., can't be both "reappearing" and "dissipated")
-4. **Prioritization** — ranks remaining insights by confidence, recency, novelty, and engine weight
-5. **Budget Gate** — slices to top-K insights (default 5, user-configurable)
-
-**Invariants:**
-- Gates are applied in order (enablement → confidence → conflict → prioritization → budget)
-- Each gate logs its suppressions for transparency
-- User preferences override all gates (can enable disabled engines, raise/lower confidence thresholds).
-  Set from Settings in the app or `/settings` in the CLI — both write `user_preferences`,
-  so the two surfaces cannot disagree about what IRIS is allowed to say
-- No gate is allowed to modify insight data; only filter or re-order
+Chat then keeps one finding per pattern (a pair is its own pattern) and cuts to
+the owner's `max_items`; the screen shows everything. Each gate records what it
+held back and why.
 
 ### Narrative
-Natural language formatting of an insight for human consumption.
+A finding rendered as a sentence from a fixed template, then checked against a
+firewall of causal and prescriptive words (`agent/narrative_policy.py`); a
+sentence that fails is dropped, never rewritten. Templates quote the counts and
+windows that were measured ("appeared 5 times in the last 14 days, against 2 in
+the 60 days before"). The firewall also runs on the Insights read and on the
+weekly letter.
 
-**Properties:**
-- `text` — formatted string describing the insight
-- `source_label` — computed label (e.g., "dissipated")
-- `theme_id` (or pattern_id) — which pattern this describes
-- `safety_checked` — boolean (narrative passed validation)
-
-**Invariants:**
-- Narrative must not speculate or assign causality
-- Narrative must cite the evidence (e.g., "appeared 5 times in the past but 0 times recently")
-- Narrative length is bounded (safety check)
-- Narrative uses project vocabulary (terms from CONTEXT.md)
-
-### Journal Entry
-User's raw textual data: a message, reflection, or note.
-
-**Properties:**
-- `id` — unique identifier
-- `user_id` — owner
-- `raw_text` — the content (immutable)
-- `created_at` — timestamp
-- `vector` — pgvector embedding for semantic search
-- `wellbeing_data` — optional dict of mood, energy, etc.
-
-**Invariants:**
-- `raw_text` is never empty
-- `created_at` ≤ `now()`
-- User can only read/write their own entries
-
-### Pipeline
-The full analysis workflow: ingest → embed → analyze → gate → prioritize → narrative → LLM.
-
-**Stages:**
-1. **Persistence Engine** — cluster new entries into themes
-2. **Trajectory Engine** — compute directional trends
-3. **Tension Engine** — detect conflicting co-occurrences
-4. **Resolution Engine** — determine if patterns are fading/strengthening
-5. **Leverage Engine** — find directional influence
-6. **Decision Impact Engine** — measure effects of anchored decisions
-7. **Meta-Control Layer** — apply gates and filters
-8. **Narrative Formatter** — convert insights to text
-9. **Intelligence Service** — send context to LLM
-
-**Invariants:**
-- Pipeline is user-scoped (no cross-user data leaks)
-- Each stage produces artifacts that the next stage consumes
-- No stage modifies source data
-- Pipeline is deterministic: same input → same output
+### Pipeline (ingest)
+A write stores the entry and its queue row in one transaction (ADR-0011); the
+worker embeds it, matches it to the closest theme (or discovers new ones), lets
+confirmed constructs classify it, and refreshes the cross-theme caches. Chat and
+Insights then read through admission.
 
 ### User Preferences
-Settings that override pipeline behavior.
+- `enabled_engines` — a list of engine names, or null for all; the selectable engines are trajectory, tension, resolution, leverage, decision_impact, lifelong and observations
+- `min_confidence` — `"low"`, `"medium"` (default) or `"high"`
+- `max_items` — 1–10 (default 5): how many findings chat may raise; the screen is not limited
+- `show_suppressed` — stored and shown in Settings; nothing acts on it yet
 
-**Properties:**
-- `enabled_engines` — which analytical engines to run (list of booleans)
-- `confidence_threshold` — minimum confidence to include insights ("low", "medium", "high")
-- `max_items` — max insights in the LLM context (default 5)
-- `conflict_suppression_enabled` — boolean
-
-**Invariants:**
-- Preferences are user-scoped
-- Changes take effect on the next chat invocation
-- Preferences never override safety constraints (e.g., can't suppress "low" confidence as a default)
+Set from Settings or the CLI's `/settings`; both write `user_preferences`.
 
 ---
 
-## Seams (Interfaces for Variation)
+## Seams
 
-### 1. Evidence Calculation
-**Where:** Any analytical engine (Trajectory, Resolution, etc.)
-**What varies:** How evidence is collected and weighted
-**Current adapters:**
-- Trajectory uses recency + slope + consistency
-- Resolution uses raw occurrence counts + rates
-- Leverage uses co-occurrence asymmetry
-
-**How to adapt:** Create a new engine or override `emit_evidence()` to change what facts are considered.
-
-### 2. Confidence Scoring
-**Where:** `ConfidenceEngine`
-**What varies:** How to combine data sufficiency, consistency, and recency into a single score
-**Current adapter:** Weighted average (40/40/20)
-
-**How to adapt:** Override `compute_confidence()` to use different weights or additional factors.
-
-### 3. Conflict Detection
-**Where:** `ConflictSuppressionEngine`
-**What varies:** Which insight combinations are considered incompatible
-**Current adapter:** Hard-coded rules (e.g., "dissipated" vs "reappearing")
-
-**How to adapt:** Override `suppress()` to add new incompatibilities or make existing ones conditional.
-
-### 4. Narrative Template Selection
-**Where:** `NarrativeFormatter`
-**What varies:** How insights are converted to human text
-**Current adapters:** Template per label (e.g., dissipated → "appeared frequently in the past but has not appeared recently")
-
-**How to adapt:** Add new templates or switch template sources in `format_insight()`.
-
-### 5. LLM Provider
-**Where:** `Intelligence` service
-**What varies:** Which LLM backend to call (OpenAI, Gemini, local)
-**Current adapters:** OpenAI (primary), Gemini (fallback)
-
-**How to adapt:** Implement new adapter class inheriting from base LLM interface, register in `Intelligence.__init__()`.
+1. **Evidence** — each engine emits its own facts through `emit_evidence()`.
+2. **Confidence** — `ConfidenceEngine.compute_confidence()`.
+3. **Conflicts** — the rules in `agent/conflicts.py`.
+4. **Narrative** — `agent/narrative_templates.py`: one template per engine, or named variants chosen by the finding's `template_variant` (lifelong's `"undated"` and `"with_undated"`).
+5. **Model** — `agent/intelligence.py` calls OpenAI; `stream()` for chat replies. There is no second provider.
 
 ---
 
 ## Key Invariants
 
-1. **Non-Interpretive Contract** — IRIS reports observations and evidence, never assigns causality
-2. **User Scoping** — All data and computations are scoped to a single user; no cross-user leakage
-3. **Immutability of Sources** — Journal entries, reflections, and habit completions are never modified after creation
-4. **Determinism** — Same input always produces the same analytical output (except LLM responses)
-5. **Locality of Change** — Changes to one module's logic don't break other modules (via seams)
-6. **Transparency** — Every suppressed insight is logged with its reason; users can audit what was hidden
+1. **Non-interpretive** — IRIS reports what was observed and measured, never a cause or a recommendation
+2. **One user, one machine** — no login, no cross-user data (ADR-0001)
+3. **Sources are the owner's** — an entry changes only when the owner edits it (which re-derives everything from it) or supplies a missing date
+4. **A date is read or absent, never invented** (ADR-0013)
+5. **One admission** — chat and the screen cannot disagree about what IRIS noticed (ADR-0007)
+6. **Transparency** — every suppressed finding is recorded with its reason
 
 ---
 
-## Time Windows (Temporal Contracts)
+## Time Windows
 
-These are central to how IRIS distinguishes "recent" from "historical" patterns:
-
-- **Trajectory Analysis**: Recent = last 14 days, Baseline = prior 60 days
-- **Resolution Analysis**: Recent = last 21 days, Baseline = prior 90 days
-- **Tension Analysis**: Same as Trajectory (14/60)
-- **Leverage Analysis**: Window = 60 days, time lag = up to 7 days
-- **Confidence Decay**: Evidence older than 30 days loses exponential weight
-- **Recency Scoring**: Recent insights (< 30 days) get higher priority
+- **Trajectory**: recent 14 days, baseline the prior 60
+- **Resolution**: recent 21 days, baseline the prior 90
+- **Tension**: recent 14 days, baseline the prior 60
+- **Leverage**: 60-day window, lag up to 7 days
+- **Decision impact**: 14 days after each anchor, against the prior 60
+- **Coverage**: 3 days written in the last 21
+- **Lifelong**: the whole record
+- **Confidence recency**: decays over 30 days
 
 ---
 
-## Evidence Sources (Reliability Weights)
+## Evidence Weights
 
-IRIS weights different source types by credibility:
-
-- **Reflection** (explicit mood/energy/emotion): 1.0x weight
-- **Journal Entry** (detailed narrative): 0.9x weight
-- **Habit with Notes** (context provided): 0.8x weight
-- **Habit Tick Only** (default completion): 0.5x weight
-
-Weights are applied during evidence aggregation to ensure reflections have more influence than quick habit ticks.
+- **Reflection**: 1.0
+- **Journal entry**: 0.9
+- **Habit completion with notes**: 0.8
+- **Habit completion (tick only)**: 0.5

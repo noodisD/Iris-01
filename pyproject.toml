@@ -1,7 +1,7 @@
 [project]
 name = "iris-minimal"
 version = "0.1.0"
-description = "IRIS Companion v2.1: The Epistemic Mirror - A local-first, multi-user AI companion built on a deterministic analytical spine"
+description = "IRIS: a local-first AI companion for one person, built on a deterministic analytical spine"
 authors = [{name = "noodis", email = "noodis@users.noreply.github.com"}]
 license = {text = "MIT"}
 readme = "README.md"

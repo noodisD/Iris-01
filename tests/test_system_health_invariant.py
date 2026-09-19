@@ -29,8 +29,8 @@ def test_system_health_invariant():
     user_a_name = f"user_proto_{uuid.uuid4().hex[:8]}"
     user_b_name = f"user_theme_{uuid.uuid4().hex[:8]}"
 
-    id_a = db.create_user(user_a_name, "pass")
-    id_b = db.create_user(user_b_name, "pass")
+    id_a = db.create_user(user_a_name)
+    id_b = db.create_user(user_b_name)
 
     print(f"User A (Proto): {id_a} | User B (Theme): {id_b}")
 

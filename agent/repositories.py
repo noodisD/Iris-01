@@ -24,14 +24,11 @@ class Repository:
 class UserRepository(Repository):
     """Manages user accounts and authentication."""
 
-    def create_user(self, username: str, password: str) -> int:
-        return self.db.create_user(username, password)
+    def create_user(self, username: str) -> int:
+        return self.db.create_user(username)
 
     def get_user(self, username: str) -> dict:
         return self.db.get_user(username)
-
-    def verify_user(self, username: str, password: str) -> dict:
-        return self.db.verify_user(username, password)
 
 
 class JournalRepository(Repository):
@@ -250,9 +247,6 @@ class LeverageRepository(Repository):
     def get_targets(self, source_type: str, source_id: int) -> list:
         return self.db.get_leverage_targets(source_type, source_id)
 
-    def get_high_leverage_sources(self, user_id: int, min_confidence: str = 'medium') -> list:
-        return self.db.get_high_leverage_sources(user_id, min_confidence)
-
     def invalidate_for_source(self, source_type: str, source_id: int):
         return self.db.invalidate_leverage_for_source(source_type, source_id)
 
@@ -273,9 +267,6 @@ class DecisionImpactRepository(Repository):
 
     def get_impacts_for_anchor(self, anchor_type: str, anchor_id: int) -> list:
         return self.db.get_decision_impacts_for_anchor(anchor_type, anchor_id)
-
-    def get_significant_impacts(self, user_id: int, min_confidence: str = 'medium') -> list:
-        return self.db.get_significant_decision_impacts(user_id, min_confidence)
 
     def invalidate_impacts(self, pattern_type: str, pattern_id: int):
         return self.db.invalidate_decision_impacts(pattern_type, pattern_id)

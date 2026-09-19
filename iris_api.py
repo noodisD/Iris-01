@@ -1,7 +1,8 @@
 """
-IRIS Multi-User API
-This is the HTTP layer that wraps your CLI companion logic.
-It handles authentication, routing requests to the right companion instance, and returning responses.
+IRIS HTTP API — the web app's backend, for one local user with no login
+(ADR-0001), bound to loopback. It serves the built SPA from the same process
+that stores the data. The CLI (companion.py) is the same product through a
+terminal and resolves the same user.
 """
 
 import logging
@@ -200,15 +201,11 @@ class ReflectionResponse(BaseModel):
 # Tests override this dependency via app.dependency_overrides.
 
 DEFAULT_USERNAME = os.getenv("IRIS_DEFAULT_USER", "local")
-DEFAULT_PASSWORD = os.getenv("IRIS_DEFAULT_PASSWORD", "local")
 
 
 def get_current_user_id() -> int:
     """Resolve the single local user's id, creating the user on first run."""
-    user = db.get_user(DEFAULT_USERNAME)
-    if user:
-        return user["id"]
-    return db.create_user(DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    return db.local_user_id(DEFAULT_USERNAME)
 
 
 # ============================================================================

@@ -121,7 +121,7 @@ def test_someone_elses_construct_is_not_actionable(client, candidate, test_user)
     """Single-user today, but the id comes from the URL: acting on a row without
     checking who owns it is the shape of the bug, whether or not it can fire."""
     theme_id, _ = candidate
-    other = db.create_user(f"other_{test_user['username']}", "x")
+    other = db.create_user(f"other_{test_user['username']}")
     app.dependency_overrides[get_current_user_id] = lambda: other
 
     assert client.post(f"/api/constructs/{theme_id}/confirm").status_code == 404

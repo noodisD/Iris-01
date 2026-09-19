@@ -11,7 +11,7 @@ Every insight (a unit of knowledge derived from raw data) must pass through thes
     *   *Source*: Analytical Engines (Persistence, Trajectory, Tension, etc.)
     *   *Requirement*: Must contain `pattern_type`, `pattern_id`, `score`/`confidence`.
     *   *Status*: Raw data.
-    *   *Execution*: Handled via **FastAPI BackgroundTasks** to decouple ingestion from analysis.
+    *   *Execution*: Ingestion runs on a durable queue (ADR-0011) — the entry and its job are written in one transaction and a worker processes them. Analysis runs when chat or the Insights screen asks, through one admission (ADR-0007).
 
 2.  **Scored** (By Priority Engine & Confidence Engine)
     *   *Action*: Assigns `confidence_level` and `priority_rank`.

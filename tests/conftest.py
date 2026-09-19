@@ -396,7 +396,7 @@ def test_user():
     """
     import uuid
     username = f"testuser_{uuid.uuid4().hex[:8]}"
-    user_id = db.create_user(username, "testpassword")
+    user_id = db.create_user(username)
     user = {"id": user_id, "username": username}
     yield user
     _purge_user(user["id"])

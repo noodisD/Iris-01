@@ -13,7 +13,7 @@ def test_create_and_get_user(setup_test_database):
     unique_username = f"testuser_{uuid.uuid4().hex[:8]}"
 
     # Create a user first
-    user_id = db.create_user(unique_username, "testpassword")
+    user_id = db.create_user(unique_username)
     assert user_id is not None
 
     # Then retrieve it
@@ -21,14 +21,19 @@ def test_create_and_get_user(setup_test_database):
     assert user is not None
     assert user["username"] == unique_username
 
-def test_verify_user(test_user):
-    """Test user password verification."""
-    verified_user = db.verify_user(test_user["username"], "testpassword")
-    assert verified_user is not None
-    assert verified_user["id"] == test_user["id"]
-
-    unverified_user = db.verify_user(test_user["username"], "wrongpassword")
-    assert unverified_user is None
+def test_there_is_one_local_user_and_no_password(setup_test_database):
+    """The CLI had its own login, its own users, and unsalted SHA-256 hashes,
+    in front of the database the HTTP app serves to one user with no login
+    (ADR-0001). Both front doors resolve the same user now, and nothing stores
+    a password."""
+    name = f"local_{uuid.uuid4().hex[:8]}"
+    first, again = db.local_user_id(name), db.local_user_id(name)
+    assert first == again, "one user, created once"
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT password_hash FROM users WHERE id = %s;", (first,))
+        assert cur.fetchone()[0] is None
+        cur.execute("DELETE FROM users WHERE id = %s;", (first,))
+        conn.commit()
 
 def test_create_journal_entry(test_user):
     """Test creating a journal entry."""

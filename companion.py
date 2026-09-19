@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-IRIS Minimal Companion - CLI
-Now with multi-user support and a full database backend.
+IRIS in a terminal — the same product as the web app, for the same one person.
+
+It used to be a second product: a login screen, create-user, and passwords
+hashed with unsalted SHA-256, in front of a database the HTTP app serves to one
+local user with no login at all (ADR-0001). It resolves that same local user
+now, the way the API does, and its commands read what the screen reads.
 """
 
-import getpass
 import signal
 import sys
-import warnings
 from pathlib import Path
-
-# Suppress upstream deprecation warnings from third-party libraries
-# HDBSCAN 0.8.41 has invalid escape sequences in their own source code (robust_single_linkage_.py:154)
-# This is not our code and cannot be fixed by us - suppressing is the proper approach
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="hdbscan.*")
 
 # Set up paths
 COMPANION_DIR = Path(__file__).parent.absolute()
@@ -58,56 +55,30 @@ COMMANDS:
   /journal             Create a journal entry
   /themes              Show what keeps coming back
   /theme <id>          Show detailed timeline for a theme
-  /discover            Discover new themes from recent entries
+  /discover            Group unthemed entries into new themes (clustering, not reading)
   /trajectory          Show what is changing over time
   /trend <id>          Show detailed trend for a theme
   /tensions            Show what themes co-exist uneasily
   /tension <id>        Show detailed tension analysis for a pair
   /resolutions         Show what patterns have settled or reappeared
   /resolution <id>     Show detailed resolution analysis for a theme
-  /leverage            Show patterns that drive other patterns
-  /leverage <id>       Show detailed influence analysis for a theme
+  /leverage            Show which themes tend to be followed by which (association, not cause)
+  /leverage <id>       Show what tends to follow one theme
   /impact              Show what patterns tend to follow others
   /impact <id>         Show detailed post-hoc analysis for an anchor
   /confidence <type> <id> Show reliability audit for a pattern
   /explain <type> <id> Show the reasoning behind an observation
   /evidence <type> <id> Show raw historical evidence snapshots
   /conflicts <type> <id> Show suppressed contradictory insights
-  /priority            Show the current leaderboard of ranked insights
+  /priority            Show what IRIS would raise now, ranked as chat and Insights rank it
+  /narrative <type> <id> Show the sentence a finding is rendered as
+  /narrative_check <text> Check a sentence against the wording firewall
   /settings            View or change your analytical gates
   /why <type> <id>     Explain why an insight was surfaced
   /hidden              Show insights suppressed in the last run
-  /rebuild-vector      Rebuild the vector search index from the database
   /help                Show this help
   /exit                Exit the application
 """)
-
-def create_user():
-    """CLI command to create a new user."""
-    print("\n--- Create New User ---")
-    username = input("Username: ").strip()
-    password = getpass.getpass("Password: ")
-    if not username or not password:
-        print("Username and password cannot be empty.")
-        return
-    try:
-        user_id = db.create_user(username, password)
-        print(f"✓ User '{username}' created successfully with ID {user_id}.")
-    except ValueError as e:
-        logger.error(f"Error: {e}")
-
-def login():
-    """CLI command to log in a user."""
-    print("\n--- Login ---")
-    username = input("Username: ").strip()
-    password = getpass.getpass("Password: ")
-    user = db.verify_user(username, password)
-    if user:
-        print(f"✓ Welcome, {username}!")
-        return user
-    else:
-        print("✗ Invalid username or password.")
-        return None
 
 def create_journal_entry(companion: PersonalAICompanion):
     """Create a journal entry using the journal service."""
@@ -401,69 +372,64 @@ def show_resolution_detail(companion: PersonalAICompanion, theme_id: str):
         logger.error(f"Failed to show resolution detail: {e}")
 
 def show_leverage(companion: PersonalAICompanion):
-    """Show patterns that act as upstream drivers."""
-    print("\n--- OBSERVED STRUCTURAL DRIVERS ---\n")
+    """Which themes tend to be followed by which — pairs, as the screen shows them.
+
+    This read a per-source average under the heading "structural drivers",
+    listing what each theme "influences". Leverage measures whether one theme
+    is followed by another within a lag more often than the reverse: an
+    association in time, not a cause.
+    """
+    print("\n--- WHAT TENDS TO FOLLOW WHAT ---\n")
     try:
-        engine = LeverageEngine(companion.user_id)
-        # Scan and compute (or refresh cache)
-        engine.analyze_all_leverage()
-
-        sources = db.get_high_leverage_sources(companion.user_id)
-
-        if not sources:
-            print("No high-leverage drivers detected yet. Patterns appear independent.")
+        pairs = LeverageEngine(companion.user_id).analyze_all_leverage()
+        if not pairs:
+            print("No theme is followed by another more often than the reverse.")
             return
-
-        for i, s in enumerate(sources, 1):
-            print(f"{i}. \"{s['summary']}\" (ID: {s['source_id']})")
-            print(f"   Influences {s['targets_count']} other patterns | Avg Score: {s['avg_influence']:.2f}")
+        for i, r in enumerate(pairs, 1):
+            print(f"{i}. \"{r['source_summary']}\" (ID: {r['source_id']}) → "
+                  f"\"{r['target_summary']}\" (ID: {r['target_id']})")
+            print(f"   {r['cooccurrence_count']} co-occurrences | lift {r['directional_lift']:.2f} "
+                  f"| {r['confidence_level']} confidence")
             print()
-
     except Exception as e:
         logger.error(f"Failed to list leverage relationships: {e}")
 
 def show_leverage_detail(companion: PersonalAICompanion, theme_id: str):
-    """Show detailed influence analysis for a specific pattern."""
+    """What tends to follow one theme."""
     print()
     try:
         theme_id = int(theme_id)
-        engine = LeverageEngine(companion.user_id)
-
-        # Analyze to ensure cache is fresh
-        engine.analyze_pair('theme', theme_id, 'theme', theme_id) # Just to trigger some logic, wait
-
-        targets = db.get_leverage_targets('theme', theme_id)
-
         theme = db.get_theme_by_id(theme_id)
-        print(f"SOURCE PATTERN: \"{theme['summary']}\"")
-        print("-" * 30)
-
-        if not targets:
-            print("No downstream patterns influenced by this driver.")
+        if not theme:
+            print("✗ No such theme.")
             return
-
-        print("PRECEDES / DRIVES:")
-        for t in targets:
-            print(f"- \"{t['summary']}\" (Lift: {t['directional_lift']:.2f}, Score: {t['influence_score']:.2f})")
+        pairs = [r for r in LeverageEngine(companion.user_id).analyze_all_leverage()
+                 if r["source_id"] == theme_id]
+        print(f"THEME: \"{theme['summary']}\"")
+        print("-" * 30)
+        if not pairs:
+            print("Nothing follows this theme more often than it precedes it.")
+            return
+        print("TENDS TO BE FOLLOWED BY:")
+        for r in pairs:
+            print(f"- \"{r['target_summary']}\" (lift {r['directional_lift']:.2f}, "
+                  f"{r['cooccurrence_count']} co-occurrences)")
         print()
-
     except ValueError:
         print("✗ Invalid theme ID.")
     except Exception as e:
         logger.error(f"Failed to show leverage detail: {e}")
 
+
 def show_impact(companion: PersonalAICompanion):
     """Show anchors with notable downstream effects."""
     print("\n--- OBSERVED TEMPORAL SEQUENCES ---\n")
     try:
-        engine = DecisionImpactEngine(companion.user_id)
-        # Scan and compute
-        engine.analyze_all_anchors()
-
-        impacts = db.get_significant_decision_impacts(companion.user_id)
+        # What the screen reads: the computed impacts, not a cache table.
+        impacts = DecisionImpactEngine(companion.user_id).analyze_all_anchors()
 
         if not impacts:
-            print("No notable temporal sequences detected yet. Patterns appear uncorrelated in sequence.")
+            print("No theme is followed by a change in another yet.")
             return
 
         # Group by anchor to show summary
@@ -584,47 +550,30 @@ def show_raw_evidence(companion: PersonalAICompanion, p_type: str, p_id: str):
         logger.error(f"Failed to show raw evidence: {e}")
 
 def show_priorities(companion: PersonalAICompanion):
-    """Show current insight leaderboard."""
-    print("\n--- INSIGHT PRIORITIZATION LEADERBOARD ---\n")
+    """What IRIS would raise now, in the order chat and Insights rank it.
+
+    This computed two engines, ignored the results, and printed whatever chat
+    had last selected. It asks the shared admission instead — the same
+    findings, gates and ranking as both other surfaces.
+    """
+    print("\n--- WHAT IRIS WOULD RAISE NOW ---\n")
     try:
-        # We need to compute them fresh for the leaderboard
-        from agent.resolution import ResolutionEngine
-        from agent.trajectory import TrajectoryEngine
-
-        raw = []
-        raw.extend(TrajectoryEngine(companion.user_id).analyze_all_themes())
-        raw.extend(ResolutionEngine(companion.user_id).analyze_all_themes())
-        # ... fetch others if needed for a full view
-
-        # Mapping to prioritize format happens in core normally,
-        # for CLI we'll just show what's in the DB priorities table if available.
-        # But compute_all is better for a 'live' view.
-
-        # Note: We'd need to convert raw list to the Contract format here
-        # if we wanted a truly live view.
-        # For MVP, let's just query the DB for the last computed ranks.
-
-        conn = db.get_connection()
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT rank, engine_name, pattern_type, pattern_id, priority_score
-                FROM insight_priorities
-                ORDER BY rank ASC LIMIT 10;
-            """)
-            rows = cur.fetchall()
-
-            if not rows:
-                print("No insights have been prioritized yet. Chat with IRIS first!")
-                return
-
-            print(f"{'RANK':<4} | {'ENGINE':<15} | {'PATTERN':<15} | {'SCORE':<6}")
-            print("-" * 50)
-            for r in rows:
-                print(f"{r[0]:<4} | {r[1]:<15} | {r[2].upper()} {r[3]:<8} | {r[4]:.3f}")
-            print()
-
+        from agent.pipeline_orchestrator import admit
+        admission = admit(companion.user_id)
+        if not admission.findings:
+            held = admission.held_back_by_owner
+            print("Nothing is admitted right now."
+                  + (f" {held} finding(s) are held back by your own settings." if held else ""))
+            return
+        print(f"{'RANK':<4} | {'ENGINE':<15} | {'PATTERN':<10} | {'LABEL':<14} | {'SCORE':<6}")
+        print("-" * 62)
+        for rank, f in enumerate(admission.findings[:10], 1):
+            print(f"{rank:<4} | {f['engine_name']:<15} | {f['pattern_key']:<10} | "
+                  f"{str(f.get('label'))[:14]:<14} | {f['priority_score']:.3f}")
+        print()
     except Exception as e:
         logger.error(f"Failed to show insight priorities: {e}")
+
 
 def show_narrative(companion: PersonalAICompanion, p_type: str, p_id: str):
     """Show how an insight is rendered into natural language."""
@@ -919,7 +868,7 @@ def main_chat_loop(user_id: int):
 def main():
     """The main entry point for the CLI application."""
     print("\n" + "="*50)
-    print(" IRIS MINIMAL COMPANION")
+    print(" IRIS")
     print("="*50)
 
     try:
@@ -930,27 +879,15 @@ def main():
             print(f"✗ CRITICAL: Could not connect to or migrate database: {e}")
             sys.exit(1)
 
-        # User Authentication Loop
-        user_data = None
-        while not user_data:
-            choice = input("\n[1] Login\n[2] Create User\n[3] Exit\n> ").strip()
-            if choice == '1':
-                user_data = login()
-            elif choice == '2':
-                create_user()
-            elif choice == '3':
-                break
-            else:
-                print("Invalid choice.")
-
-        # If user is logged in, start the main chat loop
-        if user_data:
+        # The one local user, resolved as the API resolves it (ADR-0001).
+        user_id = db.local_user_id()
+        if user_id:
             # Writes enqueue rather than embedding inline (ADR-0011), so the
             # CLI runs the same worker the API does — otherwise entries made
             # here would sit unprocessed until the API happened to start.
             queue_worker.start()
             try:
-                main_chat_loop(user_id=user_data['id'])
+                main_chat_loop(user_id=user_id)
             finally:
                 queue_worker.stop()
 

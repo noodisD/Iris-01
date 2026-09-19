@@ -1,0 +1,12 @@
+-- 0014_no_passwords.sql
+--
+-- IRIS has one user and no login (ADR-0001). The HTTP app stopped
+-- authenticating long ago, but every user row still had to carry a password
+-- hash, so the single local user was created with the SHA-256 of the string
+-- "local" — a secret nothing checked — and the CLI kept a login screen to check
+-- it against, unsalted.
+--
+-- Nothing writes a password now. The column is kept, nullable, rather than
+-- dropped: existing rows are left as they are, and removing the column is a
+-- separate, destructive decision for the owner.
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
