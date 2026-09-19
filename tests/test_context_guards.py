@@ -69,6 +69,23 @@ def test_the_glossary_names_no_label_nothing_emits():
     assert named <= emitted, f"the glossary names trajectory labels nothing emits: {named - emitted}"
 
 
+def test_the_engines_describe_themselves_in_the_labels_they_emit():
+    """A module docstring is how the next engine gets written. The glossary
+    stopped saying "decreasing" while trajectory's own header kept it."""
+    labels = _emitted_labels()
+    headers = {"trajectory": ROOT / "agent" / "trajectory.py",
+               "resolution": ROOT / "agent" / "resolution.py"}
+    for engine, path in headers.items():
+        line = next(l for l in path.read_text().splitlines() if l.startswith("- Direction:"))
+        named = {w.strip() for w in line.split(":", 1)[1].split(",")}
+        assert named == labels[engine], f"{path.name} header: {sorted(named ^ labels[engine])}"
+
+    guide = (ROOT / "EXPLORATION_GUIDE.md").read_text()
+    line = next(l for l in guide.splitlines() if "Direction labels:" in l)
+    named = set(re.findall(r'"([a-z][a-z ]*)"', line))
+    assert named == labels["trajectory"], f"EXPLORATION_GUIDE.md: {sorted(named ^ labels['trajectory'])}"
+
+
 def test_every_adr_is_in_the_index():
     index = (ROOT / "docs" / "adr" / "README.md").read_text()
     missing = [p.name for p in sorted((ROOT / "docs" / "adr").glob("ADR-*.md"))
@@ -86,6 +103,12 @@ def test_the_engine_lists_agree():
     assert set(canonical_pipeline(1).engines) == finding_engines, "what is collected"
     assert set(NARRATIVE_TEMPLATES) == finding_engines, "what can be said"
     assert SELECTABLE_ENGINES == finding_engines | {"observations"}, "what can be switched"
+
+    from agent.insights_service import KIND_MAP
+    assert set(KIND_MAP) == finding_engines, "what a card is called"
+    types = (ROOT / "frontend" / "src" / "types" / "api.ts").read_text()
+    union = types.split("export type InsightKind =")[1].split(";")[0]
+    assert set(re.findall(r"'([^']+)'", union)) == set(KIND_MAP.values()), "what the screen expects"
 
     settings = (ROOT / "frontend" / "src" / "screens" / "SettingsScreen.tsx").read_text()
     block = settings.split("const ENGINE_LABELS")[1].split("};")[0]

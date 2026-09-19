@@ -92,7 +92,7 @@ These 6 modules answer specific questions about patterns. Study them in this ord
 ---
 
 ### Phase 4: Trajectory Engine (Trend Analysis)
-**Question:** "Is this pattern increasing, decreasing, or stable?"
+**Question:** "Is this pattern coming up more, less, or about as often as before?"
 
 **Files:**
 1. `agent/trajectory.py` (250+ lines)
@@ -100,7 +100,7 @@ These 6 modules answer specific questions about patterns. Study them in this ord
    - Learn: linear regression, rate calculation, temporal windows
    - Key metrics:
      - `recent_rate` vs `baseline_rate` (slopes)
-     - Direction labels: "increasing", "decreasing", "stable", "emerging", "fading"
+     - Direction labels: "emerging", "increasing", "stable", "fading", "insufficient data"
 
 **Related:**
 - Time windows in `constants.py` (TRAJECTORY_RECENT_DAYS=14, BASELINE_DAYS=60)

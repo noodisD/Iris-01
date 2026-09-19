@@ -5,7 +5,7 @@ This module analyzes whether patterns (themes/tensions) are resolving.
 It answers: "Has this pattern weakened, stabilized, or reappeared?"
 
 The engine does not judge. It simply observes direction and consistency.
-- Direction: dissipated, stabilized, persisting, reappearing
+- Direction: dissipated, stabilized, persisting, reappearing, unsupported
 - Attenuation: numeric measure of weakening
 - Confidence: based on data volume
 """

@@ -152,3 +152,27 @@ def test_the_two_year_view_loses_every_tie(engine):
     assert min(ConflictSuppressionEngine().priority,
                key=ConflictSuppressionEngine().priority.get) == "lifelong"
     assert ENGINE_BASE_WEIGHTS["lifelong"] == min(ENGINE_BASE_WEIGHTS.values())
+
+
+def test_dropping_novelty_changed_no_order(engine):
+    """Novelty was 15% of the score and always 0.5 — no engine set it. The
+    weights without it are the old ones scaled by 1/0.85, so the order is the
+    old formula's, except where two scores sit within the rounding the ranker
+    sorts on and the tie-breakers decide."""
+    now = datetime.now()
+    engines = ["trajectory", "resolution", "tension", "leverage", "decision_impact", "lifelong"]
+    insights = [
+        {"engine_name": engines[n % 6], "pattern_type": "theme", "pattern_id": n + 1,
+         "confidence": ("high", "medium")[n % 2], "computed_at": now - timedelta(days=(n * 7) % 60),
+         "influence_score": (n * 37 % 100) / 100}
+        for n in range(24)
+    ]
+
+    def old_score(i):
+        b = engine._calculate_score(i)
+        return (0.35 * b["conf"] + 0.20 * b["recency"] + 0.20 * b["magnitude"]
+                + 0.15 * 0.5 + 0.10 * b["engine"])
+
+    ranked = engine.rank([dict(i) for i in insights])
+    for above, below in zip(ranked, ranked[1:]):
+        assert old_score(above) > old_score(below) - 0.001, (above["pattern_id"], below["pattern_id"])

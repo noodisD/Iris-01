@@ -1,14 +1,21 @@
 import { useHabits } from '@/hooks/useHabits';
 import { useInsights } from '@/hooks/useInsights';
 import { useNavigate } from 'react-router-dom';
+import { LoadingState, ErrorState } from '@/components/states';
 
 /** Today: the featured finding, if there is one, and today's habits. */
 export function TodayScreen() {
-  const { data: habits } = useHabits();
-  const { data: insights } = useInsights();
+  const habitsQuery = useHabits();
+  const insightsQuery = useInsights();
   const nav = useNavigate();
 
-  const featured = insights?.find(i => i.featured);
+  if (habitsQuery.isLoading || insightsQuery.isLoading) return <LoadingState />;
+  if (habitsQuery.isError && insightsQuery.isError) {
+    return <ErrorState onRetry={() => { habitsQuery.refetch(); insightsQuery.refetch(); }} />;
+  }
+
+  const habits = habitsQuery.data;
+  const featured = insightsQuery.data?.find(i => i.featured);
 
   return (
     <div className="col" style={{ padding: '24px 32px 40px', gap: 24 }}>
@@ -26,7 +33,9 @@ export function TodayScreen() {
         <div className="row" style={{ gap: 18, alignItems: 'flex-start', padding: '8px 0 12px', borderBottom: '1px dashed var(--line)', cursor: 'pointer' }} onClick={() => nav(`/insights/${featured.id}`)}>
           <div className="iris-orb" style={{ marginTop: 6 }} />
           <div className="col" style={{ flex: 1, gap: 4 }}>
-            <div className="kicker">iris, just now</div>
+            {/* The measurement, not a time: a featured finding can be a count
+                across two years, and "just now" said otherwise. */}
+            <div className="kicker">iris · {featured.kind}</div>
             <div className="serif" style={{ fontSize: 26, fontStyle: 'italic', lineHeight: 1.3, color: 'var(--ink)', maxWidth: 880 }}>
               "{featured.summary}"
             </div>
@@ -34,6 +43,9 @@ export function TodayScreen() {
           <span className="btn" style={{ alignSelf: 'flex-start' }}>↗ open</span>
         </div>
       )}
+
+      {insightsQuery.isError && <Unavailable what="Findings" retry={() => insightsQuery.refetch()} />}
+      {habitsQuery.isError && <Unavailable what="Habits" retry={() => habitsQuery.refetch()} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
         {habits && (
@@ -52,6 +64,15 @@ export function TodayScreen() {
         )}
       </div>
 
+    </div>
+  );
+}
+
+function Unavailable({ what, retry }: { what: string; retry: () => void }) {
+  return (
+    <div className="row" role="alert" style={{ gap: 12, alignItems: 'baseline', color: 'var(--ink-3)', fontSize: 13 }}>
+      <span>{what} didn't load. Nothing is lost — this is only the view.</span>
+      <button className="btn" onClick={retry}>retry</button>
     </div>
   );
 }

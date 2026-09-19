@@ -2,10 +2,10 @@
 Trajectory Engine - Tracks What Is Changing Over Time
 
 This module analyzes how themes change over time.
-It answers: "Is this theme increasing, decreasing, or stable?"
+It answers: "Is this theme coming up more, less, or about as often as before?"
 
 The engine does not judge. It simply observes direction, rate, and recency.
-- Direction: increasing, decreasing, stable, emerging, fading
+- Direction: emerging, increasing, stable, fading, insufficient data
 - Rate: trend slope and frequency changes
 - Recency: when did it last change materially
 """

@@ -22,7 +22,6 @@ from .constants import (
     PRIORITY_CONFIDENCE_WEIGHT,
     PRIORITY_ENGINE_WEIGHT,
     PRIORITY_MAGNITUDE_WEIGHT,
-    PRIORITY_NOVELTY_WEIGHT,
     PRIORITY_RECENCY_WEIGHT,
     PRIORITY_RECENT_DECAY_DAYS,
 )
@@ -135,11 +134,11 @@ class InsightPrioritizationEngine:
     def _calculate_score(self, ins: dict) -> dict:
         """Weighted sum aggregate."""
 
-        # A. Confidence (35%)
+        # A. Confidence
         conf_label = (ins.get('confidence') or ins.get('confidence_level') or 'low').lower()
         s_conf = self.confidence_map.get(conf_label, 0.0)
 
-        # B. Recency (20%)
+        # B. Recency
         last_at = ins.get('last_seen_at') or ins.get('computed_at')
         if not last_at:
             s_recency = 0.5
@@ -149,7 +148,7 @@ class InsightPrioritizationEngine:
             days_since = (utc_now() - to_utc(last_at)).days
             s_recency = math.exp(-max(0, days_since) / PRIORITY_RECENT_DECAY_DAYS)
 
-        # C. Magnitude (20%)
+        # C. Magnitude
         # Contract: normalization [0,1]
         raw_mag = ins.get('magnitude')
         if raw_mag is None:
@@ -162,11 +161,7 @@ class InsightPrioritizationEngine:
 
         s_mag = max(0.0, min(1.0, raw_mag if raw_mag is not None else 0.5))
 
-        # D. Novelty (15%)
-        # Heuristic: 1.0 if new/changed classification, 0.5 if stable
-        s_nov = ins.get('novelty', 0.5)
-
-        # E. Engine Weight (10%)
+        # D. Engine Weight
         # Multiplier [0.6, 1.0]
         s_engine = ENGINE_BASE_WEIGHTS.get(ins.get('engine_name'), 0.6)
 
@@ -174,7 +169,6 @@ class InsightPrioritizationEngine:
             (PRIORITY_CONFIDENCE_WEIGHT * s_conf) +
             (PRIORITY_RECENCY_WEIGHT * s_recency) +
             (PRIORITY_MAGNITUDE_WEIGHT * s_mag) +
-            (PRIORITY_NOVELTY_WEIGHT * s_nov) +
             (PRIORITY_ENGINE_WEIGHT * s_engine)
         )
 
@@ -183,6 +177,5 @@ class InsightPrioritizationEngine:
             "conf": s_conf,
             "recency": s_recency,
             "magnitude": s_mag,
-            "novelty": s_nov,
             "engine": s_engine
         }

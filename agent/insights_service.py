@@ -36,15 +36,18 @@ logger = logging.getLogger(__name__)
 # tends to *precede* another within a lag window, and decision impact compares
 # rates before and after an anchor: both are temporal association, and labelling
 # them "causal" on screen asserted something the mathematics never established.
+# The kicker says which measurement a card is, in words, the way Settings names
+# the engines. Five of them used to share "temporal", which told the owner
+# nothing about the difference between a two-year count and a fortnight's slope.
 KIND_MAP = {
-    "lifelong": "temporal",
-    "trajectory": "temporal",
-    "resolution": "temporal",
+    "lifelong": "across the record",
+    "trajectory": "direction",
+    "resolution": "still here or gone quiet",
     # It counts days two themes share — a co-occurrence, not anything about
     # words, which is what the old kicker claimed on every tension card.
     "tension": "co-occurrence",
-    "leverage": "temporal",
-    "decision_impact": "temporal",
+    "leverage": "which comes first",
+    "decision_impact": "before and after",
 }
 
 # An ordinal encoding of the confidence *label*, not a calibrated probability —
@@ -349,7 +352,7 @@ class InsightsService:
         seen = bool(status_row and status_row.get("seen"))
         return {
             "id": f"{raw['engine']}:{raw['pattern_key']}",
-            "kind": KIND_MAP.get(raw["engine"], "temporal"),
+            "kind": KIND_MAP[raw["engine"]],
             "status": "active" if seen else "new",
             "headline": {
                 "line1": (raw["summary"] or "A pattern")[:48],

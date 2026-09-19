@@ -164,11 +164,15 @@ export interface HabitToggleRequest {
 // Insights — patterns Iris found
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** What kind of measurement a finding is. Nothing here is causal: leverage and
- *  decision impact are association over time, and are 'temporal'. */
+/** Which measurement a finding is, in words: agent/insights_service.py KIND_MAP.
+ *  Nothing here is causal — "which comes first" is order, not influence. */
 export type InsightKind =
-  | 'temporal'      // occurrences over time
-  | 'co-occurrence'; // two themes on the same days
+  | 'across the record'         // lifelong
+  | 'direction'                 // trajectory
+  | 'still here or gone quiet'  // resolution
+  | 'co-occurrence'             // tension: two themes on the same days
+  | 'which comes first'         // leverage
+  | 'before and after';         // decision impact
 
 export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
 

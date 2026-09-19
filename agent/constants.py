@@ -216,11 +216,16 @@ SELECTABLE_ENGINES = set(ENGINE_PRIORITY) | {"observations"}
 
 # Insight Prioritization Engine Configuration
 # 1. Scoring Weights
-PRIORITY_CONFIDENCE_WEIGHT = 0.35
-PRIORITY_RECENCY_WEIGHT = 0.20
-PRIORITY_MAGNITUDE_WEIGHT = 0.20
-PRIORITY_NOVELTY_WEIGHT = 0.15
-PRIORITY_ENGINE_WEIGHT = 0.10
+# In seventeenths: these were 0.35 / 0.20 / 0.20 / 0.10 beside a 15% "novelty"
+# term that no engine ever set, so it added the same 0.075 to every finding and
+# decided nothing. Dropping it and scaling the rest by 1/0.85 keeps every ratio.
+# The ranker sorts on the total rounded to three places, so two findings within
+# a thousandth of each other can now fall to the tie-breakers the other way; on
+# the live archive that swapped two adjacent pairs below the tenth place.
+PRIORITY_CONFIDENCE_WEIGHT = 7 / 17
+PRIORITY_RECENCY_WEIGHT = 4 / 17
+PRIORITY_MAGNITUDE_WEIGHT = 4 / 17
+PRIORITY_ENGINE_WEIGHT = 2 / 17
 
 # 2. Engine Base Weights (Multiplier bounded 0.6 - 1.0)
 ENGINE_BASE_WEIGHTS = {
@@ -236,14 +241,12 @@ ENGINE_BASE_WEIGHTS = {
 }
 
 PRIORITY_RECENT_DECAY_DAYS = 30
-PRIORITY_NOVELTY_LOOKBACK_DAYS = 90
 
 # Note: Weights must sum to 1.0
 _priority_weights_sum = (
     PRIORITY_CONFIDENCE_WEIGHT +
     PRIORITY_RECENCY_WEIGHT +
     PRIORITY_MAGNITUDE_WEIGHT +
-    PRIORITY_NOVELTY_WEIGHT +
     PRIORITY_ENGINE_WEIGHT
 )
 assert abs(_priority_weights_sum - 1.0) < 1e-6, f"Priority weights must sum to 1.0, got {_priority_weights_sum}"
