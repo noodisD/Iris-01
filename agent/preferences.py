@@ -10,9 +10,7 @@ from typing import Any
 
 from .constants import SELECTABLE_ENGINES
 
-# Import database and constants
 from .database import db
-from .database import preferences as pref_repo
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +32,7 @@ class UserPreferencesService:
         """
         Loads user preferences from DB, falling back to system defaults.
         """
-        stored = pref_repo.get_preferences(self.user_id)
+        stored = db.get_preferences(self.user_id)
         if not stored:
             return self.DEFAULT_PREFS.copy()
 
@@ -55,7 +53,7 @@ class UserPreferencesService:
         Validates and updates a specific preference.
         """
         self._validate(key, value)
-        pref_repo.update_preference(self.user_id, key, value)
+        db.update_preference(self.user_id, key, value)
         return self.get_prefs()
 
     def reset(self) -> dict[str, Any]:

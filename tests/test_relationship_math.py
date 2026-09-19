@@ -43,7 +43,7 @@ def engine(monkeypatch):
     eng._evidence = []
     eng.conf_engine = _StubConfidence()
     eng.ev_engine = _StubEvidence()
-    monkeypatch.setattr("agent.leverage.leverage_repo.create_or_update_pair", lambda *a, **k: None)
+    monkeypatch.setattr("agent.leverage.db.create_or_update_leverage_pair", lambda *a, **k: None)
     return eng
 
 

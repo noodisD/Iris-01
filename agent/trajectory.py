@@ -25,10 +25,8 @@ from .constants import (
     TRAJECTORY_MIN_DATA_POINTS,
     TRAJECTORY_RECENT_DAYS,
 )
-from .database import confidence as confidence_repo
+from .database import db
 
-# Import database and constants
-from .database import themes
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -60,10 +58,10 @@ class TrajectoryEngine:
             Dictionary with trajectory metrics and classification
         """
         # Get all occurrences for this theme
-        occurrences = themes.get_occurrences(theme_id)
+        occurrences = db.get_theme_occurrences(theme_id)
 
         # Get theme summary
-        theme = themes.get_theme(theme_id)
+        theme = db.get_theme_by_id(theme_id)
         theme_summary = theme["summary"] if theme else "Unknown theme"
 
         if not occurrences:
@@ -149,7 +147,7 @@ class TrajectoryEngine:
         self.emit_evidence('count', 'total_occurrences', len(occurrences))
 
         # Store in central registry
-        confidence_repo.create_or_update(
+        db.create_or_update_confidence(
             'trajectory', theme_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -189,7 +187,7 @@ class TrajectoryEngine:
             List of trajectory analysis for all themes
         """
         # Get all themes for this user
-        all_themes = themes.get_all_themes(self.user_id)
+        all_themes = db.get_themes(self.user_id)
         results = []
 
         for theme in all_themes:

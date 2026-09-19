@@ -443,7 +443,7 @@ class ImportService:
             if i.get("audio_path")
         }
         if with_reflections:
-            from ..database import db, themes
+            from ..database import db
 
             reflection_ids = store.reflection_ids_for_batch(batch_id, self.user_id)
             affected: set[int] = set()
@@ -470,7 +470,7 @@ class ImportService:
                     if cur.fetchone()[0] == 0:
                         db.delete_theme(theme_id)
                         continue
-                themes.update_stats(theme_id, None)
+                db.update_theme_stats(theme_id, None)
 
         store.delete_batch(batch_id, self.user_id)
         shutil.rmtree(_batch_workspace(batch_id), ignore_errors=True)

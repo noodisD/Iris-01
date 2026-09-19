@@ -29,9 +29,8 @@ from .constants import (
     DECISION_IMPACT_WINDOW_DAYS,
 )
 
-# Import database and constants
 from .analysis_cache import remembered
-from .database import decision_impacts, themes
+from .database import db
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -94,7 +93,7 @@ class DecisionImpactEngine:
             return []
 
         # 2. Get all candidate targets (active themes)
-        targets = themes.get_all_themes(self.user_id)
+        targets = db.get_themes(self.user_id)
 
         impacts = []
         for target in targets:
@@ -106,14 +105,14 @@ class DecisionImpactEngine:
             if result and result['effect_direction'] != 'none':
                 result['anchor_id'] = anchor_id
                 result['target_id'] = target['id']
-                result['anchor_summary'] = themes.get_theme(anchor_id)['summary']
+                result['anchor_summary'] = db.get_theme_by_id(anchor_id)['summary']
                 result['target_summary'] = target['summary']
                 # NarrativeFormatter reads `summary` for the pattern name.
                 result['summary'] = result['anchor_summary']
                 impacts.append(result)
 
                 # 4. Store in DB
-                decision_impacts.create_or_update(
+                db.create_or_update_decision_impact(
                     anchor_type=anchor_type,
                     anchor_id=anchor_id,
                     target_type='theme',
@@ -295,7 +294,7 @@ class DecisionImpactEngine:
             return self._observation_start_cache
 
         earliest = None
-        for theme in themes.get_all_themes(self.user_id):
+        for theme in db.get_themes(self.user_id):
             first_seen = theme.get('first_seen_at')
             if not first_seen:
                 continue
@@ -310,7 +309,7 @@ class DecisionImpactEngine:
 
     def _get_candidate_anchors(self) -> list[dict]:
         """Returns themes with enough data to be anchors."""
-        all_themes = themes.get_all_themes(self.user_id)
+        all_themes = db.get_themes(self.user_id)
         # 1. Min count filter
         active = [t for t in all_themes if t['occurrence_count'] >= DECISION_IMPACT_MIN_ANCHORS]
 
@@ -341,7 +340,7 @@ class DecisionImpactEngine:
     def _get_anchor_events(self, a_type: str, a_id: int) -> list[datetime]:
         """Returns timestamps of anchor occurrences."""
         if a_type != 'theme': return []
-        occs = themes.get_occurrences(a_id)
+        occs = db.get_theme_occurrences(a_id)
         times = []
         for o in occs:
             dt = to_utc(o['occurred_at'])
@@ -351,7 +350,7 @@ class DecisionImpactEngine:
     def _get_all_occurrences(self, t_type: str, t_id: int) -> list[datetime]:
         """Returns all timestamps for a target theme."""
         if t_type != 'theme': return []
-        occs = themes.get_occurrences(t_id)
+        occs = db.get_theme_occurrences(t_id)
         times = []
         for o in occs:
             times.append(to_utc(o['occurred_at']))

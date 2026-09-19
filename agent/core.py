@@ -14,11 +14,7 @@ logger = logging.getLogger(__name__)
 # Main services
 from .timeutils import utc_now
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
-from .database import (
-    db,
-    habits,
-    journals,
-)
+from .database import db
 from .intelligence import Intelligence
 from .journal_entry import JournalEntry
 from .memory import ConversationMemory
@@ -312,7 +308,7 @@ class PersonalAICompanion:
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""
         try:
-            habits_list = habits.get_habits(self.user_id, active_only=True)
+            habits_list = db.get_habits(self.user_id, active_only=True)
             if not habits_list:
                 return "No active habits tracked yet."
 
@@ -410,10 +406,8 @@ class PersonalAICompanion:
         Generates a dynamic initial greeting when the user starts a session.
         Distinguishes between first-time welcome and returning greeting.
         """
-        # 1. Check if user is brand new (no messages in DB)
-        # We check conversation_messages table via db
-        history = journals.get_chat_history(self.user_id) # I'll assume this method or similar exists
-        # If history is a list of messages
+        # 1. Brand new means no conversation messages yet.
+        history = db.get_chat_history(self.user_id)
         is_new_user = len(history) == 0
 
         # 2. Fetch recent context

@@ -25,10 +25,8 @@ from .constants import (
     PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_MIN_CLUSTER_SIZE,
 )
-from .database import confidence as confidence_repo
+from .database import db
 
-# Import repositories and constants
-from .database import embeddings, themes
 from .evidence import EvidenceEngine
 
 
@@ -59,14 +57,12 @@ def entry_snippet(source_type: str, source_id: int, max_length: int = 200) -> st
     matcher and the construct classifier had not, and 47 snippets from one day's
     ingest came out wrapped.
     """
-    from .database import db
-
     item = db.get_memory_item(source_type, source_id)
     if item and item.get("text"):
         return " ".join(item["text"].split())[:max_length]
     # A source the memory lookup does not know: fall back rather than lose the
     # quote entirely.
-    text = embeddings.get_content_for_source(source_type, source_id)
+    text = db.get_content_for_source(source_type, source_id)
     return text[:max_length] if text else ""
 
 
@@ -98,10 +94,10 @@ class PersistenceEngine:
         self.conf_engine = ConfidenceEngine()
         self.ev_engine = EvidenceEngine()
         self._evidence = []
-        # Read through this module's own `embeddings` name, which is the seam
-        # the theme-style tests replace with a synthetic journal.
+        # Read through this module's own `db` name, which is the seam the
+        # theme-style tests replace with a synthetic journal.
         self._comparison = ComparisonSpace(
-            user_id, read_style=lambda uid: embeddings.get_evidence_style(uid))
+            user_id, read_style=lambda uid: db.get_evidence_style(uid))
 
     # === The space themes are compared in ===
 
@@ -174,7 +170,7 @@ class PersistenceEngine:
         # normalised: this path has always written what the caller gave it, and
         # changing that here would silently re-interpret every stored naive
         # timestamp as UTC.
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme["id"],
             source_type=source_type,
             source_id=source_id,
@@ -182,7 +178,7 @@ class PersistenceEngine:
             similarity_score=similarity,
             occurred_at=occurred_at.isoformat() if occurred_at else None,
         )
-        themes.update_stats(theme["id"], occurred_at.isoformat() if occurred_at else None)
+        db.update_theme_stats(theme["id"], occurred_at.isoformat() if occurred_at else None)
         logger.info(f"Matched entry {source_id} to theme {theme['id']} "
                    f"(similarity: {similarity:.3f})")
         return theme["id"]
@@ -202,7 +198,7 @@ class PersistenceEngine:
             return []
 
         # 1. Get entries not yet assigned to any theme
-        unassigned = embeddings.get_unassigned_embeddings(self.user_id)
+        unassigned = db.get_unassigned_embeddings(self.user_id)
         if len(unassigned) < self.min_cluster_size:
             logger.info(f"Not enough unassigned entries ({len(unassigned)}) "
                        f"for theme discovery (min: {self.min_cluster_size})")
@@ -303,7 +299,7 @@ class PersistenceEngine:
         the ingest path would. Theme ids change, and the analyses cached against
         the old ids are deleted with them.
         """
-        removed = themes.delete_all_for_user(self.user_id)
+        removed = db.delete_user_themes(self.user_id)
         self._comparison.invalidate()
         created = self.discover_themes()
 
@@ -312,12 +308,12 @@ class PersistenceEngine:
         # have compared None with a datetime and raised, and giving them a
         # stand-in date to sort by is the substitution ADR-0013 forbids.
         leftovers = sorted(
-            embeddings.get_unassigned_embeddings(self.user_id),
+            db.get_unassigned_embeddings(self.user_id),
             key=lambda row: (row["occurred_at"] is None, to_utc(row["occurred_at"]) or _EPOCH),
         )
         matched = 0
         for row in leftovers:
-            content = embeddings.get_content_for_source(row["source_type"], row["source_id"]) or ""
+            content = db.get_content_for_source(row["source_type"], row["source_id"]) or ""
             if self.check_persistence(row["vector"], row["source_type"], row["source_id"],
                                       content, to_utc(row["occurred_at"])):
                 matched += 1
@@ -362,7 +358,7 @@ class PersistenceEngine:
 
         # Create theme in database
         try:
-            theme_id = themes.create_theme(
+            theme_id = db.create_theme(
                 user_id=self.user_id,
                 centroid_embedding=centroid.tolist(),
                 summary=summary,
@@ -385,7 +381,7 @@ class PersistenceEngine:
 
                 similarity = float(centroid_in_space @ members_in_space[i])
 
-                themes.add_occurrence(
+                db.add_theme_occurrence(
                     theme_id=theme_id,
                     source_type=entry["source_type"],
                     source_id=entry["source_id"],
@@ -420,8 +416,6 @@ class PersistenceEngine:
         # name a subject. Three 150-character prefixes of "Anchor:
         # Self-Reflection | Source: Reflection | Mood: okay | Content: ..." is
         # how every theme came to be called "Routine self-reflection on ...".
-        from .database import db
-
         snippets = []
         for entry in entries[:8]:
             item = db.get_memory_item(entry["source_type"], entry["source_id"])
@@ -544,7 +538,7 @@ Subject:"""
         persistent = []
         for t in candidates:
             # 1. Check cache first
-            conf = confidence_repo.get_confidence('theme', t['id'])
+            conf = db.get_confidence('theme', t['id'])
 
             # 2. Get Evidence (needed for temporal check anyway)
             occs = self.get_theme_evidence(t['id'])
@@ -642,7 +636,7 @@ Subject:"""
         self.emit_evidence('rate', 'recency_score', conf['recency_score'])
 
         # Store in central registry
-        confidence_repo.create_or_update(
+        db.create_or_update_confidence(
             'theme', theme_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -663,7 +657,7 @@ Subject:"""
         Returns:
             List of occurrences with source information
         """
-        return themes.get_occurrences(theme_id)
+        return db.get_theme_occurrences(theme_id)
 
     def get_theme_timeline(self, theme_id: int) -> str:
         """
@@ -706,7 +700,7 @@ Subject:"""
         `constructs.classify`), because they are independent classifiers rather
         than rival groupings.
         """
-        return themes.get_by_origin(self.user_id, "clustered")
+        return db.get_themes_by_origin(self.user_id, "clustered")
 
     def _is_cohesive(self, vectors: np.ndarray, threshold: float | None = None) -> bool:
         """Does every member of this cluster clear the theme-creation threshold?
@@ -748,10 +742,8 @@ Subject:"""
         written, so fixing the source above does not fix what is already on
         screen.
         """
-        from .database import db
-
         updated = 0
-        for theme in themes.get_all_themes(self.user_id):
+        for theme in db.get_themes(self.user_id):
             # Undated occurrences included: the default read is dated-only,
             # and the rows this exists to repair were undated ones.
             for occ in db.get_theme_occurrences(theme["id"], include_undated=True):

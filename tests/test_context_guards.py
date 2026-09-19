@@ -125,7 +125,7 @@ def test_nothing_in_the_product_writes_the_legacy_journal_table():
     regression. The ADR said so; now the build does."""
     writers = []
     for path in [*(ROOT / "agent").rglob("*.py"), ROOT / "iris_api.py", ROOT / "companion.py"]:
-        if path.name in ("database.py", "repositories.py"):
+        if path.name == "database.py":
             continue  # where the method is defined, not called
         text = path.read_text()
         # The database layer's writer, not the CLI's or the API's own

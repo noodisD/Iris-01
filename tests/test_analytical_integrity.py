@@ -54,7 +54,7 @@ def _discover(rows):
     """Run the real discover_themes with only the DB boundary replaced."""
     engine = PersistenceEngine(user_id=1)
     created = []
-    with patch("agent.persistence.embeddings") as emb:
+    with patch("agent.persistence.db") as emb:
         emb.get_unassigned_embeddings.return_value = rows
         emb.get_evidence_style.return_value = (0, None)  # below the minimum: raw space
         with patch.object(
@@ -162,12 +162,11 @@ def test_each_theme_gets_only_its_own_evidence():
     }
 
     recorded = {}
-    with patch("agent.persistence.themes") as th, \
-         patch("agent.persistence.confidence_repo") as conf_repo, \
+    with patch("agent.persistence.db") as th, \
          patch.object(engine, "ev_engine") as ev:
-        th.get_by_origin.return_value = themes_rows
-        th.get_occurrences.side_effect = lambda tid: occ[tid]
-        conf_repo.get_confidence.return_value = None
+        th.get_themes_by_origin.return_value = themes_rows
+        th.get_theme_occurrences.side_effect = lambda tid: occ[tid]
+        th.get_confidence.return_value = None
         ev.record_evidence.side_effect = (
             lambda engine_name, ptype, pid, bundle, **kw: recorded.__setitem__(
                 pid, [e["key"] for e in bundle]
@@ -190,14 +189,18 @@ def test_discovery_reads_the_snippet_from_the_source_type_it_was_given():
     engine = PersistenceEngine(user_id=1)
     looked_up = []
 
-    with patch("agent.persistence.embeddings") as emb, \
-         patch("agent.persistence.themes") as th, \
+    with patch("agent.persistence.db") as emb, \
          patch.object(engine, "_generate_theme_summary", return_value="A theme"):
+        # Both reads a snippet can make: the owner's own text, then the source
+        # table as a fallback. Each must be asked with the entry's own type.
+        emb.get_memory_item.side_effect = (
+            lambda stype, sid: looked_up.append((stype, sid)) or None
+        )
         emb.get_content_for_source.side_effect = (
             lambda stype, sid: looked_up.append((stype, sid)) or "text"
         )
         emb.get_evidence_style.return_value = (0, None)  # below the minimum: raw space
-        th.create_theme.return_value = 42
+        emb.create_theme.return_value = 42
 
         vectors = np.ones((2, 1536), dtype=np.float32)
         entries = [
@@ -347,7 +350,7 @@ def test_persistence_failure_does_not_mark_the_source_complete():
     from agent import pipeline
 
     statuses = []
-    with patch.object(pipeline, "embeddings") as emb, \
+    with patch.object(pipeline, "db") as emb, \
          patch.object(pipeline, "generate_embedding", return_value=[0.1] * 1536), \
          patch.object(pipeline, "PersistenceEngine") as pe:
         emb.update_processing_status.side_effect = (
@@ -451,8 +454,8 @@ def _leverage_pair(source_times, target_times):
                       side_effect=lambda t, i, since: (
                           source_times if i == 1 else target_times)), \
          patch.object(engine, "ev_engine"), \
-         patch("agent.leverage.leverage_repo") as repo:
-        repo.create_or_update_pair.side_effect = (
+         patch("agent.leverage.db.create_or_update_leverage_pair") as write:
+        write.side_effect = (
             lambda **kw: captured.update(kw)
         )
         result = engine.analyze_pair("theme", 1, "theme", 2)
@@ -513,11 +516,11 @@ def test_tension_divides_shared_days_by_active_days():
     # The very same three days, but each theme logged three times a day.
     dense = occ(0, 3) + occ(1, 3) + occ(2, 3)
 
-    with patch("agent.tension.themes") as th:
-        th.get_occurrences.side_effect = lambda tid: sparse
+    with patch("agent.tension.db") as th:
+        th.get_theme_occurrences.side_effect = lambda tid: sparse
         sparse_metrics = engine._calculate_cooccurrence_metrics(1, 2)
 
-        th.get_occurrences.side_effect = lambda tid: dense
+        th.get_theme_occurrences.side_effect = lambda tid: dense
         dense_metrics = engine._calculate_cooccurrence_metrics(1, 2)
 
     assert sparse_metrics["cooccurrence_count"] == 3
@@ -593,12 +596,12 @@ def test_a_discovered_theme_is_dated_by_the_event_not_the_embedding():
 
     created = {}
     occurrences = []
-    with patch("agent.persistence.embeddings") as emb, \
-         patch("agent.persistence.themes") as th, \
+    with patch("agent.persistence.db") as emb, \
          patch.object(engine, "_generate_theme_summary", return_value="A theme"):
+        th = emb
         emb.get_content_for_source.return_value = "text"
         th.create_theme.side_effect = lambda **kw: created.update(kw) or 42
-        th.add_occurrence.side_effect = lambda **kw: occurrences.append(kw)
+        th.add_theme_occurrence.side_effect = lambda **kw: occurrences.append(kw)
 
         vectors = np.ones((2, 1536), dtype=np.float32)
         entries = [
@@ -667,7 +670,7 @@ def _impact(anchor_ages, target_ages, observation_age):
          patch.object(engine, "_observation_start",
                       return_value=now - timedelta(days=observation_age)), \
          patch.object(engine, "ev_engine"), \
-         patch("agent.decision_impact.decision_impacts"):
+         patch("agent.decision_impact.db.create_or_update_decision_impact"):
         return engine._calculate_impact(1, anchors, "theme", 2)
 
 
@@ -783,7 +786,7 @@ def test_the_evaluated_cohort_is_the_episodes_that_had_a_baseline():
     with patch.object(engine, "_get_all_occurrences", return_value=targets), \
          patch.object(engine, "_observation_start", return_value=now - timedelta(days=100)), \
          patch.object(engine, "ev_engine"), \
-         patch("agent.decision_impact.decision_impacts"), \
+         patch("agent.decision_impact.db.create_or_update_decision_impact"), \
          patch.object(engine.conf_engine, "compute_confidence",
                       side_effect=lambda pt, pid, ts, d=None, sources=None: captured.update(
                           {"timestamps": list(ts)}) or {

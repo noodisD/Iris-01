@@ -14,7 +14,7 @@ from .constants import (
     TRAJECTORY_BASELINE_DAYS,
     TRAJECTORY_RECENT_DAYS,
 )
-from .database import confidence as conf_repo
+from .database import db
 
 # Import database and evidence
 from .evidence import EvidenceEngine
@@ -35,7 +35,7 @@ class ExplanationEngine:
         Retrieves and formats the latest evidence for a pattern.
         """
         # 1. Fetch confidence first to check guardrail
-        conf = conf_repo.get_confidence(pattern_type, pattern_id)
+        conf = db.get_confidence(pattern_type, pattern_id)
         if pattern_type == 'theme':
             # A theme's record is computed on request, and recomputed once it is
             # older than a day, rather than left to whichever surface last
@@ -43,7 +43,7 @@ class ExplanationEngine:
             from .persistence import PersistenceEngine, confidence_is_fresh
             if not confidence_is_fresh(conf):
                 PersistenceEngine(self.user_id).theme_confidence(pattern_id)
-                conf = conf_repo.get_confidence(pattern_type, pattern_id)
+                conf = db.get_confidence(pattern_type, pattern_id)
         if not conf:
             return {"summary": "No analytical record found.", "evidence": []}
 

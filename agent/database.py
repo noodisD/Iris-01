@@ -3056,23 +3056,3 @@ class Database:
 
 # Create a global instance for easy access throughout the application
 db = Database()
-
-# Initialize repositories for clean domain-specific access
-from .repositories import initialize_repositories
-
-_repos = initialize_repositories(db)
-
-# Export repositories for use by engines and other modules
-users = _repos['users']
-journals = _repos['journals']
-habits = _repos['habits']
-embeddings = _repos['embeddings']
-themes = _repos['themes']
-tensions = _repos['tensions']
-resolutions = _repos['resolutions']
-leverage = _repos['leverage']
-decision_impacts = _repos['decision_impacts']
-confidence = _repos['confidence']
-evidence = _repos['evidence']
-priorities = _repos['priorities']
-preferences = _repos['preferences']

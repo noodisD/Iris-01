@@ -23,10 +23,8 @@ from .constants import (
     LEVERAGE_TIME_LAG_DAYS,
     LEVERAGE_WINDOW_DAYS,
 )
-from .database import leverage as leverage_repo
+from .database import db
 
-# Import database and constants
-from .database import themes
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -178,7 +176,7 @@ class LeverageEngine:
         )
 
         # 5. Store in DB
-        leverage_repo.create_or_update_pair(
+        db.create_or_update_leverage_pair(
             source_type=source_type,
             source_id=source_id,
             target_type=target_type,
@@ -202,7 +200,7 @@ class LeverageEngine:
 
     def _get_active_themes(self) -> list[dict]:
         """Returns themes active in the leverage window with enough data."""
-        all_themes = themes.get_all_themes(self.user_id)
+        all_themes = db.get_themes(self.user_id)
         active = [t for t in all_themes if t['occurrence_count'] >= LEVERAGE_MIN_OCCURRENCES]
 
         recent_start = utc_now() - timedelta(days=LEVERAGE_WINDOW_DAYS)
@@ -218,7 +216,7 @@ class LeverageEngine:
     def _get_occurrences(self, p_type: str, p_id: int, since: datetime) -> list[datetime]:
         """Fetches timestamps for a pattern within a window."""
         if p_type == 'theme':
-            occs = themes.get_occurrences(p_id)
+            occs = db.get_theme_occurrences(p_id)
         else:
             return []
 

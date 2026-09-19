@@ -41,7 +41,7 @@ from .constants import (
     LIFELONG_MIN_OCCURRENCES,
     LIFELONG_MIN_SPAN_DAYS,
 )
-from .database import themes
+from .database import db
 from .timeutils import to_utc, utc_now
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class LifelongEngine:
         confidence label would still put it on the screen as history.
         """
         results = []
-        for theme in themes.get_all_themes(self.user_id):
+        for theme in db.get_themes(self.user_id):
             try:
                 found = self.analyze_theme(theme)
             except Exception as e:  # pragma: no cover - defensive
@@ -86,7 +86,7 @@ class LifelongEngine:
         # over the whole record without placing anything in a window, so an
         # occurrence with no date is still an occurrence here — while every
         # engine that measures per day keeps the dated-only default.
-        occurrences = themes.get_occurrences(theme["id"], include_undated=True)
+        occurrences = db.get_theme_occurrences(theme["id"], include_undated=True)
         if len(occurrences) < LIFELONG_MIN_OCCURRENCES:
             return None
 

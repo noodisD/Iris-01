@@ -17,20 +17,20 @@ disagreed.
 from datetime import timedelta
 
 
-from agent.database import themes
+from agent.database import db
 from agent.tension import TensionEngine
 from agent.timeutils import utc_now
 
 
 def _theme(user_id, name, vector, days_ago):
     now = utc_now()
-    theme_id = themes.create_theme(
+    theme_id = db.create_theme(
         user_id=user_id, centroid_embedding=[vector] * 1536, summary=name,
         first_seen_at=(now - timedelta(days=max(days_ago) + 1)).isoformat(),
         last_seen_at=now.isoformat(), occurrence_count=0,
     )
     for i, d in enumerate(days_ago):
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme_id, source_type="reflection",
             source_id=abs(hash((name, i))) % 10_000_000,
             snippet=f"{name} {i}", similarity_score=0.9,
@@ -68,15 +68,15 @@ def test_a_busy_day_counts_once(test_user):
     the same error that inflated leverage's probabilities."""
     user_id = test_user["id"]
     now = utc_now()
-    a = themes.create_theme(user_id, [0.5] * 1536, "Dense A",
+    a = db.create_theme(user_id, [0.5] * 1536, "Dense A",
                             (now - timedelta(days=10)).isoformat(), now.isoformat(), 0)
-    b = themes.create_theme(user_id, [0.6] * 1536, "Dense B",
+    b = db.create_theme(user_id, [0.6] * 1536, "Dense B",
                             (now - timedelta(days=10)).isoformat(), now.isoformat(), 0)
     for i in range(4):
-        themes.add_occurrence(a, "reflection", 980000 + i, f"a{i}", 0.9,
+        db.add_theme_occurrence(a, "reflection", 980000 + i, f"a{i}", 0.9,
                               (now - timedelta(days=5, hours=i)).isoformat())
     for i in range(4):
-        themes.add_occurrence(b, "reflection", 981000 + i, f"b{i}", 0.9,
+        db.add_theme_occurrence(b, "reflection", 981000 + i, f"b{i}", 0.9,
                               (now - timedelta(days=5, hours=i)).isoformat())
 
     metrics = TensionEngine(user_id)._calculate_cooccurrence_metrics(a, b)

@@ -28,9 +28,8 @@ from .constants import (
     TENSION_RECENT_DAYS,
 )
 
-# Import database and constants
 from .analysis_cache import remembered
-from .database import tensions, themes
+from .database import db
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -83,7 +82,7 @@ class TensionEngine:
         Get active themes that meet minimum occurrence criteria.
         Limits to top N most active themes to keep runtime predictable.
         """
-        all_themes = themes.get_all_themes(self.user_id)
+        all_themes = db.get_themes(self.user_id)
 
         # Filter themes that have minimum occurrences
         active_themes = [t for t in all_themes if t["occurrence_count"] >= TENSION_MIN_OCCURRENCES]
@@ -114,8 +113,8 @@ class TensionEngine:
         Calculate co-occurrence metrics for a theme pair.
         """
         # Get occurrences for both themes
-        occurrences_a = themes.get_occurrences(theme_a_id)
-        occurrences_b = themes.get_occurrences(theme_b_id)
+        occurrences_a = db.get_theme_occurrences(theme_a_id)
+        occurrences_b = db.get_theme_occurrences(theme_b_id)
 
         # Co-occurrence means the two themes were both active in the same
         # period — one day here.
@@ -228,8 +227,8 @@ class TensionEngine:
 
         # Fallback: use frequency-based divergence
         # Get occurrences for both themes
-        occurrences_a = themes.get_occurrences(theme_a_id)
-        occurrences_b = themes.get_occurrences(theme_b_id)
+        occurrences_a = db.get_theme_occurrences(theme_a_id)
+        occurrences_b = db.get_theme_occurrences(theme_b_id)
 
         # Calculate recent vs past ratios for both themes
         recent_start, baseline_end, baseline_start = self._get_time_windows()
@@ -455,7 +454,7 @@ class TensionEngine:
         }
 
         # Store in cache (convert numpy types to Python native types)
-        tensions.create_or_update(
+        db.create_or_update_tension(
             theme_a_id=theme_a_id,
             theme_b_id=theme_b_id,
             cooccurrence_count=int(result["cooccurrence_count"]),

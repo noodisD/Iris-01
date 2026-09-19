@@ -131,18 +131,18 @@ def test_a_stale_resolution_verdict_is_recomputed(test_user, mock_pipeline_logic
     computed years ago could still be served today."""
     from datetime import timedelta
 
-    from agent.database import themes
+    from agent.database import db
     from agent.resolution import ResolutionEngine
     from agent.timeutils import utc_now
 
     now = utc_now()
-    theme_id = themes.create_theme(
+    theme_id = db.create_theme(
         user_id=test_user["id"], centroid_embedding=[0.2] * 1536, summary="TTL Theme",
         first_seen_at=(now - timedelta(days=80)).isoformat(), last_seen_at=now.isoformat(),
         occurrence_count=0,
     )
     for i in range(6):
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme_id, source_type="reflection", source_id=950000 + i,
             snippet=f"x{i}", similarity_score=0.9,
             occurred_at=(now - timedelta(days=40 + i)).isoformat(),
@@ -171,18 +171,18 @@ def test_a_recent_resolution_verdict_is_still_served(test_user, mock_pipeline_lo
     """The TTL must not turn the cache off altogether."""
     from datetime import timedelta
 
-    from agent.database import themes
+    from agent.database import db
     from agent.resolution import ResolutionEngine
     from agent.timeutils import utc_now
 
     now = utc_now()
-    theme_id = themes.create_theme(
+    theme_id = db.create_theme(
         user_id=test_user["id"], centroid_embedding=[0.3] * 1536, summary="Warm Theme",
         first_seen_at=(now - timedelta(days=80)).isoformat(), last_seen_at=now.isoformat(),
         occurrence_count=0,
     )
     for i in range(6):
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme_id, source_type="reflection", source_id=960000 + i,
             snippet=f"y{i}", similarity_score=0.9,
             occurred_at=(now - timedelta(days=40 + i)).isoformat(),

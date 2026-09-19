@@ -15,22 +15,18 @@ These modules establish the data layer and patterns used everywhere else.
 1. `agent/database.py`
    - Entry point: the `Database` singleton (`db`)
    - Learn: connection pooling and query helpers (the schema is in `migrations/`)
-   - Key sections: `get_connection()`, the repositories, and the pooling in `_init_pool()`.
+   - Key sections: `get_connection()` and the pooling in `_init_pool()`. Every query in
+     IRIS is a method here; engines call `db.<method>` directly.
      The schema itself lives in `migrations/`, not here
 
 2. `CONTEXT.md` — Domain glossary
    - Read the entire "Glossary" section (Theme, Occurrence, Source, Resolution, etc.)
    - Read "Invariants" section (what must always be true)
 
-3. `agent/repositories.py` (40KB)
-   - 14 repository classes (UserRepository, ThemeRepository, ResolutionRepository, etc.)
-   - Pattern: Each repo handles one entity type, provides CRUD + query methods
-   - Example: `ThemeRepository.get_theme()`, `ThemeRepository.get_occurrences()`
-
 **Time estimate:** 60–90 min
 **Verify understanding:**
 - Can you describe what a Theme is and how Occurrences relate?
-- Can you name 5 repository classes and what they do?
+- Where does `db.get_theme_occurrences` leave out undated occurrences, and why?
 - What's the difference between pgvector and PostgreSQL in IRIS?
 
 ---

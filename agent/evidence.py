@@ -11,7 +11,7 @@ import uuid
 from typing import Any
 
 # Import database
-from .database import evidence as evidence_repo
+from .database import db
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class EvidenceEngine:
             for r in records
         ]
 
-        evidence_repo.add_records(db_rows)
+        db.add_evidence_records(db_rows)
         logger.info(f"Recorded {len(db_rows)} evidence rows for {engine_name} run {comp_id}")
         return comp_id
 
@@ -70,6 +70,6 @@ class EvidenceEngine:
         For a pairwise engine, pass `related_pattern_id` to get the bundle for
         that relation rather than whichever of the source's relations ran last.
         """
-        return evidence_repo.get_latest_bundle(
+        return db.get_latest_evidence_bundle(
             pattern_type, pattern_id, engine_name, related_pattern_id
         )

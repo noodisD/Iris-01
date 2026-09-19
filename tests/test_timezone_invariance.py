@@ -19,7 +19,7 @@ from datetime import timedelta
 import pytest
 
 from agent.constants import RESOLUTION_RECENT_DAYS, TRAJECTORY_RECENT_DAYS
-from agent.database import db, themes
+from agent.database import db
 from agent.resolution import ResolutionEngine
 from agent.timeutils import utc_now
 from agent.trajectory import TrajectoryEngine
@@ -46,7 +46,7 @@ def _theme_on_the_boundary(user_id: int) -> int:
 
     An offset error of even one hour moves them across it.
     """
-    theme_id = themes.create_theme(
+    theme_id = db.create_theme(
         user_id=user_id,
         centroid_embedding=[0.11] * 1536,
         summary="Boundary Theme",
@@ -64,7 +64,7 @@ def _theme_on_the_boundary(user_id: int) -> int:
         utc_now() - timedelta(days=70),
     ]
     for i, moment in enumerate(moments):
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme_id, source_type="reflection", source_id=900000 + i,
             snippet=f"boundary {i}", similarity_score=0.9,
             occurred_at=moment.isoformat(),
@@ -91,7 +91,7 @@ def test_resolution_is_the_same_in_utc_and_in_a_shifted_timezone(test_user, rest
 
 def test_trajectory_is_the_same_in_utc_and_in_a_shifted_timezone(test_user, restore_timezone):
     user_id = test_user["id"]
-    theme_id = themes.create_theme(
+    theme_id = db.create_theme(
         user_id=user_id, centroid_embedding=[0.12] * 1536, summary="Trajectory Boundary",
         first_seen_at=(utc_now() - timedelta(days=40)).isoformat(),
         last_seen_at=utc_now().isoformat(), occurrence_count=0,
@@ -99,7 +99,7 @@ def test_trajectory_is_the_same_in_utc_and_in_a_shifted_timezone(test_user, rest
     edge = utc_now() - timedelta(days=TRAJECTORY_RECENT_DAYS)
     for i, moment in enumerate([edge + timedelta(minutes=20), edge - timedelta(minutes=20),
                                 utc_now() - timedelta(days=30), utc_now() - timedelta(days=35)]):
-        themes.add_occurrence(
+        db.add_theme_occurrence(
             theme_id=theme_id, source_type="reflection", source_id=910000 + i,
             snippet=f"t {i}", similarity_score=0.9, occurred_at=moment.isoformat(),
         )

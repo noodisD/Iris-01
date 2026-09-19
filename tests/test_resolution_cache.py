@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 from agent.core import PersonalAICompanion
-from agent.database import confidence, db, resolutions
+from agent.database import db
 from agent.resolution import ResolutionEngine
 
 
@@ -55,9 +55,9 @@ def test_chat_says_what_the_stored_label_says(test_user, journalled_recently):
     user_id = test_user["id"]
     theme_id = _faded_theme(user_id, "Rook endings")
     natural = ResolutionEngine(user_id).analyze_theme(theme_id, force_recompute=True)
-    resolutions.create_or_update("theme", theme_id, "dissipated", 1.0, "high",
+    db.create_or_update_resolution("theme", theme_id, "dissipated", 1.0, "high",
                                  natural["recent_count"], natural["past_count"])
-    confidence.create_or_update("resolution", theme_id, "high", 0.9,
+    db.create_or_update_confidence("resolution", theme_id, "high", 0.9,
                                 natural["past_count"], 100, 1.0, 0.5)
 
     companion = PersonalAICompanion(user_id=user_id)

@@ -49,11 +49,11 @@ class ComparisonSpace:
         self._cache = None
 
     def _style(self) -> tuple:
-        """(count, mean) for this user — injected, or read from the repository."""
+        """(count, mean) for this user — injected, or read from the database."""
         if self._read_style is not None:
             return self._read_style(self.user_id)
-        from .database import embeddings
-        return embeddings.get_evidence_style(self.user_id)
+        from .database import db
+        return db.get_evidence_style(self.user_id)
 
     def space(self) -> tuple:
         """(mean, match_threshold, cluster_threshold) for this user.

@@ -10,7 +10,7 @@ session to provide immediate context for the LLM.
 import logging
 
 # Import the new architecture's components
-from .database import journals
+from .database import db
 from .work_queue import notify
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class ConversationMemory:
         # context only on success. This prevents ghost messages that exist in
         # the LLM context but not in the database.
         try:
-            message_id = journals.create_conversation_message(
+            message_id = db.create_conversation_message(
                 user_id=self.user_id,
                 session_id=self.session_id,
                 role=role,
@@ -89,7 +89,7 @@ class ConversationMemory:
         """Loads recent conversation history from the database to seed session context."""
         logger.info(f"Loading recent history for user {self.user_id} from database.")
         try:
-            recent_messages = journals.get_chat_history(self.user_id, limit=20)
+            recent_messages = db.get_chat_history(self.user_id, limit=20)
             self.history = [
                 {"role": msg["role"], "content": msg["content"]}
                 for msg in recent_messages

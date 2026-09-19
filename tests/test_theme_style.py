@@ -49,7 +49,7 @@ def _discover(vectors, style):
     """The real discover_themes, with only the database boundary replaced."""
     engine = PersistenceEngine(user_id=1)
     created = []
-    with patch("agent.persistence.embeddings") as emb:
+    with patch("agent.persistence.db") as emb:
         emb.get_unassigned_embeddings.return_value = _rows(vectors)
         emb.get_evidence_style.return_value = style
         with patch.object(engine, "_create_theme_from_cluster",
@@ -91,16 +91,17 @@ def test_an_entry_joins_the_closest_theme_not_the_first():
     near = entry + 0.3 * q    # cos ≈ 0.96
 
     engine = PersistenceEngine(user_id=1)
-    with patch("agent.persistence.embeddings") as emb, patch("agent.persistence.themes") as th:
+    with patch("agent.persistence.db") as emb:
+        th = emb
         emb.get_evidence_style.return_value = (0, None)
-        th.get_by_origin.return_value = [
+        th.get_themes_by_origin.return_value = [
             {"id": 1, "centroid_embedding": far.tolist(), "occurrence_count": 50},
             {"id": 2, "centroid_embedding": near.tolist(), "occurrence_count": 3},
         ]
         matched = engine.check_persistence(entry.tolist(), "reflection", 7, "text",
                                            datetime(2026, 1, 1, tzinfo=UTC))
     assert matched == 2
-    assert th.add_occurrence.call_args.kwargs["theme_id"] == 2
+    assert th.add_theme_occurrence.call_args.kwargs["theme_id"] == 2
 
 
 def test_prompt_labels_are_stripped_and_the_writing_is_kept():

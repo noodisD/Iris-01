@@ -149,13 +149,13 @@ def test_a_cached_verdict_over_two_empty_windows_is_not_served(test_user):
     A cached answer the current rules cannot produce must not outlive them."""
     user_id = test_user["id"]
     theme_id = _theme_with_occurrences(user_id, [200, 210, 220])
-    from agent.database import resolutions
+    from agent.database import db
 
-    resolutions.create_or_update(
+    db.create_or_update_resolution(
         pattern_type="theme", pattern_id=theme_id, resolution_label="dissipated",
         attenuation_score=1.0, confidence_level="medium", recent_count=0, past_count=0,
     )
-    assert resolutions.get_resolution("theme", theme_id)["resolution_label"] == "dissipated"
+    assert db.get_resolution("theme", theme_id)["resolution_label"] == "dissipated"
 
     result = ResolutionEngine(user_id).analyze_theme(theme_id)  # cache allowed
 

@@ -23,11 +23,8 @@ from .constants import (
     RESOLUTION_MIN_DATA_POINTS,
     RESOLUTION_RECENT_DAYS,
 )
-from .database import confidence as confidence_repo
+from .database import db
 
-# Import database and constants
-from .database import embeddings as sources
-from .database import resolutions, themes
 from .evidence import EvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -75,7 +72,7 @@ class ResolutionEngine:
             Dictionary with resolution metrics and label
         """
         if not force_recompute:
-            cached = resolutions.get_resolution('theme', theme_id)
+            cached = db.get_resolution('theme', theme_id)
             logger.debug(f"Cache lookup for theme {theme_id}: cached={cached is not None}")
             if cached:
                 logger.debug(f"  Cached data: {cached}")
@@ -103,7 +100,7 @@ class ResolutionEngine:
             elif cached and self._cache_is_fresh(cached.get('last_computed_at')):
                 logger.debug(f"Resolution cache HIT for theme {theme_id}: label={cached.get('resolution_label')}")
                 # Add theme summary for convenience
-                theme = themes.get_theme(theme_id)
+                theme = db.get_theme_by_id(theme_id)
                 cached['summary'] = theme['summary'] if theme else "Unknown"
                 cached['theme_id'] = theme_id
                 # Same shape from cache as from a fresh computation.
@@ -116,8 +113,8 @@ class ResolutionEngine:
                 logger.debug(f"Resolution cache STALE for theme {theme_id}: last_computed_at is {cached.get('last_computed_at')}")
 
         # Get all occurrences for this theme
-        occurrences = themes.get_occurrences(theme_id)
-        theme = themes.get_theme(theme_id)
+        occurrences = db.get_theme_occurrences(theme_id)
+        theme = db.get_theme_by_id(theme_id)
         summary = theme["summary"] if theme else "Unknown"
 
         if not occurrences:
@@ -178,7 +175,7 @@ class ResolutionEngine:
         self.emit_evidence('rate', 'past_rate', past_rate)
 
         # Store in central registry
-        confidence_repo.create_or_update(
+        db.create_or_update_confidence(
             'resolution', theme_id,
             conf['confidence_level'], conf['confidence_score'],
             conf['data_points_count'], conf['time_coverage_days'],
@@ -189,7 +186,7 @@ class ResolutionEngine:
         self.ev_engine.record_evidence('resolution', 'theme', theme_id, self._evidence)
 
         # Store in cache
-        resolutions.create_or_update(
+        db.create_or_update_resolution(
             pattern_type='theme',
             pattern_id=theme_id,
             resolution_label=label,
@@ -217,7 +214,7 @@ class ResolutionEngine:
 
     def analyze_all_themes(self) -> list[dict]:
         """Analyzes all themes for the current user."""
-        all_themes = themes.get_all_themes(self.user_id)
+        all_themes = db.get_themes(self.user_id)
         return [self.analyze_theme(t['id']) for t in all_themes]
 
     # --- Private Helpers ---
@@ -245,8 +242,8 @@ class ResolutionEngine:
         # An equal window either side of the last occurrence.
         span = timedelta(days=max(days_silent, 1.0))
         try:
-            observed_during = sources.count_observed_days(self.user_id, last_seen, now)
-            observed_before = sources.count_observed_days(
+            observed_during = db.count_observed_days(self.user_id, last_seen, now)
+            observed_before = db.count_observed_days(
                 self.user_id, last_seen - span, last_seen
             )
         except Exception as e:

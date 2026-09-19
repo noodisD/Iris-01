@@ -26,7 +26,6 @@ from .constants import (
     PRIORITY_RECENT_DECAY_DAYS,
 )
 
-# Import database and constants
 from .database import db
 
 logger = logging.getLogger(__name__)

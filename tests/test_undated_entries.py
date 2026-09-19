@@ -21,7 +21,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from agent.database import db, themes
+from agent.database import db
 from agent.importing import store
 from agent.importing.service import ImportError_, ImportService
 from agent.lifelong import LifelongEngine
@@ -99,8 +99,8 @@ def test_a_window_engine_never_sees_an_undated_occurrence(test_user):
     _occur(theme_id, 3, dated=True)
     _occur(theme_id, 5, dated=False, offset=100)
 
-    assert len(themes.get_occurrences(theme_id)) == 3
-    assert len(themes.get_occurrences(theme_id, include_undated=True)) == 8
+    assert len(db.get_theme_occurrences(theme_id)) == 3
+    assert len(db.get_theme_occurrences(theme_id, include_undated=True)) == 8
 
 
 def test_the_two_counts_are_kept_apart(test_user):
@@ -392,7 +392,7 @@ def test_rewriting_snippets_reaches_undated_occurrences(test_user):
 
     PersistenceEngine(test_user["id"]).refresh_snippets()
 
-    occurrence = themes.get_occurrences(theme_id, include_undated=True)[0]
+    occurrence = db.get_theme_occurrences(theme_id, include_undated=True)[0]
     assert occurrence["snippet"] == RECORDING
 
 
@@ -415,7 +415,7 @@ def test_dating_an_entry_dates_the_occurrences_it_already_has(test_user):
     assert theme["occurrence_count"] == 1
     assert theme["undated_occurrence_count"] == 0
     assert theme["span_is_undated"] is False
-    assert len(themes.get_occurrences(theme_id)) == 1
+    assert len(db.get_theme_occurrences(theme_id)) == 1
 
 
 def test_a_date_already_read_from_the_writing_is_never_overwritten(test_user):

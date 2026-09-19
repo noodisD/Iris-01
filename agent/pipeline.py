@@ -21,7 +21,7 @@ from .timeutils import to_utc, utc_now
 from .config import settings
 
 # Import the data layer interfaces
-from .database import embeddings
+from .database import db
 from . import constructs
 from .persistence import PersistenceEngine
 from .prompt_labels import strip_prompt_labels
@@ -108,13 +108,13 @@ def run_processing_pipeline(source_type: str, source_id: int):
 
     try:
         # 1. Update status to 'processing'
-        embeddings.update_processing_status(source_type, source_id, 'processing')
+        db.update_processing_status(source_type, source_id, 'processing')
 
         # 2. Fetch the raw content from PostgreSQL — by id, not "any row in
         # this status". Filtering on status alone let a concurrent write, or a
         # row left behind by a crashed run, be picked up instead: that row's
         # text was embedded under this source_id, carrying its user_id with it.
-        item = embeddings.get_items_to_process(
+        item = db.get_items_to_process(
             source_type, status='processing', limit=1, source_id=source_id
         )
         if not item:
@@ -157,13 +157,13 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # gone it stops here: writing now would store an embedding, and match
         # themes, for words that no longer exist. The queue re-runs the job on
         # the new text (work_queue._succeed).
-        if not embeddings.is_still_processing(source_type, source_id):
+        if not db.is_still_processing(source_type, source_id):
             logger.info(f"{source_type} {source_id} changed while being processed; "
                         "leaving it to the re-queued run")
             return
 
         # 4. Store the canonical embedding in PostgreSQL
-        embeddings.add_embedding(source_type, source_id, model_name, embedding)
+        db.add_embedding(source_type, source_id, model_name, embedding)
 
         # 5. Check for persistence (what keeps coming back)
         # User messages participate in theme matching; assistant responses are excluded
@@ -177,7 +177,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # which invalidated the resolution cache, so the label recomputed to
         # 'persisting' before the narrative for that same turn was written.
         should_check_persistence = source_type in ['journal_entry', 'reflection', 'habit_completion']
-        if should_check_persistence and not embeddings.is_evidence_eligible(source_type, source_id):
+        if should_check_persistence and not db.is_evidence_eligible(source_type, source_id):
             # Memory, not evidence: a duplicate or a placeholder must not form
             # or reinforce a theme, though it stays searchable (ADR-0003).
             logger.info(f"{source_type} {source_id} is memory only; not offered to the engines")
@@ -252,12 +252,12 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 raise
 
         # 6. Update status to 'complete'
-        embeddings.update_processing_status(source_type, source_id, 'complete')
+        db.update_processing_status(source_type, source_id, 'complete')
         logger.info(f"Successfully completed processing for {source_type} ID: {source_id}")
 
     except Exception as e:
         logger.error(f"Processing pipeline failed for {source_type} ID {source_id}: {e}")
-        embeddings.update_processing_status(source_type, source_id, 'failed')
+        db.update_processing_status(source_type, source_id, 'failed')
         # Re-raised, not swallowed. The caller is the ingest queue, which uses
         # the exception to decide whether to retry; swallowing it here reported
         # success for work that had not happened, and the queue would then have
