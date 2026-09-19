@@ -331,13 +331,6 @@ class ResolutionEngine:
         # 5. Persisting: Fallback
         return 'persisting'
 
-    def _calculate_confidence(self, total_points: int) -> str:
-        """Confidence based on data volume."""
-        if total_points >= 2 * RESOLUTION_MIN_DATA_POINTS:
-            return 'high'
-        elif total_points >= RESOLUTION_MIN_DATA_POINTS:
-            return 'medium'
-        return 'low'
 
     def _empty_result(self, theme_id: int, summary: str) -> dict:
         """A theme with no dated occurrence has nothing to compare.

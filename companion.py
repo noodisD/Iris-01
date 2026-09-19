@@ -619,7 +619,6 @@ def show_settings(companion: PersonalAICompanion):
         print(f"Confidence Floor: {prefs['min_confidence'].upper()}")
         print(f"Max Insights:     {prefs['max_items']}")
         print(f"Enabled Engines:  {prefs['enabled_engines'] or 'ALL'}")
-        print(f"Show Suppressed:  {prefs['show_suppressed']}")
         print("\nTo change a setting: /settings set <key> <value>")
     except Exception as e:
         logger.error(f"Failed to show settings: {e}")
@@ -693,7 +692,6 @@ def show_hidden(companion: PersonalAICompanion):
     for key, data in companion.last_suppressed_insights.items():
         ins = data['insight']
         print(f"{ins['engine_name']:<15} | {ins['pattern_type'].upper()} {ins['pattern_id']:<8} | {data['reason'].upper()}")
-    print("\nUse /settings set show_suppressed true to enable detailed debug views.")
 
 def check_narrative_safety(text: str):
     """Test the forbidden-language firewall."""

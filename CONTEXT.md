@@ -184,7 +184,6 @@ Insights then read through admission.
 - `enabled_engines` — a list of engine names, or null for all; the selectable engines are trajectory, tension, resolution, leverage, decision_impact, lifelong and observations
 - `min_confidence` — `"low"`, `"medium"` (default) or `"high"`
 - `max_items` — 1–10 (default 5): how many findings chat may raise; the screen is not limited
-- `show_suppressed` — stored and shown in Settings; nothing acts on it yet
 
 Set from Settings or the CLI's `/settings`; both write `user_preferences`.
 

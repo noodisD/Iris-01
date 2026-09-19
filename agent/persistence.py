@@ -15,14 +15,6 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-# Attempt to import sklearn, but handle gracefully if unavailable
-try:
-    from sklearn.metrics.pairwise import cosine_similarity
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    cosine_similarity = None
-    SKLEARN_AVAILABLE = False
-
 import numpy as np
 
 from .comparison import ComparisonSpace
@@ -40,29 +32,6 @@ from .database import embeddings, themes
 from .evidence import EvidenceEngine
 
 
-def cosine_similarity_manual(vec1, vec2):
-    """
-    Calculate cosine similarity manually without sklearn.
-    This function computes the cosine similarity between two vectors.
-    """
-    # Convert to numpy arrays if they aren't already
-    v1 = np.array(vec1).flatten()
-    v2 = np.array(vec2).flatten()
-
-    # Calculate dot product
-    dot_product = np.dot(v1, v2)
-
-    # Calculate magnitudes
-    magnitude_v1 = np.sqrt(np.sum(v1 ** 2))
-    magnitude_v2 = np.sqrt(np.sum(v2 ** 2))
-
-    # Handle zero magnitude cases
-    if magnitude_v1 == 0 or magnitude_v2 == 0:
-        return 0.0
-
-    # Calculate cosine similarity
-    similarity = dot_product / (magnitude_v1 * magnitude_v2)
-    return similarity
 
 logger = logging.getLogger(__name__)
 

@@ -291,7 +291,6 @@ export interface AnalysisPreferences {
   maxItems: number;
   /** null means every engine — which is not the same as an empty list. */
   enabledEngines: string[] | null;
-  showSuppressed: boolean;
   /** Server-supplied, so the UI does not keep its own copy of the engine list. */
   availableEngines: string[];
 }

@@ -61,7 +61,7 @@ def test_a_pattern_across_years_is_reported(test_user):
 
 def test_too_few_occurrences_is_an_incident_not_a_pattern(test_user):
     theme_id = _theme_with(test_user["id"], [500, 200])
-    assert len(([500, 200])) < LIFELONG_MIN_OCCURRENCES
+    assert len([500, 200]) < LIFELONG_MIN_OCCURRENCES
     assert _find(test_user["id"], theme_id) is None
 
 

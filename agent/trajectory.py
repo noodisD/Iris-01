@@ -261,6 +261,10 @@ class TrajectoryEngine:
         # a gap is a fall in rate and has to be represented as one.
         bin_totals: dict[int, float] = {}
         for occurred_at, weight in weighted:
+            # Whole days, then whole weeks: floor(floor(x) / 7) == floor(x / 7),
+            # so truncating to days first cannot move an occurrence into the
+            # wrong week. (Unlike a `<=` threshold on .days, which leverage's
+            # lag test once got wrong.)
             index = (occurred_at - first).days // self.TREND_BIN_DAYS
             bin_totals[index] = bin_totals.get(index, 0.0) + weight
 
@@ -351,19 +355,3 @@ class TrajectoryEngine:
             else:
                 return "stable"
 
-    def _calculate_confidence(self, data_points_count: int) -> str:
-        """
-        Calculate confidence level based on data sufficiency.
-        
-        Args:
-            data_points_count: Number of data points used in calculation
-            
-        Returns:
-            Confidence level: 'low', 'medium', or 'high'
-        """
-        if data_points_count < TRAJECTORY_MIN_DATA_POINTS:
-            return "low"
-        elif data_points_count < TRAJECTORY_MIN_DATA_POINTS * 2:
-            return "medium"
-        else:
-            return "high"

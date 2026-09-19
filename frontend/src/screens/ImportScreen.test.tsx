@@ -1,0 +1,42 @@
+/**
+ * An import cannot land while an entry's date is an open question.
+ *
+ * A reflection's date becomes the time every engine measures it against, so a
+ * guessed date is not a small inaccuracy (ADR-0013). The server refuses such a
+ * commit; the screen must not offer it, and must say what to do.
+ */
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { ImportBatch } from '@/types/api';
+
+vi.mock('@/hooks/useImport', () => ({
+  useImportEntries: () => ({ data: [], isLoading: false }),
+  useImportAdapters: () => ({ data: [] }),
+  useImportActions: () => new Proxy({}, { get: () => ({ mutate: vi.fn(), isPending: false }) }),
+}));
+
+import { Review } from './ImportScreen';
+
+function batch(needsDate: number): ImportBatch {
+  return {
+    id: '9', kind: 'text', adapter: 'markdown', detected: [], originalFilename: 'notes.md',
+    status: 'needs_review', error: null, entryCount: 5, committedCount: 0,
+    createdAt: '2026-09-19T08:00:00Z',
+    counts: { total: 5, staged: 5, excluded: 0, duplicate: 0, imported: 0, failed: 0,
+              needsDate, awaitingTranscript: 0, earliest: null, latest: null },
+  };
+}
+
+describe('the import commit', () => {
+  it('is refused while an entry has no date, and says what to do', () => {
+    render(<Review batch={batch(2)} onDone={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Import 5 entries' })).toBeDisabled();
+    expect(screen.getByText('Set or exclude the undated entries first.')).toBeInTheDocument();
+  });
+
+  it('is offered once every date is resolved', () => {
+    render(<Review batch={batch(0)} onDone={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Import 5 entries' })).toBeEnabled();
+    expect(screen.queryByText('Set or exclude the undated entries first.')).toBeNull();
+  });
+});

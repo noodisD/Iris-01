@@ -2292,7 +2292,7 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute("""
-                    SELECT min_confidence, max_items, enabled_engines, show_suppressed
+                    SELECT min_confidence, max_items, enabled_engines
                     FROM user_preferences WHERE user_id = %s;
                 """, (user_id,))
                 row = cur.fetchone()
@@ -2301,7 +2301,6 @@ class Database:
                         "min_confidence": row[0],
                         "max_items": row[1],
                         "enabled_engines": row[2], # list or None
-                        "show_suppressed": row[3]
                     }
                 return None
             except Exception as e:
@@ -2315,7 +2314,7 @@ class Database:
     # is here so that adding a preferences endpoint later cannot turn it into
     # an injection.
     _PREFERENCE_COLS = frozenset({
-        "min_confidence", "max_items", "enabled_engines", "show_suppressed",
+        "min_confidence", "max_items", "enabled_engines",
     })
 
     def update_preference(self, user_id: int, key: str, value: Any) -> None:
@@ -2882,7 +2881,7 @@ class Database:
                 cur.execute(
                     """
                     SELECT id, user_id, reflection_date, content, mood, energy_level, tags,
-                           processing_status, created_at, updated_at, audio_path
+                           processing_status, created_at, updated_at, audio_path, clarity_level
                     FROM reflections WHERE id = %s;
                     """,
                     (reflection_id,)
@@ -2901,6 +2900,7 @@ class Database:
                         "created_at": row[8],
                         "updated_at": row[9],
                         "audio_path": row[10],
+                        "clarity_level": row[11],
                     }
                 return None
             except Exception as e:
@@ -2955,7 +2955,10 @@ class Database:
         """Updates a reflection's fields."""
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                allowed_fields = {'content', 'mood', 'energy_level', 'tags'}
+                # clarity_level was accepted and validated by the API and the
+                # service, then dropped here — saved on create, silently lost on
+                # edit.
+                allowed_fields = {'content', 'mood', 'energy_level', 'clarity_level', 'tags'}
                 update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
 
                 if not update_pairs:

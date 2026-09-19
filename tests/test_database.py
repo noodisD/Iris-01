@@ -204,3 +204,14 @@ def test_unassigned_embeddings(test_user):
     # 4. Should no longer be unassigned
     unassigned_after = db.get_unassigned_embeddings(test_user["id"])
     assert not any(u["source_id"] == entry_id for u in unassigned_after)
+
+
+def test_an_edited_clarity_is_saved(test_user):
+    """Accepted and validated on update by the API and the service, then
+    dropped by the write: saved on create, silently lost on edit."""
+    from agent.trackers.reflections import ReflectionService
+
+    service = ReflectionService(test_user["id"])
+    rid = service.create_reflection(content="Clear head today.", clarity_level=4)
+    service.update_reflection(rid, clarity_level=8)
+    assert service.get_reflection(rid)["clarity_level"] == 8

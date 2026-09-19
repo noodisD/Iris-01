@@ -135,7 +135,7 @@ def default_min_confidence() -> str:
     preferences default was 'medium' — two floors, depending on which caller
     forgot to pass prefs.
     """
-    return UserPreferencesService.DEFAULT_PREFS["min_confidence"]
+    return str(UserPreferencesService.DEFAULT_PREFS["min_confidence"])
 
 
 def meets_floor(confidence_level: str | None, prefs: dict[str, Any]) -> bool:

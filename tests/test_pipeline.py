@@ -5,7 +5,7 @@ Tests for the Processing Pipeline Layer.
 import pytest
 
 from agent.database import db
-from agent.pipeline import extract_entities, generate_embedding, run_processing_pipeline
+from agent.pipeline import generate_embedding, run_processing_pipeline
 
 
 def test_generate_embedding(mocker):
@@ -19,13 +19,6 @@ def test_generate_embedding(mocker):
     assert isinstance(embedding, list)
     assert len(embedding) == 1536
 
-def test_extract_entities():
-    """Test the simple entity extraction."""
-    text = "Here are my ideas:\n- An app for cats.\n- A new type of cheese."
-    entities = extract_entities(text)
-    assert "ideas" in entities
-    assert len(entities["ideas"]) == 2
-    assert entities["ideas"][0] == "An app for cats."
 
 @pytest.mark.parametrize("source_type", ["journal_entry", "message"])
 def test_run_processing_pipeline(mocker, test_user, source_type):

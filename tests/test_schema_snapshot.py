@@ -1,16 +1,11 @@
 """
 Schema drift detection.
 
-The schema is created by agent/database.py: create_schema(), idempotently, with
-CREATE TABLE IF NOT EXISTS plus additive ALTERs. That is fine for adding things
-and cannot express a change: altering a CHECK constraint, adding ON DELETE
-CASCADE to an existing foreign key, or changing a column type are all silently
-no-ops against a database that already exists. So a developer's fresh database
-and a long-lived one can diverge with nothing to say so.
-
-Until a migration tool owns the schema, this test is the tripwire: it compares
-the live schema against a checked-in snapshot, so any change has to be made
-deliberately and shows up in review as a diff.
+Migrations own the schema (ADR-0012): forward-only, checksummed, applied by
+agent/migrations.py. This test compares the schema they produce against a
+checked-in snapshot, so a change to it — a new column, a relaxed constraint —
+has to be made deliberately and shows up in review as a diff, rather than
+arriving unnoticed inside a migration.
 
 Regenerate after an intentional change:
     python -m tests.test_schema_snapshot --update

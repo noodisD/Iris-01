@@ -20,7 +20,8 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Iterator, Protocol
+from typing import Protocol
+from collections.abc import Iterator
 
 from .bundle import Bundle, BundleFile
 from .dates import UNKNOWN, DateGuess, best, from_filename, from_frontmatter, \

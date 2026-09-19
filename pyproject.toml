@@ -66,16 +66,36 @@ dev = [
 
 [tool.black]
 line-length = 100
-target-version = ['py314']
+target-version = ['py311']
 
 [tool.mypy]
-python_version = "3.14"
+# The version .python-version pins and CI runs. black, mypy and ruff said 3.14
+# while everything ran on 3.11, so each tool checked a language nothing used.
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+# Checked strictly, and gating in CI. An allow-list rather than the whole
+# package: the rest is not typed to this standard yet, and a typechecker that
+# runs over everything and is ignored teaches people to ignore it. A module
+# joins by passing; the list only grows.
+follow_imports = "silent"
+files = [
+    "agent/analysis_cache.py",
+    "agent/conflicts.py",
+    "agent/coverage.py",
+    "agent/importing/dates.py",
+    "agent/narrative_policy.py",
+    "agent/narrative_templates.py",
+    "agent/pipeline_orchestrator.py",
+    "agent/review_letter.py",
+    "agent/timeutils.py",
+    "agent/work_queue.py",
+]
 
 [tool.ruff]
 line-length = 100
+target-version = "py311"
 extend-exclude = ["archive", "frontend"]
 
 [tool.ruff.lint]

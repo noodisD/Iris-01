@@ -20,7 +20,7 @@ import json
 import logging
 import shutil
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import date, datetime, UTC
 from pathlib import Path
 
 import psycopg2
@@ -64,7 +64,7 @@ def _usable_file_times(workspace: Path, entries: list[ParsedEntry]
     except (OSError, ValueError):
         return {}, {}
     per_file = Counter(e.source_path for e in entries)
-    times = {path: datetime.fromtimestamp(ts, tz=timezone.utc)
+    times = {path: datetime.fromtimestamp(ts, tz=UTC)
              for path, ts in recorded.items() if per_file.get(path) == 1}
     if not times:
         return {}, {}

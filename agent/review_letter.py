@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 from .narrative_policy import FORBIDDEN_REGEX
 
@@ -73,7 +74,7 @@ def facts_letter(facts: list[str], findings: list[str]) -> str:
 
 
 def compose(facts: list[str], findings: list[str], week_entries: list[str],
-            intelligence) -> str:
+            intelligence: Any) -> str:
     """Write the letter, or fall back to the facts."""
     if not week_entries or intelligence is None:
         return facts_letter(facts, findings)

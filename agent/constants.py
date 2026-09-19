@@ -12,7 +12,6 @@ DEFAULT_MAX_TOKENS = 2000
 PERSISTENCE_MATCH_THRESHOLD = 0.70    # Loose threshold for matching new entries to EXISTING themes
 PERSISTENCE_CLUSTER_THRESHOLD = 0.78  # Strict threshold for creating NEW themes
 PERSISTENCE_MIN_CLUSTER_SIZE = 5      # Minimum entries required to form a theme (Proto-Theme boundary)
-PERSISTENCE_DORMANT_MONTHS = 3        # Themes inactive for this long go dormant (future feature)
 
 # Once a user has enough evidence, themes are compared on what differs between
 # entries: the user's average embedding (their shared voice) is removed first,
@@ -35,7 +34,6 @@ TRAJECTORY_RECENT_DAYS = 14
 TRAJECTORY_BASELINE_DAYS = 60
 TRAJECTORY_DELTA_THRESHOLD = 0.05
 TRAJECTORY_MIN_DATA_POINTS = 3  # Minimum occurrences for reliable classification
-TRAJECTORY_MIN_SLOPE_POINTS = 2  # Minimum points for slope calculation
 
 # Tension Engine Configuration
 TENSION_MIN_COOCCURRENCE = 3
@@ -92,7 +90,6 @@ CONF_WEIGHT_RECENCY = 0.2
 
 # 2. Classification Policy (Gatekeeper thresholds)
 CONF_MIN_POINTS = 3
-CONF_MEDIUM_POINTS = 5
 CONF_HIGH_POINTS = 10
 
 CONF_RECENCY_DAYS = 30          # Evidence older than this decays (1/e at 30 days)
@@ -189,7 +186,6 @@ OBSERVATION_MERGE_OVERLAP = 0.5
 OBSERVATION_MAX_TOKENS = 16_000
 
 # Conflict Suppression Configuration
-CONFLICT_SUPPRESSION_ENABLED = True
 CONFLICT_MIN_CONFIDENCE = "medium"
 
 # Priority order (higher index = higher priority)
@@ -239,7 +235,6 @@ ENGINE_BASE_WEIGHTS = {
     "lifelong": 0.5,
 }
 
-PRIORITY_MIN_CONFIDENCE = "medium"
 PRIORITY_RECENT_DECAY_DAYS = 30
 PRIORITY_NOVELTY_LOOKBACK_DAYS = 90
 

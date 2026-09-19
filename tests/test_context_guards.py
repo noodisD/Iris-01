@@ -94,3 +94,20 @@ def test_the_engine_lists_agree():
     line = next(l for l in CONTEXT.splitlines() if "the selectable engines are" in l)
     named = set(re.findall(r"\b(\w+)(?:,| and|$)", line.split("the selectable engines are")[1]))
     assert named == SELECTABLE_ENGINES, f"what the glossary says: {named}"
+
+
+def test_nothing_in_the_product_writes_the_legacy_journal_table():
+    """ADR-0010: a journal entry is a reflection; `journal_entries` stays, read,
+    because evidence references its rows — and a new write to it is a
+    regression. The ADR said so; now the build does."""
+    writers = []
+    for path in [*(ROOT / "agent").rglob("*.py"), ROOT / "iris_api.py", ROOT / "companion.py"]:
+        if path.name in ("database.py", "repositories.py"):
+            continue  # where the method is defined, not called
+        text = path.read_text()
+        # The database layer's writer, not the CLI's or the API's own
+        # create_journal_entry — both of which write a reflection.
+        if re.search(r"\b(db|journals)\.create_journal_entry\(", text) \
+                or "INSERT INTO journal_entries" in text:
+            writers.append(path.name)
+    assert not writers, f"the legacy table is written by {writers}"

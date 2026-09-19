@@ -151,7 +151,7 @@ function EntryRow({
   );
 }
 
-function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
+export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
   const live = batch.kind === 'audio';
   const { data: entries, isLoading } = useImportEntries(batch.id, live);
   const { data: adapters } = useImportAdapters();

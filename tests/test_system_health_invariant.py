@@ -1,106 +1,46 @@
-import os
-import sys
+"""The proto-theme threshold, end to end.
+
+Four near-identical entries are an incident; five are a theme. This checks the
+boundary through the whole path — write, queue, embed, discover, admit, render —
+rather than at one function.
+
+Each case uses the managed `test_user` fixture. This file used to create its
+own users outside it, which is how rows outlived the run — the reason
+conftest keeps a marker table and truncates.
+"""
+
 import uuid
 from datetime import date, timedelta
 
-from dotenv import load_dotenv
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from agent.core import PersonalAICompanion
-from agent.database import db
 from agent.persistence import PersistenceEngine
 from agent.trackers.reflections import ReflectionService
+from agent.work_queue import drain
 
-load_dotenv()
+HEADER = "# Observed Structural Patterns"
 
-def test_system_health_invariant():
-    """
-    INVARIANT TEST: Proto-Theme Threshold Enforcement
-    Goal: Verify that the 5-occurrence threshold is strictly enforced.
-    Verify: 
-    1. Cluster of 4 items -> HIDDEN
-    2. Cluster of 5 items -> SURFACED
-    """
-    print("\n=== SYSTEM HEALTH INVARIANT TEST ===")
 
-    # 1. Setup two users
-    user_a_name = f"user_proto_{uuid.uuid4().hex[:8]}"
-    user_b_name = f"user_theme_{uuid.uuid4().hex[:8]}"
-
-    id_a = db.create_user(user_a_name)
-    id_b = db.create_user(user_b_name)
-
-    print(f"User A (Proto): {id_a} | User B (Theme): {id_b}")
-
-    # 2. Inject Data
-    # CASE A: 4 items (Suppressed)
-    print("> CASE A: Injecting 4 identical reflections (User A)...")
-    text_a = f"This is a specific repetitive thought about A: {uuid.uuid4().hex}"
-    refl_a = ReflectionService(id_a)
-    # Written on four separate days: a present-tense finding needs the user to
-    # have been observed on several (agent/coverage.py), and four entries typed
-    # in one sitting are four data points and one observation.
-    for offset in range(4):
-        refl_a.create_reflection(
-            text_a, energy_level=8,
-            reflection_date=date.today() - timedelta(days=offset * 3))
-
-    # CASE B: 5 items (Visible)
-    print("> CASE B: Injecting 5 identical reflections (User B)...")
-    text_b = f"This is a specific repetitive thought about B: {uuid.uuid4().hex}"
-    refl_b = ReflectionService(id_b)
-    for offset in range(5):
-        refl_b.create_reflection(
-            text_b, energy_level=8,
-            reflection_date=date.today() - timedelta(days=offset * 3))
-
-    # Writes only enqueue; run the queued embedding work before discovery.
-    from agent.work_queue import drain
+def _surfaced_after_writing(user_id: int, copies: int) -> list[str]:
+    text = f"A specific repetitive thought: {uuid.uuid4().hex}"
+    service = ReflectionService(user_id)
+    # On separate days: a present-tense finding needs the owner to have been
+    # observed on several (agent/coverage.py); entries typed in one sitting are
+    # several data points and one observation.
+    for offset in range(copies):
+        service.create_reflection(text, energy_level=8,
+                                  reflection_date=date.today() - timedelta(days=offset * 3))
     drain()
+    PersistenceEngine(user_id).discover_themes()
 
-    # 3. Trigger Discovery
-    print("\n> Running Discovery...")
-    PersistenceEngine(id_a).discover_themes()
-    PersistenceEngine(id_b).discover_themes()
+    context = PersonalAICompanion(user_id)._get_aggregated_context("check")
+    if HEADER not in context:
+        return []
+    return [line for line in context.split(HEADER)[1].split("\n") if line.strip().startswith("- ")]
 
-    # 4. Examine Context Injection
-    print("\n=== INVARIANT VERIFICATION ===")
 
-    # Verify User A (4 items -> 0 visible)
-    comp_a = PersonalAICompanion(id_a)
-    ctx_a = comp_a._get_aggregated_context("check")
-    # Count patterns
-    header = "# Observed Structural Patterns"
-    if header in ctx_a:
-        section = ctx_a.split(header)[1]
-        patterns_a = [l for l in section.split("\n") if l.strip().startswith("- ")]
-    else:
-        patterns_a = []
+def test_four_similar_entries_are_not_yet_a_theme(test_user):
+    assert _surfaced_after_writing(test_user["id"], 4) == []
 
-    print(f"  - User A (Count 4) patterns surfaced: {len(patterns_a)}")
-    assert len(patterns_a) == 0 or "No significant patterns observed" in ctx_a
-    print("  [PASS] Proto-theme (n=4) correctly suppressed.")
 
-    # Verify User B (5 items -> 1 visible)
-    comp_b = PersonalAICompanion(id_b)
-    ctx_b = comp_b._get_aggregated_context("check")
-    if header in ctx_b:
-        section = ctx_b.split(header)[1]
-        patterns_b = [l for l in section.split("\n") if l.strip().startswith("- ")]
-    else:
-        patterns_b = []
-
-    print(f"  - User B (Count 5) patterns surfaced: {len(patterns_b)}")
-    assert len(patterns_b) == 1
-    print("  [PASS] Genuine theme (n=5) correctly surfaced.")
-
-    print("\n=== SYSTEM SEALED & STABLE ===")
-
-if __name__ == "__main__":
-    try:
-        test_system_health_invariant()
-    except Exception as e:
-        print(f"\n[FAIL] Invariant Violation: {e}")
-        sys.exit(1)
+def test_five_are(test_user):
+    assert len(_surfaced_after_writing(test_user["id"], 5)) == 1

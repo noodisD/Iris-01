@@ -1147,7 +1147,6 @@ _ANALYSIS_KEY_MAP = {
     "minConfidence": "min_confidence",
     "maxItems": "max_items",
     "enabledEngines": "enabled_engines",
-    "showSuppressed": "show_suppressed",
 }
 
 def _analysis_to_contract(prefs: dict) -> dict:
@@ -1157,7 +1156,6 @@ def _analysis_to_contract(prefs: dict) -> dict:
         # null means "every engine", which is not the same as "none of them";
         # the UI needs to tell those apart to render the toggles.
         "enabledEngines": prefs.get("enabled_engines"),
-        "showSuppressed": bool(prefs.get("show_suppressed", False)),
         # The same set PATCH validates against. This used to be a second list,
         # frozen at the six engines of 2024: the owner could be shown a
         # two-year count and had no switch for it, and the observations engine

@@ -43,15 +43,16 @@ jobs:
 
       - run: uv sync --frozen
 
-      # Correctness rules only. F (pyflakes) catches undefined names and dead
-      # imports; two live NameErrors once survived three separate audits of this
-      # repository and both were F821. Style debt is reported but not gating.
-      - name: Lint (correctness rules are a hard gate)
-        run: uv run ruff check . --select F,E9
+      # The families that are clean, gating; tests/test_repo_hygiene.py holds the
+      # same list. F (pyflakes) caught two live NameErrors that survived three
+      # audits. The full ruleset used to run here as advisory-only — a step that
+      # could never fail, so nothing it said was ever read.
+      - name: Lint
+        run: uv run ruff check . --select F,E9,UP,C4,PIE,PGH,PYI,EXE
 
-      - name: Lint (full ruleset, advisory)
-        run: uv run ruff check . || true
-        continue-on-error: true
+      # Strict, on the modules listed in pyproject.toml. The list only grows.
+      - name: Types
+        run: uv run mypy
 
       - name: Tests
         run: uv run pytest -q
@@ -70,4 +71,5 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint      # tsc --noEmit
+      - run: npm test          # vitest: the sentences that are the product
       - run: npm run build

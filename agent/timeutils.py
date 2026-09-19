@@ -20,7 +20,7 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def to_utc(value) -> datetime | None:
+def to_utc(value: datetime | date | str | None) -> datetime | None:
     """Normalise a timestamp to an aware UTC datetime.
 
     Accepts aware and naive datetimes, dates, ISO-8601 strings and None. A

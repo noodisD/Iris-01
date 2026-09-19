@@ -77,14 +77,6 @@ class TensionEngine:
         baseline_start = baseline_end - timedelta(days=TENSION_BASELINE_DAYS)
         return recent_start, baseline_end, baseline_start
 
-    def _get_stability_time_windows(self):
-        """
-        Define time windows for stability calculation.
-        Uses weekly buckets for stability assessment.
-        """
-        # Stability windows use weekly buckets for consistent time slices
-        now = utc_now()
-        return now
 
     def _get_active_themes(self) -> list[dict]:
         """
@@ -385,16 +377,6 @@ class TensionEngine:
         else:
             return "intermittent"
 
-    def _calculate_confidence(self, cooccurrence_count: int, stability_score: float) -> str:
-        """
-        Calculate confidence level based on data sufficiency.
-        """
-        if cooccurrence_count < TENSION_MIN_COOCCURRENCE or stability_score < TENSION_MIN_STABILITY:
-            return "low"
-        elif cooccurrence_count < TENSION_MIN_COOCCURRENCE * 2:  # Arbitrary threshold
-            return "medium"
-        else:
-            return "high"
 
     def analyze_tension(self, theme_a_id: int, theme_b_id: int) -> dict:
         """
@@ -491,11 +473,6 @@ class TensionEngine:
 
         return result
 
-    def analyze_all_pairs(self) -> list[dict]:
-        """
-        Alias for analyze_all_tensions to maintain backward compatibility.
-        """
-        return self.analyze_all_tensions()
 
     def analyze_all_tensions(self, force_recompute: bool = False) -> list[dict]:
         """

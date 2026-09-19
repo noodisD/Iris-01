@@ -63,13 +63,6 @@ def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list
         logger.error(f"Failed to generate embedding (non-retryable): {e}")
         raise
 
-def extract_entities(text: str) -> dict:
-    """
-    A simple placeholder for extracting structured entities from raw text.
-    In a real app, this could be a call to a local NLP model or another LLM.
-    """
-    ideas = [line.strip().lstrip('- ') for line in text.split('\n') if line.strip().startswith('- ')]
-    return {"ideas": ideas}
 
 def _refresh_cross_theme_analyses(user_id: int) -> None:
     """Recompute leverage and decision impact for a user, into their caches.

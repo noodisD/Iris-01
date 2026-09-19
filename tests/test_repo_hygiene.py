@@ -14,15 +14,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_lint_correctness_rules_are_clean():
-    """ruff's F (pyflakes) and E9 (syntax) families: undefined names, unused
-    imports and variables, redefinitions. Not style — these are bugs or the
-    residue of one. Style rules are reported in CI but do not gate."""
+#: The ruff families that gate — the same selection CI runs. F (pyflakes) and E9
+#: (syntax) are bugs or their residue; the rest were already clean and are held
+#: there. The full ruleset used to run in CI as `|| true`: a red light painted
+#: green, which only teaches people to stop looking at lights. What gates is what
+#: can fail; a family joins when it is clean.
+GATING_RULES = "F,E9,UP,C4,PIE,PGH,PYI,EXE"
+
+
+def test_the_gating_lint_rules_are_clean():
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", ".", "--select", "F,E9", "--quiet"],
+        [sys.executable, "-m", "ruff", "check", ".", "--select", GATING_RULES, "--quiet"],
         cwd=ROOT, capture_output=True, text=True,
     )
-    assert result.returncode == 0, f"correctness lint failures:\n{result.stdout}{result.stderr}"
+    assert result.returncode == 0, f"lint failures:\n{result.stdout}{result.stderr}"
+
+
+def test_ci_gates_on_the_same_rules():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert f"--select {GATING_RULES}" in ci
+    assert "|| true" not in ci, "an advisory step that can never fail is not a check"
+
+
+def test_the_typed_modules_pass_mypy():
+    """The allow-list in pyproject.toml, checked strictly. A typechecker that
+    was configured and never run was a sticker."""
+    result = subprocess.run([sys.executable, "-m", "mypy"], cwd=ROOT,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, f"mypy:\n{result.stdout}{result.stderr}"
 
 
 def test_the_suite_can_run_without_a_funded_api_key():

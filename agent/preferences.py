@@ -25,7 +25,6 @@ class UserPreferencesService:
         "min_confidence": "medium",
         "max_items": 5,
         "enabled_engines": None, # All enabled
-        "show_suppressed": False
     }
 
     def __init__(self, user_id: int):
@@ -90,10 +89,6 @@ class UserPreferencesService:
                 for e in value:
                     if e not in SELECTABLE_ENGINES:
                         raise ValueError(f"Invalid engine name: {e}")
-
-        elif key == "show_suppressed":
-            if not isinstance(value, bool):
-                raise ValueError("show_suppressed must be a boolean")
 
         else:
             raise ValueError(f"Unknown setting: {key}")
