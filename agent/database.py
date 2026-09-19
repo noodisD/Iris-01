@@ -559,7 +559,7 @@ class Database:
 
     def finish_observation_run(self, run_id: int, status: str, passes_completed: int,
                                raw_observations, candidates_staged: int = 0,
-                               error: str = None) -> None:
+                               error: str = None, dropped: dict | None = None) -> None:
         """Close the record with what actually happened.
 
         `raw_observations` is the pre-merge output: the claims and verified
@@ -573,15 +573,18 @@ class Database:
                 """
                 UPDATE observation_runs
                    SET status = %s, passes_completed = %s, raw_observations = %s,
-                       candidates_staged = %s, error = %s, finished_at = NOW()
+                       candidates_staged = %s, error = %s, dropped = %s,
+                       finished_at = NOW()
                  WHERE id = %s;
                 """,
                 (status, passes_completed, Json(raw_observations) if raw_observations is not None else None,
-                 candidates_staged, error, run_id))
+                 candidates_staged, error, Json(dropped) if dropped is not None else None, run_id))
             conn.commit()
 
-    def record_run_candidates(self, run_id: int, staged: int) -> None:
-        """How many proposals a finished run put in front of the owner.
+    def record_run_candidates(self, run_id: int, staged: int, already_decided: int = 0,
+                              not_embedded: int = 0) -> None:
+        """How many proposals a finished run put in front of the owner, and how
+        many of its findings were held back at that last step.
 
         Separate from closing the run because staging happens afterwards: the
         reading is done and recorded before anything is promoted, so that a
@@ -590,9 +593,32 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE observation_runs SET candidates_staged = %s WHERE id = %s;",
-                (staged, run_id))
+                """UPDATE observation_runs
+                      SET candidates_staged = %s,
+                          dropped = COALESCE(dropped, '{}'::jsonb)
+                                    || jsonb_build_object('already_decided', %s::int,
+                                                          'not_embedded', %s::int)
+                    WHERE id = %s;""",
+                (staged, already_decided, not_embedded, run_id))
             conn.commit()
+
+    def get_latest_observation_run(self, user_id: int) -> dict | None:
+        """The most recent discovery run, as counts. Never a claim or a quote."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, status, started_at, finished_at, entries_read,
+                          passes_planned, passes_completed,
+                          COALESCE(jsonb_array_length(raw_observations), 0),
+                          candidates_staged, COALESCE(dropped, '{}'::jsonb)
+                     FROM observation_runs WHERE user_id = %s
+                    ORDER BY started_at DESC, id DESC LIMIT 1;""",
+                (user_id,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        keys = ("id", "status", "started_at", "finished_at", "entries_read", "passes_planned",
+                "passes_completed", "raw_findings", "candidates_staged", "dropped")
+        return dict(zip(keys, row, strict=True))
 
     def get_decided_proposal_keys(self, user_id: int) -> set:
         """Proposals the owner has already seen, whatever they decided.

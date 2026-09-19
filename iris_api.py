@@ -1342,6 +1342,41 @@ def list_constructs(status: str = "candidate", user_id: int = Depends(get_curren
     return {"constructs": constructs.candidates(user_id)}
 
 
+@app.get("/api/constructs/last-run")
+def last_discovery_run(user_id: int = Depends(get_current_user_id)):
+    """What the last archive read found and what it let go, as counts.
+
+    The support check fails closed, so a model that answers badly empties the
+    review screen. Without these numbers that looked exactly like an archive
+    with nothing to say. Counts only: no claim or quote leaves this route.
+    """
+    run = db.get_latest_observation_run(user_id)
+    if run is None:
+        return {"run": None}
+    dropped = {k: int(v) for k, v in (run["dropped"] or {}).items()}
+    return {"run": {
+        "status": run["status"],
+        "startedAt": _iso(run["started_at"]),
+        "finishedAt": _iso(run["finished_at"]),
+        "entriesRead": run["entries_read"],
+        "passesPlanned": run["passes_planned"],
+        "passesCompleted": run["passes_completed"],
+        "rawFindings": run["raw_findings"],
+        "staged": run["candidates_staged"],
+        "dropped": {
+            "mergedAway": dropped.get("merged_away", 0),
+            "unchecked": dropped.get("unchecked", 0),
+            "incomplete": dropped.get("incomplete", 0),
+            "denied": dropped.get("denied", 0),
+            "tooFewSupporting": dropped.get("too_few_supporting", 0),
+            "alreadyDecided": dropped.get("already_decided", 0),
+            "notEmbedded": dropped.get("not_embedded", 0),
+        },
+        # Runs before migration 0016 recorded no reasons at all.
+        "dropsRecorded": bool(dropped),
+    }}
+
+
 @app.post("/api/constructs/discover")
 def discover_constructs(body: DiscoverRequest, user_id: int = Depends(get_current_user_id)):
     """Read the whole archive and stage what was found, for review.

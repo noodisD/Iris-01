@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import {
-  confirmConstruct, discoverConstructs, listCandidates, rejectConstruct,
+  confirmConstruct, discoverConstructs, getLastRun, listCandidates, rejectConstruct,
 } from '@/api/constructs';
 
 /** Patterns awaiting a decision. Nothing here is measured until confirmed. */
@@ -9,6 +9,9 @@ export const useConstructCandidates = () => useQuery({
   queryKey: qk.constructs,
   queryFn: listCandidates,
 });
+
+/** What the last archive read found and let go, as counts. */
+export const useLastRun = () => useQuery({ queryKey: qk.lastRun, queryFn: getLastRun });
 
 /**
  * Reading the whole archive. This is the one action that sends the journal to
@@ -18,7 +21,11 @@ export function useDiscoverConstructs() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (includeStaged: boolean) => discoverConstructs(includeStaged),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: qk.constructs }); },
+    // Settled, not only succeeded: a read that failed part-way still leaves a run.
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: qk.constructs });
+      qc.invalidateQueries({ queryKey: qk.lastRun });
+    },
   });
 }
 

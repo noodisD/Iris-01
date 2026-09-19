@@ -17,6 +17,7 @@ Every entry below is invented.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, timedelta
 
 import pytest
@@ -202,3 +203,58 @@ def test_the_run_records_how_many_proposals_reached_the_owner(test_user, archive
     constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
                         include_staged=False)
     assert _runs(test_user["id"])[0]["staged"] == 1
+
+
+# --- and what it let go --------------------------------------------------------
+
+@pytest.fixture
+def client(test_user):
+    from fastapi.testclient import TestClient
+
+    from iris_api import app, get_current_user_id
+    app.dependency_overrides[get_current_user_id] = lambda: test_user["id"]
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+class DenyingModel(FakeModel):
+    """Reads as FakeModel does, and answers the support check with a denial."""
+
+    def chat(self, messages, system_prompt, **kwargs):
+        if is_support_check(system_prompt):
+            count = len(re.findall(r"^\[\d+\] ", messages[0]["content"], re.M))
+            return json.dumps({"quotes": [{"i": i, "verdict": "denies"} for i in range(count)]})
+        return super().chat(messages, system_prompt, **kwargs)
+
+
+def test_the_run_records_why_findings_were_dropped(test_user, archive):
+    constructs.discover(test_user["id"], intelligence=DenyingModel(_finding(archive)),
+                        include_staged=False)
+    run = db.get_latest_observation_run(test_user["id"])
+    assert run["raw_findings"] == 1
+    assert run["candidates_staged"] == 0
+    assert run["dropped"]["denied"] == 1
+    assert run["dropped"]["already_decided"] == 0
+
+
+def test_a_rerun_counts_what_the_owner_already_decided(test_user, archive):
+    first = constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                                include_staged=False)
+    constructs.reject(int(first[0]["id"]))
+    constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                        include_staged=False)
+    run = db.get_latest_observation_run(test_user["id"])
+    assert run["dropped"]["already_decided"] == 1
+    assert run["candidates_staged"] == 0
+
+
+def test_the_last_run_route_reports_counts_and_no_words(client, test_user, archive):
+    assert client.get("/api/constructs/last-run").json() == {"run": None}
+    constructs.discover(test_user["id"], intelligence=DenyingModel(_finding(archive)),
+                        include_staged=False)
+    body = client.get("/api/constructs/last-run").json()["run"]
+    assert body["rawFindings"] == 1 and body["staged"] == 0
+    assert body["dropped"]["denied"] == 1 and body["dropsRecorded"] is True
+    text = json.dumps(body)
+    for words in (CLAIM, QUOTE_ONE, QUOTE_TWO):
+        assert words not in text, "the route carries counts, never the writing"

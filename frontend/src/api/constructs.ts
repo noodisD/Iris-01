@@ -2,6 +2,7 @@
  * Constructs API — patterns IRIS noticed by reading, awaiting your decision.
  *   GET  /api/constructs?status=candidate  → { constructs }
  *   POST /api/constructs/discover          → { constructs }
+ *   GET  /api/constructs/last-run          → { run }  (counts only)
  *   POST /api/constructs/:id/confirm       → { id, status, occurrences }
  *   POST /api/constructs/:id/reject        → { id, status }
  *
@@ -10,7 +11,7 @@
  */
 
 import { api } from './client';
-import type { ConstructCandidate } from '@/types/api';
+import type { ConstructCandidate, DiscoveryRun } from '@/types/api';
 
 export async function listCandidates(): Promise<ConstructCandidate[]> {
   const body = await api.get<{ constructs: ConstructCandidate[] }>('/constructs?status=candidate');
@@ -29,4 +30,9 @@ export async function confirmConstruct(id: string): Promise<{ occurrences: numbe
 
 export async function rejectConstruct(id: string): Promise<{ status: string }> {
   return api.post(`/constructs/${id}/reject`, {});
+}
+
+export async function getLastRun(): Promise<DiscoveryRun | null> {
+  const body = await api.get<{ run: DiscoveryRun | null }>('/constructs/last-run');
+  return body.run;
 }

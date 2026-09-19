@@ -1,0 +1,13 @@
+-- 0016_run_drop_counts.sql
+--
+-- A discovery run recorded what it read and what it staged, and nothing about
+-- what it threw away in between. The support check (ADR-0016) fails closed: a
+-- finding it cannot check is dropped, so a model that returns broken JSON
+-- empties the review screen and the run looks exactly like an archive with
+-- nothing to say. The reasons were only ever in the log.
+--
+-- `dropped` holds the counts by reason, e.g.
+--   {"merged_away": 3, "unchecked": 0, "incomplete": 2, "denied": 1,
+--    "too_few_supporting": 1, "already_decided": 0}
+-- Counts only: never a claim or a quote.
+ALTER TABLE observation_runs ADD COLUMN IF NOT EXISTS dropped JSONB;

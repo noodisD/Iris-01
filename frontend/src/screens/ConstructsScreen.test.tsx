@@ -30,9 +30,11 @@ vi.mock('@/hooks/useConstructs', () => ({
   useConfirmConstruct: mutation,
   useRejectConstruct: mutation,
   useDiscoverConstructs: mutation,
+  useLastRun: () => ({ data: null }),
 }));
 
-import { ConstructsScreen } from './ConstructsScreen';
+import { ConstructsScreen, RunSummary } from './ConstructsScreen';
+import type { DiscoveryRun } from '@/types/api';
 
 describe('confirming a construct', () => {
   it('counts writing, and says it does not count actions', () => {
@@ -45,5 +47,34 @@ describe('confirming a construct', () => {
   it('says an undated recording is never counted', () => {
     render(<MemoryRouter><ConstructsScreen /></MemoryRouter>);
     expect(screen.getByText(/undated, so it is never counted/)).toBeInTheDocument();
+  });
+});
+
+describe('the last read', () => {
+  const run = (over: Partial<DiscoveryRun> = {}, dropped: Partial<DiscoveryRun['dropped']> = {}): DiscoveryRun => ({
+    status: 'complete', startedAt: '2026-09-19T20:00:00Z', finishedAt: '2026-09-19T20:05:00Z',
+    entriesRead: 180, passesPlanned: 6, passesCompleted: 6, rawFindings: 12, staged: 4,
+    dropped: { mergedAway: 3, unchecked: 1, incomplete: 3, denied: 1, tooFewSupporting: 0,
+               alreadyDecided: 0, notEmbedded: 0, ...dropped },
+    dropsRecorded: true, ...over,
+  });
+
+  it('says how many findings support could not be checked for', () => {
+    render(<RunSummary run={run()} />);
+    const line = screen.getByRole('status');
+    expect(line).toHaveTextContent('12 findings, 4 proposals.');
+    expect(line).toHaveTextContent('4 because support could not be checked');
+    expect(line).toHaveTextContent('1 because a quote denied the claim');
+    expect(line).not.toHaveTextContent('too few');
+  });
+
+  it('says when a read did not finish', () => {
+    render(<RunSummary run={run({ status: 'partial', passesCompleted: 4 })} />);
+    expect(screen.getByRole('status')).toHaveTextContent('4 of 6 passes finished.');
+  });
+
+  it('does not invent reasons for a read made before they were counted', () => {
+    render(<RunSummary run={run({ dropsRecorded: false }, { mergedAway: 0, unchecked: 0, incomplete: 0, denied: 0 })} />);
+    expect(screen.getByRole('status')).toHaveTextContent('before IRIS counted what it let go');
   });
 });

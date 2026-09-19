@@ -66,3 +66,15 @@ this ADR.
 Behaviour claims stay refused at confirmation until the support check has been
 shown to hold on the owner's own archive, not only on invented cases. Lifting
 that refusal is a decision to record here, not a flag to flip.
+
+## Amendment — 2026-09-19: what a run let go is recorded
+
+The support check fails closed, so a model that answers badly empties the
+review screen, and a run that lost its findings looked exactly like an archive
+with nothing to say. Each run now records, as counts in
+`observation_runs.dropped` (migration 0016), why findings did not become
+proposals: merged into another, support never answered (`unchecked`) or
+answered unreadably (`incomplete`), denied by a quote, too few supporting
+quotes, already decided by the owner, or not storable. The Constructs screen
+shows the last run's counts. They are how the support check's cost is judged
+— never a reason to turn an unanswered check into "supports".

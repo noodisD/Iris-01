@@ -46,6 +46,7 @@ import hashlib
 import json
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 
@@ -298,6 +299,10 @@ def synthesise(observations: list[Observation], intelligence) -> list[Observatio
     return out
 
 
+#: Why a finding read from the archive did not become a proposal, as recorded on
+#: its run. `already_decided` and `not_embedded` are added by constructs.discover.
+DROP_REASONS = ("merged_away", "unchecked", "incomplete", "denied", "too_few_supporting")
+
 SUPPORT_PROMPT = """You are checking one claim about a person's journal against quotes from it.
 
 The quotes are real: each was found word for word in the entry it came from. The
@@ -314,7 +319,8 @@ Return JSON only:
 {"quotes": [{"i": 0, "verdict": "supports"}]}"""
 
 
-def check_support(observations: list[Observation], intelligence) -> list[Observation]:
+def check_support(observations: list[Observation], intelligence,
+                  tally: Counter | None = None) -> list[Observation]:
     """Keep a finding only if its quotes are instances of it.
 
     A quote found verbatim proves the words exist, not that they support the
@@ -332,8 +338,14 @@ def check_support(observations: list[Observation], intelligence) -> list[Observa
 
     It fails closed. A finding whose support could not be checked is dropped:
     unlike an unmerged restatement, an unchecked claim on screen is not harmless.
+
+    `tally`, when given, counts every drop by reason, so a run that lost its
+    findings to a model's broken replies can be told from an archive with
+    nothing to say. Counts only; the claims stay in the log.
     """
+    tally = tally if tally is not None else Counter()
     if intelligence is None:
+        tally["unchecked"] += len(observations)
         return []
     kept: list[Observation] = []
     for obs in observations:
@@ -344,26 +356,37 @@ def check_support(observations: list[Observation], intelligence) -> list[Observa
                 system_prompt=SUPPORT_PROMPT,
                 max_tokens=OBSERVATION_MAX_TOKENS,
             )
+        except Exception as e:
+            logger.warning(f"Support could not be checked, finding dropped: {obs.claim[:60]} ({e})")
+            tally["unchecked"] += 1
+            continue
+        # Asked and answered badly is a different failure from never answered:
+        # one is the provider, the other is the prompt or the model.
+        try:
             verdicts = {int(v["i"]): str(v["verdict"])
                         for v in json.loads(_strip_fence(reply)).get("quotes") or []
                         if isinstance(v, dict)}
-        except Exception as e:
-            logger.warning(f"Support could not be checked, finding dropped: {obs.claim[:60]} ({e})")
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            logger.info(f"Support check reply unreadable, finding dropped: {obs.claim[:60]} ({e})")
+            tally["incomplete"] += 1
             continue
 
         if len(verdicts) != len(obs.citations) or not all(
                 verdicts.get(i) in ("supports", "denies", "mentions")
                 for i in range(len(obs.citations))):
             logger.info(f"Support check answered incompletely, finding dropped: {obs.claim[:60]}")
+            tally["incomplete"] += 1
             continue
         if any(v == "denies" for v in verdicts.values()):
             logger.info(f"A quote denies the claim, finding dropped: {obs.claim[:60]}")
+            tally["denied"] += 1
             continue
 
         supporting = tuple(c for i, c in enumerate(obs.citations) if verdicts[i] == "supports")
         if (len(supporting) < OBSERVATION_MIN_CITATIONS
                 or len({c.key for c in supporting}) < OBSERVATION_MIN_ENTRIES_CITED):
             logger.info(f"Too few quotes support the claim, finding dropped: {obs.claim[:60]}")
+            tally["too_few_supporting"] += 1
             continue
 
         span = (obs.span_end - obs.span_start).days if obs.span_start and obs.span_end else 0
@@ -463,8 +486,10 @@ class ObservationEngine:
         # another read.
         raw = [o.as_dict() for o in found]
 
-        merged = check_support(synthesise(consolidate(found), self.intelligence),
-                               self.intelligence)
+        joined = synthesise(consolidate(found), self.intelligence)
+        dropped: Counter = Counter(dict.fromkeys(DROP_REASONS, 0))
+        dropped["merged_away"] = len(found) - len(joined)
+        merged = check_support(joined, self.intelligence, tally=dropped)
 
         if completed == 0:
             status = "failed"
@@ -474,10 +499,12 @@ class ObservationEngine:
             status = "complete"
         db.finish_observation_run(
             run_id=run_id, status=status, passes_completed=completed,
-            raw_observations=raw, error="; ".join(failures) or None)
+            raw_observations=raw, error="; ".join(failures) or None,
+            dropped=dict(dropped))
         logger.info(
             f"Run {run_id}: {status}, {completed}/{len(chunks)} passes, "
-            f"{len(found)} raw finding(s) -> {len(merged)} after merging")
+            f"{len(found)} raw finding(s) -> {len(merged)} after merging and the "
+            f"support check; dropped {dict(dropped)}")
         return merged, run_id
 
     # --- prompt ------------------------------------------------------------

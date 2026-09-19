@@ -211,16 +211,19 @@ def discover(user_id: int, intelligence=None, include_staged: bool = True) -> li
     # mean something the next run respects, or rejection is only a way of
     # clearing the screen until someone presses the button.
     already_decided = db.get_decided_proposal_keys(user_id)
-    staged = skipped = 0
+    staged = skipped = not_embedded = 0
     for observation in observations:
         if proposal_key(observation) in already_decided:
             skipped += 1
             continue
         if promote(user_id, observation, run_id=run_id) is not None:
             staged += 1
+        else:
+            not_embedded += 1
 
     if run_id is not None:
-        db.record_run_candidates(run_id, staged)
+        db.record_run_candidates(run_id, staged, already_decided=skipped,
+                                 not_embedded=not_embedded)
     logger.info(
         f"Discovery staged {staged} candidate(s) for user {user_id}, "
         f"{skipped} already decided")

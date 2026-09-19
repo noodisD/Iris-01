@@ -178,6 +178,25 @@ export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
 
 /** A pattern IRIS noticed by reading, waiting for you to confirm or reject it.
  *  Nothing here is measured by any engine until it is confirmed. */
+/** The last archive read, as counts: what it found and why the rest was let go.
+ *  Never a claim or a quote. */
+export interface DiscoveryRun {
+  status: 'running' | 'complete' | 'partial' | 'failed';
+  startedAt: ISODateTime;
+  finishedAt: ISODateTime | null;
+  entriesRead: number;
+  passesPlanned: number;
+  passesCompleted: number;
+  rawFindings: number;
+  staged: number;
+  dropped: {
+    mergedAway: number; unchecked: number; incomplete: number; denied: number;
+    tooFewSupporting: number; alreadyDecided: number; notEmbedded: number;
+  };
+  /** False for runs made before drops were recorded. */
+  dropsRecorded: boolean;
+}
+
 export interface ConstructCandidate {
   id: ID;
   /** The claim, in the reader's words. */

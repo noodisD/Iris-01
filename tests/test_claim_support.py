@@ -162,3 +162,33 @@ def test_the_reader_drops_a_finding_its_own_quotes_deny(test_user):
             ]}]})
 
     assert ObservationEngine(test_user["id"], intelligence=Reader()).read() == []
+
+
+# --- every drop is counted, by reason ----------------------------------------------
+
+def test_each_reason_a_finding_is_dropped_is_counted():
+    """Fail closed must not look like "nothing to say". A run that lost its
+    findings to broken replies has to be distinguishable from one that found
+    nothing, so each drop is counted under its reason."""
+    from collections import Counter
+
+    two = ("went all in on the opening", "doubled down on the one I was sure of")
+    cases = [
+        (Verdicts(fail=True), "unchecked"),
+        (Verdicts(reply="not json"), "incomplete"),
+        (Verdicts("supports"), "incomplete"),           # one verdict for two quotes
+        (Verdicts("supports", "denies"), "denied"),
+        (Verdicts("supports", "mentions"), "too_few_supporting"),
+    ]
+    for model, reason in cases:
+        tally = Counter()
+        assert check_support([_obs(*two)], model, tally=tally) == []
+        assert tally == Counter({reason: 1}), (reason, tally)
+
+    tally = Counter()
+    assert len(check_support([_obs(*two)], Verdicts("supports", "supports"), tally=tally)) == 1
+    assert tally == Counter(), "a kept finding is not a drop"
+
+    tally = Counter()
+    assert check_support([_obs(*two), _obs(*two)], None, tally=tally) == []
+    assert tally == Counter({"unchecked": 2}), "no model means nothing was checked"

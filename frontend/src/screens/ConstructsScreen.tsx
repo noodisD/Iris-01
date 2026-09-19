@@ -1,11 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  useConfirmConstruct, useConstructCandidates, useDiscoverConstructs, useRejectConstruct,
+  useConfirmConstruct, useConstructCandidates, useDiscoverConstructs, useLastRun, useRejectConstruct,
 } from '@/hooks/useConstructs';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import { formatEventDate, DAY_LONG } from '@/lib/dates';
-import type { ConstructCandidate } from '@/types/api';
+import type { ConstructCandidate, DiscoveryRun } from '@/types/api';
 
 function Candidate({ c }: { c: ConstructCandidate }) {
   const confirm = useConfirmConstruct();
@@ -77,9 +77,41 @@ function Candidate({ c }: { c: ConstructCandidate }) {
   );
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * What the last read found and why the rest was let go. The support check
+ * fails closed, so a model that answers badly empties this screen; without
+ * these counts that looked exactly like an archive with nothing to say.
+ */
+export function RunSummary({ run }: { run: DiscoveryRun }) {
+  const d = run.dropped;
+  const unchecked = d.unchecked + d.incomplete;
+  const letGo = [
+    d.mergedAway && `${d.mergedAway} merged into another`,
+    unchecked && `${unchecked} because support could not be checked`,
+    d.denied && `${d.denied} because a quote denied the claim`,
+    d.tooFewSupporting && `${d.tooFewSupporting} with too few supporting quotes`,
+    d.alreadyDecided && `${d.alreadyDecided} you had already decided on`,
+    d.notEmbedded && `${d.notEmbedded} that could not be stored`,
+  ].filter(Boolean) as string[];
+
+  return (
+    <div role="status" style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+      <span className="kicker" style={{ marginRight: 8 }}>last read</span>
+      {plural(run.rawFindings, 'finding')}, {plural(run.staged, 'proposal')}.
+      {run.status !== 'complete' && ` ${run.passesCompleted} of ${run.passesPlanned} passes finished.`}
+      {run.dropsRecorded
+        ? letGo.length > 0 && ` Let go: ${letGo.join(', ')}.`
+        : ' This read was made before IRIS counted what it let go.'}
+    </div>
+  );
+}
+
 export function ConstructsScreen() {
   const { data, isPending, isError, refetch } = useConstructCandidates();
   const discover = useDiscoverConstructs();
+  const { data: lastRun } = useLastRun();
   const [includeStaged, setIncludeStaged] = React.useState(true);
 
   if (isPending) return <LoadingState label="Iris is fetching what she noticed…" />;
@@ -110,6 +142,8 @@ export function ConstructsScreen() {
           </span>
         </div>
       </header>
+
+      {lastRun && <RunSummary run={lastRun} />}
 
       {discover.isError && (
         <div style={{ padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12, color: 'var(--ink-2)' }}>
