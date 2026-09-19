@@ -86,7 +86,10 @@ class NarrativeFormatter:
             "target_name": ins.get('target_summary') or ins.get('theme_b_summary') or "Related Pattern",
             "metric_value": ins.get('occurrence_count') or ins.get('delta_score') or 0,
             "label": NarrativeFormatter._sanitize_label(ins),
-            "time_window": NarrativeFormatter._get_time_description(ins)
+            "time_window": NarrativeFormatter._get_time_description(ins),
+            # How much of the count cannot be placed in time. Zero for every
+            # engine that has no such notion, which is all of them but one.
+            "undated_count": ins.get('undated_occurrences', 0),
         }
         return data
 

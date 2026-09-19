@@ -160,6 +160,26 @@ def test_an_undated_finding_is_not_described_as_recent(test_user):
     assert "no date" in rendered
 
 
+def test_a_partly_dated_theme_is_not_described_as_wholly_undated(test_user):
+    """The live error this caught. Theme 39 had ten undated occurrences and two
+    dated ones — too few to carry a span, so it took the undated phrasing, which
+    then reported all twelve as coming from writing that carries no date. Two of
+    them did not. A count and a claim about where it came from are two
+    measurements, and this is what merging them looks like (ADR-0009).
+    """
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 2, dated=True, start_days_ago=400, every=2)
+    _occur(theme_id, 10, dated=False, offset=100)
+
+    found = LifelongEngine(test_user["id"]).analyze_theme(db.get_theme_by_id(theme_id))
+    rendered = NarrativeFormatter.format_insight({**found, "engine_name": "lifelong"})
+
+    assert found["occurrence_count"] == 12
+    assert found["undated_occurrences"] == 10
+    assert found["dated_occurrences"] == 2
+    assert "12 times, 10 of them" in rendered, rendered
+
+
 def test_undated_occurrences_are_not_added_to_a_dated_count(test_user):
     """A span covers the dated occurrences only. Quoting a larger number beside
     it would claim the rest fell inside it (ADR-0009)."""
@@ -182,6 +202,59 @@ def test_a_short_dated_burst_is_still_skipped(test_user):
 
     assert LifelongEngine(test_user["id"]).analyze_theme(
         db.get_theme_by_id(theme_id)) is None
+
+
+# --- discovery must not date what it clusters -----------------------------------
+
+def test_clustering_undated_entries_does_not_date_them(test_user, process_queue):
+    """The leak this test exists for reached live data.
+
+    Discovery built its entry list with `item.get("occurred_at") or
+    item["created_at"]` — invisible while every entry had a date, and the moment
+    undated ones existed it dated four of them to the second they were embedded.
+    Two themes then recorded a span beginning today for writing that has no date
+    at all, which on any screen reads as "you wrote this this morning".
+
+    The same `or` had already been removed from one query; it was still in the
+    other. So this asserts the property rather than the line: nothing undated
+    comes out of clustering with a date.
+    """
+    service = ReflectionService(test_user["id"])
+    for i in range(6):
+        service.create_reflection(
+            content=f"{RECORDING} Certain about the gambit again, recording {i}.",
+            undated=True)
+    process_queue()
+
+    from agent.persistence import PersistenceEngine
+    PersistenceEngine(test_user["id"]).discover_themes()
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT COUNT(*) FROM theme_occurrences o
+                         JOIN reflections r ON r.id = o.source_id
+                        WHERE o.source_type = 'reflection' AND r.user_id = %s
+                          AND r.reflection_date IS NULL
+                          AND o.occurred_at IS NOT NULL;""", (test_user["id"],))
+        assert cur.fetchone()[0] == 0, "an undated entry acquired a date"
+
+
+def test_a_theme_built_only_from_undated_writing_claims_no_span(test_user, process_queue):
+    service = ReflectionService(test_user["id"])
+    for i in range(6):
+        service.create_reflection(
+            content=f"{RECORDING} Certain about the gambit again, recording {i}.",
+            undated=True)
+    process_queue()
+
+    from agent.persistence import PersistenceEngine
+    PersistenceEngine(test_user["id"]).discover_themes()
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT COUNT(*) FROM themes
+                        WHERE user_id = %s AND occurrence_count > 0;""",
+                    (test_user["id"],))
+        dated_themes = cur.fetchone()[0]
+    assert dated_themes == 0, "no theme may report dated occurrences here"
 
 
 # --- resolving the absence later -----------------------------------------------

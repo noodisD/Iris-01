@@ -34,7 +34,13 @@ NARRATIVE_TEMPLATES = {
     # It says where the number came from instead.
     "lifelong": {
         "default": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}; its occurrences were {label}.",
-        "undated": "The pattern '{pattern_name}' appeared {metric_value} times in writing that carries no date, so no span is given.",
+        # Says how many of the occurrences are undated, not that all of them
+        # are. A theme with ten undated occurrences and two dated ones reaches
+        # this phrasing because two cannot carry a span — and "appeared 12
+        # times in writing that carries no date" would be false about two of
+        # them. A count and a claim about where it came from are two
+        # measurements (ADR-0009).
+        "undated": "The pattern '{pattern_name}' appeared {metric_value} times, {undated_count} of them in writing that carries no date; no span is given.",
     },
 }
 

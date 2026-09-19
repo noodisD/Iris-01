@@ -213,9 +213,15 @@ class PersistenceEngine:
             entries.append({
                 "source_type": item["source_type"],
                 "source_id": item["source_id"],
-                # The event time, not the embedding time. `.get` covers callers
-                # that predate the field; the repository always supplies it.
-                "occurred_at": item.get("occurred_at") or item["created_at"],
+                # The event time, not the embedding time — and no fallback
+                # between them. This read `... or item["created_at"]`, which
+                # was invisible while every entry had a date and, the moment
+                # undated ones existed, dated four of them to the second they
+                # were embedded: two clustered themes then recorded a span
+                # starting today for writing with no date at all. That is the
+                # substitution ADR-0013 forbids, arriving as a default. None
+                # stays None and the cluster simply contributes no bound.
+                "occurred_at": item.get("occurred_at"),
             })
 
         vectors_array = np.array(vectors, dtype=np.float32)
