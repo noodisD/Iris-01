@@ -137,6 +137,9 @@ class EmbeddingRepository(Repository):
     def get_evidence_style(self, user_id: int) -> tuple:
         return self.db.get_evidence_style(user_id)
 
+    def is_still_processing(self, source_type: str, source_id: int) -> bool:
+        return self.db.is_still_processing(source_type, source_id)
+
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         return self.db.get_content_for_source(source_type, source_id)
 

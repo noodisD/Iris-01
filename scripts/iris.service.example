@@ -35,7 +35,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/home/noodis/Iris-01/logs
+# data/ holds imports and recordings; with only logs/ writable, every import
+# and voice note failed under this unit.
+ReadWritePaths=/home/noodis/Iris-01/logs /home/noodis/Iris-01/data
 
 [Install]
 WantedBy=multi-user.target

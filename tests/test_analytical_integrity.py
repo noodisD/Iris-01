@@ -638,7 +638,10 @@ def test_theme_stats_are_derived_from_occurrences_not_incremented():
 
     from agent.database import Database
 
-    sql = inspect.getsource(Database.update_theme_stats)
+    # Every writer recounts through one helper now; the SQL lives there.
+    sql = (inspect.getsource(Database.update_theme_stats)
+           + inspect.getsource(Database._recompute_theme_stats))
+    assert "_recompute_theme_stats" in inspect.getsource(Database.update_theme_stats)
     assert "occurrence_count + 1" not in sql, (
         "an upserted occurrence must not increment a counter"
     )

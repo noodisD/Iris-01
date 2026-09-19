@@ -109,7 +109,7 @@ def test_ultimate_end_to_end_flow(test_user, mock_pipeline, journalled_recently)
     TrajectoryEngine(user_id).analyze_all_themes()
     TensionEngine(user_id).analyze_all_tensions()
     ResolutionEngine(user_id).analyze_all_themes()
-    LeverageEngine(user_id).analyze_all_leverage(force_recompute=True)
+    LeverageEngine(user_id).analyze_all_leverage()
     DecisionImpactEngine(user_id).analyze_all_anchors()
     report.add_stage("Analytical Execution", time.time() - t1)
 

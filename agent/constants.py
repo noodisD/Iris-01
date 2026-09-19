@@ -61,6 +61,10 @@ RESOLUTION_MIN_DATA_POINTS = 3      # Minimum occurrences to even attempt classi
 # therefore only good for a day; without this, a non-null computation timestamp
 # counted as fresh forever and a 2020 verdict could be served in 2026.
 RESOLUTION_CACHE_TTL_HOURS = 24
+# The same bound for a theme's stored confidence, which was reused forever once
+# written: recency is one of its components, so the same evidence scores
+# differently tomorrow, and a record that is never recomputed stops describing it.
+CONFIDENCE_CACHE_TTL_HOURS = 24
 
 # Leverage Engine Configuration
 LEVERAGE_WINDOW_DAYS = 60          # Timeframe to analyze influence (last 2 months)

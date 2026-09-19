@@ -288,6 +288,12 @@ def scan(theme_id: int) -> int:
     memberships = _memberships(theme_id)
     if memberships is None:
         return 0
+    # A re-measure replaces what it measured. Adding on top kept every entry
+    # that had ever matched, including ones that no longer do. The owner's
+    # cited entries are always in the new set, so they are never among those
+    # removed.
+    db.remove_theme_occurrences_except(
+        theme_id, {(o["source_type"], o["source_id"]) for o in memberships})
     for occ in memberships:
         db.add_theme_occurrence(
             theme_id=theme_id,
@@ -296,6 +302,9 @@ def scan(theme_id: int) -> int:
             snippet=occ["snippet"],
             similarity_score=occ["similarity_score"],
             occurred_at=occ["occurred_at"],
+            # Passed through: left to its default, the upsert rewrote every
+            # entry the owner vouched for as a detector's similarity match.
+            admission_basis=occ["admission_basis"],
         )
     db.update_theme_stats(theme_id)
     return len(memberships)

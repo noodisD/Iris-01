@@ -47,7 +47,7 @@ class LeverageEngine:
         """Buffers evidence for later persistence."""
         self._evidence.append({"type": ev_type, "key": key, "value": value})
 
-    def analyze_all_leverage(self, force_recompute: bool = False) -> list[dict]:
+    def analyze_all_leverage(self) -> list[dict]:
         """
         Performs a global scan for leverage relationships among recent/active themes.
         """

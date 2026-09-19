@@ -86,7 +86,7 @@ def test_final_system_regression_deterministic(test_user, freeze_time, mock_llm,
     # Analysis
     TrajectoryEngine(user_id).analyze_all_themes()
     ResolutionEngine(user_id).analyze_all_themes()
-    LeverageEngine(user_id).analyze_all_leverage(force_recompute=True)
+    LeverageEngine(user_id).analyze_all_leverage()
     DecisionImpactEngine(user_id).analyze_all_anchors()
 
     # Core

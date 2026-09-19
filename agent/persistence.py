@@ -12,7 +12,7 @@ The engine does not judge. It simply surfaces persistence.
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # Attempt to import sklearn, but handle gracefully if unavailable
@@ -29,6 +29,7 @@ from .comparison import ComparisonSpace
 from .confidence import ConfidenceEngine
 from .timeutils import to_utc, utc_now
 from .constants import (
+    CONFIDENCE_CACHE_TTL_HOURS,
     PERSISTENCE_MATCH_THRESHOLD,
     PERSISTENCE_MIN_CLUSTER_SIZE,
 )
@@ -64,6 +65,19 @@ def cosine_similarity_manual(vec1, vec2):
     return similarity
 
 logger = logging.getLogger(__name__)
+
+def confidence_is_fresh(conf: dict | None) -> bool:
+    """Whether a stored theme confidence can still be served.
+
+    Missing, explicitly invalidated (a null timestamp), or older than
+    CONFIDENCE_CACHE_TTL_HOURS means recompute. It used to be served for as long
+    as a timestamp existed at all.
+    """
+    if not conf or conf.get("last_computed_at") is None:
+        return False
+    age = utc_now() - to_utc(conf["last_computed_at"])
+    return age <= timedelta(hours=CONFIDENCE_CACHE_TTL_HOURS)
+
 
 def entry_snippet(source_type: str, source_id: int, max_length: int = 200) -> str:
     """The owner's own words from an entry, for quoting back to them.
@@ -602,7 +616,7 @@ Subject:"""
                 continue # Skip this theme, it's dormant or noise
 
             # If confirmed, proceed to confidence
-            if not conf or conf.get('last_computed_at') is None:
+            if not confidence_is_fresh(conf):
                 conf = self._store_theme_confidence(t['id'], timestamps, source_types)
 
             # `confidence_level` is the key the pipeline's admission gate reads.

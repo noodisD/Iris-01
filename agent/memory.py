@@ -11,7 +11,7 @@ import logging
 
 # Import the new architecture's components
 from .database import journals
-from .work_queue import enqueue
+from .work_queue import notify
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +61,9 @@ class ConversationMemory:
 
             self.history.append({"role": role, "content": content})
 
-            # The message is durable regardless; embedding is queued so it
-            # actually does retry later rather than only claiming to.
-            enqueue('message', message_id, self.user_id)
+            # Queued in the same commit as the message (Database._queue);
+            # this only asks the worker to look now.
+            notify()
 
         except Exception as e:
             logger.error(f"Failed to save message for user {self.user_id}: {e}")

@@ -40,23 +40,35 @@ WORKER_POLL_SECONDS = 30
 
 
 def enqueue(source_type: str, source_id: int, user_id: int) -> None:
-    """Register work to be done. Safe to call twice for the same source."""
+    """Queue work that is not itself a write of evidence, and ask for a pass.
+
+    Evidence is queued by the database writer that stores it, in the same
+    transaction (Database._queue), so an entry and its job cannot be separated
+    by a crash. This remains for jobs with no such writer — transcription — and
+    uses the same statement, generation bump included.
+    """
     try:
         with db.connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO processing_queue (user_id, source_type, source_id)
-                   VALUES (%s, %s, %s)
-                   ON CONFLICT (source_type, source_id) DO NOTHING;""",
-                (user_id, source_type, source_id),
-            )
+            db._queue(cur, user_id, source_type, source_id)
             conn.commit()
     except Exception as e:
-        # The entry itself is already stored; failing to queue must not fail the
-        # write. This is the one loss this module cannot prevent, so it is loud.
         logger.error(
             f"Could not enqueue {source_type} {source_id} for user {user_id}: {e}. "
             "This item will not become evidence until it is re-queued."
         )
+        return
+    notify()
+
+
+def notify() -> None:
+    """Ask the worker for a pass now, after a write has committed its job.
+
+    Only imports and recordings used to wake it, so a habit ticked or an entry
+    written in the app waited up to WORKER_POLL_SECONDS to become evidence —
+    unless something else happened to be imported in the meantime. A no-op when
+    no worker runs (tests, the CLI drain explicitly).
+    """
+    worker.wake()
 
 
 def _claim_due(limit: int) -> list[dict]:
@@ -73,21 +85,31 @@ def _claim_due(limit: int) -> list[dict]:
                    FOR UPDATE SKIP LOCKED
                    LIMIT %s
                )
-               RETURNING id, user_id, source_type, source_id, attempts;""",
+               RETURNING id, user_id, source_type, source_id, attempts, generation;""",
             (LEASE_SECONDS, MAX_ATTEMPTS, limit),
         )
         rows = cur.fetchall()
         conn.commit()
     return [
         {"id": r[0], "user_id": r[1], "source_type": r[2],
-         "source_id": r[3], "attempts": r[4]}
+         "source_id": r[3], "attempts": r[4], "generation": r[5]}
         for r in rows
     ]
 
 
-def _succeed(item_id: int) -> None:
+def _succeed(item_id: int, generation: int) -> None:
+    """Retire a job — only if the source is still the version it ran on.
+
+    If the source was edited while the job ran, the generation moved on and the
+    row stays, re-armed to run now: the edit is processed rather than lost with
+    the job that read the old text.
+    """
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM processing_queue WHERE id = %s;", (item_id,))
+        cur.execute("DELETE FROM processing_queue WHERE id = %s AND generation = %s;",
+                    (item_id, generation))
+        if cur.rowcount == 0:
+            cur.execute("UPDATE processing_queue SET next_attempt_at = NOW() WHERE id = %s;",
+                        (item_id,))
         conn.commit()
 
 
@@ -141,7 +163,7 @@ def process_due(limit: int = 20) -> tuple[int, int]:
     for item in _claim_due(limit):
         try:
             _run(item["source_type"], item["source_id"])
-            _succeed(item["id"])
+            _succeed(item["id"], item["generation"])
             succeeded += 1
         except Exception as e:
             failed += 1

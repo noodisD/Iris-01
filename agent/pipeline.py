@@ -125,16 +125,19 @@ def run_processing_pipeline(source_type: str, source_id: int):
             source_type, status='processing', limit=1, source_id=source_id
         )
         if not item:
-            logger.warning(f"Could not find {source_type} ID {source_id} to process.")
-            return
+            # Not success. This used to log and return, and the queue retired
+            # the job as done: an entry it could not find was never processed
+            # and nothing said so. A deleted entry takes its job with it, so a
+            # missing source here is an anomaly, and it is retried and then
+            # parked where it can be seen.
+            raise LookupError(f"{source_type} {source_id} could not be found to process")
 
         item_data = item[0]
         if item_data["id"] != source_id:
-            logger.error(
+            raise LookupError(
                 f"Refusing to process {source_type} {source_id}: fetched row "
                 f"{item_data['id']}. Aborting rather than mis-attributing content."
             )
-            return
         content = item_data['content']
         user_id = item_data['user_id']
         occurred_at = item_data['occurred_at']
@@ -155,6 +158,16 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # entries by format rather than by what they say (ADR-0014). The stored
         # entry keeps them.
         embedding = generate_embedding(strip_prompt_labels(content).strip() or content, model=model_name)
+
+        # The text may have been edited while it was being embedded. An edit
+        # resets the status and re-queues the entry, so if this run's claim is
+        # gone it stops here: writing now would store an embedding, and match
+        # themes, for words that no longer exist. The queue re-runs the job on
+        # the new text (work_queue._succeed).
+        if not embeddings.is_still_processing(source_type, source_id):
+            logger.info(f"{source_type} {source_id} changed while being processed; "
+                        "leaving it to the re-queued run")
+            return
 
         # 4. Store the canonical embedding in PostgreSQL
         embeddings.add_embedding(source_type, source_id, model_name, embedding)

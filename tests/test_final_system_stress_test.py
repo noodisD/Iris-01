@@ -85,7 +85,7 @@ def test_final_system_integrated_flow(test_user, mock_pipeline_logic, journalled
     TrajectoryEngine(user_id).analyze_all_themes()
     TensionEngine(user_id).analyze_all_tensions()
     ResolutionEngine(user_id).analyze_all_themes()
-    LeverageEngine(user_id).analyze_all_leverage(force_recompute=True)
+    LeverageEngine(user_id).analyze_all_leverage()
     DecisionImpactEngine(user_id).analyze_all_anchors()
 
     logger.info("--- PHASE 3: VERIFYING DATA & EVIDENCE INTEGRITY ---")

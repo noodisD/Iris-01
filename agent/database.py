@@ -238,6 +238,9 @@ class Database:
                     (user_id, session_id, role, content)
                 )
                 message_id = cur.fetchone()[0]
+                # Embedded for recall, never clustered (ADR-0003); queued here so
+                # the message and its job commit together.
+                self._queue(cur, user_id, 'message', message_id)
                 conn.commit()
                 return message_id
             except Exception as e:
@@ -356,6 +359,26 @@ class Database:
                 conn.rollback()
                 logger.error(f"Failed to update processing status for {source_type} ID {source_id}: {e}")
                 raise
+
+    def is_still_processing(self, source_type: str, source_id: int) -> bool:
+        """Whether a source is still in the state the running job put it in.
+
+        An edit resets a reflection to 'pending'. A run that read the old text
+        checks this before writing anything derived from it, so it stops
+        instead of storing an embedding of words that no longer exist.
+        """
+        table, id_col = {
+            'journal_entry': ('journal_entries', 'id'),
+            'message': ('conversation_messages', 'id'),
+            'reflection': ('reflections', 'id'),
+            'habit': ('habits', 'id'),
+            'habit_completion': ('habit_completions', 'id'),
+        }[source_type]
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT processing_status FROM {table} WHERE {id_col} = %s;",
+                        (source_id,))
+            row = cur.fetchone()
+            return bool(row) and row[0] == 'processing'
 
     def get_items_to_process(self, source_type: str, status: str = 'pending', limit: int = 10,
                              source_id: int = None) -> list:
@@ -718,6 +741,55 @@ class Database:
                 }
             return None
 
+    @staticmethod
+    def _queue(cur, user_id: int, source_type: str, source_id: int) -> None:
+        """Queue a source for processing inside the caller's transaction.
+
+        The row that says "turn this into evidence" used to be written on a
+        second connection after the entry had committed, with its failure
+        logged and swallowed — so a crash or a dropped connection between the
+        two left an entry the journal showed and every engine was blind to, and
+        nothing in the queue to say so. Written in the same commit, the entry
+        and its job exist together or not at all (ADR-0011).
+
+        Queueing a source that is already queued bumps its generation: a run in
+        flight for the old version must not retire the row (migration 0013).
+        """
+        cur.execute(
+            """INSERT INTO processing_queue (user_id, source_type, source_id)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (source_type, source_id) DO UPDATE
+                  SET generation = processing_queue.generation + 1,
+                      attempts = 0, last_error = NULL;""",
+            (user_id, source_type, source_id))
+
+    @staticmethod
+    def _recompute_theme_stats(cur, theme_id: int) -> None:
+        """A theme's counts and span, derived from the occurrences it has.
+
+        The dated count, the undated count beside it, and a span taken from
+        dated occurrences only; when none are dated the stored span keeps its
+        value and `span_is_undated` says that value means nothing. A theme with
+        no occurrences left counts zero — a deletion is reflected, not
+        remembered — and keeps whatever span flag it had, so an unconfirmed
+        construct's review span is not rewritten by an empty recount.
+        """
+        cur.execute(
+            """UPDATE themes t
+                  SET occurrence_count = agg.dated,
+                      undated_occurrence_count = agg.undated,
+                      first_seen_at = COALESCE(agg.min_at, t.first_seen_at),
+                      last_seen_at = COALESCE(agg.max_at, t.last_seen_at),
+                      span_is_undated = CASE WHEN agg.n = 0 THEN t.span_is_undated
+                                             ELSE agg.min_at IS NULL END
+                 FROM (SELECT COUNT(*) n,
+                              COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) dated,
+                              COUNT(*) FILTER (WHERE occurred_at IS NULL) undated,
+                              MIN(occurred_at) min_at, MAX(occurred_at) max_at
+                         FROM theme_occurrences WHERE theme_id = %s) agg
+                WHERE t.id = %s;""",
+            (theme_id, theme_id))
+
     def update_theme_stats(self, theme_id: int, last_seen_at: str = None):
         """Recompute a theme's aggregates from the occurrences it actually has.
 
@@ -747,27 +819,7 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                cur.execute(
-                    """
-                    UPDATE themes
-                    SET occurrence_count = agg.dated,
-                        undated_occurrence_count = agg.undated,
-                        first_seen_at = COALESCE(agg.min_at, themes.first_seen_at),
-                        last_seen_at = COALESCE(agg.max_at, themes.last_seen_at),
-                        span_is_undated = (agg.min_at IS NULL)
-                    FROM (
-                        SELECT COUNT(*) AS n,
-                               COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) AS dated,
-                               COUNT(*) FILTER (WHERE occurred_at IS NULL) AS undated,
-                               MIN(occurred_at) AS min_at,
-                               MAX(occurred_at) AS max_at
-                        FROM theme_occurrences
-                        WHERE theme_id = %s
-                    ) agg
-                    WHERE themes.id = %s AND agg.n > 0;
-                    """,
-                    (theme_id, theme_id)
-                )
+                self._recompute_theme_stats(cur, theme_id)
                 conn.commit()
             except psycopg2.Error as e:
                 conn.rollback()
@@ -876,6 +928,25 @@ class Database:
                 logger.error(f"Failed to add theme occurrence: {e}")
                 raise
 
+    def remove_theme_occurrences_except(self, theme_id: int, keep: set) -> int:
+        """Remove a theme's occurrences other than `keep`, a set of
+        (source_type, source_id). Returns how many went."""
+        keys = [f"{t}:{i}" for t, i in keep]
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """DELETE FROM theme_occurrences
+                        WHERE theme_id = %s
+                          AND NOT (source_type || ':' || source_id = ANY(%s));""",
+                    (theme_id, keys))
+                removed = cur.rowcount
+                conn.commit()
+                return removed
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to prune occurrences of theme {theme_id}: {e}")
+                raise
+
     def set_theme_status(self, theme_id: int, status: str) -> None:
         """Confirm or reject a construct.
 
@@ -982,20 +1053,7 @@ class Database:
                     """UPDATE themes SET status = 'active', confirmed_at = NOW()
                         WHERE id = %s;""",
                     (theme_id,))
-                cur.execute(
-                    """UPDATE themes t
-                          SET occurrence_count = agg.dated,
-                              undated_occurrence_count = agg.undated,
-                              first_seen_at = COALESCE(agg.min_at, t.first_seen_at),
-                              last_seen_at = COALESCE(agg.max_at, t.last_seen_at),
-                              span_is_undated = (agg.min_at IS NULL)
-                         FROM (SELECT COUNT(*) n,
-                                      COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) dated,
-                                      COUNT(*) FILTER (WHERE occurred_at IS NULL) undated,
-                                      MIN(occurred_at) min_at, MAX(occurred_at) max_at
-                                 FROM theme_occurrences WHERE theme_id = %s) agg
-                        WHERE t.id = %s AND agg.n > 0;""",
-                    (theme_id, theme_id))
+                self._recompute_theme_stats(cur, theme_id)
                 conn.commit()
                 return len(occurrences)
             except psycopg2.Error as e:
@@ -2527,6 +2585,7 @@ class Database:
                     (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category)
                 )
                 habit_id = cur.fetchone()[0]
+                self._queue(cur, user_id, 'habit', habit_id)
                 conn.commit()
                 logger.info(f"Created habit ID {habit_id} for user {user_id}")
                 return habit_id
@@ -2663,6 +2722,8 @@ class Database:
                     (habit_id, completion_date, value, notes)
                 )
                 completion_id = cur.fetchone()[0]
+                cur.execute("SELECT user_id FROM habits WHERE id = %s;", (habit_id,))
+                self._queue(cur, cur.fetchone()[0], 'habit_completion', completion_id)
                 conn.commit()
                 return completion_id
             except psycopg2.Error as e:
@@ -2828,6 +2889,7 @@ class Database:
                      evidence_eligible, entry_sequence)
                 )
                 reflection_id = cur.fetchone()[0]
+                self._queue(cur, user_id, 'reflection', reflection_id)
                 conn.commit()
                 logger.info(f"Created reflection ID {reflection_id} for user {user_id}")
                 return reflection_id
@@ -2955,19 +3017,7 @@ class Database:
                 touched = {row[0] for row in cur.fetchall()}
 
                 for theme_id in touched:
-                    cur.execute(
-                        """UPDATE themes t
-                              SET occurrence_count = agg.dated,
-                                  undated_occurrence_count = agg.undated,
-                                  first_seen_at = COALESCE(agg.min_at, t.first_seen_at),
-                                  last_seen_at = COALESCE(agg.max_at, t.last_seen_at),
-                                  span_is_undated = (agg.min_at IS NULL)
-                             FROM (SELECT COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) dated,
-                                          COUNT(*) FILTER (WHERE occurred_at IS NULL) undated,
-                                          MIN(occurred_at) min_at, MAX(occurred_at) max_at
-                                     FROM theme_occurrences WHERE theme_id = %s) agg
-                            WHERE t.id = %s;""",
-                        (theme_id, theme_id))
+                    self._recompute_theme_stats(cur, theme_id)
                 conn.commit()
                 return len(touched)
             except psycopg2.Error as e:
@@ -2995,9 +3045,32 @@ class Database:
                 values.append(reflection_id)
 
                 cur.execute(
-                    f"UPDATE reflections SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = %s;",
+                    f"UPDATE reflections SET {set_clause}, updated_at = CURRENT_TIMESTAMP "
+                    f"WHERE id = %s RETURNING user_id;",
                     values
                 )
+                row = cur.fetchone()
+                if row and 'content' in updates:
+                    # What was derived from the old words goes in the same commit
+                    # as the new words, and the entry is queued again. Done as
+                    # separate steps after the edit, a crash in between left the
+                    # new text beside the old embedding with nothing queued.
+                    # Resetting the status is how a run already in flight learns
+                    # that the text it read is no longer the text (pipeline.py).
+                    cur.execute(
+                        """DELETE FROM theme_occurrences
+                            WHERE source_type = 'reflection' AND source_id = %s
+                        RETURNING theme_id;""", (reflection_id,))
+                    touched = {r[0] for r in cur.fetchall()}
+                    cur.execute(
+                        "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
+                        (reflection_id,))
+                    cur.execute(
+                        "UPDATE reflections SET processing_status = 'pending' WHERE id = %s;",
+                        (reflection_id,))
+                    for theme_id in touched:
+                        self._recompute_theme_stats(cur, theme_id)
+                    self._queue(cur, row[0], 'reflection', reflection_id)
                 conn.commit()
                 return True
             except psycopg2.Error as e:
@@ -3016,14 +3089,27 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
-                    "DELETE FROM theme_occurrences WHERE source_type = 'reflection' AND source_id = %s;",
+                    """DELETE FROM theme_occurrences
+                        WHERE source_type = 'reflection' AND source_id = %s
+                    RETURNING theme_id;""",
                     (reflection_id,)
                 )
+                touched = {r[0] for r in cur.fetchall()}
                 cur.execute(
                     "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
                     (reflection_id,)
                 )
+                # Its job goes too. A queued entry deleted before the worker
+                # reached it is not a failure to process, and must not be left
+                # to retry and park as one.
+                cur.execute(
+                    "DELETE FROM processing_queue WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
                 cur.execute("DELETE FROM reflections WHERE id = %s;", (reflection_id,))
+                # Counts reflect the deletion rather than remembering the entry.
+                for theme_id in touched:
+                    self._recompute_theme_stats(cur, theme_id)
                 conn.commit()
                 return True
             except psycopg2.Error as e:

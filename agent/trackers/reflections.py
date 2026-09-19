@@ -8,7 +8,7 @@ import logging
 from datetime import date, timedelta
 
 from ..database import db
-from ..work_queue import enqueue
+from ..work_queue import notify
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,10 @@ class ReflectionService:
             entry_sequence,
         )
 
-        # The reflection is stored. Turning it into evidence is queued, so a
-        # provider outage delays that work instead of losing it.
-        enqueue('reflection', reflection_id, self.user_id)
+        # Stored and queued in one commit (Database._queue), so a provider
+        # outage delays turning it into evidence instead of losing it. This
+        # asks the worker to start now rather than at its next poll.
+        notify()
 
         return reflection_id
 
@@ -142,25 +143,13 @@ class ReflectionService:
 
         updated = db.update_reflection(reflection_id, **updates)
 
-        # An edit to the text invalidates everything derived from it. Without
-        # this, the embedding still described the original wording and the theme
-        # occurrence still quoted it, so a sentence the user had removed stayed
-        # searchable and could still be quoted back at them. Re-running the
-        # pipeline recomputes both from the corrected text.
+        # An edit to the text invalidates everything derived from it: the
+        # embedding still described the original wording and the occurrence
+        # still quoted it, so a sentence the user had removed stayed searchable
+        # and could be quoted back at them. The database clears both and
+        # re-queues the entry in the same commit as the edit.
         if updated and "content" in updates:
-            with db.connection() as conn, conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM theme_occurrences WHERE source_type = 'reflection' AND source_id = %s;",
-                    (reflection_id,)
-                )
-                cur.execute(
-                    "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
-                    (reflection_id,)
-                )
-                conn.commit()
-            # Derived rows for the old wording were just deleted; queue the
-            # re-analysis of the new wording.
-            enqueue('reflection', reflection_id, self.user_id)
+            notify()
 
         return updated
 

@@ -71,7 +71,7 @@ def test_system_with_leverage(test_user, mock_pipeline_components):
     logger.info("--- Step 2: Analyze Leverage ---")
     # Manually trigger analysis
     leverage_engine = LeverageEngine(user_id)
-    results = leverage_engine.analyze_all_leverage(force_recompute=True)
+    results = leverage_engine.analyze_all_leverage()
 
     logger.info(f"Leverage Results: {results}")
 

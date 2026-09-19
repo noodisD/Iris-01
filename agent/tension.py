@@ -29,6 +29,7 @@ from .constants import (
 )
 
 # Import database and constants
+from .analysis_cache import remembered
 from .database import tensions, themes
 from .evidence import EvidenceEngine
 
@@ -496,13 +497,23 @@ class TensionEngine:
         """
         return self.analyze_all_tensions()
 
-    def analyze_all_tensions(self) -> list[dict]:
+    def analyze_all_tensions(self, force_recompute: bool = False) -> list[dict]:
         """
         Analyze tensions for all valid theme pairs.
-        
+
+        Every pair is compared, which made this the second-slowest step in
+        deciding what IRIS has noticed — asked again on every chat turn over
+        evidence that had not changed. The result is reused until the evidence
+        or the hour does (agent/analysis_cache.py); `force_recompute` bypasses
+        that.
+
         Returns:
             List of tension analyses for all theme pairs
         """
+        return remembered("tension", self.user_id, self._analyze_all_tensions,
+                          force=force_recompute)
+
+    def _analyze_all_tensions(self) -> list[dict]:
         candidate_pairs = self._generate_candidate_pairs()
         results = []
 

@@ -66,20 +66,27 @@ MAX_IMPORT_UPLOAD_BYTES = 2 * 1024**3
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan handler for app startup/shutdown"""
-    if COMPANION_AVAILABLE:
-        logger.info("Applying schema migrations...")
-        try:
-            migrations.upgrade()
-        except Exception as e:
-            logger.error(f"Failed to migrate database: {e}")
+    """Start up, or refuse to.
 
-        # Ingest work is queued rather than run in the request. Starting the
-        # worker here also picks up anything the previous process left behind.
-        queue_worker.start()
+    Both failures below used to be logged and then ignored. A migration that
+    did not apply left the process serving against a schema it did not expect,
+    and starting the worker on top of it; a companion that failed to import
+    left every data route to raise NameError on its first request while the
+    health check reported the process up. The CLI already refused to start on a
+    failed migration. The HTTP door now matches it: fail closed, loudly, before
+    anything is served.
+    """
+    if not COMPANION_AVAILABLE:
+        raise RuntimeError("IRIS core components failed to import; refusing to start "
+                           "(see the ImportError logged above).")
+    logger.info("Applying schema migrations...")
+    migrations.upgrade()
+
+    # Ingest work is queued rather than run in the request. Starting the
+    # worker here also picks up anything the previous process left behind.
+    queue_worker.start()
     yield
-    if COMPANION_AVAILABLE:
-        queue_worker.stop()
+    queue_worker.stop()
 
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)

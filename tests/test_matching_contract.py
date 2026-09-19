@@ -227,3 +227,36 @@ def test_a_matched_entry_is_quoted_in_its_own_words(confirmed, test_user, proces
 
     assert {origin for origin, _ in rows} >= {"observed", "clustered"}, "both writers ran"
     assert not [s for _, s in rows if (s or "").startswith("Anchor:")]
+
+
+# --- re-measuring replaces, and keeps what the owner vouched for -------------------------
+
+def _bases(theme_id):
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT source_type, source_id, admission_basis FROM theme_occurrences
+                        WHERE theme_id = %s;""", (theme_id,))
+        return {(t, i): b for t, i, b in cur.fetchall()}
+
+
+def test_rescanning_keeps_a_quote_the_owner_vouched_for(confirmed):
+    """scan() re-added every membership without its basis, and the upsert wrote
+    the default over it: every entry the owner had read and confirmed became a
+    detector's similarity match on the first re-measure."""
+    cited = {k for k, b in _bases(confirmed).items() if b == "citation"}
+    assert cited, "precondition: the confirmation cited entries"
+
+    constructs.scan(confirmed)
+
+    after = _bases(confirmed)
+    assert all(after[k] == "citation" for k in cited)
+
+
+def test_rescanning_forgets_an_entry_that_no_longer_matches(confirmed, test_user):
+    """Adding on top kept every entry that had ever matched."""
+    stray = _write(test_user["id"], "Bought a new kettle, the old one leaked.", 30)
+    db.add_theme_occurrence(confirmed, "reflection", stray, "kettle", 0.9,
+                            (date.today() - timedelta(days=30)).isoformat())
+
+    constructs.scan(confirmed)
+
+    assert ("reflection", stray) not in _bases(confirmed)

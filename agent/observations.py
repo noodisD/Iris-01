@@ -348,6 +348,7 @@ class ObservationEngine:
             logger.info(f"Not enough readable entries for user {self.user_id}: {len(entries)}")
             return [], None
 
+        entries = interleave(entries)
         chunks = chunk_entries(entries)
         model = getattr(self.intelligence, "model", None) or "unknown"
         run_id = db.create_observation_run(
@@ -497,6 +498,37 @@ class ObservationEngine:
             found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
                                   text=quote, source_type=entry.get("source_type", "reflection")))
         return tuple(found)
+
+
+def interleave(entries: list[dict]) -> list[dict]:
+    """The archive in reading order: dated entries as they were written, with
+    undated ones spread evenly between them.
+
+    Passes are cut from this order, so the order decides what can be seen
+    together. It used to be the order the rows arrived in — reflections newest
+    first, staged recordings appended at the end — which put every recording
+    into the last passes and every journal entry into the others. A pattern
+    that ran through both could not be noticed by any single pass, because no
+    pass held both. Once undated recordings were committed as reflections they
+    sorted to the *front* instead, with the same effect. An undated entry has no
+    place in time, so it is given none: it is spread through the whole record,
+    and every pass reads some of each.
+    """
+    dated = sorted((e for e in entries if e.get("date")),
+                   key=lambda e: (e["date"], e.get("source_type", ""), e["id"]))
+    undated = sorted((e for e in entries if not e.get("date")),
+                     key=lambda e: (e.get("source_type", ""), e["id"]))
+    if not dated or not undated:
+        return dated + undated
+    slots: dict[int, list[dict]] = {}
+    for k, entry in enumerate(undated):
+        slots.setdefault(round((k + 1) * len(dated) / (len(undated) + 1)), []).append(entry)
+    ordered: list[dict] = []
+    for i, entry in enumerate(dated):
+        ordered.extend(slots.get(i, []))
+        ordered.append(entry)
+    ordered.extend(slots.get(len(dated), []))
+    return ordered
 
 
 def chunk_entries(entries: list[dict],

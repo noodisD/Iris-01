@@ -8,7 +8,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from ..database import db
-from ..work_queue import enqueue
+from ..work_queue import notify
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class HabitTracker:
             self.user_id, name, description, frequency_type,
             habit_type, weekly_target, tracking_metric, category
         )
-        enqueue('habit', habit_id, self.user_id)
+        notify()  # queued in the same commit as the habit
         return habit_id
 
     def get_habits(self, active_only: bool = True) -> list[dict]:
@@ -79,7 +79,7 @@ class HabitTracker:
             completion_date = date.today()
         completion_id = db.log_habit_completion(habit_id, completion_date, value, notes)
 
-        enqueue('habit_completion', completion_id, self.user_id)
+        notify()  # queued in the same commit as the completion
 
         return completion_id
 

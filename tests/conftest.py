@@ -337,6 +337,20 @@ def journalled_recently(test_user):
     return wrote
 
 
+@pytest.fixture(autouse=True)
+def _cold_analysis_cache():
+    """Each test starts with nothing remembered.
+
+    Decision impact and tension reuse a result while the user, the evidence and
+    the hour are unchanged (agent/analysis_cache.py). Within one test that is
+    the behaviour under test; across tests it would let one test's result
+    answer another's question.
+    """
+    from agent import analysis_cache
+    analysis_cache.forget()
+    yield
+
+
 @pytest.fixture
 def process_queue():
     """Run queued ingest work to completion, returning how many items ran.

@@ -863,6 +863,11 @@
         "nullable": "NO",
         "type": "timestamp with time zone"
       },
+      "generation": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
       "id": {
         "default": "nextval(...)",
         "nullable": "NO",
@@ -1863,6 +1868,10 @@
       },
       "processing_queue_created_at_not_null": {
         "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "processing_queue_generation_not_null": {
+        "definition": "NOT NULL generation",
         "type": "n"
       },
       "processing_queue_id_not_null": {

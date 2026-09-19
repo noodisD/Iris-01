@@ -30,6 +30,7 @@ from .constants import (
 )
 
 # Import database and constants
+from .analysis_cache import remembered
 from .database import decision_impacts, themes
 from .evidence import EvidenceEngine
 
@@ -60,7 +61,16 @@ class DecisionImpactEngine:
     def analyze_all_anchors(self, force_recompute: bool = False) -> list[dict]:
         """
         Performs a scan for all active patterns to find notable downstream shifts.
+
+        Every anchor against every target: the slowest step in deciding what
+        IRIS has noticed. The result is reused until the evidence or the hour
+        changes (agent/analysis_cache.py). `force_recompute` bypasses that — it
+        was accepted here before and did nothing.
         """
+        return remembered("decision_impact", self.user_id, self._analyze_all_anchors,
+                          force=force_recompute)
+
+    def _analyze_all_anchors(self) -> list[dict]:
         # 1. Get active themes (those with enough occurrences)
         active_themes = self._get_candidate_anchors()
         if not active_themes:

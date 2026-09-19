@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import date
 
 from agent.constants import OBSERVATION_CHARS_PER_TOKEN
-from agent.observations import Citation, Observation, chunk_entries, consolidate
+from agent.observations import Citation, Observation, chunk_entries, consolidate, interleave
 
 
 def _entry(i, chars, source="reflection", day=None):
@@ -182,3 +182,38 @@ def test_a_citation_says_whether_it_can_become_evidence():
     """A staged recording has no date, so it can be quoted and never counted."""
     assert _cite(1, "from the journal").as_dict()["citable"] is True
     assert _cite(1, "from a recording", source="import_item").as_dict()["citable"] is False
+
+
+# --- every pass reads some of each ----------------------------------------------------
+
+def test_every_pass_reads_both_the_journal_and_the_recordings():
+    """Reflections arrived newest first and staged recordings were appended after
+    them, so every recording landed in the last passes and every journal entry in
+    the others. A pattern running through both was invisible to every pass,
+    because no pass held both."""
+    journal = [_entry(i, 60 * OBSERVATION_CHARS_PER_TOKEN, day=date(2025, 1, 1 + i))
+               for i in range(12)]
+    recordings = [_entry(100 + i, 60 * OBSERVATION_CHARS_PER_TOKEN, source="import_item")
+                  for i in range(6)]
+    for r in recordings:
+        r["date"] = None  # a recording carries no date
+
+    passes = chunk_entries(interleave(journal + recordings), budget_tokens=360)
+
+    assert len(passes) >= 3
+    for p in passes:
+        kinds = {e["source_type"] for e in p}
+        assert kinds == {"reflection", "import_item"}, f"a pass held only {kinds}"
+
+
+def test_dated_writing_is_read_in_the_order_it_was_written():
+    entries = [_entry(3, 10, day=date(2025, 3, 1)), _entry(1, 10, day=date(2025, 1, 1)),
+               _entry(2, 10, day=date(2025, 2, 1))]
+    assert [e["id"] for e in interleave(entries)] == [1, 2, 3]
+
+
+def test_interleaving_neither_drops_nor_repeats_anything():
+    entries = [_entry(i, 10, day=date(2025, 1, 1 + i)) for i in range(7)] + \
+              [dict(_entry(50 + i, 10, source="import_item"), date=None) for i in range(4)]
+    ordered = interleave(entries)
+    assert sorted(e["id"] for e in ordered) == sorted(e["id"] for e in entries)
