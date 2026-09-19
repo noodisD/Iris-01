@@ -16,6 +16,14 @@ since the last. The single label distinguishes a pattern that ran throughout
 from one that clustered in a stretch, by a stated threshold — nothing here
 infers why, and nothing describes the person.
 
+Occurrences in writing that carries no date are counted here and nowhere else.
+This is the only reader that asks for them, because it is the only one that
+measures without placing anything in a window. They are never added to the
+number quoted beside a span — a count and the dates it supposedly falls inside
+are two different measurements, and merging them would be the exact error
+ADR-0009 names. A theme whose evidence is undated gets a count and no span at
+all, which is less than a date would buy and more than silence.
+
 It never claims the present, which is what earns it the coverage gate's
 exemption (`agent/coverage.py`). "Twelve times across two years, none since
 March" is true whether or not this month is quiet; withholding it because
@@ -74,18 +82,24 @@ class LifelongEngine:
         return results
 
     def analyze_theme(self, theme: dict) -> dict | None:
-        occurrences = themes.get_occurrences(theme["id"])
+        # The one reader in the system that wants undated occurrences. It counts
+        # over the whole record without placing anything in a window, so an
+        # occurrence with no date is still an occurrence here — while every
+        # engine that measures per day keeps the dated-only default.
+        occurrences = themes.get_occurrences(theme["id"], include_undated=True)
         if len(occurrences) < LIFELONG_MIN_OCCURRENCES:
             return None
 
         moments = sorted(to_utc(o["occurred_at"]) for o in occurrences if o.get("occurred_at"))
+        undated = len(occurrences) - len(moments)
+
         if len(moments) < LIFELONG_MIN_OCCURRENCES:
-            return None
+            return self._count_only(theme, len(occurrences), undated)
 
         first, last = moments[0], moments[-1]
         span_days = (last - first).days
         if span_days < LIFELONG_MIN_SPAN_DAYS:
-            return None
+            return self._count_only(theme, len(occurrences), undated)
 
         by_year = Counter(m.year for m in moments)
         densest_year, densest_count = by_year.most_common(1)[0]
@@ -121,9 +135,52 @@ class LifelongEngine:
             "densest_count": densest_count,
             "share_in_densest": round(share, 3),
             "days_since_last": days_since_last,
+            # Counted, never folded into the headline. The span above covers
+            # the dated occurrences only, so adding undated ones to the number
+            # it is quoted beside would claim they fell inside it (ADR-0009).
+            "undated_occurrences": undated,
             "confidence_level": _confidence(len(moments), span_days, active_months),
             # The exemption this scale exists for. It describes a span, so a
             # quiet month does not make it untrue (agent/coverage.py).
+            "claims_present": False,
+        }
+
+    def _count_only(self, theme: dict, total: int, undated: int) -> dict | None:
+        """A count over writing that cannot be placed in time.
+
+        Forty-three voice transcripts carry no date, and refusing to say
+        anything about them would leave the largest single body of the owner's
+        thinking unmeasured — which is the failure this scale was built to fix,
+        arriving from the other direction.
+
+        So it reports the count and stops. No span, no densest year, no "days
+        since": those are not withheld out of caution, they do not exist. The
+        finding carries no first_seen_at precisely so nothing downstream can
+        fall back to describing it as recent, and its own template says plainly
+        where the number came from.
+
+        Requires that undated occurrences are actually the reason, so a theme
+        with four dated occurrences inside one week is still skipped rather
+        than re-reported here without its span.
+        """
+        if undated == 0 or total < LIFELONG_MIN_OCCURRENCES:
+            return None
+        return {
+            "engine": ENGINE_NAME,
+            "theme_id": theme["id"],
+            "pattern_id": theme["id"],
+            "pattern_type": "theme",
+            "theme_summary": theme.get("summary") or "",
+            "occurrence_count": total,
+            "undated_occurrences": undated,
+            "dated_occurrences": total - undated,
+            "lifelong_label": "undated",
+            "label": "undated",
+            "span_is_undated": True,
+            "template_variant": "undated",
+            # Deliberately absent: first_seen_at, last_seen_at, span_days,
+            # active_months, densest_year, days_since_last.
+            "confidence_level": "low" if total < MEDIUM_OCCURRENCES else "medium",
             "claims_present": False,
         }
 

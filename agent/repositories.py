@@ -146,9 +146,11 @@ class ThemeRepository(Repository):
 
     def create_theme(self, user_id: int, centroid_embedding: list, summary: str,
                     first_seen_at: str = None, last_seen_at: str = None,
-                    occurrence_count: int = 1, primary_example: str = None) -> int:
+                    occurrence_count: int = 1, primary_example: str = None,
+                    span_is_undated: bool = False) -> int:
         return self.db.create_theme(user_id, centroid_embedding, summary,
-                                    first_seen_at or '', last_seen_at or '', occurrence_count)
+                                    first_seen_at or '', last_seen_at or '', occurrence_count,
+                                    span_is_undated=span_is_undated)
 
     def get_all_themes(self, user_id: int) -> list:
         return self.db.get_themes(user_id)
@@ -166,12 +168,14 @@ class ThemeRepository(Repository):
         return self.db.update_theme_stats(theme_id, last_seen_at)
 
     def add_occurrence(self, theme_id: int, source_type: str, source_id: int,
-                       snippet: str = None, similarity_score: float = None, occurred_at: str = None):
+                       snippet: str = None, similarity_score: float = None,
+                       occurred_at: str = None, admission_basis: str = "similarity"):
         return self.db.add_theme_occurrence(theme_id, source_type, source_id, snippet,
-                                           similarity_score, occurred_at)
+                                           similarity_score, occurred_at, admission_basis)
 
-    def get_occurrences(self, theme_id: int) -> list:
-        return self.db.get_theme_occurrences(theme_id)
+    def get_occurrences(self, theme_id: int, include_undated: bool = False) -> list:
+        """Dated occurrences by default; see DatabaseManager.get_theme_occurrences."""
+        return self.db.get_theme_occurrences(theme_id, include_undated)
 
     def get_theme_pairs(self, user_id: int) -> list:
         return self.db.get_theme_pairs(user_id)

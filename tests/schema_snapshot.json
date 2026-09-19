@@ -373,6 +373,11 @@
         "nullable": "YES",
         "type": "character varying"
       },
+      "date_unknown_accepted": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
       "entry_date": {
         "default": null,
         "nullable": "YES",
@@ -930,6 +935,11 @@
         "nullable": "YES",
         "type": "smallint"
       },
+      "entry_sequence": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
       "evidence_eligible": {
         "default": "true",
         "nullable": "NO",
@@ -957,7 +967,7 @@
       },
       "reflection_date": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "date"
       },
       "source": {
@@ -1016,7 +1026,7 @@
       },
       "occurred_at": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "timestamp with time zone"
       },
       "similarity_score": {
@@ -1214,6 +1224,11 @@
         "default": null,
         "nullable": "YES",
         "type": "text"
+      },
+      "undated_occurrence_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
       },
       "user_id": {
         "default": null,
@@ -1578,6 +1593,10 @@
         "definition": "NOT NULL date_confidence",
         "type": "n"
       },
+      "import_items_date_unknown_accepted_not_null": {
+        "definition": "NOT NULL date_unknown_accepted",
+        "type": "n"
+      },
       "import_items_id_not_null": {
         "definition": "NOT NULL id",
         "type": "n"
@@ -1904,10 +1923,6 @@
         "definition": "PRIMARY KEY (id)",
         "type": "p"
       },
-      "reflections_reflection_date_not_null": {
-        "definition": "NOT NULL reflection_date",
-        "type": "n"
-      },
       "reflections_source_check": {
         "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying])::text[])))",
         "type": "c"
@@ -1950,10 +1965,6 @@
     "theme_occurrences": {
       "theme_occurrences_id_not_null": {
         "definition": "NOT NULL id",
-        "type": "n"
-      },
-      "theme_occurrences_occurred_at_not_null": {
-        "definition": "NOT NULL occurred_at",
         "type": "n"
       },
       "theme_occurrences_pkey": {
@@ -2076,6 +2087,10 @@
       },
       "themes_status_not_null": {
         "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "themes_undated_occurrence_count_not_null": {
+        "definition": "NOT NULL undated_occurrence_count",
         "type": "n"
       },
       "themes_user_id_fkey": {
@@ -2217,7 +2232,7 @@
       "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",
       "idx_reflections_user_date": "CREATE INDEX idx_reflections_user_date ON public.reflections USING btree (user_id, reflection_date DESC)",
       "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)",
-      "uq_reflections_user_day_hash": "CREATE UNIQUE INDEX uq_reflections_user_day_hash ON public.reflections USING btree (user_id, reflection_date, content_hash) WHERE (content_hash IS NOT NULL)"
+      "uq_reflections_user_day_hash": "CREATE UNIQUE INDEX uq_reflections_user_day_hash ON public.reflections USING btree (user_id, COALESCE(reflection_date, '-infinity'::date), content_hash) WHERE (content_hash IS NOT NULL)"
     },
     "schema_migrations": {
       "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"

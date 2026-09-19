@@ -529,7 +529,7 @@ class Database:
     #: list and a status listing cannot drift apart.
     _THEME_COLUMNS = """id, centroid_embedding, summary, first_seen_at, last_seen_at,
                         occurrence_count, origin, definition, status, claim_kind,
-                        span_is_undated"""
+                        span_is_undated, undated_occurrence_count"""
 
     @staticmethod
     def _theme_row(row) -> dict:
@@ -545,6 +545,11 @@ class Database:
             "status": row[8],
             "claim_kind": row[9],
             "span_is_undated": row[10],
+            # Occurrences in writing that carries no date. Kept apart from
+            # occurrence_count rather than added to it: every window engine
+            # gates on that number, and an undated occurrence cannot sit in a
+            # window (ADR-0009).
+            "undated_occurrence_count": row[11],
         }
 
     def get_themes(self, user_id: int) -> list:
@@ -688,7 +693,7 @@ class Database:
                 """
                 SELECT id, centroid_embedding, summary, first_seen_at, last_seen_at,
                        occurrence_count, user_id, origin, definition, status, confirmed_at,
-                       claim_kind, span_is_undated
+                       claim_kind, span_is_undated, undated_occurrence_count
                   FROM themes WHERE id = %s;
                 """,
                 (theme_id,)
@@ -709,6 +714,7 @@ class Database:
                     "confirmed_at": row[10],
                     "claim_kind": row[11],
                     "span_is_undated": row[12],
+                    "undated_occurrence_count": row[13],
                 }
             return None
 
@@ -731,17 +737,28 @@ class Database:
         correction or deletion be reflected instead of accumulated. The
         `last_seen_at` argument is retained for callers but no longer trusted
         over the stored evidence.
+
+        The two counts stay apart. `occurrence_count` is the dated occurrences,
+        because every engine that gates on it measures something per day;
+        `undated_occurrence_count` is the rest. When nothing is dated the span
+        columns keep their previous value and `span_is_undated` says that value
+        means nothing — the same flag ADR-0013 already uses for constructs
+        promoted from undated writing.
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
                     UPDATE themes
-                    SET occurrence_count = agg.n,
-                        first_seen_at = agg.min_at,
-                        last_seen_at = agg.max_at
+                    SET occurrence_count = agg.dated,
+                        undated_occurrence_count = agg.undated,
+                        first_seen_at = COALESCE(agg.min_at, themes.first_seen_at),
+                        last_seen_at = COALESCE(agg.max_at, themes.last_seen_at),
+                        span_is_undated = (agg.min_at IS NULL)
                     FROM (
                         SELECT COUNT(*) AS n,
+                               COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) AS dated,
+                               COUNT(*) FILTER (WHERE occurred_at IS NULL) AS undated,
                                MIN(occurred_at) AS min_at,
                                MAX(occurred_at) AS max_at
                         FROM theme_occurrences
@@ -815,7 +832,7 @@ class Database:
                 raise
 
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
-                            snippet: str, similarity_score: float, occurred_at: str,
+                            snippet: str, similarity_score: float, occurred_at: str | None,
                             admission_basis: str = "similarity"):
         """Records that a theme occurred at a specific entry.
 
@@ -823,6 +840,11 @@ class Database:
         while reviewing, 'similarity' for a match a detector proposed and they
         never saw. Clustering only ever produces the latter, which is why that
         is the default.
+
+        `occurred_at` may be None, for an occurrence in writing that carries no
+        date. Such a row is real evidence and is counted, but no reader that
+        measures in days will see it: get_theme_occurrences excludes it unless
+        asked for it.
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
@@ -961,9 +983,16 @@ class Database:
                         WHERE id = %s;""",
                     (theme_id,))
                 cur.execute(
-                    """UPDATE themes t SET occurrence_count = agg.n,
-                              first_seen_at = agg.min_at, last_seen_at = agg.max_at
-                         FROM (SELECT COUNT(*) n, MIN(occurred_at) min_at, MAX(occurred_at) max_at
+                    """UPDATE themes t
+                          SET occurrence_count = agg.dated,
+                              undated_occurrence_count = agg.undated,
+                              first_seen_at = COALESCE(agg.min_at, t.first_seen_at),
+                              last_seen_at = COALESCE(agg.max_at, t.last_seen_at),
+                              span_is_undated = (agg.min_at IS NULL)
+                         FROM (SELECT COUNT(*) n,
+                                      COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) dated,
+                                      COUNT(*) FILTER (WHERE occurred_at IS NULL) undated,
+                                      MIN(occurred_at) min_at, MAX(occurred_at) max_at
                                  FROM theme_occurrences WHERE theme_id = %s) agg
                         WHERE t.id = %s AND agg.n > 0;""",
                     (theme_id, theme_id))
@@ -1009,15 +1038,28 @@ class Database:
                 for r in cur.fetchall()
             ]
 
-    def get_theme_occurrences(self, theme_id: int) -> list:
-        """Retrieves all occurrences of a theme."""
+    def get_theme_occurrences(self, theme_id: int, include_undated: bool = False) -> list:
+        """The occurrences of a theme; by default only those with a date.
+
+        Every window engine measures rates, gaps, trends and co-occurrence in
+        days, so an occurrence with no date has no place in any of their
+        arithmetic. Defaulting to dated-only makes that the property of one
+        query rather than a null check repeated in six engines, any one of
+        which could be missed.
+
+        `include_undated` is for the reader that genuinely counts over the
+        whole record without placing anything in time — currently the lifelong
+        scale, which reports the two counts separately.
+        """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT source_type, source_id, snippet, similarity_score, occurred_at
-                FROM theme_occurrences WHERE theme_id = %s ORDER BY occurred_at DESC;
+                FROM theme_occurrences
+                WHERE theme_id = %s AND (%s OR occurred_at IS NOT NULL)
+                ORDER BY occurred_at DESC NULLS LAST;
                 """,
-                (theme_id,)
+                (theme_id, include_undated)
             )
             rows = cur.fetchall()
             return [
@@ -1174,8 +1216,16 @@ class Database:
                     "vector": row[3],
                     # Kept distinct on purpose: created_at is when this row was
                     # embedded, occurred_at is when the user's entry happened.
+                    #
+                    # No fallback between them. This used to read `row[5] or
+                    # row[4]`, which was harmless only while every entry had a
+                    # date: the moment an undated one exists, that `or` dates it
+                    # to the minute it was embedded and nothing downstream can
+                    # tell the difference — the precise substitution ADR-0013
+                    # forbids, arriving as a default rather than a guess. None
+                    # stays None, and the readers decide what they can measure.
                     "created_at": row[4],
-                    "occurred_at": row[5] or row[4],
+                    "occurred_at": row[5],
                 }
                 for row in rows
             ]
@@ -1276,24 +1326,45 @@ class Database:
         get_reflections pages by id, which is insertion order: after an import
         that is the order files were committed, so a 2024 entry can sit at the
         top of "newest first". The cursor is (date, id) because dates repeat.
+
+        Undated entries sort after every dated one and are ordered among
+        themselves by the sequence their source recorded. They need their own
+        cursor arm: a NULL date makes `(reflection_date, id) < (...)` evaluate
+        to NULL, so under the previous single condition they dropped out of
+        every page after the first — and a page that ended inside them handed
+        back a NULL cursor, which the first arm reads as "no cursor" and serves
+        page one again, forever. `before_id` is what distinguishes the two,
+        since it is set for any real cursor and never for the first page.
         """
         before_date, before_id = (before or (None, None))
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, reflection_date, content, mood, energy_level, clarity_level,
-                       tags, created_at, updated_at, audio_path
+                       tags, created_at, updated_at, audio_path, entry_sequence
                   FROM reflections
                  WHERE user_id = %s
-                   AND (%s::date IS NULL
-                        OR (reflection_date, id) < (%s::date, %s::int))
-                 ORDER BY reflection_date DESC, id DESC
+                   AND (%s::int IS NULL
+                        OR (%s::date IS NOT NULL
+                            AND (reflection_date IS NULL
+                                 OR (reflection_date, id) < (%s::date, %s::int)))
+                        OR (%s::date IS NULL
+                            AND reflection_date IS NULL
+                            AND (COALESCE(entry_sequence, -1), id)
+                                < (COALESCE((SELECT entry_sequence FROM reflections
+                                              WHERE id = %s), -1), %s::int)))
+                 ORDER BY (reflection_date IS NULL),
+                          reflection_date DESC,
+                          entry_sequence DESC NULLS LAST,
+                          id DESC
                  LIMIT %s;
                 """,
-                (user_id, before_date, before_date, before_id, limit),
+                (user_id, before_id, before_date, before_date, before_id,
+                 before_date, before_id, before_id, limit),
             )
             keys = ("id", "reflection_date", "content", "mood", "energy_level",
-                    "clarity_level", "tags", "created_at", "updated_at", "audio_path")
+                    "clarity_level", "tags", "created_at", "updated_at", "audio_path",
+                    "entry_sequence")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
     def get_staged_for_reading(self, user_id: int, min_chars: int, batch_id: int = None) -> list:
@@ -1343,6 +1414,13 @@ class Database:
         which would have made a construct's history disagree with its future.
         The owner's archive is currently all reflections, so the gap had no
         present effect — it was waiting for the first habit tick.
+
+        Undated entries are included, and come back with a null date. Excluding
+        them was right while a reflection could not be undated; once it can,
+        excluding them here would mean replay saw a smaller archive than
+        ingestion, and confirming a construct would move its measured frequency
+        for reasons that are routing rather than writing — the one divergence
+        this query was rewritten to close.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -1352,7 +1430,6 @@ class Database:
                   JOIN reflections r ON r.id = e.source_id
                  WHERE e.source_type = 'reflection'
                    AND r.user_id = %s AND r.evidence_eligible
-                   AND r.reflection_date IS NOT NULL
 
                 UNION ALL
 
@@ -2714,7 +2791,8 @@ class Database:
                          tags: list = None, source: str = 'app',
                          content_hash: str = None, audio_path: str = None,
                          metrics: dict = None, date_source: str = None,
-                         date_confidence: str = None, evidence_eligible: bool = True) -> int:
+                         date_confidence: str = None, evidence_eligible: bool = True,
+                         undated: bool = False, entry_sequence: int = None) -> int:
         """Creates a new reflection and returns its ID.
 
         `source`, `content_hash` and `audio_path` carry provenance for entries
@@ -2725,7 +2803,14 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 from datetime import date
-                if reflection_date is None:
+                # No date supplied means "written now", which is true for an
+                # entry typed in the app. `undated=True` is the different
+                # statement that the day is not known, and it is the only way
+                # to store an absence — so a caller can never arrive at NULL by
+                # forgetting an argument.
+                if undated:
+                    reflection_date = None
+                elif reflection_date is None:
                     reflection_date = date.today()
 
                 cur.execute(
@@ -2734,13 +2819,13 @@ class Database:
                                              energy_level, clarity_level, tags,
                                              source, content_hash, audio_path,
                                              metrics, date_source, date_confidence,
-                                             evidence_eligible)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                             evidence_eligible, entry_sequence)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
                     (user_id, reflection_date, content, mood, energy_level, clarity_level,
                      Json(tags) if tags else None, source, content_hash, audio_path,
                      Json(metrics) if metrics else None, date_source, date_confidence,
-                     evidence_eligible)
+                     evidence_eligible, entry_sequence)
                 )
                 reflection_id = cur.fetchone()[0]
                 conn.commit()
@@ -2833,6 +2918,61 @@ class Database:
             except Exception as e:
                 conn.rollback()
                 logger.error(f"Failed to get reflection {reflection_id}: {e}")
+                raise
+
+    def set_reflection_date(self, reflection_id: int, user_id: int, on) -> int:
+        """Give an undated entry the day it was written, and carry that through.
+
+        The reason an absence is storable at all is that it can be resolved
+        later. Resolving it has to reach further than the one row: the entry's
+        occurrences were admitted with no date, so until they are dated too the
+        entry stays invisible to every window engine and the owner has supplied
+        a date that changed nothing they can see.
+
+        Returns the number of occurrences that became dated. Only fills a date
+        that is genuinely absent — this never overwrites a date already read
+        from the writing, which would be the invention ADR-0013 forbids, just
+        arriving by a different door.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """UPDATE reflections SET reflection_date = %s,
+                              date_source = 'user', date_confidence = 'certain',
+                              updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s AND user_id = %s AND reflection_date IS NULL;""",
+                    (on, reflection_id, user_id))
+                if cur.rowcount == 0:
+                    conn.rollback()
+                    return 0
+
+                cur.execute(
+                    """UPDATE theme_occurrences SET occurred_at = %s
+                        WHERE source_type = 'reflection' AND source_id = %s
+                          AND occurred_at IS NULL
+                     RETURNING theme_id;""",
+                    (on, reflection_id))
+                touched = {row[0] for row in cur.fetchall()}
+
+                for theme_id in touched:
+                    cur.execute(
+                        """UPDATE themes t
+                              SET occurrence_count = agg.dated,
+                                  undated_occurrence_count = agg.undated,
+                                  first_seen_at = COALESCE(agg.min_at, t.first_seen_at),
+                                  last_seen_at = COALESCE(agg.max_at, t.last_seen_at),
+                                  span_is_undated = (agg.min_at IS NULL)
+                             FROM (SELECT COUNT(*) FILTER (WHERE occurred_at IS NOT NULL) dated,
+                                          COUNT(*) FILTER (WHERE occurred_at IS NULL) undated,
+                                          MIN(occurred_at) min_at, MAX(occurred_at) max_at
+                                     FROM theme_occurrences WHERE theme_id = %s) agg
+                            WHERE t.id = %s;""",
+                        (theme_id, theme_id))
+                conn.commit()
+                return len(touched)
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to date reflection {reflection_id}: {e}")
                 raise
 
     def update_reflection(self, reflection_id: int, **updates) -> bool:

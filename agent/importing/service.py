@@ -296,6 +296,18 @@ class ImportService:
                                         date_source="user", date_confidence="certain")
             self._recheck_duplicates(item_ids)
             return changed
+        if op == "accept_unknown_date":
+            # The owner has looked at these and says the day is not recoverable.
+            # That is a different state from "the parser found nothing", which
+            # is where every item starts, and only this one may be committed.
+            # Nothing is dated here and nothing is guessed: the absence is
+            # recorded as the answer (ADR-0013).
+            return store.bulk_update(item_ids, self.user_id,
+                                     date_unknown_accepted=True,
+                                     date_source="user", date_confidence="unknown")
+        if op == "require_date":
+            # The way back, so accepting is not a one-way door.
+            return store.bulk_update(item_ids, self.user_id, date_unknown_accepted=False)
         if op == "use_file_date":
             # Only entries whose file time survived; the rest stay undated
             # rather than being given something worse.
@@ -315,10 +327,17 @@ class ImportService:
     def commit(self, batch_id: int) -> dict:
         """Turn the staged entries into reflections.
 
-        Refuses while any included entry has no date. That is the same rule the
-        parser enforces, restated where it can actually be broken: a commit is
-        the last moment an unknown date can be caught before it becomes
-        occurred_at and silently moves an entry into the wrong window.
+        Refuses while any included entry has an *unresolved* date. That is the
+        same rule the parser enforces, restated where it can actually be
+        broken: a commit is the last moment an unknown date can be caught
+        before it becomes occurred_at and silently moves an entry into the
+        wrong window.
+
+        Resolved does not mean dated. An entry the owner has marked
+        `date_unknown_accepted` commits with no date at all, which is the
+        absence ADR-0013 asks for rather than the guess it forbids — it can be
+        recalled and read, it is counted without a span, and it stays out of
+        every window until someone supplies the day.
         """
         batch = self._require(batch_id)
         if batch["status"] == "committed":
@@ -345,11 +364,24 @@ class ImportService:
         reflections = ReflectionService(self.user_id)
         committed = failed = duplicates = 0
 
+        # Where each entry sat in its source, which is knowable even when the
+        # day is not: a transcript file numbers its recordings, so the order is
+        # read from the export exactly as a date would be. Taken across the
+        # whole batch rather than the committed subset, so excluding one entry
+        # does not renumber the rest. It orders undated entries among
+        # themselves and never stands in for a date.
+        sequence = store.source_order(batch_id, self.user_id)
+
         for item in store.list_items(batch_id, self.user_id, status="staged", limit=100_000):
             try:
                 reflection_id = reflections.create_reflection(
                     content=item["content"],
                     reflection_date=item["entry_date"],
+                    # Without this an entry with no date would be stamped with
+                    # today's, which is the one outcome the whole date pipeline
+                    # exists to prevent.
+                    undated=item["entry_date"] is None,
+                    entry_sequence=sequence.get(item["id"]),
                     tags=item["tags"] or [],
                     source="voice" if item["audio_path"] else "import",
                     content_hash=item["content_hash"],

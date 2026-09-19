@@ -337,7 +337,11 @@ def classify(user_id: int, source_type: str, source_id: int, embedding,
             source_id=source_id,
             snippet=(content or "")[:500],
             similarity_score=similarity,
-            occurred_at=occurred_at.isoformat() if hasattr(occurred_at, "isoformat") else str(occurred_at),
+            # str(occurred_at) was the fallback here, which turned a missing
+            # date into the literal string "None" on its way to a timestamp
+            # column. An absent date is stored as absent.
+            occurred_at=(occurred_at.isoformat()
+                         if hasattr(occurred_at, "isoformat") else None),
             # The owner never saw this one: the detector proposed it.
             admission_basis="similarity",
         )
@@ -405,7 +409,8 @@ def _memberships(theme_id: int) -> list | None:
             "source_id": entry["source_id"],
             "snippet": (entry.get("content") or "")[:500],
             "similarity_score": similarity,
-            "occurred_at": entry["occurred_at"].isoformat(),
+            "occurred_at": (moment.isoformat()
+                            if (moment := entry.get("occurred_at")) else None),
             # A sentence the owner read and vouched for, or a match the detector
             # proposed and they never saw. Confirming a claim and authorising a
             # detector are different acts, so the evidence records which one

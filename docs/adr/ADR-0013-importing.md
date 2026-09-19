@@ -1,7 +1,7 @@
 # ADR-0013: Imported and spoken entries are reflections, dated when they happened
 
 ## Status
-Accepted — 2026-09-10
+Accepted — 2026-09-10 · Amended 2026-09-11, 2026-09-19
 
 ## Context
 Every engine in IRIS needs volume it did not have. A theme needs five
@@ -83,6 +83,53 @@ are provenance, not facts, and a `certain` label on one cannot be audited from
 the label alone. `data/imports/date-provenance.json` records, per batch and date
 source, the rule that supplied it, its confidence and where the crosswalk lives.
 Written when dates are enriched, not reconstructed afterwards.
+
+**An unknown date is storable, and is not a date.** *(Amended 2026-09-19, at the
+owner's request, for 43 voice transcripts whose export is lost.)* This ADR has
+always said a date is read or it is absent, never invented — but until now the
+second half had nowhere to live. `reflections.reflection_date` and
+`theme_occurrences.occurred_at` were both `NOT NULL`, so "absent" was
+unrepresentable and the commit refused any entry without a day. The rule was
+sound; its enforcement was a wall rather than a record, and 318,000 characters
+of the owner's thinking sat staged and unreadable behind it.
+
+Both columns are now nullable, and an entry may be committed with no date once
+the owner has explicitly marked it unknown (`import_items.date_unknown_accepted`).
+Nothing about the prohibition changes. Unset is still refused — "the parser
+found nothing" is not an answer, and the default for that flag is false, so an
+export whose dates failed to parse is held for review exactly as before. What is
+new is that the owner can answer *unknown*, and be believed.
+
+Three things follow, and each is load-bearing:
+
+- **No fallback may fill the gap.** `get_unassigned_embeddings` read
+  `occurred_at or created_at`, which was harmless only while every entry had a
+  date; the moment an undated one exists, that `or` dates it to the minute it
+  was embedded, and nothing downstream can tell. The fallback is gone. A missing
+  date stays missing, and each reader decides what it can measure.
+- **Undated evidence reaches no window.** Six engines measure in days, and an
+  occurrence with no date has no place in any of their arithmetic.
+  `get_theme_occurrences` returns dated rows unless asked otherwise, so this is
+  a property of one query rather than a null check repeated six times, where a
+  single omission would be a wrong number nobody could see.
+- **The counts stay apart.** `themes.occurrence_count` continues to mean
+  occurrences that can be placed in time, because that is what every engine
+  gates on; `undated_occurrence_count` is counted beside it and never summed
+  into it unlabelled. The lifelong scale is the one reader that asks for both,
+  and it reports a count with no span rather than a span it cannot support
+  (ADR-0009).
+
+**Order can be read even when dates cannot.** A transcript file numbers its
+recordings; that numbering is stated by the source exactly as a date would be,
+and it is kept in `reflections.entry_sequence`. It orders undated entries among
+themselves and nothing derives a day from it — it is not a date at one remove.
+
+**An absence is resolvable.** The reason storing one is acceptable is that the
+owner can supply the day later, and `set_reflection_date` carries it through to
+the occurrences the entry already has. Without that, answering the question
+would change nothing they could see. It fills a blank only; a date already read
+from the writing is never overwritten, which would be this ADR's prohibition
+arriving through a different door.
 
 **`content_hash` is written by the importer only.** It could be computed for
 every reflection, but then the de-duplication index would reject an entry typed

@@ -56,8 +56,16 @@ class ReflectionService:
         date_source: str | None = None,
         date_confidence: str | None = None,
         evidence_eligible: bool = True,
+        undated: bool = False,
+        entry_sequence: int | None = None,
     ) -> int:
-        """Create a new reflection. Returns reflection ID."""
+        """Create a new reflection. Returns reflection ID.
+
+        `undated=True` records that the day is not known, which is different
+        from not passing one — an omitted date means "written now" and is
+        filled with today. `entry_sequence` orders undated entries among
+        themselves, from an ordering the source stated (ADR-0013).
+        """
         if not content or not content.strip():
             raise ValueError("Reflection content cannot be empty")
 
@@ -87,6 +95,8 @@ class ReflectionService:
             date_source,
             date_confidence,
             evidence_eligible,
+            undated,
+            entry_sequence,
         )
 
         # The reflection is stored. Turning it into evidence is queued, so a

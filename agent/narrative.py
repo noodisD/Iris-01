@@ -45,6 +45,13 @@ class NarrativeFormatter:
         engine = insight.get('engine_name')
         template = NARRATIVE_TEMPLATES.get(engine)
 
+        # An engine may offer several phrasings for genuinely different
+        # findings. It names the one it wants; an unrecognised name falls back
+        # to the default rather than rendering nothing.
+        if isinstance(template, dict):
+            template = template.get(insight.get('template_variant') or 'default',
+                                    template['default'])
+
         if not template:
             logger.error(f"No narrative template found for engine: {engine}")
             logger.debug(f"  Insight: {insight}")

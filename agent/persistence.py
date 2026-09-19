@@ -12,7 +12,7 @@ The engine does not judge. It simply surfaces persistence.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 # Attempt to import sklearn, but handle gracefully if unavailable
@@ -65,6 +65,10 @@ def cosine_similarity_manual(vec1, vec2):
 
 logger = logging.getLogger(__name__)
 
+#: Sorts alongside real timestamps in the undated arm of a sort key, where the
+#: leading flag has already separated dated from undated. Never read as a date.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
 # Complete-linkage clustering from scikit-learn (ADR-0014).
 try:
     from sklearn.cluster import AgglomerativeClustering
@@ -115,7 +119,8 @@ class PersistenceEngine:
     # === Real-time Detection ===
 
     def check_persistence(self, embedding: list, source_type: str,
-                         source_id: int, content: str, occurred_at: datetime) -> int | None:
+                         source_id: int, content: str,
+                         occurred_at: datetime | None) -> int | None:
         """
         Called by pipeline for each new entry.
         Checks if this content matches any existing theme.
@@ -157,15 +162,22 @@ class PersistenceEngine:
             return None
 
         theme = comparable[best]
+        # An entry with no date still matches on what it says, and is still an
+        # occurrence. It is stored without a timestamp rather than with a
+        # stand-in, which keeps it out of every window engine and inside the
+        # count (ADR-0013). The timestamp is passed through as it arrived, not
+        # normalised: this path has always written what the caller gave it, and
+        # changing that here would silently re-interpret every stored naive
+        # timestamp as UTC.
         themes.add_occurrence(
             theme_id=theme["id"],
             source_type=source_type,
             source_id=source_id,
             snippet=self._extract_snippet(content),
             similarity_score=similarity,
-            occurred_at=occurred_at.isoformat()
+            occurred_at=occurred_at.isoformat() if occurred_at else None,
         )
-        themes.update_stats(theme["id"], occurred_at.isoformat())
+        themes.update_stats(theme["id"], occurred_at.isoformat() if occurred_at else None)
         logger.info(f"Matched entry {source_id} to theme {theme['id']} "
                    f"(similarity: {similarity:.3f})")
         return theme["id"]
@@ -284,8 +296,14 @@ class PersistenceEngine:
         self._comparison.invalidate()
         created = self.discover_themes()
 
-        leftovers = sorted(embeddings.get_unassigned_embeddings(self.user_id),
-                           key=lambda row: to_utc(row["occurred_at"]))
+        # Oldest first, with undated entries last. They have no place in the
+        # ordering because they have no date; sorting them against one would
+        # have compared None with a datetime and raised, and giving them a
+        # stand-in date to sort by is the substitution ADR-0013 forbids.
+        leftovers = sorted(
+            embeddings.get_unassigned_embeddings(self.user_id),
+            key=lambda row: (row["occurred_at"] is None, to_utc(row["occurred_at"]) or _EPOCH),
+        )
         matched = 0
         for row in leftovers:
             content = embeddings.get_content_for_source(row["source_type"], row["source_id"]) or ""
@@ -312,9 +330,16 @@ class PersistenceEngine:
 
         # Earliest and latest *event* times, so a theme is dated by when its
         # entries happened rather than by when the queue got to them.
-        timestamps = [to_utc(e["occurred_at"]) for e in entries]
-        first_seen = min(timestamps)
-        last_seen = max(timestamps)
+        #
+        # Entries with no date contribute no bound. A cluster made entirely of
+        # them has no span at all: the columns are NOT NULL so they take a
+        # placeholder, and span_is_undated says that placeholder means nothing
+        # — the same arrangement constructs promoted from undated writing
+        # already use (migration 0011).
+        timestamps = [t for t in (to_utc(e["occurred_at"]) for e in entries) if t]
+        undated_span = not timestamps
+        first_seen = min(timestamps) if timestamps else utc_now()
+        last_seen = max(timestamps) if timestamps else utc_now()
 
         # Generate theme summary (use LLM to create neutral summary)
         try:
@@ -332,7 +357,8 @@ class PersistenceEngine:
                 summary=summary,
                 first_seen_at=first_seen.isoformat(),
                 last_seen_at=last_seen.isoformat(),
-                occurrence_count=len(entries)
+                occurrence_count=len(entries),
+                span_is_undated=undated_span,
             )
 
             # Record initial occurrences, scored in the space they were grouped in
@@ -354,7 +380,8 @@ class PersistenceEngine:
                     source_id=entry["source_id"],
                     snippet=snippet,
                     similarity_score=float(similarity),
-                    occurred_at=to_utc(entry["occurred_at"]).isoformat(),
+                    occurred_at=(moment.isoformat()
+                                 if (moment := to_utc(entry.get("occurred_at"))) else None),
                 )
 
             logger.info(f"Created theme {theme_id} with {len(entries)} initial occurrences")

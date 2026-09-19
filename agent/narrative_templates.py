@@ -26,9 +26,24 @@ NARRATIVE_TEMPLATES = {
     # Says when it started and how the occurrences sat across the span, never
     # how things are now — this engine makes no present-tense claim, which is
     # what lets it past the coverage gate.
-    "lifelong": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}; its occurrences were {label}."
+    #
+    # Two phrasings, because there are two findings. The undated one has no
+    # span to quote, and the default template would have filled {time_window}
+    # from a fallback reading "the recent period" — dating, in a sentence, the
+    # writing whose whole distinguishing property is that its date is unknown.
+    # It says where the number came from instead.
+    "lifelong": {
+        "default": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}; its occurrences were {label}.",
+        "undated": "The pattern '{pattern_name}' appeared {metric_value} times in writing that carries no date, so no span is given.",
+    },
 }
 
 # Runtime coverage check
 assert set(NARRATIVE_TEMPLATES.keys()) == ENGINE_NAMES, \
     f"Missing templates for: {ENGINE_NAMES - set(NARRATIVE_TEMPLATES.keys())}"
+
+# A variant set must be able to answer a request it has no phrasing for, or an
+# engine emitting an unknown variant would render nothing and the insight would
+# vanish silently rather than fail.
+assert all("default" in v for v in NARRATIVE_TEMPLATES.values() if isinstance(v, dict)), \
+    "every set of template variants needs a 'default'"

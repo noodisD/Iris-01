@@ -115,11 +115,11 @@ def delete_batch(batch_id: int, user_id: int) -> bool:
 _ITEM_COLUMNS = """id, batch_id, user_id, source_name, title, content, content_hash,
                    audio_path, entry_date, date_source, date_confidence, tags,
                    warnings, status, reflection_id, error, file_modified_at,
-                   metrics"""
+                   metrics, date_unknown_accepted"""
 _ITEM_KEYS = ("id", "batch_id", "user_id", "source_name", "title", "content",
               "content_hash", "audio_path", "entry_date", "date_source",
               "date_confidence", "tags", "warnings", "status", "reflection_id", "error",
-              "file_modified_at", "metrics")
+              "file_modified_at", "metrics", "date_unknown_accepted")
 
 
 def _item_row(row) -> dict:
@@ -171,6 +171,28 @@ def list_items(batch_id: int, user_id: int, status: str | None = None,
         return [_item_row(r) for r in cur.fetchall()]
 
 
+def source_order(batch_id: int, user_id: int) -> dict[int, int]:
+    """Each item's position in the export, as {item_id: 1-based position}.
+
+    Ordered by source_name first because that is what the export itself says:
+    a markdown file of recordings names them `...#001`, `...#002`, and that
+    numbering is the order they were made. Id is the tiebreak for sources that
+    do not number, where insertion order is the only thing that survived
+    parsing.
+
+    Over every item in the batch, whatever its status, so a position is a fact
+    about the export rather than about which entries the owner happened to
+    include.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, ROW_NUMBER() OVER (ORDER BY source_name NULLS LAST, id)
+                 FROM import_items WHERE batch_id = %s AND user_id = %s;""",
+            (batch_id, user_id),
+        )
+        return {row[0]: int(row[1]) for row in cur.fetchall()}
+
+
 def get_item(item_id: int, user_id: int) -> dict | None:
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -183,7 +205,8 @@ def get_item(item_id: int, user_id: int) -> dict | None:
 
 def update_item(item_id: int, user_id: int, **fields: Any) -> dict | None:
     allowed = {"entry_date", "date_source", "date_confidence", "content",
-               "content_hash", "status", "reflection_id", "error", "audio_path"}
+               "content_hash", "status", "reflection_id", "error", "audio_path",
+               "date_unknown_accepted"}
     unknown = set(fields) - allowed
     if unknown:
         raise ValueError(f"cannot set {unknown} on an item")
@@ -202,7 +225,8 @@ def update_item(item_id: int, user_id: int, **fields: Any) -> dict | None:
 def bulk_update(item_ids: list[int], user_id: int, **fields: Any) -> int:
     if not item_ids or not fields:
         return 0
-    allowed = {"entry_date", "date_source", "date_confidence", "status"}
+    allowed = {"entry_date", "date_source", "date_confidence", "status",
+               "date_unknown_accepted"}
     unknown = set(fields) - allowed
     if unknown:
         raise ValueError(f"cannot bulk-set {unknown}")
@@ -262,12 +286,23 @@ def counts(batch_id: int) -> dict[str, int]:
             (batch_id,),
         )
         by_status = {row[0]: row[1] for row in cur.fetchall()}
+        # Only entries whose date is still an open question. One the owner has
+        # looked at and marked unknown is answered, not missing, and commits
+        # without a date rather than blocking the batch.
         cur.execute(
             """SELECT COUNT(*) FROM import_items
-               WHERE batch_id = %s AND status = 'staged' AND entry_date IS NULL;""",
+               WHERE batch_id = %s AND status = 'staged'
+                 AND entry_date IS NULL AND NOT date_unknown_accepted;""",
             (batch_id,),
         )
         by_status["needs_date"] = cur.fetchone()[0]
+        cur.execute(
+            """SELECT COUNT(*) FROM import_items
+               WHERE batch_id = %s AND status = 'staged'
+                 AND entry_date IS NULL AND date_unknown_accepted;""",
+            (batch_id,),
+        )
+        by_status["undated"] = cur.fetchone()[0]
         # A recording whose transcript has not arrived has nothing to commit
         # yet. Counted separately from needs_date because the remedy is
         # different: a missing date is something the owner supplies, a missing
@@ -286,7 +321,7 @@ def counts(batch_id: int) -> dict[str, int]:
         first, last = cur.fetchone()
     by_status["total"] = sum(
         v for k, v in by_status.items()
-        if k not in ("needs_date", "awaiting_transcript")
+        if k not in ("needs_date", "awaiting_transcript", "undated")
     )
     by_status["earliest"] = first
     by_status["latest"] = last
