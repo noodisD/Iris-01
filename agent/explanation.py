@@ -8,6 +8,12 @@ It performs no logic or inference, only structured recall.
 import logging
 from typing import Any
 
+from .constants import (
+    RESOLUTION_BASELINE_DAYS,
+    RESOLUTION_RECENT_DAYS,
+    TRAJECTORY_BASELINE_DAYS,
+    TRAJECTORY_RECENT_DAYS,
+)
 from .database import confidence as conf_repo
 
 # Import database and evidence
@@ -57,7 +63,7 @@ class ExplanationEngine:
         formatted_evidence = []
         for rec in bundle:
             formatted_evidence.append({
-                "label": self._map_key_to_label(rec['evidence_key']),
+                "label": self._map_key_to_label(rec['evidence_key'], rec['engine_name']),
                 "value": rec['evidence_value'],
                 "type": rec['evidence_type'],
                 "engine": rec['engine_name']
@@ -76,17 +82,32 @@ class ExplanationEngine:
             "computed_at": bundle[0]['created_at'].isoformat()
         }
 
-    def _map_key_to_label(self, key: str) -> str:
-        """Maps machine keys to human-friendly labels."""
+    def _map_key_to_label(self, key: str, engine: str | None = None) -> str:
+        """Maps machine keys to human-friendly labels.
+
+        `recent_count` and `past_count` are emitted by trajectory and
+        resolution, which measure over different windows. The label named
+        resolution's for both, so a trajectory explanation described a 14-day
+        count as a 21-day one. The window now comes from the engine that
+        measured it.
+        """
+        windows = {
+            "trajectory": (TRAJECTORY_RECENT_DAYS, TRAJECTORY_BASELINE_DAYS),
+            "resolution": (RESOLUTION_RECENT_DAYS, RESOLUTION_BASELINE_DAYS),
+        }
+        if key in ("recent_count", "past_count") and engine in windows:
+            recent, baseline = windows[engine]
+            return (f"Recent occurrences ({recent}d)" if key == "recent_count"
+                    else f"Baseline occurrences ({baseline}d)")
         mapping = {
             # Persistence
             "occurrence_count": "Total occurrences",
             "time_coverage_days": "Time span of evidence",
             "recency_score": "Evidence recency (decayed)",
 
-            # Trajectory
-            "recent_count": "Recent occurrences (21d)",
-            "past_count": "Baseline occurrences (90d)",
+            # Trajectory (windowed counts are labelled above, per engine)
+            "recent_count": "Recent occurrences",
+            "past_count": "Baseline occurrences",
             "trend_score": "Linear trend slope",
             "total_occurrences": "Total data points",
 

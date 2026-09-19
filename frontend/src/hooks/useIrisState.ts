@@ -1,5 +1,5 @@
 /**
- * Global Iris state — orb vibe, day-in-journey, tone overrides.
+ * Global Iris state — the orb's vibe.
  * Persists user choices to localStorage so a hard reload feels stable.
  */
 
@@ -10,18 +10,14 @@ export type OrbVibe = 'auto' | 'calm' | 'low' | 'high' | 'cool' | 'dim';
 
 interface IrisState {
   vibe: OrbVibe;
-  dayOverride: number | null;     // null = use server value
   setVibe: (v: OrbVibe) => void;
-  setDayOverride: (d: number | null) => void;
 }
 
 export const useIrisStore = create<IrisState>()(
   persist(
     (set) => ({
       vibe: 'auto',
-      dayOverride: null,
       setVibe: (vibe) => set({ vibe }),
-      setDayOverride: (dayOverride) => set({ dayOverride }),
     }),
     { name: 'iris-state' },
   ),

@@ -34,7 +34,6 @@ export type Density = 'sparse' | 'balanced' | 'dense';
 export interface User {
   id: ID;
   name: string;
-  email?: string;
   createdAt: ISODateTime;
   /** Days since user joined; computed server-side. */
   dayInJourney: number;
@@ -69,26 +68,8 @@ export interface ChatMessage {
   /** Plain text. Markdown rendering is a frontend concern. */
   text: string;
   createdAt: ISODateTime;
-  /** Tag terms Iris "noticed" while writing this message. */
-  noticed?: NoticedTag[];
-  /** Optional structured quick-reply options Iris is offering. */
-  quickReplies?: QuickReply[];
   /** True while a partial reply is still streaming. */
   streaming?: boolean;
-}
-
-export interface NoticedTag {
-  /** Stable key like `tuesdays_standup`. */
-  key: string;
-  label: string;
-  confidence: Confidence;
-}
-
-export interface QuickReply {
-  id: string;
-  label: string;
-  /** Optional action keyword the backend can interpret. */
-  intent?: string;
 }
 
 export interface Conversation {
@@ -97,15 +78,6 @@ export interface Conversation {
   startedAt: ISODateTime;
   lastMessageAt: ISODateTime;
   messageCount: number;
-  /** Inferences Iris is currently holding from this conversation. */
-  inferred: InferredItem[];
-}
-
-export interface InferredItem {
-  tag: string;             // e.g. "mood", "energy", "win"
-  value: string;           // e.g. "tired · relieved"
-  confidence: Confidence;
-  derivedFrom: ('text' | 'air' | 'health-connect' | 'apple-health' | 'calendar' | 'pattern')[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,8 +122,6 @@ export interface Habit {
   intent?: string;
   /** Theme color: 'sage' | 'amber' | 'indigo' | 'rose' | … or a hex. */
   color: string;
-  /** Habit IDs this habit tends to enable, observed empirically. */
-  supports: ID[];
   /** Convenience: streak length in days. */
   streakDays: number;
   bestStreak: number;
@@ -191,20 +161,14 @@ export interface HabitToggleRequest {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Body — Fitbit Air / Health Connect / Apple Health
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Insights — patterns Iris found
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** What kind of measurement a finding is. Nothing here is causal: leverage and
+ *  decision impact are association over time, and are 'temporal'. */
 export type InsightKind =
-  | 'fusion'        // body + words
-  | 'temporal'      // day-of-week, time-of-day
-  | 'causal'        // X → Y over time
-  | 'linguistic'    // word patterns
-  | 'co-occurrence' // two themes on the same days
-  | 'embodied';     // body-vocabulary
+  | 'temporal'      // occurrences over time
+  | 'co-occurrence'; // two themes on the same days
 
 export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
 
@@ -287,8 +251,6 @@ export interface InsightDetail extends InsightSummary {
   /** `sourceId` is the journal entry this came from, when it can be opened. */
   pullQuotes: { sourceDate: ISODate; text: string; sourceKind: 'journal' | 'chat'; sourceId?: ID | null }[];
   related: { id: ID; label: string; tag: string }[];
-  /** "Things to try" — clickable, optionally trigger server actions. */
-  suggestions: InsightSuggestion[];
   /** Free-form methodology paragraph the user can expand. */
   methodology: string;
 }
@@ -299,39 +261,19 @@ export type InsightEvidence =
   | { kind: 'comparison'; label: string; items: { label: string; value: number; sub?: string }[] }
   | { kind: 'callout'; label: string; value: string; sub?: string };
 
-export interface InsightSuggestion {
-  id: ID;
-  label: string;
-  impact: string;
-  /** If set, accepting POSTs an action to this path. */
-  acceptUrl?: string;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings — what Iris knows + data sources
+// Settings — what Iris knows
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface KnownFact {
   id: ID;
   fact: string;
-  source: 'chat' | 'journal' | 'pattern' | 'confirmed' | 'derived' | 'air' | 'language' | 'fusion';
+  /** A cluster the machine found, or a pattern the owner confirmed. */
+  source: 'pattern' | 'confirmed';
   /** Days since Iris learned it. */
   ageDays: number;
   /** Can the user edit/forget this one? Usually yes. */
   editable: boolean;
-}
-
-export interface DataConnector {
-  id: 'fitbit-air' | 'google-health' | 'apple-health' | 'calendar' | 'spotify' | 'photos' | 'messages' | 'location';
-  name: string;
-  /** What we read; shown in UI for transparency. */
-  scopeDescription: string;
-  state: 'connected' | 'paused' | 'off';
-  featured?: boolean;     // marked "primary biosignal" in UI
-  /** OAuth flow URL if applicable. */
-  connectUrl?: string;
-  disconnectUrl?: string;
-  lastSyncedAt?: ISODateTime;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -463,16 +405,8 @@ export interface ReviewDay {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface OnboardingState {
-  step:
-    | 'hello' | 'name' | 'reason' | 'threads'
-    | 'pair-body' | 'review' | 'done';
-  answers: Partial<{
-    name: string;
-    reason: string;
-    threads: ThreadKey[];
-    bodySource: 'fitbit-air' | 'apple-health' | 'health-connect' | 'none';
-    checkinFrequency: 'once' | 'twice';
-  }>;
+  /** First run is one paragraph and one button. */
+  step: 'welcome' | 'done';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,15 +1,8 @@
-import React from 'react';
 import { useHabits } from '@/hooks/useHabits';
 import { useInsights } from '@/hooks/useInsights';
 import { useNavigate } from 'react-router-dom';
 
-/**
- * Today / dashboard — composed from multiple hooks.
- * PARTIAL: the full prototype (screens/dashboard.jsx) has ~12 cards
- * (mood, energy, sleep bars, anxiety heatmap, topics, correlations…).
- * This shows the headline + a representative subset wired to real data;
- * port remaining cards as the backend exposes those series.
- */
+/** Today: the featured finding, if there is one, and today's habits. */
 export function TodayScreen() {
   const { data: habits } = useHabits();
   const { data: insights } = useInsights();
@@ -59,9 +52,6 @@ export function TodayScreen() {
         )}
       </div>
 
-      <p style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-        PARTIAL PORT · mood/energy/sleep/anxiety-heatmap/topics/correlations cards to be ported from prototype screens/dashboard.jsx
-      </p>
     </div>
   );
 }

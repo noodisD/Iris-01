@@ -15,55 +15,52 @@ export function useMessages(conversationId: string | undefined) {
   });
 }
 
-export function useInferred(conversationId: string | undefined) {
-  return useQuery({
-    queryKey: conversationId ? qk.inferred(conversationId) : ['noop'],
-    queryFn:  () => chatApi.getInferred(conversationId!),
-    enabled:  !!conversationId,
-  });
-}
-
 /**
- * Send a user message + stream Iris's reply. Updates the React Query cache
- * optimistically so the chat scrolls without a refetch.
+ * Send a message and stream IRIS's reply into the cache as it is written.
+ *
+ * A failure used to leave both optimistic bubbles on screen — the owner's
+ * message and an empty reply marked as still streaming, forever — with no
+ * error shown. Now the placeholder goes, the screen is reconciled with what the
+ * server actually stored, and the error is returned for the screen to show.
  */
-export function useSendMessage(conversationId: string | undefined, tone: 'clinical' | 'warm' | 'playful') {
+export function useSendMessage(conversationId: string | undefined) {
   const qc = useQueryClient();
+  const key = conversationId ? qk.messages(conversationId) : ['noop'];
 
   return useMutation({
     mutationFn: async (text: string) => {
       if (!conversationId) throw new Error('No active conversation');
 
-      // 1) Append user message immediately
-      const userMsg = await chatApi.sendMessage(conversationId, text);
-      qc.setQueryData<ChatMessage[]>(qk.messages(conversationId), (old) => [...(old ?? []), userMsg]);
-
-      // 2) Open a streaming reply placeholder
+      const userMsg = chatApi.draftUserMessage(conversationId, text);
       const replyId = `m_stream_${Date.now()}`;
-      qc.setQueryData<ChatMessage[]>(qk.messages(conversationId), (old) => [
+      qc.setQueryData<ChatMessage[]>(key, (old) => [
         ...(old ?? []),
+        userMsg,
         { id: replyId, conversationId, role: 'iris', text: '', createdAt: new Date().toISOString(), streaming: true },
       ]);
 
-      // 3) Stream tokens
-      let buffer = '';
-      let finalId: string | undefined;
-      for await (const ev of chatApi.streamReply(conversationId, text, tone)) {
-        if (ev.done) { finalId = ev.messageId; break; }
-        buffer += ev.text;
-        qc.setQueryData<ChatMessage[]>(qk.messages(conversationId), (old) =>
-          (old ?? []).map(m => m.id === replyId ? { ...m, text: buffer } : m),
+      try {
+        let buffer = '';
+        let finalId: string | undefined;
+        for await (const ev of chatApi.streamReply(conversationId, text)) {
+          if (ev.done) { finalId = ev.messageId; break; }
+          buffer += ev.text;
+          qc.setQueryData<ChatMessage[]>(key, (old) =>
+            (old ?? []).map(m => m.id === replyId ? { ...m, text: buffer } : m),
+          );
+        }
+        qc.setQueryData<ChatMessage[]>(key, (old) =>
+          (old ?? []).map(m => m.id === replyId ? { ...m, id: finalId ?? replyId, streaming: false } : m),
         );
+      } catch (err) {
+        // Remove what this turn added, then take the server's word for what
+        // was stored: the owner's message comes back if it was saved.
+        qc.setQueryData<ChatMessage[]>(key, (old) =>
+          (old ?? []).filter(m => m.id !== replyId && m.id !== userMsg.id),
+        );
+        await qc.invalidateQueries({ queryKey: key });
+        throw err;
       }
-
-      // 4) Finalize
-      qc.setQueryData<ChatMessage[]>(qk.messages(conversationId), (old) =>
-        (old ?? []).map(m => m.id === replyId ? { ...m, id: finalId ?? replyId, streaming: false } : m),
-      );
-
-      // Refresh inferred items in the rail
-      qc.invalidateQueries({ queryKey: qk.inferred(conversationId) });
-
       return userMsg;
     },
   });

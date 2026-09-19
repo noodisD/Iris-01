@@ -1,12 +1,24 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useInsights, useInsight, useInsightsCoverage } from '@/hooks/useInsights';
+import { resolveInsight, snoozeInsight } from '@/api/insights';
+import { qk } from '@/lib/queryClient';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import { color } from '@/components/primitives';
 import { formatEventDate, DAY_LONG } from '@/lib/dates';
 import type { InsightSummary, InsightEvidence } from '@/types/api';
 
 // ─── Index ────────────────────────────────────────────────────────────────
+
+function Provenance({ insight }: { insight: InsightSummary }) {
+  if (insight.origin !== 'observed') return null;
+  return (
+    <span className="tag" title="A pattern you read the quotes for and confirmed">
+      confirmed · {insight.claimKind === 'behaviour' ? 'behaviour' : 'mentions in writing'}
+    </span>
+  );
+}
 
 function Card({ insight, onOpen }: { insight: InsightSummary; onOpen: (id: string) => void }) {
   const c = color(insight.accentColor);
@@ -34,6 +46,7 @@ function Card({ insight, onOpen }: { insight: InsightSummary; onOpen: (id: strin
       <div style={{ flex: 1 }} />
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <Provenance insight={insight} />
           {insight.tags.map((t, i) => <span key={i} className="tag">{t}</span>)}
         </div>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: c }}>open ↗</span>
@@ -146,7 +159,8 @@ function TwinSeries({ ev }: { ev: Extract<InsightEvidence, { kind: 'twin-series'
   const W = 700, H = 220;
   const all = ev.series.flatMap(s => s.points.map(p => p.y));
   const min = Math.min(...all), max = Math.max(...all), span = max - min || 1;
-  const xFor = (i: number, n: number) => (i / (n - 1)) * W;
+  // A single point sits in the middle; i / (n - 1) was NaN for it.
+  const xFor = (i: number, n: number) => (n > 1 ? (i / (n - 1)) * W : W / 2);
   const yFor = (v: number) => 20 + (1 - (v - min) / span) * (H - 40);
   return (
     <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
@@ -169,6 +183,26 @@ function DetailView() {
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, isError, refetch } = useInsight(id);
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const [acting, setActing] = React.useState<null | 'snooze' | 'resolve'>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  // These three buttons rendered with no handler, while the empty states told
+  // the owner they had "marked them resolved or snoozed". The APIs existed.
+  const act = async (kind: 'snooze' | 'resolve') => {
+    if (!id) return;
+    setActing(kind);
+    setActionError(null);
+    try {
+      await (kind === 'snooze' ? snoozeInsight(id, 30) : resolveInsight(id));
+      await qc.invalidateQueries({ queryKey: qk.insights });
+      nav('/insights');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActing(null);
+    }
+  };
 
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState onRetry={() => refetch()} />;
@@ -183,15 +217,21 @@ function DetailView() {
       <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', padding: '20px 40px', borderBottom: '1px solid var(--line-soft)' }}>
         <button className="btn ghost" onClick={() => nav('/insights')} style={{ color: 'var(--ink-3)' }}>← all insights</button>
         <div className="row" style={{ gap: 8 }}>
-          <button className="btn">▷ ask iris about this</button>
-          <button className="btn">snooze 30d</button>
-          <button className="btn">mark resolved</button>
+          <button className="btn" onClick={() => nav(`/chat?draft=${encodeURIComponent(`About what you noticed — "${data.headline.line1}": `)}`)}>▷ ask iris about this</button>
+          <button className="btn" disabled={acting !== null} onClick={() => act('snooze')}>{acting === 'snooze' ? 'snoozing…' : 'snooze 30d'}</button>
+          <button className="btn" disabled={acting !== null} onClick={() => act('resolve')}>{acting === 'resolve' ? 'resolving…' : 'mark resolved'}</button>
         </div>
       </div>
 
+      {actionError && (
+        <div role="alert" style={{ padding: '10px 40px', fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>
+          {actionError}
+        </div>
+      )}
       <article style={{ padding: '36px 60px 24px', borderBottom: '1px solid var(--line)' }}>
         <div className="row" style={{ gap: 10, marginBottom: 14 }}>
           {data.featured && <span className="tag" style={{ color: 'var(--sage)', borderColor: 'var(--sage-dim)' }}>★ featured</span>}
+          <Provenance insight={data} />
           {data.tags.map((t, i) => <span key={i} className="tag">{t}</span>)}
         </div>
         <h1 className="serif" style={{ margin: 0, fontSize: 88, lineHeight: 0.92, letterSpacing: '-0.03em' }}>
@@ -259,18 +299,7 @@ function DetailView() {
             </div>
             <div className="serif ital" style={{ fontSize: 18, lineHeight: 1.4, color: 'var(--ink)' }}>"{data.irisRead}"</div>
           </section>
-          <section>
-            <div className="kicker" style={{ marginBottom: 8 }}>things to try</div>
-            <div className="col" style={{ gap: 10 }}>
-              {data.suggestions.map(s => (
-                <button key={s.id} className="col" style={{ alignItems: 'flex-start', gap: 4, background: 'transparent', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit' }}>
-                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.label}</span>
-                  <span style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>{s.impact}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-          <section>
+          {data.related.length > 0 && <section>
             <div className="kicker" style={{ marginBottom: 10 }}>related</div>
             <div className="col" style={{ gap: 8 }}>
               {data.related.map(r => (
@@ -280,7 +309,7 @@ function DetailView() {
                 </div>
               ))}
             </div>
-          </section>
+          </section>}
           <section style={{ paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
             <div className="kicker" style={{ marginBottom: 6 }}>how iris found this</div>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, fontStyle: 'italic' }}>{data.methodology}</div>

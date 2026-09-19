@@ -51,27 +51,16 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
     positions[h.id] = { x: W / 2 + Math.cos(angle) * 200, y: H / 2 + Math.sin(angle) * 150, r: 40 + (h.streakDays / 21) * 28 };
   });
 
-  const connections: { from: string; to: string }[] = [];
-  habits.forEach(h => h.supports.forEach(to => { if (positions[to]) connections.push({ from: h.id, to }); }));
-
+  // Arranged in a ring and sized by streak — nothing more. This drew arrows
+  // under the heading "how habits pull each other", from a `supports` list the
+  // server always sent empty: a causal claim with no data behind it, on a tick
+  // list, in a product whose rule is that it does not claim causes.
   return (
     <div style={{ padding: '20px 0' }}>
       <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div className="kicker">your constellation · how habits pull each other</div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>arrows: doing → supports → doing</div>
+        <div className="kicker">your habits · sized by current streak</div>
       </div>
       <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: W }}>
-        <defs>
-          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 2 L 9 5 L 0 8 z" fill="var(--sage)" opacity="0.7" />
-          </marker>
-        </defs>
-        {connections.map((cn, i) => {
-          const f = positions[cn.from], t = positions[cn.to];
-          const dx = t.x - f.x, dy = t.y - f.y, dist = Math.hypot(dx, dy);
-          const ux = dx / dist, uy = dy / dist;
-          return <line key={i} x1={f.x + ux * f.r} y1={f.y + uy * f.r} x2={t.x - ux * (t.r + 6)} y2={t.y - uy * (t.r + 6)} stroke="var(--sage)" strokeWidth="1" strokeDasharray="3 4" opacity="0.5" markerEnd="url(#arr)" />;
-        })}
         {habits.map(h => {
           const p = positions[h.id], c = color(h.color), done = h.doneToday;
           return (

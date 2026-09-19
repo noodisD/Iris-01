@@ -1,9 +1,23 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useConversation, useMessages, useInferred, useSendMessage } from '@/hooks/useChat';
+import { useSearchParams } from 'react-router-dom';
+import { useConversation, useMessages, useSendMessage } from '@/hooks/useChat';
 import { useUser } from '@/hooks/useData';
+import { ReplyFailed } from '@/api/chat';
 import { LoadingState, ErrorState } from '@/components/states';
 import type { ChatMessage } from '@/types/api';
+
+/** The part of the day it actually is. The header said "evening check-in" at
+ *  every hour. */
+function partOfDay(d = new Date()): string {
+  const h = d.getHours();
+  return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening';
+}
+
+/** Written today, by the owner. The footer counted every user message loaded. */
+function sentToday(messages: ChatMessage[]): number {
+  const today = new Date().toDateString();
+  return messages.filter(m => m.role === 'user' && new Date(m.createdAt).toDateString() === today).length;
+}
 
 function Bubble({ msg }: { msg: ChatMessage }) {
   if (msg.role === 'iris' || msg.role === 'system') {
@@ -15,14 +29,6 @@ function Bubble({ msg }: { msg: ChatMessage }) {
             {msg.text}
             {msg.streaming && <span style={{ opacity: 0.5 }}>▌</span>}
           </div>
-          {msg.noticed && msg.noticed.length > 0 && (
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-              <span className="kicker" style={{ color: 'var(--ink-4)' }}>Noticed</span>
-              {msg.noticed.map((n) => (
-                <span key={n.key} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', borderBottom: '1px dotted var(--sage-dim)', paddingBottom: 1 }}>{n.label}</span>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -38,11 +44,16 @@ export function ChatScreen() {
   const { data: user } = useUser();
   const { data: convo, isLoading, isError, refetch } = useConversation();
   const { data: messages } = useMessages(convo?.id);
-  const { data: inferred } = useInferred(convo?.id);
-  const tone = user?.preferences.tone ?? 'warm';
-  const send = useSendMessage(convo?.id, tone);
+  const send = useSendMessage(convo?.id);
+  const [params, setParams] = useSearchParams();
 
-  const [draft, setDraft] = React.useState('');
+  // "Ask Iris about this" on an insight arrives as ?draft=… — offered in the
+  // box for the owner to edit or send, never sent on their behalf.
+  const [draft, setDraft] = React.useState(() => params.get('draft') ?? '');
+  React.useEffect(() => {
+    if (params.has('draft')) setParams({}, { replace: true });
+  }, [params, setParams]);
+  const [failure, setFailure] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -50,18 +61,25 @@ export function ChatScreen() {
     if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, [messages, send.isPending]);
 
-  const submit = () => {
-    const t = draft.trim();
+  const submit = (text = draft) => {
+    const t = text.trim();
     if (!t) return;
     setDraft('');
-    send.mutate(t);
+    setFailure(null);
+    send.mutate(t, {
+      onError: (err) => {
+        // If the server never stored the message, give it back to the owner;
+        // if it did, it is already in the history and re-sending would repeat it.
+        if (!(err instanceof ReplyFailed && err.saved)) setDraft(cur => cur || t);
+        setFailure(err instanceof ReplyFailed && err.saved
+          ? `Your message was saved, but Iris couldn't reply: ${err.message}`
+          : `Couldn't reach Iris: ${err instanceof Error ? err.message : String(err)}`);
+      },
+    });
   };
 
   if (isLoading) return <LoadingState />;
   if (isError || !convo) return <ErrorState onRetry={() => refetch()} />;
-
-  const lastIris = [...(messages ?? [])].reverse().find(m => m.role === 'iris');
-  const quick = lastIris?.quickReplies ?? [];
 
   return (
     <div style={{ display: 'flex', height: '100%' }}>
@@ -72,14 +90,14 @@ export function ChatScreen() {
             <span className="kicker">Iris · listening</span>
           </div>
           <div className="row" style={{ gap: 8 }}>
-            <span className="tag">day {user?.dayInJourney ?? 47}</span>
+            {user && <span className="tag">day {user.dayInJourney}</span>}
             <span className="tag"><span className="dot sage" /> private</span>
           </div>
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '40px 60px 24px' }}>
           <div className="col" style={{ maxWidth: 720, margin: '0 auto' }}>
-            <div className="kicker" style={{ marginBottom: 14 }}>— evening check-in</div>
+            <div className="kicker" style={{ marginBottom: 14 }}>— {partOfDay()} check-in</div>
             <div className="serif" style={{ fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em', marginBottom: 38 }}>
               How was today,<br /><span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>really?</span>
             </div>
@@ -97,11 +115,9 @@ export function ChatScreen() {
 
         <div style={{ padding: '14px 60px 28px', borderTop: '1px solid var(--line-soft)', background: 'var(--bg-0)' }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            {quick.length > 0 && (
-              <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                {quick.map(q => (
-                  <button key={q.id} className="btn" onClick={() => send.mutate(q.label)} style={{ borderColor: 'var(--sage-dim)', color: 'var(--sage)' }}>{q.label}</button>
-                ))}
+            {failure && (
+              <div role="alert" style={{ marginBottom: 12, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)', letterSpacing: '0.02em' }}>
+                {failure}
               </div>
             )}
             <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'flex-end', gap: 12 }}>
@@ -109,37 +125,16 @@ export function ChatScreen() {
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
                 placeholder="Talk to Iris… (⏎ to send, ⇧⏎ for new line)" rows={1}
                 style={{ flex: 1, background: 'transparent', border: 'none', resize: 'none', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 14, lineHeight: 1.5, outline: 'none', minHeight: 22 }} />
-              <button className="btn primary" style={{ padding: '7px 14px' }} onClick={submit} disabled={send.isPending}>Send</button>
+              <button className="btn primary" style={{ padding: '7px 14px' }} onClick={() => submit()} disabled={send.isPending}>Send</button>
             </div>
             <div className="row" style={{ justifyContent: 'space-between', marginTop: 10, fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--ink-4)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
               <span>Stored on this machine · replies generated by OpenAI</span>
-              <span>{(messages ?? []).filter(m => m.role === 'user').length} messages today</span>
+              <span>{sentToday(messages ?? [])} messages today</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Inferred rail */}
-      <aside style={{ width: 280, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '36px 24px 24px', overflow: 'auto' }}>
-        <div className="kicker">From this conversation</div>
-        <h3 className="serif" style={{ margin: '8px 0 18px', fontSize: 22, lineHeight: 1, color: 'var(--ink)' }}>
-          Iris is hearing<span style={{ color: 'var(--sage)' }}>.</span>
-        </h3>
-        <div className="col" style={{ gap: 14 }}>
-          {(inferred ?? []).map((it, i) => (
-            <div key={i} className="col" style={{ gap: 4 }}>
-              <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                <span className="kicker" style={{ color: 'var(--ink-3)' }}>{it.tag}</span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-4)' }}>{Math.round(it.confidence * 100)}%</span>
-              </div>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--ink)' }}>{it.value}</div>
-              <div style={{ height: 1, background: 'var(--line-soft)', position: 'relative', marginTop: 2 }}>
-                <div style={{ position: 'absolute', left: 0, top: 0, height: 1, width: `${it.confidence * 100}%`, background: 'var(--sage)' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </aside>
     </div>
   );
 }

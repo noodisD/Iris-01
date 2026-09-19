@@ -1,4 +1,3 @@
-import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppLayout } from '@/components/AppLayout';
 import { ChatScreen } from '@/screens/ChatScreen';
@@ -7,7 +6,6 @@ import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
 import { InsightsScreen } from '@/screens/InsightsScreen';
 import { ReviewScreen } from '@/screens/ReviewScreen';
-import { MobileScreen } from '@/screens/MobileScreen';
 import { ImportScreen } from '@/screens/ImportScreen';
 import { ConstructsScreen } from '@/screens/ConstructsScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
@@ -28,7 +26,6 @@ const router = createBrowserRouter([
       { path: 'insights', element: <InsightsScreen /> },
       { path: 'insights/:id', element: <InsightsScreen /> },
       { path: 'review', element: <ReviewScreen /> },
-      { path: 'mobile', element: <MobileScreen /> },
       { path: 'import', element: <ImportScreen /> },
       { path: 'constructs', element: <ConstructsScreen /> },
       { path: 'settings', element: <SettingsScreen /> },

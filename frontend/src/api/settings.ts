@@ -3,16 +3,15 @@
  *   GET    /api/user                        → User
  *   PATCH  /api/user/preferences            → User
  *   GET    /api/knowledge                   → KnownFact[]   (mapped from themes)
- *   DELETE /api/knowledge/:id               → forget a fact (deletes the theme)
- *   GET    /api/connectors                  → DataConnector[]   (static catalog)
- *   POST   /api/connectors/:id/:action      → DataConnector     (connect|pause|disconnect)
+ *   DELETE /api/knowledge/:id               → forget a fact (a cluster is deleted,
+ *                                             a confirmed pattern is retracted)
  *   GET    /api/user/analysis               → AnalysisPreferences
  *   PATCH  /api/user/analysis               → AnalysisPreferences
  *   POST   /api/user/analysis/reset         → AnalysisPreferences
  */
 
 import { api } from './client';
-import type { User, UserPreferences, AnalysisPreferences, KnownFact, DataConnector } from '@/types/api';
+import type { User, UserPreferences, AnalysisPreferences, KnownFact } from '@/types/api';
 
 export async function getUser(): Promise<User> {
   return api.get('/user');
@@ -28,14 +27,6 @@ export async function getKnownFacts(): Promise<KnownFact[]> {
 
 export async function forgetFact(id: string): Promise<void> {
   await api.del(`/knowledge/${id}`);
-}
-
-export async function getConnectors(): Promise<DataConnector[]> {
-  return api.get('/connectors');
-}
-
-export async function setConnectorState(id: string, action: 'connect' | 'pause' | 'disconnect'): Promise<DataConnector> {
-  return api.post(`/connectors/${id}/${action}`);
 }
 
 export async function getAnalysisPreferences(): Promise<AnalysisPreferences> {

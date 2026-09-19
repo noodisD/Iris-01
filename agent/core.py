@@ -5,6 +5,7 @@ all the different services (intelligence, memory, journal, etc.).
 """
 
 import logging
+from collections.abc import Iterator
 import re
 from datetime import datetime
 
@@ -147,10 +148,11 @@ class PersonalAICompanion:
         except Exception as e:
             logger.error(f"Error during shutdown cleanup: {e}")
 
-    def chat(self, user_message: str) -> str:
-        """
-        Main chat handler. Takes a user message, enriches it with context,
-        gets an LLM response, and persists the interaction.
+    def _begin_turn(self, user_message: str) -> tuple[list[dict], str]:
+        """Record the owner's message and build what the model is given.
+
+        Shared by `chat` and `chat_stream`, so the two ways of replying cannot
+        drift into two ways of deciding what IRIS knows.
         """
         # 1. Add user message to memory
         self.memory.add_message("user", user_message)
@@ -167,21 +169,44 @@ class PersonalAICompanion:
 
 {aggregated_context}
 """
-        # 4. Get short-term conversation context
-        short_term_context = self.memory.get_context(max_messages=20)
+        # 4. Short-term conversation context
+        return self.memory.get_context(max_messages=20), enhanced_prompt
 
-        # 5. Call the LLM
+    def chat(self, user_message: str) -> str:
+        """
+        Main chat handler. Takes a user message, enriches it with context,
+        gets an LLM response, and persists the interaction.
+        """
+        short_term_context, enhanced_prompt = self._begin_turn(user_message)
         response_text = self.intelligence.chat(
             messages=short_term_context,
             system_prompt=enhanced_prompt,
             temperature=DEFAULT_TEMPERATURE,
             max_tokens=DEFAULT_MAX_TOKENS
         )
-
-        # 6. Add the assistant's response to memory
         self.memory.add_message("assistant", response_text)
-
         return response_text
+
+    def chat_stream(self, user_message: str) -> Iterator[str]:
+        """The same turn as `chat`, yielding the reply as it is generated.
+
+        The reply is saved only once it is complete. A stream that fails midway
+        saves nothing in IRIS's name: half a sentence is not something IRIS
+        said, and saving it would feed it back as context on the next turn. The
+        owner's own message is saved before anything else, because they did say
+        it.
+        """
+        short_term_context, enhanced_prompt = self._begin_turn(user_message)
+        parts: list[str] = []
+        for fragment in self.intelligence.stream(
+            messages=short_term_context,
+            system_prompt=enhanced_prompt,
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=DEFAULT_MAX_TOKENS,
+        ):
+            parts.append(fragment)
+            yield fragment
+        self.memory.add_message("assistant", "".join(parts))
 
     def _get_aggregated_context(self, user_message: str) -> str:
         """

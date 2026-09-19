@@ -75,23 +75,3 @@ def test_forget_fact_deletes_theme(client, test_user):
     assert r.status_code in (200, 204)
     remaining = [f["id"] for f in client.get("/api/knowledge").json()]
     assert str(tid) not in remaining
-
-
-def test_get_connectors_returns_contract(client):
-    r = client.get("/api/connectors")
-    assert r.status_code == 200
-    connectors = r.json()
-    assert isinstance(connectors, list) and connectors
-    c = connectors[0]
-    for key in ("id", "name", "scopeDescription", "state"):
-        assert key in c, f"missing {key}"
-    assert c["state"] in ("connected", "paused", "off")
-
-
-def test_connector_state_persists(client):
-    r = client.post("/api/connectors/calendar/connect")
-    assert r.status_code == 200
-    assert r.json()["state"] == "connected"
-    # persists across a fresh GET
-    connectors = {c["id"]: c for c in client.get("/api/connectors").json()}
-    assert connectors["calendar"]["state"] == "connected"

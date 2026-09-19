@@ -1,19 +1,16 @@
 /**
- * Chat / conversation API — WIRED LIVE (single-user backend).
+ * Chat / conversation API (single-user backend).
  *
- * Backend endpoints (iris_api.py):
- *   GET    /api/conversations/current               → Conversation
- *   GET    /api/conversations/:id/messages          → ChatMessage[]
- *   GET    /api/conversations/:id/inferred          → InferredItem[]  (stub: [])
- *   POST   /api/conversations/:id/messages/stream   → SSE of token events (IRIS's reply)
+ *   GET  /api/conversations/current              → Conversation
+ *   GET  /api/conversations/:id/messages         → ChatMessage[]
+ *   POST /api/conversations/:id/messages/stream  → SSE: the reply as it is written
  *
- * Note: there is no POST /messages. The user message is persisted server-side
- * inside the stream endpoint's companion.chat(), so sendMessage() is
- * client-synthesized (no backend write) to avoid double-persisting it.
+ * There is no POST /messages: the stream endpoint stores the owner's message
+ * itself, so the bubble shown before the reply arrives is client-side only.
  */
 
 import { api, sse } from './client';
-import type { ChatMessage, Conversation, InferredItem } from '@/types/api';
+import type { ChatMessage, Conversation } from '@/types/api';
 
 export async function getCurrentConversation(): Promise<Conversation> {
   return api.get<Conversation>('/conversations/current');
@@ -23,9 +20,8 @@ export async function getMessages(conversationId: string): Promise<ChatMessage[]
   return api.get<ChatMessage[]>(`/conversations/${conversationId}/messages`);
 }
 
-export async function sendMessage(conversationId: string, text: string): Promise<ChatMessage> {
-  // Client-synthesized user message. Persistence happens server-side in the
-  // stream endpoint (companion.chat persists both the user line and the reply).
+/** The owner's message as shown while the reply is written; stored by the stream. */
+export function draftUserMessage(conversationId: string, text: string): ChatMessage {
   return {
     id: `m_${Date.now()}`,
     conversationId,
@@ -35,22 +31,29 @@ export async function sendMessage(conversationId: string, text: string): Promise
   };
 }
 
+/** A reply that failed. `saved` says the owner's message reached the server and
+ *  was stored before the failure, so it will be in the history. */
+export class ReplyFailed extends Error {
+  saved: boolean;
+  constructor(message: string, saved: boolean) {
+    super(message);
+    this.saved = saved;
+  }
+}
+
+type StreamEvent = { text?: string; done?: boolean; messageId?: string; error?: string; saved?: boolean };
+
 /**
- * Stream IRIS's reply. The backend runs companion.chat() and emits the reply as
- * `data: {"text": "..."}` chunks followed by `data: {"done": true, "messageId": "..."}`.
- * (`tone` is accepted for signature compatibility; the backend doesn't use it yet.)
+ * IRIS's reply, fragment by fragment, as the model writes it. A failure the
+ * server reports is thrown as ReplyFailed rather than yielded as text — it used
+ * to arrive as a reply reading "I encountered an error…", in IRIS's voice.
  */
 export async function* streamReply(
   conversationId: string,
   userText: string,
-  _tone: 'clinical' | 'warm' | 'playful' = 'warm',
 ): AsyncGenerator<{ text: string; done?: boolean; messageId?: string }> {
-  yield* sse<{ text: string; done?: boolean; messageId?: string }>(
-    `/conversations/${conversationId}/messages/stream`,
-    { text: userText },
-  );
-}
-
-export async function getInferred(conversationId: string): Promise<InferredItem[]> {
-  return api.get<InferredItem[]>(`/conversations/${conversationId}/inferred`);
+  for await (const ev of sse<StreamEvent>(`/conversations/${conversationId}/messages/stream`, { text: userText })) {
+    if (ev.error !== undefined) throw new ReplyFailed(ev.error, ev.saved ?? true);
+    yield { text: ev.text ?? '', done: ev.done, messageId: ev.messageId };
+  }
 }

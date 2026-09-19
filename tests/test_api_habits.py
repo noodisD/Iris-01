@@ -29,7 +29,7 @@ def test_create_habit_returns_contract_shape(client, test_user):
     assert h["name"] == "Meditate"
     assert h["userId"] == str(test_user["id"])
     assert h["color"] == "sage"
-    for key in ("id", "name", "tag", "color", "supports", "streakDays", "bestStreak", "doneToday", "recentDays"):
+    for key in ("id", "name", "tag", "color", "streakDays", "bestStreak", "doneToday", "recentDays"):
         assert key in h, f"missing {key}"
     assert isinstance(h["recentDays"], list) and all(v in (0, 1) for v in h["recentDays"])
     assert h["doneToday"] is False

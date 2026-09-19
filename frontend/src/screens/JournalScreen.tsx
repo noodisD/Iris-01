@@ -16,6 +16,7 @@ export function JournalScreen() {
   const [lines, setLines] = React.useState(['', '', '']);
   const [energy, setEnergy] = React.useState(6);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   // A quote on the Insights screen links here by entry id. The entry may sit
   // on a page that has not been fetched, so keep asking for older pages until
@@ -41,10 +42,15 @@ export function JournalScreen() {
 
   const save = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       await createEntry({ lines: lines.filter(Boolean), energy });
       setLines(['', '', '']);
       qc.invalidateQueries({ queryKey: qk.journal });
+    } catch (err) {
+      // The draft stays and the owner is told. It used to fail in silence,
+      // the button unsticking as though the entry had been saved.
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally { setSaving(false); }
   };
 
@@ -84,6 +90,7 @@ export function JournalScreen() {
         <div className="row" style={{ gap: 8, marginTop: 18, maxWidth: 720, justifyContent: 'flex-end' }}>
           <button className="btn primary" onClick={save} disabled={saving || !lines.some(Boolean)}>{saving ? 'Saving…' : 'Save entry'}</button>
         </div>
+        {saveError && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>Not saved: {saveError}</div>}
       </div>
 
       <aside style={{ width: 380, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '32px 28px', overflow: 'auto' }}>

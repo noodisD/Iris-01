@@ -1,9 +1,6 @@
 /**
- * API client — wraps fetch with auth, JSON handling, error normalization,
- * and a global mock switch for offline frontend dev.
- *
- * Backend team: this is where you wire base URL, auth headers, and any
- * cookie/CSRF handling. Per-domain calls (chat, habits, etc.) sit on top.
+ * API client — wraps fetch with JSON handling and one error shape.
+ * Per-domain calls (chat, habits, etc.) sit on top.
  */
 
 import type { ApiError } from '@/types/api';
@@ -18,6 +15,22 @@ class HttpError extends Error {
     this.status = status;
     this.api = api;
   }
+}
+
+/**
+ * One shape for every failure, whatever the transport.
+ *
+ * FastAPI puts its message on `detail` — a string, or a list of validation
+ * errors — while ApiError expects `message`. request() read only `message`, so
+ * every server-side refusal reached the screen with no text at all; upload()
+ * already handled both. All three transports use this now.
+ */
+function toApiError(status: number, payload: unknown, fallback: string): ApiError {
+  const p = (payload ?? {}) as Partial<ApiError> & { detail?: unknown };
+  const detail = Array.isArray(p.detail)
+    ? (p.detail[0] as { msg?: string } | undefined)?.msg
+    : typeof p.detail === 'string' ? p.detail : undefined;
+  return { code: p.code ?? `http_${status}`, message: p.message ?? detail ?? fallback };
 }
 
 async function request<T>(
@@ -36,10 +49,9 @@ async function request<T>(
   });
 
   if (!res.ok) {
-    let payload: ApiError;
-    try { payload = await res.json(); }
-    catch { payload = { code: 'unknown', message: res.statusText }; }
-    throw new HttpError(res.status, payload);
+    let payload: unknown = null;
+    try { payload = await res.json(); } catch { /* not JSON: fall back below */ }
+    throw new HttpError(res.status, toApiError(res.status, payload, res.statusText));
   }
 
   if (res.status === 204) return undefined as T;
@@ -86,9 +98,7 @@ export function upload<T>(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve((payload ?? undefined) as T);
       } else {
-        const api = (payload ?? {}) as Partial<ApiError> & { detail?: string };
-        // FastAPI puts the message on `detail`; keep both shapes working.
-        fail(xhr.status, api.message ?? api.detail ?? xhr.statusText);
+        reject(new HttpError(xhr.status, toApiError(xhr.status, payload, xhr.statusText)));
       }
     };
     xhr.onerror = () => fail(0, 'The upload could not reach IRIS.');
@@ -108,11 +118,8 @@ export const api = {
 };
 
 /**
- * Stream Server-Sent Events from a path (used for Mira's chat replies).
- * Yields each event payload as it arrives. Caller is responsible for breaking.
- *
- * Backend should emit `event: token` events with JSON `{ text: string }`
- * and a final `event: done` event with `{ messageId: string }`.
+ * Stream Server-Sent Events from a path (used for IRIS's chat replies).
+ * Yields each `data:` payload as it arrives. Caller is responsible for breaking.
  */
 export async function* sse<T = unknown>(path: string, body: unknown): AsyncGenerator<T> {
   const res = await fetch(`${BASE}/api${path}`, {
@@ -121,7 +128,11 @@ export async function* sse<T = unknown>(path: string, body: unknown): AsyncGener
     credentials: 'include',
     body: JSON.stringify(body),
   });
-  if (!res.ok || !res.body) throw new Error(`SSE failed: ${res.status}`);
+  if (!res.ok || !res.body) {
+    let payload: unknown = null;
+    try { payload = await res.json(); } catch { /* not JSON */ }
+    throw new HttpError(res.status, toApiError(res.status, payload, 'IRIS could not be reached.'));
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

@@ -12,13 +12,19 @@ export function OnboardingScreen() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const start = async () => {
     setBusy(true);
+    setError(null);
     try {
       await completeOnboarding();
       await qc.invalidateQueries({ queryKey: qk.onboarding });
       nav('/chat');
+    } catch (err) {
+      // The button used to just unstick, leaving the owner here with no idea
+      // why pressing it did nothing.
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -40,6 +46,7 @@ export function OnboardingScreen() {
       <button className="btn primary" onClick={start} disabled={busy}>
         {busy ? 'One moment…' : "Yes — let's start →"}
       </button>
+      {error && <p role="alert" style={{ color: 'var(--rose)', fontSize: 13, fontFamily: 'var(--mono)' }}>Couldn't start: {error}</p>}
     </div>
   );
 }

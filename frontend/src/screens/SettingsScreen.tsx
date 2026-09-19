@@ -1,5 +1,5 @@
 import React from 'react';
-import { useUser, useConnectors, useKnowledge, useAnalysisPreferences } from '@/hooks/useData';
+import { useKnowledge, useAnalysisPreferences } from '@/hooks/useData';
 import { forgetFact, updateAnalysisPreferences, resetAnalysisPreferences } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/states';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,14 +17,13 @@ const ENGINE_LABELS: Record<string, string> = {
 };
 
 export function SettingsScreen() {
-  const { data: user } = useUser();
-  const { data: connectors, isLoading, isError, refetch } = useConnectors();
-  const { data: facts } = useKnowledge();
+  const { data: facts, isLoading, isError, refetch } = useKnowledge();
   const { data: analysis } = useAnalysisPreferences();
+  const [maxItems, setMaxItems] = React.useState<number | null>(null);
   const qc = useQueryClient();
 
   if (isLoading) return <LoadingState label="Iris is gathering what she knows…" />;
-  if (isError || !connectors) return <ErrorState onRetry={() => refetch()} />;
+  if (isError || !facts) return <ErrorState onRetry={() => refetch()} />;
 
   // A cluster is found by the machine and can be found again. A confirmed
   // pattern is the owner's decision: forgetting it stops it being counted and
@@ -48,6 +47,12 @@ export function SettingsScreen() {
   const setGate = async (patch: Parameters<typeof updateAnalysisPreferences>[0]) => {
     await updateAnalysisPreferences(patch);
     afterGateChange();
+  };
+
+  const commitMaxItems = async () => {
+    if (maxItems === null || !analysis || maxItems === analysis.maxItems) return;
+    await setGate({ maxItems });
+    setMaxItems(null);
   };
 
   const toggleEngine = async (engine: string) => {
@@ -93,23 +98,6 @@ export function SettingsScreen() {
         </section>
 
         <aside className="col" style={{ gap: 24 }}>
-          <section>
-            <div className="kicker">data sources · not yet available</div>
-            <div className="col" style={{ gap: 8, marginTop: 10 }}>
-              {connectors.map((s) => (
-                <div key={s.id} className="row" style={{ alignItems: 'center', gap: 14, padding: '10px 12px', background: s.featured ? 'rgba(169,200,163,0.06)' : 'var(--bg-2)', border: `1px solid ${s.featured ? 'var(--sage-dim)' : 'var(--line-soft)'}`, borderRadius: 8 }}>
-                  <div className="col" style={{ flex: 1, gap: 1 }}>
-                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.name}{s.featured && <span style={{ marginLeft: 8, fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--sage)', letterSpacing: '0.1em' }}>PRIMARY</span>}</span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>{s.scopeDescription}</span>
-                  </div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
-                    not yet built
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-
           {analysis && (
             <section className="col" style={{ gap: 12 }}>
               <div className="kicker">what iris is willing to say</div>
@@ -145,15 +133,20 @@ export function SettingsScreen() {
 
               <div className="col" style={{ gap: 6 }}>
                 <label className="kicker" htmlFor="max-items">
-                  most observations at once · {analysis.maxItems}
+                  most observations at once · {maxItems ?? analysis.maxItems}
                 </label>
+                {/* Local while dragging; saved once when released. It PATCHed
+                    on every tick, and each save changes what chat is told. */}
                 <input
                   id="max-items"
                   type="range"
                   min={1}
                   max={10}
-                  value={analysis.maxItems}
-                  onChange={(e) => setGate({ maxItems: Number(e.target.value) })}
+                  value={maxItems ?? analysis.maxItems}
+                  onChange={(e) => setMaxItems(Number(e.target.value))}
+                  onPointerUp={commitMaxItems}
+                  onKeyUp={commitMaxItems}
+                  onBlur={commitMaxItems}
                   style={{ width: '100%', accentColor: 'var(--sage)' }}
                 />
               </div>

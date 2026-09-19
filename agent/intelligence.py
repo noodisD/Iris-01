@@ -8,6 +8,7 @@ while the Gemini SDK it depended on reached end of support in November 2025.
 """
 
 import logging
+from collections.abc import Iterator
 from typing import Any
 
 from openai import BadRequestError, OpenAI
@@ -90,6 +91,57 @@ class Intelligence:
             # context on later turns.
             logger.error(f"LLM call failed: {e}")
             raise
+
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        system_prompt: str,
+        temperature: float | None = 0.7,
+        max_tokens: int = 1000,
+    ) -> Iterator[str]:
+        """The reply as it is generated, piece by piece.
+
+        Chat used to wait for the whole reply and then drip it to the screen a
+        word at a time, so the owner waited twice: once for the model, again for
+        the animation. This yields each fragment as the model produces it.
+
+        The same guards as `chat`: a model that rejects a custom temperature is
+        remembered and retried without one (the rejection arrives when the
+        request is made, before anything is yielded), and a reply that ends
+        with no content is an error rather than an empty message.
+        """
+        kwargs = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "max_completion_tokens": max_tokens,
+            "stream": True,
+        }
+        if temperature is not None and self.model not in _REJECTS_TEMPERATURE:
+            kwargs["temperature"] = temperature
+        try:
+            chunks = self.openai_client.chat.completions.create(**kwargs)
+        except BadRequestError as e:
+            if "temperature" not in str(e) or "temperature" not in kwargs:
+                raise
+            _REJECTS_TEMPERATURE.add(self.model)
+            del kwargs["temperature"]
+            chunks = self.openai_client.chat.completions.create(**kwargs)
+
+        produced = False
+        finish_reason = None
+        for chunk in chunks:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            finish_reason = choice.finish_reason or finish_reason
+            delta = getattr(choice.delta, "content", None)
+            if delta:
+                produced = True
+                yield delta
+        if not produced:
+            raise RuntimeError(
+                f"{self.model} returned no content (finish_reason={finish_reason}, "
+                f"max_completion_tokens={max_tokens}).")
 
     def _chat_openai(
         self,

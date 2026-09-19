@@ -485,6 +485,8 @@ def mock_llm(monkeypatch):
     """
     mock_intelligence = MagicMock()
     mock_intelligence.chat.return_value = "IRIS Mocked Response"
+    # A real stream arrives in fragments; the reply is their concatenation.
+    mock_intelligence.stream.side_effect = lambda **kwargs: iter(["IRIS ", "Mocked ", "Response"])
 
     monkeypatch.setattr("agent.core.Intelligence", lambda *args, **kwargs: mock_intelligence)
     return mock_intelligence

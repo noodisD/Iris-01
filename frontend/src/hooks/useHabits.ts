@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import * as habitsApi from '@/api/habits';
-import type { Habit, HabitsTodayResponse } from '@/types/api';
+import type { HabitsTodayResponse } from '@/types/api';
 
 export function useHabits() {
   return useQuery({ queryKey: qk.habits, queryFn: habitsApi.getHabitsToday });

@@ -90,3 +90,22 @@ def test_low_confidence_guardrail(test_env):
 
     assert "Insufficient reliable evidence" in bundle['summary']
     assert len(bundle['evidence']) == 0
+
+
+def test_a_window_is_named_by_the_engine_that_measured_it():
+    """Trajectory and resolution both emit recent_count and past_count over
+    different windows; the label named resolution's for both, so a 14-day count
+    was explained as a 21-day one."""
+    from agent.constants import (
+        RESOLUTION_BASELINE_DAYS,
+        RESOLUTION_RECENT_DAYS,
+        TRAJECTORY_BASELINE_DAYS,
+        TRAJECTORY_RECENT_DAYS,
+    )
+    from agent.explanation import ExplanationEngine
+
+    label = ExplanationEngine(1)._map_key_to_label
+    assert label("recent_count", "trajectory") == f"Recent occurrences ({TRAJECTORY_RECENT_DAYS}d)"
+    assert label("past_count", "trajectory") == f"Baseline occurrences ({TRAJECTORY_BASELINE_DAYS}d)"
+    assert label("recent_count", "resolution") == f"Recent occurrences ({RESOLUTION_RECENT_DAYS}d)"
+    assert label("past_count", "resolution") == f"Baseline occurrences ({RESOLUTION_BASELINE_DAYS}d)"

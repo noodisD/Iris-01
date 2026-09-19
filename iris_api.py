@@ -27,7 +27,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
 load_dotenv()
@@ -314,7 +314,6 @@ def get_current_conversation(user_id: int = Depends(get_current_user_id)):
         "startedAt": _iso(history[0]["created_at"]) if history else now_iso,
         "lastMessageAt": _iso(history[-1]["created_at"]) if history else now_iso,
         "messageCount": len(history),
-        "inferred": [],
     }
 
 
@@ -334,12 +333,6 @@ def get_conversation_messages(conversation_id: str, user_id: int = Depends(get_c
     ]
 
 
-@app.get("/api/conversations/{conversation_id}/inferred")
-def get_conversation_inferred(conversation_id: str, user_id: int = Depends(get_current_user_id)):
-    """Inferred tags for the chat rail. Stubbed empty until wired to insights."""
-    return []
-
-
 @app.post("/api/conversations/{conversation_id}/messages/stream")
 async def stream_conversation_reply(
     conversation_id: str,
@@ -347,31 +340,28 @@ async def stream_conversation_reply(
     user_id: int = Depends(get_current_user_id),
 ):
     """
-    Stream IRIS's reply as Server-Sent Events.
+    Stream IRIS's reply as Server-Sent Events, as the model writes it.
 
-    companion.chat() is synchronous: it persists both the user message and the
-    reply, then returns the whole reply string. We run it off the event loop and
-    chunk the result word-by-word so the frontend renders it progressively.
-    Emits `data: {"text": "..."}` chunks then a final `data: {"done": true, ...}`.
+    This used to run the whole reply to completion and then drip it word by
+    word, so the owner waited for the model and then again for an animation of
+    a reply that already existed. Tokens are forwarded as they arrive now.
+
+    Events: `{"text": ...}` per fragment, then `{"done": true, "messageId": ...}`.
+    A failure is `{"error": ..., "saved": true}` — the owner's message was
+    stored, the reply was not — and is never rendered as something IRIS said:
+    it used to arrive as a reply reading "I encountered an error…".
     """
     text = (request or {}).get("text", "")
 
     async def event_gen():
-        if not COMPANION_AVAILABLE:
-            yield f"data: {json.dumps({'text': 'Companion system not available.'})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'messageId': 'unavailable'})}\n\n"
-            return
+        companion = PersonalAICompanion(user_id=user_id)
         try:
-            companion = PersonalAICompanion(user_id=user_id)
-            reply = await run_in_threadpool(companion.chat, text)
+            async for fragment in iterate_in_threadpool(companion.chat_stream(text)):
+                yield f"data: {json.dumps({'text': fragment})}\n\n"
         except Exception as e:
             logger.error(f"Error streaming chat reply: {e}")
-            reply = f"I encountered an error processing your message: {e}"
-
-        for idx, word in enumerate(reply.split(" ") if reply else []):
-            chunk = word if idx == 0 else " " + word
-            yield f"data: {json.dumps({'text': chunk})}\n\n"
-
+            yield f"data: {json.dumps({'error': str(e), 'saved': True})}\n\n"
+            return
         message_id = f"{conversation_id}_{int(datetime.now(UTC).timestamp() * 1000)}"
         yield f"data: {json.dumps({'done': True, 'messageId': message_id})}\n\n"
 
@@ -418,7 +408,6 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict
         "tag": habit.get("category") or habit.get("frequency_type") or "daily",
         "intent": habit.get("description"),
         "color": habit.get("color") or HABIT_COLORS[hid % len(HABIT_COLORS)],
-        "supports": [],
         "streakDays": habit.get("current_streak") or 0,
         "bestStreak": habit.get("longest_streak") or 0,
         "doneToday": done_today,
@@ -782,7 +771,7 @@ def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_curren
 
 
 # ============================================================================
-# SETTINGS ENDPOINTS (single-user; User/UserPreferences, knowledge, connectors)
+# SETTINGS ENDPOINTS (single-user; User/UserPreferences, knowledge)
 # ============================================================================
 
 # Incoming PATCH /user/preferences keys (frontend camelCase) → app_settings columns.
@@ -794,22 +783,6 @@ _PREF_KEY_MAP = {
     "maxNudgesPerDay": "max_nudges_per_day",
     "threadsListenedFor": "threads",
 }
-
-# Static connector catalog. There is no real OAuth/data-source backend yet, so
-# every connector defaults to 'off'; the user's toggles persist in app_settings.
-CONNECTORS_CATALOG = [
-    {"id": "fitbit-air", "name": "Fitbit Air", "scopeDescription": "Sleep, HRV, resting heart rate", "featured": True},
-    {"id": "google-health", "name": "Google Health Connect", "scopeDescription": "Steps, workouts, sleep"},
-    {"id": "apple-health", "name": "Apple Health", "scopeDescription": "Activity, sleep, vitals"},
-    {"id": "calendar", "name": "Calendar", "scopeDescription": "Event titles and timing"},
-    {"id": "spotify", "name": "Spotify", "scopeDescription": "Listening history and mood signals"},
-    {"id": "photos", "name": "Photos", "scopeDescription": "Metadata only — places and times"},
-    {"id": "messages", "name": "Messages", "scopeDescription": "On-device sentiment, never content"},
-    {"id": "location", "name": "Location", "scopeDescription": "Coarse place patterns"},
-]
-_CONNECTOR_IDS = {c["id"] for c in CONNECTORS_CATALOG}
-_CONNECTOR_ACTION_STATE = {"connect": "connected", "pause": "paused", "disconnect": "off"}
-
 
 def _age_days(ts) -> int:
     """Whole days between a timestamp (datetime or ISO string) and now."""
@@ -843,18 +816,6 @@ def _user_to_contract(user_id: int) -> dict:
             "threadsListenedFor": s.get("threads") or [],
         },
     }
-
-
-def _connectors_for(user_id: int) -> list:
-    """Static connector catalog with each state overlaid from app_settings."""
-    s = db.get_app_settings(user_id) or {}
-    states = s.get("connectors") or {}
-    out = []
-    for c in CONNECTORS_CATALOG:
-        item = dict(c)
-        item["state"] = states.get(c["id"], "off")
-        out.append(item)
-    return out
 
 
 @app.get("/api/user")
@@ -1282,75 +1243,27 @@ def forget_knowledge(fact_id: int, user_id: int = Depends(get_current_user_id)):
     return {"ok": True, "retracted": False}
 
 
-@app.get("/api/connectors")
-def list_connectors(user_id: int = Depends(get_current_user_id)):
-    """Return the static connector catalog with persisted per-user states."""
-    return _connectors_for(user_id)
-
-
-@app.post("/api/connectors/{connector_id}/{action}")
-def set_connector_state(connector_id: str, action: str, user_id: int = Depends(get_current_user_id)):
-    """Toggle a connector's state (connect|pause|disconnect) and persist it."""
-    if connector_id not in _CONNECTOR_IDS:
-        raise HTTPException(status_code=404, detail="Connector not found")
-    if action not in _CONNECTOR_ACTION_STATE:
-        raise HTTPException(status_code=400, detail="Invalid action")
-    s = db.get_app_settings(user_id) or {}
-    states = dict(s.get("connectors") or {})
-    states[connector_id] = _CONNECTOR_ACTION_STATE[action]
-    db.upsert_app_settings(user_id, connectors=states)
-    return next(c for c in _connectors_for(user_id) if c["id"] == connector_id)
-
 
 # ============================================================================
 # ONBOARDING ENDPOINTS (single-user; configures the local user)
 # ============================================================================
 
-# Ordered first-run steps with the answer key each one collects. The current
-# step is the first whose answer is still missing (or 'done' once complete).
-_ONBOARDING_STEPS = [
-    ("name", "name"),
-    ("reason", "reason"),
-    ("threads", "threads"),
-    ("pair-body", "bodySource"),
-    ("review", "checkinFrequency"),
-]
-
-
 def _onboarding_state(user_id: int) -> dict:
+    """Whether first run has happened.
+
+    There were five steps here — name, reason, threads, a body source and a
+    review cadence — collected through an answer endpoint no screen called:
+    the app's first run is one honest paragraph and one button. A step that
+    asked for a wearable IRIS has said it will not connect was the museum
+    piece.
+    """
     s = db.get_app_settings(user_id) or {}
-    answers = s.get("onboarding_answers") or {}
-    if s.get("onboarding_completed"):
-        step = "done"
-    else:
-        step = next((st for st, key in _ONBOARDING_STEPS if key not in answers), "done")
-    return {"step": step, "answers": answers}
-
-
-class OnboardingAnswer(BaseModel):
-    """POST /onboarding/answer body: { step, answer } where answer is a partial."""
-    step: str
-    answer: dict
+    return {"step": "done" if s.get("onboarding_completed") else "welcome"}
 
 
 @app.get("/api/onboarding/state")
 def get_onboarding_state(user_id: int = Depends(get_current_user_id)):
-    """Return the current OnboardingState (step + merged answers)."""
-    return _onboarding_state(user_id)
-
-
-@app.post("/api/onboarding/answer")
-def answer_onboarding(payload: OnboardingAnswer, user_id: int = Depends(get_current_user_id)):
-    """Merge an answer into the stored answers, mirroring name/threads to prefs."""
-    s = db.get_app_settings(user_id) or {}
-    answers = dict(s.get("onboarding_answers") or {})
-    answers.update(payload.answer)
-    fields = {"onboarding_answers": answers}
-    if "name" in payload.answer:
-        fields["name"] = payload.answer["name"]
-    if "threads" in payload.answer:
-        fields["threads"] = payload.answer["threads"]
-    db.upsert_app_settings(user_id, **fields)
+    """Return the current OnboardingState."""
     return _onboarding_state(user_id)
 
 
@@ -1493,13 +1406,6 @@ def resolve_insight(insight_id: str, user_id: int = Depends(get_current_user_id)
         raise HTTPException(status_code=404, detail="Insight not found")
     db.set_insight_status(user_id, insight_id, "resolved")
     return summary
-
-
-@app.post("/api/insights/{insight_id}/suggestions/{suggestion_id}/accept")
-def accept_insight_suggestion(insight_id: str, suggestion_id: str,
-                                    user_id: int = Depends(get_current_user_id)):
-    """Accept a suggestion. No server-side action wired this pass (no-op, 204)."""
-    return Response(status_code=204)
 
 
 # ============================================================================

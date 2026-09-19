@@ -9,10 +9,9 @@ const NAV = [
   { to: '/today',     label: 'Today' },
   { to: '/journal',   label: 'Journal' },
   { to: '/habits',    label: 'Habits' },
-  { to: '/insights',  label: 'Insights', dot: true },
+  { to: '/insights',  label: 'Insights' },
   { to: '/constructs', label: 'Noticed' },
   { to: '/review',    label: 'Review' },
-  { to: '/mobile',    label: 'On the go' },
   { to: '/import',    label: 'Import' },
   { to: '/settings',  label: 'Settings' },
 ];
@@ -20,7 +19,7 @@ const NAV = [
 // Per-route default orb vibe
 const ROUTE_VIBE: Record<string, Exclude<OrbVibe, 'auto'>> = {
   '/chat': 'calm', '/today': 'calm', '/journal': 'high',
-  '/habits': 'high', '/insights': 'low', '/review': 'cool', '/mobile': 'calm', '/import': 'cool', '/settings': 'dim',
+  '/habits': 'high', '/insights': 'low', '/constructs': 'low', '/review': 'cool', '/import': 'cool', '/settings': 'dim',
 };
 
 export function Sidebar() {
@@ -34,8 +33,6 @@ export function Sidebar() {
     applyOrbVibe(vibe, ROUTE_VIBE[key] ?? 'calm');
   }, [loc.pathname, vibe]);
 
-  const day = user?.dayInJourney ?? 47;
-
   return (
     <aside style={{
       width: 220, height: '100%', background: 'var(--bg-1)',
@@ -46,7 +43,7 @@ export function Sidebar() {
         <Orb />
         <div className="col" style={{ gap: 1, lineHeight: 1 }}>
           <span className="serif" style={{ fontSize: 22, color: 'var(--ink)' }}>Iris</span>
-          <span style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>v.0 · day {day}</span>
+          <span style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>v.0{user ? ` · day ${user.dayInJourney}` : ''}</span>
         </div>
       </div>
 
@@ -66,7 +63,6 @@ export function Sidebar() {
               <>
                 {isActive && <span style={{ position: 'absolute', left: -1, top: 8, bottom: 8, width: 2, background: 'var(--sage)', borderRadius: 2 }} />}
                 <span style={{ flex: 1 }}>{item.label}</span>
-                {item.dot && <span className="dot sage" />}
               </>
             )}
           </NavLink>
@@ -78,17 +74,11 @@ export function Sidebar() {
           ↺ Re-meet Iris
         </NavLink>
       </div>
-      <div style={{ padding: '10px 22px 0', borderTop: '1px solid var(--line-soft)', marginTop: 6 }}>
-        <div className="row" style={{ alignItems: 'center', gap: 10, marginTop: 12 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg, #d4a374, #c47d4a)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--serif)', fontSize: 14, color: '#1a1a14' }}>
-            {(user?.name ?? 'S')[0]}
-          </div>
-          <div className="col" style={{ gap: 1 }}>
-            <span style={{ fontSize: 12, color: 'var(--ink)' }}>{user?.name ?? 'Sam Reeves'}</span>
-            <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>Pacific · 7:42 PM</span>
-          </div>
+      {user?.name && (
+        <div style={{ padding: '10px 22px 0', borderTop: '1px solid var(--line-soft)', marginTop: 6 }}>
+          <span style={{ fontSize: 12, color: 'var(--ink)' }}>{user.name}</span>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

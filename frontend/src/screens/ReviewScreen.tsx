@@ -1,4 +1,3 @@
-import React from 'react';
 import { useReview } from '@/hooks/useData';
 import { LoadingState, ErrorState } from '@/components/states';
 
@@ -16,7 +15,6 @@ export function ReviewScreen() {
     <div className="col" style={{ minHeight: '100%' }}>
       <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between', padding: '20px 56px', borderBottom: '1px solid var(--line-soft)' }}>
         <span className="kicker">your week · {data.weekStart} — {data.weekEnd}</span>
-        <button className="btn primary">▷ Read aloud · 2 min</button>
       </div>
 
       <section style={{ flex: 1, padding: '90px 0 56px', display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'radial-gradient(ellipse at top, rgba(169,200,163,0.04) 0%, transparent 70%)' }}>
