@@ -139,6 +139,10 @@ class LifelongEngine:
             # the dated occurrences only, so adding undated ones to the number
             # it is quoted beside would claim they fell inside it (ADR-0009).
             "undated_occurrences": undated,
+            # Without this the sentence for a theme with twelve dated and twelve
+            # undated occurrences read exactly as it did before the undated
+            # ones existed, so what they added was computed and never shown.
+            "template_variant": "with_undated" if undated else "default",
             "confidence_level": _confidence(len(moments), span_days, active_months),
             # The exemption this scale exists for. It describes a span, so a
             # quiet month does not make it untrue (agent/coverage.py).

@@ -34,6 +34,12 @@ NARRATIVE_TEMPLATES = {
     # It says where the number came from instead.
     "lifelong": {
         "default": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}; its occurrences were {label}.",
+        # A span, and undated occurrences beside it. The label is scoped to
+        # "those occurrences" — the dated ones — because concentration is
+        # measured by year, and an occurrence with no year cannot be
+        # concentrated or spread. The undated count is added as its own clause
+        # rather than into the number the span is quoted beside (ADR-0009).
+        "with_undated": "The pattern '{pattern_name}' appeared {metric_value} times since {time_window}, and those occurrences were {label}; it appeared {undated_count} more times in writing that carries no date.",
         # Says how many of the occurrences are undated, not that all of them
         # are. A theme with ten undated occurrences and two dated ones reaches
         # this phrasing because two cannot carry a span — and "appeared 12

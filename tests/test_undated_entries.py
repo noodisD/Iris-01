@@ -257,6 +257,78 @@ def test_a_theme_built_only_from_undated_writing_claims_no_span(test_user, proce
     assert dated_themes == 0, "no theme may report dated occurrences here"
 
 
+# --- both surfaces show what the undated writing added ---------------------------
+
+def _lifelong_cards(user_id: int) -> list[dict]:
+    from agent.insights_service import InsightsService
+    return [r for r in InsightsService(user_id)._normalize() if r["engine"] == "lifelong"]
+
+
+def test_the_insights_page_shows_a_finding_with_no_span(test_user):
+    """The regression this caught on live data. The card read span_days and
+    densest_year with hard subscripts; a count-only finding has neither, so the
+    first one raised KeyError inside the loop and the page silently dropped it —
+    and every finding after it, had one sorted earlier. Chat rendered both new
+    findings throughout; the Insights page showed neither."""
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 6, dated=False)
+
+    cards = _lifelong_cards(test_user["id"])
+
+    assert [c["theme_id"] for c in cards] == [theme_id]
+    assert cards[0]["label"] == "undated"
+    assert "without a date" in cards[0]["headline_metric"]
+
+
+def test_one_undated_finding_does_not_take_the_others_with_it(test_user):
+    dated = _theme(test_user["id"], "a long-running one")
+    _occur(dated, 4, dated=True)
+    undated = _theme(test_user["id"], "an undated one")
+    _occur(undated, 6, dated=False, offset=100)
+
+    assert {c["theme_id"] for c in _lifelong_cards(test_user["id"])} == {dated, undated}
+
+
+def test_a_dated_card_shows_its_undated_occurrences_separately(test_user):
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 4, dated=True)
+    _occur(theme_id, 5, dated=False, offset=100)
+
+    card = _lifelong_cards(test_user["id"])[0]
+    rows = {m["label"]: m["value"] for m in card["measures"]}
+
+    assert rows["Occurrences"] == 4, "the span's number stays the dated count"
+    assert rows["Without a date"] == 5
+    assert "5 more undated" in card["headline_metric"]
+
+
+def test_the_sentence_says_what_the_undated_writing_added(test_user):
+    """Computed and never shown is the same as not counted, to the owner."""
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 4, dated=True)
+    _occur(theme_id, 5, dated=False, offset=100)
+
+    found = LifelongEngine(test_user["id"]).analyze_theme(db.get_theme_by_id(theme_id))
+    rendered = NarrativeFormatter.format_insight({**found, "engine_name": "lifelong"})
+
+    assert "appeared 4 times since" in rendered
+    assert "5 more times in writing that carries no date" in rendered
+    # Concentration is measured by year; an occurrence with no year is neither
+    # concentrated nor spread, so the label must attach to the dated ones.
+    assert "those occurrences were" in rendered
+
+
+def test_without_undated_evidence_the_sentence_is_unchanged(test_user):
+    theme_id = _theme(test_user["id"])
+    _occur(theme_id, 4, dated=True)
+
+    found = LifelongEngine(test_user["id"]).analyze_theme(db.get_theme_by_id(theme_id))
+    rendered = NarrativeFormatter.format_insight({**found, "engine_name": "lifelong"})
+
+    assert "no date" not in rendered
+    assert "; its occurrences were" in rendered
+
+
 # --- resolving the absence later -----------------------------------------------
 
 def test_dating_an_entry_dates_the_occurrences_it_already_has(test_user):

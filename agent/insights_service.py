@@ -70,6 +70,47 @@ def _measure(label: str, value, sub: str | None = None) -> dict:
     return {"label": label, "value": value, "sub": sub}
 
 
+def _lifelong_card(r: dict) -> tuple[list, str]:
+    """The measures and headline for one lifelong finding.
+
+    Two shapes, because the engine reports two kinds of finding. A dated one
+    has a span, a densest year and a last occurrence. A count-only one has
+    none of those — not withheld, absent — because its evidence cannot be
+    placed in time. This read all of them with hard subscripts, so the first
+    count-only finding raised KeyError and stopped the loop: the Insights page
+    silently lost exactly the findings that exist only because of undated
+    writing, and, since findings arrive sorted by dated count, would have lost
+    every card after them too had one sorted earlier.
+
+    Undated occurrences get their own labelled row in both shapes. They are
+    never added into a number quoted beside a span (ADR-0009).
+    """
+    undated = r.get("undated_occurrences", 0)
+    undated_row = _measure("Without a date", undated, "no span, so not in the months above")
+
+    if r.get("lifelong_label") == "undated":
+        measures = [_measure("Occurrences", r["occurrence_count"], "in all writing")]
+        dated = r.get("dated_occurrences", 0)
+        if dated:
+            measures.append(_measure("With a date", dated, "too few for a span"))
+        measures.append(_measure("Without a date", undated, None))
+        return measures, f"{r['occurrence_count']} times · {undated} without a date"
+
+    months = max(1, r["span_days"] // 30)
+    measures = [
+        _measure("Occurrences", r["occurrence_count"], f"over {months} months"),
+        _measure(f"In {r['densest_year']}", r["densest_count"],
+                 f"{r['share_in_densest']:.0%} of them"),
+        _measure("Months with entries", r["active_months"], None),
+    ]
+    headline = (f"{r['occurrence_count']} times across {months} months · "
+                f"last {r['days_since_last']}d ago")
+    if undated:
+        measures.append(undated_row)
+        headline += f" · {undated} more undated"
+    return measures, headline
+
+
 def _relative_change(delta) -> str:
     """Render a decision-impact delta as the relative change it is."""
     if delta is None:
@@ -105,7 +146,7 @@ class InsightsService:
 
         try:
             for r in LifelongEngine(self.user_id).analyze_all_themes():
-                months = max(1, r["span_days"] // 30)
+                measures, headline = _lifelong_card(r)
                 out.append({
                     "engine": "lifelong",
                     "pattern_key": str(r["theme_id"]),
@@ -113,17 +154,8 @@ class InsightsService:
                     "summary": r.get("theme_summary") or "",
                     "label": r.get("lifelong_label") or "observed",
                     "measures_label": "Across the whole record",
-                    "measures": [
-                        _measure("Occurrences", r["occurrence_count"],
-                                 f"over {months} months"),
-                        _measure(f"In {r['densest_year']}", r["densest_count"],
-                                 f"{r['share_in_densest']:.0%} of them"),
-                        _measure("Months with entries", r["active_months"], None),
-                    ],
-                    "headline_metric": (
-                        f"{r['occurrence_count']} times across {months} months · "
-                        f"last {r['days_since_last']}d ago"
-                    ),
+                    "measures": measures,
+                    "headline_metric": headline,
                     "confidence_level": r.get("confidence_level", "low"),
                     # Describes a span, so a quiet recent window does not make it
                     # untrue — the coverage gate lets it through (ADR-0007).
