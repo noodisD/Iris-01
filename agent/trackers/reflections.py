@@ -58,6 +58,7 @@ class ReflectionService:
         evidence_eligible: bool = True,
         undated: bool = False,
         entry_sequence: int | None = None,
+        import_item_id: int | None = None,
     ) -> int:
         """Create a new reflection. Returns reflection ID.
 
@@ -97,6 +98,7 @@ class ReflectionService:
             evidence_eligible,
             undated,
             entry_sequence,
+            import_item_id,
         )
 
         # Stored and queued in one commit (Database._queue), so a provider

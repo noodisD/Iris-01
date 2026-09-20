@@ -34,6 +34,7 @@ import re
 import numpy as np
 
 from .comparison import ComparisonSpace
+from .constants import OBSERVATION_MIN_ENTRIES_CITED
 from .database import db
 from .persistence import entry_snippet
 from .timeutils import utc_now
@@ -111,6 +112,18 @@ def promote(user_id: int, observation, run_id: int = None) -> int | None:
         logger.warning("Refusing to promote: no citation could be embedded")
         return None
 
+    # The minimum is about the evidence that survives, not the evidence the
+    # claim arrived with. Embedding failures were skipped one at a time and the
+    # candidate went to review on whatever was left — a claim verified across
+    # two entries could reach the owner resting on one.
+    surviving_sources = {(getattr(c, "source_type", "reflection"), getattr(c, "entry_id", None))
+                         for c, _ in prototypes}
+    if len(surviving_sources) < OBSERVATION_MIN_ENTRIES_CITED:
+        logger.warning(
+            f"Refusing to promote: {len(surviving_sources)} of {len(citations)} citation(s) "
+            "could be embedded, below the minimum this claim was verified against")
+        return None
+
     centroid = np.mean(vectors, axis=0)
     # Recordings carry no date, by design (ADR-0013). The columns are NOT NULL,
     # so they still need a value — but a construct built only from undated
@@ -122,37 +135,29 @@ def promote(user_id: int, observation, run_id: int = None) -> int | None:
     first = min(dates).isoformat() if dates else utc_now().isoformat()
     last = max(dates).isoformat() if dates else utc_now().isoformat()
 
-    theme_id = db.create_theme(
+    # The proposal, its quotes and its identity in one commit. Occurrences are
+    # written by scan(), after confirmation: claiming a count here would assert
+    # evidence nobody has measured yet.
+    theme_id = db.create_candidate_construct(
         user_id=user_id,
         centroid_embedding=centroid.tolist(),
         summary=_summarise(observation.claim),
+        definition=observation.claim,
         first_seen_at=first,
         last_seen_at=last,
-        # Occurrences are written by scan(), after confirmation. Claiming a
-        # count here would be asserting evidence nobody has measured yet.
-        occurrence_count=0,
-        origin="observed",
-        definition=observation.claim,
-        status="candidate",
+        span_is_undated=undated,
         # A verified quote proves the subject appears in the writing, and
         # nothing stronger. Claiming the behaviour happened needs actor, event
         # identity, negation and retrospective reference — none of which is
         # checked yet, and two quotes explicitly denying a behaviour currently
         # pass verification. So nothing is born as a behaviour claim.
         claim_kind=CLAIM_MENTION,
-        span_is_undated=undated,
+        prototypes=[{"source_type": getattr(c, "source_type", "reflection"),
+                     "source_id": getattr(c, "entry_id", None),
+                     "quote": c.text, "vector": v} for c, v in prototypes],
+        proposal_key=proposal_key(observation),
+        run_id=run_id,
     )
-
-    for citation, vector in prototypes:
-        db.add_theme_prototype(
-            theme_id=theme_id,
-            source_type=getattr(citation, "source_type", "reflection"),
-            source_id=getattr(citation, "entry_id", None),
-            quote=citation.text,
-            vector=vector,
-        )
-
-    db.set_theme_proposal(theme_id, proposal_key(observation), run_id)
     logger.info(f"Promoted a candidate construct {theme_id} with {len(prototypes)} prototype(s)")
     return theme_id
 

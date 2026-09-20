@@ -852,6 +852,53 @@ class Database:
                 logger.error(f"Failed to delete themes for user {user_id}: {e}")
                 raise
 
+    def create_theme_with_occurrences(self, user_id: int, centroid_embedding: list, summary: str,
+                                      occurrences: list[dict], span_is_undated: bool = False) -> int:
+        """A new cluster and the evidence it was made of, in one transaction.
+
+        Discovery used to write the theme, then add each occurrence in its own
+        transaction. A failure partway left a theme carrying some of its
+        members and the caller returning None, so the worker retired the job
+        and the half-built cluster stayed — counted by every reader, and with
+        no record that anything had gone wrong.
+
+        Each occurrence is {source_type, source_id, snippet, similarity_score,
+        occurred_at}. The counts and span are derived from what was actually
+        written, not from the caller's expectation of it.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at,
+                                        last_seen_at, occurrence_count, span_is_undated)
+                    VALUES (%s, %s, %s, NOW(), NOW(), 0, %s) RETURNING id;
+                    """,
+                    (user_id, centroid_embedding, summary, span_is_undated),
+                )
+                theme_id = cur.fetchone()[0]
+                for occ in occurrences:
+                    cur.execute(
+                        """
+                        INSERT INTO theme_occurrences
+                        (theme_id, source_type, source_id, snippet, similarity_score,
+                         occurred_at, admission_basis)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'similarity')
+                        ON CONFLICT (theme_id, source_type, source_id) DO UPDATE
+                        SET snippet = EXCLUDED.snippet,
+                            similarity_score = EXCLUDED.similarity_score;
+                        """,
+                        (theme_id, occ["source_type"], occ["source_id"], occ.get("snippet"),
+                         occ.get("similarity_score"), occ.get("occurred_at")),
+                    )
+                self._recompute_theme_stats(cur, theme_id)
+                conn.commit()
+                return theme_id
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to create theme with its occurrences: {e}")
+                raise
+
     def add_theme_occurrence(self, theme_id: int, source_type: str, source_id: int,
                             snippet: str, similarity_score: float, occurred_at: str | None,
                             admission_basis: str = "similarity"):
@@ -1048,6 +1095,50 @@ class Database:
             prototype_id = cur.fetchone()[0]
             conn.commit()
             return prototype_id
+
+    def create_candidate_construct(self, user_id: int, centroid_embedding: list, summary: str,
+                                   definition: str, first_seen_at: str, last_seen_at: str,
+                                   span_is_undated: bool, claim_kind: str,
+                                   prototypes: list[dict], proposal_key: str,
+                                   run_id: int = None) -> int:
+        """A proposal, its quotes and its identity, written together.
+
+        These were three transactions. A failure between them left a candidate
+        on the review screen with some of the sentences it rests on, or with no
+        proposal key — so a decision the owner made about it could not be
+        matched on the next run, and the promise that a rejection sticks was
+        quietly void. Nothing here is measured until the owner confirms.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO themes (user_id, centroid_embedding, summary, first_seen_at,
+                                        last_seen_at, occurrence_count, origin, definition,
+                                        status, claim_kind, span_is_undated, proposal_key,
+                                        observation_run_id)
+                    VALUES (%s, %s, %s, %s, %s, 0, 'observed', %s, 'candidate', %s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (user_id, centroid_embedding, summary, first_seen_at, last_seen_at,
+                     definition, claim_kind, span_is_undated, proposal_key, run_id),
+                )
+                theme_id = cur.fetchone()[0]
+                for proto in prototypes:
+                    cur.execute(
+                        """
+                        INSERT INTO theme_prototypes (theme_id, source_type, source_id, quote, vector)
+                        VALUES (%s, %s, %s, %s, %s);
+                        """,
+                        (theme_id, proto["source_type"], proto["source_id"], proto["quote"],
+                         proto["vector"]),
+                    )
+                conn.commit()
+                return theme_id
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to store a candidate construct: {e}")
+                raise
 
     def get_theme_prototypes(self, theme_id: int) -> list:
         """The sentences a construct is anchored in, oldest first."""
@@ -2568,6 +2659,37 @@ class Database:
                 logger.error(f"Failed to log habit completion: {e}")
                 raise
 
+    @staticmethod
+    def _retract_source(cur, source_type: str, source_id: int) -> None:
+        """Take back everything derived from one source, in the caller's
+        transaction: its evidence, its embedding and any queued work for it.
+
+        A correction that reaches only the row the owner edited leaves the
+        thing they took back still being counted — and a queued job pointing at
+        a source that no longer exists, which the worker then retries until it
+        parks.
+        """
+        cur.execute("""SELECT DISTINCT theme_id FROM theme_occurrences
+                        WHERE source_type = %s AND source_id = %s;""",
+                    (source_type, source_id))
+        theme_ids = [r[0] for r in cur.fetchall()]
+        cur.execute("DELETE FROM theme_occurrences WHERE source_type = %s AND source_id = %s;",
+                    (source_type, source_id))
+        cur.execute("DELETE FROM embeddings WHERE source_type = %s AND source_id = %s;",
+                    (source_type, source_id))
+        cur.execute("DELETE FROM processing_queue WHERE source_type = %s AND source_id = %s;",
+                    (source_type, source_id))
+        for theme_id in theme_ids:
+            # The stored counts and span are what the readers use; leaving them
+            # is how two surfaces come to disagree about the same theme.
+            Database._recompute_theme_stats(cur, theme_id)
+            cur.execute("UPDATE pattern_resolutions SET last_computed_at = NULL "
+                        "WHERE pattern_type = 'theme' AND pattern_id = %s;", (theme_id,))
+            cur.execute("UPDATE theme_tensions SET last_computed_at = NULL "
+                        "WHERE theme_a_id = %s OR theme_b_id = %s;", (theme_id, theme_id))
+            cur.execute("UPDATE pattern_confidence SET last_computed_at = NULL "
+                        "WHERE pattern_type = 'theme' AND pattern_id = %s;", (theme_id,))
+
     def uncomplete_habit(self, habit_id: int, completion_date=None) -> bool:
         """Removes a habit's completion for a date, and everything derived from it.
 
@@ -2587,15 +2709,7 @@ class Database:
                 )
                 row = cur.fetchone()
                 if row:
-                    completion_id = row[0]
-                    cur.execute(
-                        "DELETE FROM theme_occurrences WHERE source_type = 'habit_completion' AND source_id = %s;",
-                        (completion_id,)
-                    )
-                    cur.execute(
-                        "DELETE FROM embeddings WHERE source_type = 'habit_completion' AND source_id = %s;",
-                        (completion_id,)
-                    )
+                    self._retract_source(cur, 'habit_completion', row[0])
                 cur.execute(
                     "DELETE FROM habit_completions WHERE habit_id = %s AND completion_date = %s;",
                     (habit_id, completion_date)
@@ -2630,6 +2744,11 @@ class Database:
                     (habit_id, skip_date, reason)
                 )
                 skip_id = cur.fetchone()[0]
+                # A day the owner says did not happen stops being evidence that
+                # it did. Turning a completion into a skip used to update this
+                # row alone, leaving the embedding, the theme occurrences and
+                # the queued job it had already produced.
+                self._retract_source(cur, 'habit_completion', skip_id)
                 conn.commit()
                 return skip_id
             except psycopg2.Error as e:
@@ -2690,7 +2809,8 @@ class Database:
                          content_hash: str = None, audio_path: str = None,
                          metrics: dict = None, date_source: str = None,
                          date_confidence: str = None, evidence_eligible: bool = True,
-                         undated: bool = False, entry_sequence: int = None) -> int:
+                         undated: bool = False, entry_sequence: int = None,
+                         import_item_id: int = None) -> int:
         """Creates a new reflection and returns its ID.
 
         `source`, `content_hash` and `audio_path` carry provenance for entries
@@ -2727,6 +2847,18 @@ class Database:
                 )
                 reflection_id = cur.fetchone()[0]
                 self._queue(cur, user_id, 'reflection', reflection_id)
+                if import_item_id is not None:
+                    # The staging row learns its reflection in the same commit.
+                    # It used to be linked afterwards, so a failure in between
+                    # left an entry that was safely stored and no longer
+                    # attributable to the batch that made it — and the retry
+                    # hit the duplicate index and recorded no id at all, which
+                    # is how undo came to miss what it had created.
+                    cur.execute(
+                        """UPDATE import_items
+                              SET status = 'imported', reflection_id = %s, error = NULL
+                            WHERE id = %s AND user_id = %s;""",
+                        (reflection_id, import_item_id, user_id))
                 conn.commit()
                 logger.info(f"Created reflection ID {reflection_id} for user {user_id}")
                 return reflection_id

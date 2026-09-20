@@ -261,7 +261,8 @@ class PersonalAICompanion:
 
         # 6. Final Assembly
         header = "# Observed Structural Patterns & Observed Temporal Sequences:"
-        body = self._format_pattern_body(narratives, suppression_log, prefs)
+        body = self._format_pattern_body(narratives, suppression_log, prefs,
+                                         admission.unavailable)
 
         # The model is told the date. Entries span years, and without it
         # "recently" or "last week" is a guess about when today is.
@@ -275,7 +276,8 @@ class PersonalAICompanion:
         )
 
     @staticmethod
-    def _format_pattern_body(narratives: list[str], suppression_log: dict, prefs: dict) -> str:
+    def _format_pattern_body(narratives: list[str], suppression_log: dict, prefs: dict,
+                             unavailable: list[str] | None = None) -> str:
         """Render the patterns block, distinguishing *nothing to say* from
         *something was filtered out*.
 
@@ -317,6 +319,14 @@ class PersonalAICompanion:
                 "This is not the same as there being nothing to report — do not tell "
                 "them nothing is happening."
             )
+
+        if unavailable:
+            # Software failed. "There is not enough logged history" would blame
+            # the owner for their own writing when the truth is that an engine
+            # could not be asked.
+            return (f"Some analysis is unavailable right now ({', '.join(sorted(unavailable))}). "
+                    "Say so if the user asks what IRIS has noticed; do not describe this as "
+                    "them not having written enough.")
 
         return "No patterns observed yet — there is not enough logged history."
 

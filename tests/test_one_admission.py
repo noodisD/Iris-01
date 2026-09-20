@@ -40,7 +40,7 @@ def world(test_user, journalled_recently, monkeypatch):
     journalled_recently()  # recent writing, so present-tense findings may speak
 
     def install(findings):
-        def collect(user_id):
+        def collect(user_id, unavailable=None):
             return [dict(f) for f in findings]
         monkeypatch.setattr("agent.pipeline_orchestrator.collect_findings", collect)
         monkeypatch.setattr("agent.insights_service.collect_findings", collect)
@@ -155,3 +155,36 @@ def test_a_theme_is_explainable_without_recent_writing(test_user):
     explanation = ExplanationEngine(test_user["id"]).explain("theme", theme_id)
 
     assert explanation["summary"] != "No analytical record found."
+
+
+def test_a_broken_engine_is_not_reported_as_a_thin_history(test_user, journalled_recently,
+                                                           monkeypatch):
+    """An engine that throws was logged and skipped, and the empty result became
+    "there is not enough logged history" — the software's failure described as
+    the owner's not having written enough."""
+    journalled_recently()
+    monkeypatch.setattr("agent.trajectory.TrajectoryEngine.analyze_all_themes",
+                        lambda self: (_ for _ in ()).throw(RuntimeError("engine down")))
+
+    from agent.core import PersonalAICompanion
+    from agent.pipeline_orchestrator import admit
+
+    admission = admit(test_user["id"])
+    assert "trajectory" in admission.unavailable
+
+    context = PersonalAICompanion(test_user["id"])._get_aggregated_context("what have you noticed?")
+    assert "not enough logged history" not in context
+    assert "unavailable" in context
+
+
+def test_a_gate_that_fails_withholds_rather_than_passes_everything(test_user, world, monkeypatch):
+    """A gate exists to hold findings back, so a gate that throws was passing
+    whatever it had been given. Coverage has its own fail-closed wrapper; the
+    shared mechanism now fails closed too."""
+    world([_finding("trajectory", "9", "alpha rising", confidence="high")])
+    monkeypatch.setattr("agent.pipeline_orchestrator.confidence_gate",
+                        lambda findings, context: (_ for _ in ()).throw(RuntimeError("gate down")))
+
+    from agent.pipeline_orchestrator import admit
+
+    assert admit(test_user["id"]).findings == []

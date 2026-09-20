@@ -343,10 +343,10 @@ class PersistenceEngine:
         # placeholder, and span_is_undated says that placeholder means nothing
         # — the same arrangement constructs promoted from undated writing
         # already use (migration 0011).
+        # The span is derived from the occurrences when they are written; all
+        # that is needed here is whether any of them carry a date at all.
         timestamps = [t for t in (to_utc(e["occurred_at"]) for e in entries) if t]
         undated_span = not timestamps
-        first_seen = min(timestamps) if timestamps else utc_now()
-        last_seen = max(timestamps) if timestamps else utc_now()
 
         # Generate theme summary (use LLM to create neutral summary)
         try:
@@ -356,50 +356,43 @@ class PersistenceEngine:
             # Improved 6: Fallback to longest snippet
             summary = self._get_best_fallback_summary(entries)
 
-        # Create theme in database
-        try:
-            theme_id = db.create_theme(
-                user_id=self.user_id,
-                centroid_embedding=centroid.tolist(),
-                summary=summary,
-                first_seen_at=first_seen.isoformat(),
-                last_seen_at=last_seen.isoformat(),
-                occurrence_count=len(entries),
-                span_is_undated=undated_span,
-            )
+        # The theme and the evidence it was made of, in one transaction. This
+        # used to write the theme, then each occurrence separately, and catch
+        # whatever failed: a half-built cluster stayed in the database, counted
+        # by every reader, while the caller returned None and the queue retired
+        # the job as done. A failure now writes nothing and reaches the worker,
+        # which retries — and a replay is a no-op, since an occurrence is
+        # unique per (theme, source).
+        centroid_in_space = self._project(centroid, are_centroids=True)[0]
+        members_in_space = self._project(vectors)
+        members = []
+        for i, entry in enumerate(entries):
+            # Without the source type this fell back to 'journal_entry' for
+            # every source, so a reflection quoted whatever journal row
+            # happened to share its numeric id.
+            moment = to_utc(entry.get("occurred_at"))
+            members.append({
+                "source_type": entry["source_type"],
+                "source_id": entry["source_id"],
+                "snippet": self._get_entry_snippet(entry["source_id"], entry["source_type"]),
+                "similarity_score": float(centroid_in_space @ members_in_space[i]),
+                "occurred_at": moment.isoformat() if moment else None,
+            })
 
-            # Record initial occurrences, scored in the space they were grouped in
-            centroid_in_space = self._project(centroid, are_centroids=True)[0]
-            members_in_space = self._project(vectors)
-            for i, entry in enumerate(entries):
-                # Without the source type this fell back to 'journal_entry' for
-                # every source, so a reflection quoted whatever journal row
-                # happened to share its numeric id.
-                snippet = self._get_entry_snippet(
-                    entry["source_id"], entry["source_type"]
-                )
+        theme_id = db.create_theme_with_occurrences(
+            user_id=self.user_id,
+            centroid_embedding=centroid.tolist(),
+            summary=summary,
+            occurrences=members,
+            span_is_undated=undated_span,
+        )
 
-                similarity = float(centroid_in_space @ members_in_space[i])
-
-                db.add_theme_occurrence(
-                    theme_id=theme_id,
-                    source_type=entry["source_type"],
-                    source_id=entry["source_id"],
-                    snippet=snippet,
-                    similarity_score=float(similarity),
-                    occurred_at=(moment.isoformat()
-                                 if (moment := to_utc(entry.get("occurred_at"))) else None),
-                )
-
-            logger.info(f"Created theme {theme_id} with {len(entries)} initial occurrences")
-            return {
-                "id": theme_id,
-                "summary": summary,
-                "occurrence_count": len(entries)
-            }
-        except Exception as e:
-            logger.error(f"Failed to create theme: {e}")
-            return None
+        logger.info(f"Created theme {theme_id} with {len(members)} initial occurrences")
+        return {
+            "id": theme_id,
+            "summary": summary,
+            "occurrence_count": len(members),
+        }
 
     def _generate_theme_summary(self, entries: list[dict]) -> str:
         """

@@ -66,6 +66,7 @@ class AnalysisPipeline:
         self.engines: dict[str, Engine] = {}
         self.gates: list[Gate] = []
         self._suppression_log: dict[str, list[str]] = {}
+        self._unavailable: list[str] = []
 
     def register_engine(self, name: str, callable: Callable,
                         identify: Callable[[dict[str, Any]], None] | None = None) -> None:
@@ -84,11 +85,13 @@ class AnalysisPipeline:
         its own findings and not everyone else's.
         """
         findings: list[dict[str, Any]] = []
+        self._unavailable = []
         for name, engine in self.engines.items():
             try:
                 produced = engine.callable()
             except Exception as e:
                 logger.error(f"Engine '{name}' failed: {e}")
+                self._unavailable.append(name)
                 continue
             for insight in produced:
                 insight.setdefault("engine_name", name)
@@ -116,11 +119,24 @@ class AnalysisPipeline:
             try:
                 findings = gate.callable(findings, context)
             except Exception as e:
-                logger.error(f"Gate '{gate.name}' failed: {e}")
+                # Fail closed. A gate exists to hold findings back, so a gate
+                # that throws was passing everything it was given — the
+                # coverage gate has its own wrapper, but the shared mechanism
+                # should not have "show it anyway" as its default.
+                logger.error(f"Gate '{gate.name}' failed, withholding its input: {e}")
+                self._suppression_log.setdefault("gate_unavailable", []).extend(
+                    f"{f.get('engine_name')}:{f.get('pattern_key', f.get('pattern_id'))}"
+                    for f in findings)
+                return []
         return findings
 
     def run(self, prefs: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return self.gate(self.collect(), prefs)
+
+    @property
+    def unavailable(self) -> list[str]:
+        """Engines asked in the last collect() that failed."""
+        return self._unavailable
 
     def get_suppression_log(self) -> dict[str, list[str]]:
         return self._suppression_log
@@ -248,6 +264,10 @@ class Admission:
     findings: list[dict[str, Any]]
     suppression_log: dict[str, list[str]] = field(default_factory=dict)
     conflicts: list[dict[str, Any]] = field(default_factory=list)
+    #: Engines that were asked and could not answer. An empty list of findings
+    #: means something different when one of them is here: software failed,
+    #: which is not the same as the owner not having written enough.
+    unavailable: list[str] = field(default_factory=list)
 
     @property
     def held_back_by_owner(self) -> int:
@@ -257,8 +277,18 @@ class Admission:
                 + len(self.suppression_log.get("engine_disabled", [])))
 
 
-def collect_findings(user_id: int) -> list[dict[str, Any]]:
-    return canonical_pipeline(user_id).collect()
+def collect_findings(user_id: int, unavailable: list[str] | None = None) -> list[dict[str, Any]]:
+    """Every finding every engine produced.
+
+    `unavailable`, when a list is passed, is filled with the engines that were
+    asked and failed. An empty result means something different when one of
+    them is there, and the difference is the one the owner is told about.
+    """
+    pipeline = canonical_pipeline(user_id)
+    findings = pipeline.collect()
+    if unavailable is not None:
+        unavailable.extend(pipeline.unavailable)
+    return findings
 
 
 def admit_findings(findings: list[dict[str, Any]], user_id: int,
@@ -275,5 +305,8 @@ def admit_findings(findings: list[dict[str, Any]], user_id: int,
 
 
 def admit(user_id: int, prefs: dict[str, Any] | None = None) -> Admission:
-    return admit_findings(collect_findings(user_id), user_id, prefs)
+    unavailable: list[str] = []
+    admission = admit_findings(collect_findings(user_id, unavailable), user_id, prefs)
+    admission.unavailable = unavailable
+    return admission
 

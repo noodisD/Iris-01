@@ -361,3 +361,38 @@ def test_undoing_a_voice_import_deletes_the_recording(client, tmp_path, monkeypa
     body = client.delete(f"/api/import/batches/{batch_id}?withReflections=true").json()
     assert body["recordings_removed"] == 1
     assert not stored.exists(), "undo must not keep the recording"
+
+
+def test_committing_an_entry_does_not_depend_on_a_second_write(client, test_user, monkeypatch):
+    """The reflection, its queue row and the staging link are one commit.
+
+    They used to be two: create the entry, then link it in another
+    transaction. A failure in between left writing that was safely stored and
+    no longer attributable to the batch that made it — and the retry hit the
+    duplicate index and marked the row 'duplicate' with no id at all, so undo
+    could not remove what this batch had created.
+    """
+    from agent.database import db
+    from agent.importing import store
+
+    batch = _upload(client, _dated_export(["2024-04-01"]))
+
+    real_update = store.update_item
+    def refuse_the_link(item_id, user_id, **fields):
+        if fields.get("status") == "imported":
+            raise RuntimeError("the second write failed")
+        return real_update(item_id, user_id, **fields)
+    monkeypatch.setattr(store, "update_item", refuse_the_link)
+
+    assert client.post(f"/api/import/batches/{batch['id']}/commit").json()["committed"] == 1
+    monkeypatch.undo()
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM reflections WHERE user_id = %s;", (test_user["id"],))
+        assert cur.fetchone()[0] == 1
+
+    items = client.get(f"/api/import/batches/{batch['id']}/entries").json()["entries"]
+    assert [i["status"] for i in items] == ["imported"], "the entry knows which batch made it"
+
+    undone = client.delete(f"/api/import/batches/{batch['id']}?withReflections=true").json()
+    assert undone["reflections_removed"] == 1, "undo knows what this batch created"

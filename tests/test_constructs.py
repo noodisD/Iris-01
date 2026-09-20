@@ -246,3 +246,41 @@ def test_the_stored_centroid_is_the_mean_of_its_prototypes(test_user, archive):
     expected = np.mean([constructs._as_vector(p["vector"]) for p in prototypes], axis=0)
     stored = constructs._as_vector(db.get_theme_by_id(theme_id)["centroid_embedding"])
     assert np.allclose(stored, expected, atol=1e-6)
+
+
+def test_a_candidate_is_not_weakened_by_an_embedding_that_failed(test_user, archive, monkeypatch):
+    """Embedding failures were skipped one at a time and the proposal went to
+    review on whatever survived, so a claim verified across two entries could
+    reach the owner resting on one. The minimum is about the evidence that
+    arrives, not the evidence that was promised."""
+    calls = {"n": 0}
+
+    def fails_on_the_second(text):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the embedder went away")
+        return [0.2] * 1536
+
+    monkeypatch.setattr("agent.pipeline.generate_embedding", fails_on_the_second)
+    before = len(constructs.candidates(test_user["id"]))
+
+    assert constructs.promote(test_user["id"], _observation(archive)) is None
+    assert len(constructs.candidates(test_user["id"])) == before, "nothing half-built reached review"
+
+
+def test_a_candidate_arrives_whole_or_not_at_all(test_user, archive, monkeypatch):
+    """Theme, prototypes and proposal key were three transactions. A failure
+    between them left a candidate with some of its quotes, or with no identity
+    for the owner's decision to attach to."""
+    monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text: [0.2] * 1536)
+    monkeypatch.setattr("agent.database.db.add_theme_prototype",
+                        lambda **kw: (_ for _ in ()).throw(
+                            AssertionError("prototypes are not written one at a time")))
+
+    theme_id = constructs.promote(test_user["id"], _observation(archive))
+
+    assert theme_id is not None
+    assert len(db.get_theme_prototypes(theme_id)) == 2
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT proposal_key FROM themes WHERE id = %s;", (theme_id,))
+        assert cur.fetchone()[0], "identity lands with the candidate"

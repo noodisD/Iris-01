@@ -12,6 +12,8 @@ consistency report endpoint divides by the habit's age and answers 100%. Two
 endpoints, one question, two answers.
 """
 
+from datetime import date, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -82,3 +84,32 @@ def test_consistency_agrees_between_the_two_endpoints(client, test_user):
     assert today == pytest.approx(reported, abs=0.01), (
         f"the two endpoints disagree: today={today}, report={reported}"
     )
+
+
+def test_changing_a_completion_to_a_skip_takes_back_its_evidence(test_user, monkeypatch):
+    """The owner says it did not happen. Until now only the completion row
+    heard: its embedding, its theme occurrences and its queued job stayed, so
+    something they had taken back went on being counted."""
+    monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.3] * 1536)
+    user_id = test_user["id"]
+    tracker = HabitTracker(user_id)
+    habit_id = tracker.create_habit(name="Evening walk", description="unwind", category="health")
+    today = date.today()
+    completion_id = db.log_habit_completion(habit_id, today, notes="walked the long way")
+
+    theme_id = db.create_theme(user_id, [0.3] * 1536, "Walking",
+                               (datetime.now() - timedelta(days=30)).isoformat(),
+                               datetime.now().isoformat())
+    db.add_theme_occurrence(theme_id, "habit_completion", completion_id, "walked", 0.9,
+                            datetime.now().isoformat())
+    db.add_embedding("habit_completion", completion_id, "test_model", [0.3] * 1536)
+
+    db.log_habit_skip(habit_id, today, reason="too tired")
+
+    with db.connection() as conn, conn.cursor() as cur:
+        for table in ("theme_occurrences", "embeddings", "processing_queue"):
+            cur.execute(f"SELECT count(*) FROM {table} WHERE source_type = 'habit_completion' "
+                        "AND source_id = %s;", (completion_id,))
+            assert cur.fetchone()[0] == 0, f"{table} still holds the retracted day"
+    assert db.get_theme_by_id(theme_id)["occurrence_count"] == 0, (
+        "the theme's stored count is what the readers use")

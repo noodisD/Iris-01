@@ -374,7 +374,7 @@ class ImportService:
 
         for item in store.list_items(batch_id, self.user_id, status="staged", limit=100_000):
             try:
-                reflection_id = reflections.create_reflection(
+                reflections.create_reflection(
                     content=item["content"],
                     reflection_date=item["entry_date"],
                     # Without this an entry with no date would be stamped with
@@ -391,6 +391,10 @@ class ImportService:
                     metrics=item.get("metrics"),
                     date_source=item.get("date_source"),
                     date_confidence=item.get("date_confidence"),
+                    # Linked in the same commit as the reflection and its queue
+                    # row, so a batch cannot end up owning writing it can no
+                    # longer name (see Database.create_reflection).
+                    import_item_id=item["id"],
                 )
             except psycopg2.errors.UniqueViolation:
                 # The index caught what the pre-flight sweep missed — a race, or
@@ -403,8 +407,7 @@ class ImportService:
                 store.update_item(item["id"], self.user_id, status="failed", error=str(e))
                 failed += 1
                 continue
-            store.update_item(item["id"], self.user_id, status="imported",
-                              reflection_id=reflection_id, error=None)
+            # Already marked 'imported' and linked, inside that transaction.
             committed += 1
 
         # 'committed' meant "the commit ran", not "everything landed", so a batch

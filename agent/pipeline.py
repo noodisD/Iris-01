@@ -199,20 +199,20 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 # meant an entry could go to a cluster now and to a construct on
                 # replay, so confirming a construct moved its measured frequency
                 # for reasons that were routing rather than writing.
-                try:
-                    matched_constructs = constructs.classify(
-                        user_id=user_id,
-                        source_type=source_type,
-                        source_id=source_id,
-                        embedding=embedding,
-                        content=content,
-                        occurred_at=occurred_at,
-                    )
-                except Exception as e:
-                    # A construct failing to classify must not lose the entry's
-                    # clustering, which has already been written.
-                    logger.error(f"Construct classification failed for {source_type} {source_id}: {e}")
-                    matched_constructs = []
+                # A failure here used to be logged and turned into "no
+                # constructs matched", so the job was retired as complete and
+                # the entry never became evidence for a construct the owner had
+                # confirmed. It fails the job instead: the clustering already
+                # written is idempotent — an occurrence is unique per (theme,
+                # source) — so the retry lands on the same rows.
+                matched_constructs = constructs.classify(
+                    user_id=user_id,
+                    source_type=source_type,
+                    source_id=source_id,
+                    embedding=embedding,
+                    content=content,
+                    occurred_at=occurred_at,
+                )
 
                 if matched_theme_id or matched_constructs:
                     if matched_theme_id:

@@ -20,10 +20,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import psycopg2
 import pytest
 
 from agent import work_queue
+from agent.pipeline import run_processing_pipeline
 from agent.database import db
 from agent.trackers.reflections import ReflectionService
 
@@ -222,3 +224,44 @@ def test_a_theme_confidence_older_than_a_day_is_recomputed():
     assert not confidence_is_fresh({"last_computed_at": now - timedelta(hours=25)})
     assert not confidence_is_fresh({"last_computed_at": None})
     assert not confidence_is_fresh(None)
+
+
+def test_a_construct_that_cannot_be_classified_fails_the_job(test_user, monkeypatch):
+    """"Processed" has to mean every required projection happened.
+
+    A classification failure was logged and replaced with "nothing matched", so
+    the worker retired the job and the entry silently never became evidence for
+    a construct the owner had confirmed.
+    """
+    monkeypatch.setattr("agent.pipeline.generate_embedding", lambda text, model=None: [0.2] * 1536)
+    monkeypatch.setattr("agent.constructs.classify",
+                        lambda **kw: (_ for _ in ()).throw(RuntimeError("classifier went away")))
+
+    entry_id = db.create_reflection(test_user["id"], "an entry that must be retried")
+
+    with pytest.raises(RuntimeError, match="classifier went away"):
+        run_processing_pipeline("reflection", entry_id)
+
+
+def test_a_cluster_and_its_first_occurrences_are_written_together(test_user, monkeypatch):
+    """A failure partway used to leave the theme standing with some of its
+    members, while the caller returned None and the queue retired the job."""
+    from agent.persistence import PersistenceEngine
+
+    user_id = test_user["id"]
+    engine = PersistenceEngine(user_id)
+    monkeypatch.setattr(engine, "_generate_theme_summary", lambda entries: "A theme")
+    monkeypatch.setattr("agent.persistence.entry_snippet", lambda *a, **kw: "a line")
+    monkeypatch.setattr("agent.database.db.add_theme_occurrence",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("occurrences are not written one by one")))
+
+    before = len(db.get_themes(user_id))
+    entries = [{"source_type": "reflection", "source_id": db.create_reflection(user_id, f"e{i}"),
+                "occurred_at": datetime.now(UTC) - timedelta(days=i)} for i in range(3)]
+    vectors = np.ones((3, 1536), dtype=np.float32)
+
+    created = engine._create_theme_from_cluster(vectors, entries)
+
+    assert created is not None
+    assert len(db.get_themes(user_id)) == before + 1
+    assert len(db.get_theme_occurrences(created["id"])) == 3, "all of them, or none"

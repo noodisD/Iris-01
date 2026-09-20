@@ -87,8 +87,7 @@ def test_discover_themes(engine, mocker):
     mocker.patch.object(engine, "_generate_theme_summary", return_value="Discovered Theme")
 
     # Mock database creation
-    mocker.patch("agent.database.db.create_theme", return_value=50)
-    mocker.patch("agent.database.db.add_theme_occurrence")
+    mocker.patch("agent.database.db.create_theme_with_occurrences", return_value=50)
     mocker.patch("agent.database.db.get_content_for_source", return_value="Sample content")
 
     # Run discovery

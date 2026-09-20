@@ -594,14 +594,14 @@ def test_a_discovered_theme_is_dated_by_the_event_not_the_embedding():
     embedded_at = datetime(2026, 9, 10, tzinfo=UTC)
     happened_at = datetime(2026, 3, 4, tzinfo=UTC)
 
-    created = {}
-    occurrences = []
+    written = {}
     with patch("agent.persistence.db") as emb, \
          patch.object(engine, "_generate_theme_summary", return_value="A theme"):
-        th = emb
         emb.get_content_for_source.return_value = "text"
-        th.create_theme.side_effect = lambda **kw: created.update(kw) or 42
-        th.add_theme_occurrence.side_effect = lambda **kw: occurrences.append(kw)
+        emb.get_evidence_style.return_value = (0, None)  # below the minimum: raw space
+        # The theme and its first occurrences are written together now, and the
+        # span is derived in SQL from the occurrences themselves.
+        emb.create_theme_with_occurrences.side_effect = lambda **kw: written.update(kw) or 42
 
         vectors = np.ones((2, 1536), dtype=np.float32)
         entries = [
@@ -612,10 +612,8 @@ def test_a_discovered_theme_is_dated_by_the_event_not_the_embedding():
         ]
         engine._create_theme_from_cluster(vectors, entries)
 
-    assert created["first_seen_at"].startswith("2026-03-04"), created["first_seen_at"]
-    assert created["last_seen_at"].startswith("2026-03-05"), created["last_seen_at"]
-    for occ in occurrences:
-        assert occ["occurred_at"].startswith("2026-03-0"), occ["occurred_at"]
+    dates = sorted(o["occurred_at"][:10] for o in written["occurrences"])
+    assert dates == ["2026-03-04", "2026-03-05"], dates
 
 
 def test_discovery_asks_the_database_for_the_event_time():
