@@ -14,7 +14,10 @@ export function JournalScreen() {
   const qc = useQueryClient();
   const [params] = useSearchParams();
   const [lines, setLines] = React.useState(['', '', '']);
-  const [energy, setEnergy] = React.useState(6);
+  // Unset until the owner says otherwise. It used to start at 6 and was sent
+  // with every entry, so the weekly review reported "the energy you reported"
+  // for a number nobody had reported.
+  const [energy, setEnergy] = React.useState<number | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
@@ -44,8 +47,9 @@ export function JournalScreen() {
     setSaving(true);
     setSaveError(null);
     try {
-      await createEntry({ lines: lines.filter(Boolean), energy });
+      await createEntry({ lines: lines.filter(Boolean), energy: energy ?? undefined });
       setLines(['', '', '']);
+      setEnergy(null);
       qc.invalidateQueries({ queryKey: qk.journal });
     } catch (err) {
       // The draft stays and the owner is told. It used to fail in silence,
@@ -65,11 +69,17 @@ export function JournalScreen() {
             </h1>
           </div>
           <div className="col gap-8" style={{ alignItems: 'flex-end' }}>
-            <span className="kicker">how is today?</span>
-            <div className="row" style={{ gap: 4 }}>
+            <span className="kicker">energy · optional</span>
+            <div className="row" style={{ gap: 4, alignItems: 'center' }}>
               {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                <button key={n} onClick={() => setEnergy(n)} style={{ width: 22, height: 22, borderRadius: '50%', border: `1px solid ${n === energy ? 'var(--sage)' : 'var(--line)'}`, background: n === energy ? 'var(--sage)' : 'transparent', color: n === energy ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer', padding: 0 }}>{n}</button>
+                <button key={n} aria-label={`energy ${n}`} aria-pressed={n === energy}
+                        onClick={() => setEnergy(n === energy ? null : n)} style={{ width: 22, height: 22, borderRadius: '50%', border: `1px solid ${n === energy ? 'var(--sage)' : 'var(--line)'}`, background: n === energy ? 'var(--sage)' : 'transparent', color: n === energy ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer', padding: 0 }}>{n}</button>
               ))}
+              <button onClick={() => setEnergy(null)} disabled={energy === null}
+                      title="record no energy for this entry"
+                      style={{ fontFamily: 'var(--mono)', fontSize: 10, background: 'none',
+                               border: 'none', color: 'var(--ink-4)',
+                               cursor: energy === null ? 'default' : 'pointer' }}>clear</button>
             </div>
           </div>
         </div>

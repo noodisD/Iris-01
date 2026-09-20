@@ -76,3 +76,59 @@ def test_engine_empty_state_grace(test_user):
     # Should not crash, should return insufficient data
     analysis = engine.analyze_theme(t_id)
     assert analysis['trajectory_label'] == "insufficient data"
+
+
+def test_an_unchanged_rhythm_is_not_a_fading_one():
+    """One entry every eight days, for sixty days: nothing about it changed.
+
+    Seven-day bins sampling an eight-day rhythm leave a gap that belongs to the
+    bin width rather than to the writing, and the classifier used to fall
+    through to that slope exactly when the comparison it shows the owner — the
+    last 14 days against the 60 before — was flat. The series scored -0.056
+    against a 0.05 threshold and was reported as fading.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from agent.trajectory import TrajectoryEngine
+
+    engine = TrajectoryEngine(1)
+    now = datetime.now(UTC)
+    occurrences = [{"occurred_at": now - timedelta(days=d), "source_type": "reflection"}
+                   for d in range(0, 60, 8)]
+
+    slope = engine._calculate_trend_slope(occurrences)
+
+    assert engine._classify_trajectory(len(occurrences), 0.0, slope, occurrences) == "stable"
+
+
+def test_a_real_fall_in_frequency_is_still_reported():
+    """The guard above must not be a licence to call everything stable."""
+    from datetime import UTC, datetime, timedelta
+
+    from agent.trajectory import TrajectoryEngine
+
+    engine = TrajectoryEngine(1)
+    now = datetime.now(UTC)
+    occurrences = [{"occurred_at": now - timedelta(days=d), "source_type": "reflection"}
+                   for d in (40, 41, 42, 43, 44, 45, 46, 47, 50, 55)]
+
+    label = engine._classify_trajectory(len(occurrences), -0.8,
+                                        engine._calculate_trend_slope(occurrences), occurrences)
+    assert label == "fading"
+
+
+def test_an_empty_pair_of_windows_is_not_a_steady_rhythm():
+    """No occurrences in the recent window and none in the baseline is not a
+    rate that did not change. Dropping the slope tiebreak would otherwise have
+    turned silence into "stable"; resolution is the engine that speaks about
+    writing that has gone quiet."""
+    from datetime import UTC, datetime, timedelta
+
+    from agent.trajectory import TrajectoryEngine
+
+    engine = TrajectoryEngine(1)
+    now = datetime.now(UTC)
+    old = [{"occurred_at": now - timedelta(days=d), "source_type": "reflection"}
+           for d in (300, 320, 340, 360)]
+
+    assert engine._classify_trajectory(len(old), 0.0, 0.0, old) == "insufficient data"

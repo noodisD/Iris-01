@@ -81,7 +81,11 @@ def test_an_observation_backed_by_real_quotes_is_kept(test_user, archive):
     assert {c.entry_id for c in observations[0].citations} == {archive[CERTAIN], archive[AGAIN]}
 
 
-def test_an_observation_carries_the_span_it_was_read_from(test_user, archive):
+def test_an_observation_spans_the_writing_that_supports_it(test_user, archive):
+    """Not the reading pass. The span used to be the range of every entry read,
+    so a claim citing two entries 40 days apart, read beside a third from
+    months earlier, reported the longer reach — and a span is half of what
+    makes a finding high confidence."""
     engine = _engine(test_user["id"], _claim(
         "Certainty and boldness appeared together",
         [{"entryId": archive[CERTAIN], "text": "I went all in on the opening I was most certain about"},
@@ -89,8 +93,8 @@ def test_an_observation_carries_the_span_it_was_read_from(test_user, archive):
 
     observation = engine.read()[0]
     assert observation.span_start == date.today() - timedelta(days=120)
-    assert observation.span_end == date.today() - timedelta(days=5)
-    assert observation.entries_read == 4
+    assert observation.span_end == date.today() - timedelta(days=80), "the cited pair, not the pass"
+    assert observation.entries_read == 4, "how much was read is still recorded"
 
 
 def test_only_whitespace_may_differ_from_what_was_written(test_user, archive):

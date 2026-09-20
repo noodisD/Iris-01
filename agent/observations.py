@@ -61,7 +61,6 @@ from .constants import (
     OBSERVATION_MIN_CITATIONS,
     OBSERVATION_MIN_ENTRIES_CITED,
     OBSERVATION_MIN_QUOTE_CHARS,
-    OBSERVATION_MERGE_OVERLAP,
     OBSERVATION_MIN_STAGED_CHARS,
 )
 from .database import db
@@ -188,6 +187,21 @@ def _parse_reply(reply: str) -> list:
     if isinstance(data, dict):
         data = data.get("observations") or []
     return data if isinstance(data, list) else []
+
+
+def _span(citations) -> tuple:
+    """The stretch of time a claim's own evidence covers.
+
+    Every caller computes this from the citations that are actually behind the
+    claim. `_verified` used to take the span of the whole reading pass instead,
+    so four supporting entries from one September day, read alongside one
+    unrelated entry from 2023, produced a finding "spanning" three years — and
+    a span is half of what makes a finding high confidence.
+    """
+    dates = [c.entry_date for c in citations if getattr(c, "entry_date", None)]
+    if not dates:
+        return None, None, 0
+    return min(dates), max(dates), (max(dates) - min(dates)).days
 
 
 def _confidence(citations: tuple[Citation, ...], span_days: int) -> str:
@@ -389,11 +403,14 @@ def check_support(observations: list[Observation], intelligence,
             tally["too_few_supporting"] += 1
             continue
 
-        span = (obs.span_end - obs.span_start).days if obs.span_start and obs.span_end else 0
+        # The span belongs to the quotes that survived. Keeping the old one let
+        # a claim report a reach its remaining evidence no longer had — and
+        # span is half of what makes a finding high confidence.
+        span_start, span_end, span_days = _span(supporting)
         kept.append(Observation(
-            claim=obs.claim, citations=supporting, span_start=obs.span_start,
-            span_end=obs.span_end, entries_read=obs.entries_read,
-            confidence_level=_confidence(supporting, span), merged_from=obs.merged_from))
+            claim=obs.claim, citations=supporting, span_start=span_start,
+            span_end=span_end, entries_read=obs.entries_read,
+            confidence_level=_confidence(supporting, span_days), merged_from=obs.merged_from))
     return kept
 
 
@@ -528,9 +545,6 @@ class ObservationEngine:
 
     def _verified(self, raw: list, entries: list[dict]) -> list[Observation]:
         by_id = {(e.get("source_type", "reflection"), e["id"]): e for e in entries}
-        dates = [e["date"] for e in entries if e.get("date")]
-        span_start, span_end = (min(dates), max(dates)) if dates else (None, None)
-        span_days = (span_end - span_start).days if span_start and span_end else 0
 
         out: list[Observation] = []
         for item in raw:
@@ -557,6 +571,7 @@ class ObservationEngine:
                 logger.info(f"Observation discarded, all quotes from one entry: {claim[:60]}")
                 continue
 
+            span_start, span_end, span_days = _span(citations)
             out.append(Observation(
                 claim=claim,
                 citations=citations,
@@ -681,20 +696,25 @@ def _claim_key(claim: str) -> str:
 
 
 def consolidate(observations: list[Observation]) -> list[Observation]:
-    """Merge the same finding restated by different chunks.
+    """Merge a finding restated word for word, and nothing else.
 
     Reading in passes means one pattern can be noticed several times over, in
     slightly different words. Left alone that is exactly how the earlier system
     produced thirteen near-identical "breakthroughs" in two days — a screen full
     of restatement reading as a screen full of findings.
 
-    Two observations are the same finding when they share enough of their
-    evidence — at least OBSERVATION_MERGE_OVERLAP of it, as a Jaccard ratio over
-    the entries they cite — or when their wording is identical. Any single entry
-    in common is not enough: a long recording cited by several unrelated
-    findings would glue them together. The merged claim is the longest of them
-    (the one that says most), and it keeps every citation, so merging
-    strengthens the evidence rather than discarding any of it.
+    This used to also merge findings that cited enough of the same entries
+    (OBSERVATION_MERGE_OVERLAP, as a Jaccard ratio). Document overlap is not
+    claim equivalence: "coffee appeared in the mornings" and "evening walks
+    appeared after work" can quote different passages of the same two long
+    entries, and the rule silently kept whichever sentence was longer and
+    dropped the other — no record, no way back, and the support check later
+    stripping the survivor's quotes could not bring the lost finding back.
+
+    So citations no longer merge anything by themselves. Identical wording
+    still does, because two identical sentences are the same sentence rather
+    than a judgement about meaning; everything else is left to `synthesise`,
+    which asks, acts only on "equivalent", and records what it merged.
     """
     # Connected components, not first-match-wins. The previous loop joined an
     # observation to the first group it happened to touch and stopped, so a
@@ -715,22 +735,8 @@ def consolidate(observations: list[Observation]) -> list[Observation]:
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    cited = [{c.key for c in o.citations} for o in observations]
     for i in range(len(observations)):
         parent[i] = i
-
-    # Enough in common, not anything in common. Joining on a single shared
-    # citation is single-linkage over a bridge, and one 22,000-character
-    # recording is cited by several unrelated findings — which is how a claim
-    # about one subject ended up carrying quotes about two unrelated
-    # others. Complete linkage is no remedy: every pair in such a group really
-    # does share the bridge, so its condition holds and the group still forms.
-    # The ratio is what separates a shared bridge from a shared subject.
-    for i in range(len(observations)):
-        for j in range(i + 1, len(observations)):
-            both, either = cited[i] & cited[j], cited[i] | cited[j]
-            if either and len(both) / len(either) >= OBSERVATION_MERGE_OVERLAP:
-                union(i, j)
 
     # Disjoint passes share no citations, so a finding noticed twice stayed two
     # findings however identically it was worded. Matching the wording is not a
@@ -774,10 +780,9 @@ def _pool(members: list[Observation], merged: bool = False) -> Observation:
             seen.add((citation.key, citation.text))
             citations.append(citation)
 
-    dates = [c.entry_date for c in citations if c.entry_date]
-    span_start = min(dates) if dates else best.span_start
-    span_end = max(dates) if dates else best.span_end
-    span_days = (span_end - span_start).days if span_start and span_end else 0
+    span_start, span_end, span_days = _span(citations)
+    if span_start is None:
+        span_start, span_end = best.span_start, best.span_end
     return Observation(
         claim=best.claim,
         citations=tuple(citations),

@@ -192,3 +192,42 @@ def test_each_reason_a_finding_is_dropped_is_counted():
     tally = Counter()
     assert check_support([_obs(*two), _obs(*two)], None, tally=tally) == []
     assert tally == Counter({"unchecked": 2}), "no model means nothing was checked"
+
+
+# --- a claim's reach is its own evidence's reach ------------------------------------
+
+def test_unrelated_old_writing_in_the_same_pass_cannot_widen_a_claim():
+    """The span used to be the whole reading pass's. Four supporting entries
+    from one day, read alongside one unrelated entry from three years earlier,
+    made a finding that "spanned" three years — and a span is half of what
+    makes one high confidence."""
+    from agent.observations import ObservationEngine
+
+    entries = [{"id": i, "date": date(2026, 9, 1), "content": f"a sentence about certainty {i}",
+                "source_type": "reflection"} for i in (1, 2, 3, 4)]
+    entries.append({"id": 9, "date": date(2023, 1, 1), "content": "an unrelated note about the weather",
+                    "source_type": "reflection"})
+    raw = [{"claim": CLAIM, "quotes": [
+        {"entryId": i, "sourceType": "reflection", "text": f"a sentence about certainty {i}"}
+        for i in (1, 2, 3, 4)]}]
+
+    observed = ObservationEngine(1, intelligence=Verdicts())._verified(raw, entries)
+
+    assert len(observed) == 1
+    assert (observed[0].span_start, observed[0].span_end) == (date(2026, 9, 1), date(2026, 9, 1))
+    assert observed[0].confidence_level != "high", "one day is not three years of support"
+
+
+def test_dropping_the_only_old_quote_shortens_the_span():
+    """check_support kept the span it was given, so a claim whose older
+    evidence had just been stripped still reported the older reach."""
+    old = Citation(entry_id=1, entry_date=date(2024, 1, 1), text="the first time, long ago")
+    recent = [Citation(entry_id=i, entry_date=date(2026, 6, i), text=f"again, {i}") for i in (1, 2)]
+    obs = Observation(claim=CLAIM, citations=(old, *recent), span_start=date(2024, 1, 1),
+                      span_end=date(2026, 6, 2), entries_read=20, confidence_level="high")
+
+    kept = check_support([obs], Verdicts("mentions", "supports", "supports"))
+
+    assert len(kept) == 1
+    assert kept[0].span_start == date(2026, 6, 1), "the stripped quote's date goes with it"
+    assert kept[0].span_end == date(2026, 6, 2)

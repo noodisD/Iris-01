@@ -61,3 +61,26 @@ def test_an_empty_week_is_not_sent_to_a_model_at_all():
     model = Model(reply="anything")
     assert compose(["Nothing was written this week."], [], [], model) == "Nothing was written this week."
     assert model.seen == []
+
+
+def test_a_number_the_letter_was_not_given_is_not_a_fact():
+    """The review's case: given "I stayed home", the letter accepted "You wrote
+    97 entries and ran a marathon. Your energy averaged 10." A forbidden-word
+    firewall is a wording guard. Counts are the part that can be checked, and
+    the part that reads as authority."""
+    held = hold_to_the_rules(
+        "You wrote 97 entries and ran a marathon. Your energy averaged 10.",
+        ["I stayed home"], FACTS)
+    assert held == ""
+
+
+def test_the_numbers_it_was_given_survive():
+    held = hold_to_the_rules("You wrote 2 entries this week. It was a quiet one.", WEEK, FACTS)
+    assert held == "You wrote 2 entries this week. It was a quiet one."
+
+
+def test_a_finding_s_numbers_count_as_given():
+    """The findings are facts too: the letter is shown both."""
+    held = hold_to_the_rules("The lake walks came up 5 times since 2025-03-01.", WEEK,
+                             FACTS + FINDINGS)
+    assert held == "The lake walks came up 5 times since 2025-03-01."

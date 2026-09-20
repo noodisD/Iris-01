@@ -266,7 +266,12 @@ class TrajectoryEngine:
             index = (occurred_at - first).days // self.TREND_BIN_DAYS
             bin_totals[index] = bin_totals.get(index, 0.0) + weight
 
-        last_index = max(bin_totals)
+        # Whole weeks only. The final bin ends wherever the record does, so a
+        # series that does not finish on a bin boundary has its last week
+        # regressed as though a part week were a full one, which drags the fit
+        # down by itself.
+        covered_days = (weighted[-1][0] - first).days + 1
+        last_index = covered_days // self.TREND_BIN_DAYS - 1
         if last_index < 1:
             return 0.0
 
@@ -336,20 +341,30 @@ class TrajectoryEngine:
             if days_since_first < 30 and recent_activity:
                 return "emerging"
 
-        # Use frequency delta as primary classifier
+        # The comparison the owner is shown is the one that decides: the last
+        # TRAJECTORY_RECENT_DAYS against the TRAJECTORY_BASELINE_DAYS before
+        # them. The weekly slope used to break the tie when that comparison was
+        # flat, which is precisely when it cannot be trusted — bins of seven
+        # days sampling a rhythm of eight produce a gap that is an artefact of
+        # the bin width, and an unchanged series of one entry every eight days
+        # came out as `fading` at -0.056 against a 0.05 threshold. The slope is
+        # still computed and still recorded as evidence; it no longer names a
+        # direction the displayed numbers do not show.
         if frequency_delta > TRAJECTORY_DELTA_THRESHOLD:
             return "increasing"
-        elif frequency_delta < -TRAJECTORY_DELTA_THRESHOLD:
+        if frequency_delta < -TRAJECTORY_DELTA_THRESHOLD:
             return "fading"
-        else:
-            # The frequency delta is flat, so the finer-grained signal decides.
-            # trend_slope is a relative change per week, which is the same kind
-            # of quantity as the delta, so it uses the same threshold.
-            if abs(trend_slope) > TRAJECTORY_DELTA_THRESHOLD:
-                if trend_slope > 0:
-                    return "increasing"
-                else:
-                    return "fading"
-            else:
-                return "stable"
+
+        # Nothing in either window is not a steady rate: it is a theme this
+        # engine has nothing to say about, and resolution is the engine that
+        # speaks about writing that has gone quiet. Without this, dropping the
+        # slope tiebreak would have turned "no recent evidence at all" into
+        # "stable" — a claim about a rhythm that is not there.
+        cutoff = utc_now() - timedelta(days=TRAJECTORY_BASELINE_DAYS)
+        in_windows = sum(1 for occ in occurrences
+                         if occ.get("occurred_at") is not None
+                         and to_utc(occ["occurred_at"]) >= cutoff)
+        if in_windows == 0:
+            return "insufficient data"
+        return "stable"
 

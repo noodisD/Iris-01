@@ -1484,6 +1484,12 @@ def _avg_energy(reflections) -> float | None:
     return round(sum(energies) / len(energies), 1) if energies else None
 
 
+#: A week's worth of entries, with room for an imported archive's heaviest week.
+#: Beyond this the totals would be wrong rather than incomplete, so the letter
+#: says so instead of quietly reporting a partial week as the whole one.
+WEEK_ENTRY_LIMIT = 500
+
+
 def _build_review_week(user_id: int, week_start: date) -> dict:
     """Assemble the frontend `ReviewWeek` from reflections, habits and findings.
 
@@ -1496,10 +1502,15 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
     week_end = week_start + timedelta(days=6)
     service = ReflectionService(user_id)
 
-    this_week = service.get_reflections(start_date=week_start, end_date=week_end)
+    # Every entry in the interval, not the first page of them. get_reflections
+    # defaults to 30, so a busy or freshly imported week reported the counts,
+    # averages and "nothing written" days of whichever 30 came back.
+    this_week = service.get_reflections(start_date=week_start, end_date=week_end,
+                                        limit=WEEK_ENTRY_LIMIT)
     prev_week = service.get_reflections(
         start_date=week_start - timedelta(days=7),
         end_date=week_start - timedelta(days=1),
+        limit=WEEK_ENTRY_LIMIT,
     )
     energy_avg = _avg_energy(this_week)
     previous = _avg_energy(prev_week)
@@ -1541,8 +1552,13 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
     if settings.get("daily_checkin_time"):
         lookahead.append({"when": f"Daily {settings['daily_checkin_time']}", "what": "Check-in"})
 
+    # Findings are computed now, from everything written since. They belong to
+    # a letter about this week only while "this week" is the current one; in a
+    # letter about an old week they would be later observations presented as
+    # what IRIS noticed then.
+    is_current_week = week_end >= date.today()
     letter = _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
-                            habits_hit, len(habits))
+                            habits_hit, len(habits), with_findings=is_current_week)
 
     return {
         "weekStart": week_start.isoformat(),
@@ -1561,8 +1577,13 @@ def _build_review_week(user_id: int, week_start: date) -> dict:
 
 
 def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
-                   habits_hit, habits_total) -> str:
-    """The week's letter, held to the rules (agent/review_letter.py)."""
+                   habits_hit, habits_total, with_findings: bool = True) -> str:
+    """The week's letter, held to the rules (agent/review_letter.py).
+
+    `with_findings` is False for a past week: what IRIS has noticed is computed
+    from the whole record as it stands today, so putting it in a letter about
+    March would read as something it noticed in March.
+    """
     import agent.core as core_module
     from agent import review_letter
     from agent.narrative import NarrativeFormatter
@@ -1579,13 +1600,14 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     if habits_total:
         facts.append(f"You kept {habits_hit} of {habits_total} habits at least once.")
 
-    try:
-        admission = admit(user_id)
-        chosen = InsightPrioritizationEngine(user_id).select(admission.findings, 3)
-        findings = NarrativeFormatter.format_all(chosen)
-    except Exception as e:
-        logger.warning(f"Findings unavailable for the letter: {e}")
-        findings = []
+    findings: list[str] = []
+    if with_findings:
+        try:
+            admission = admit(user_id)
+            chosen = InsightPrioritizationEngine(user_id).select(admission.findings, 3)
+            findings = NarrativeFormatter.format_all(chosen)
+        except Exception as e:
+            logger.warning(f"Findings unavailable for the letter: {e}")
 
     try:
         intelligence = core_module.Intelligence()

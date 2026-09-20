@@ -788,7 +788,7 @@ def test_the_evaluated_cohort_is_the_episodes_that_had_a_baseline():
          patch.object(engine, "ev_engine"), \
          patch("agent.decision_impact.db.create_or_update_decision_impact"), \
          patch.object(engine.conf_engine, "compute_confidence",
-                      side_effect=lambda pt, pid, ts, d=None, sources=None: captured.update(
+                      side_effect=lambda pt, pid, ts, d=None, sources=None, **kw: captured.update(
                           {"timestamps": list(ts)}) or {
                           "confidence_level": "medium", "confidence_score": 0.5,
                           "data_points_count": len(ts), "time_coverage_days": 30,

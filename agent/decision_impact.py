@@ -183,6 +183,7 @@ class DecisionImpactEngine:
         post_rates = []
         directions = []
         evaluated: list[datetime] = []
+        seen_after: set = set()
 
         # For each episode, compute local delta
         for t in episodes:
@@ -201,8 +202,13 @@ class DecisionImpactEngine:
 
             # Post window: [t, t + 14]
             p_end = t + timedelta(days=DECISION_IMPACT_WINDOW_DAYS)
-            p_count = sum(1 for ts in all_target_occs if t <= ts <= p_end)
+            in_window = [ts for ts in all_target_occs if t <= ts <= p_end]
+            p_count = len(in_window)
             p_rate = p_count / DECISION_IMPACT_WINDOW_DAYS
+            # Which target writing this episode actually saw. Episodes closer
+            # together than the follow-up window share it, and shared evidence
+            # is not independent confirmation.
+            seen_after.update(in_window)
 
             baseline_rates.append(b_rate)
             post_rates.append(p_rate)
@@ -245,10 +251,13 @@ class DecisionImpactEngine:
         if direction == 'none':
             return {"effect_direction": "none"}
 
-        # Confidence Signal using central engine
-        # We pass anchor timestamps as 'evidence' and directions as 'signal'
+        # Confidence Signal using central engine. The direction being reported
+        # is passed in, so "direction agreement" is agreement with the sentence
+        # on the card rather than with whichever local direction was commonest.
         self._evidence = [] # Clear buffer
-        conf = self.conf_engine.compute_confidence('impact', anchor_id, evaluated, directions)
+        conf = self.conf_engine.compute_confidence('impact', anchor_id, evaluated, directions,
+                                                   agrees_with=direction,
+                                                   independent_support=len(seen_after))
 
         # Emit evidence
         self.emit_evidence('rate', 'avg_baseline_rate', avg_baseline)

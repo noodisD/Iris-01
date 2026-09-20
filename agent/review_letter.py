@@ -15,7 +15,18 @@ The letter stays, and says only what it can support:
 - Anything it puts in quotation marks must appear word for word in the week's
   entries, or the sentence is dropped. It never saw the entries, so a quote it
   produces is invented unless it happens to match.
+- Every number it writes must be one of the numbers it was given. A firewall
+  of forbidden words is a wording guard, not a truth guard: given "I stayed
+  home" it accepted "You wrote 97 entries and ran a marathon. Your energy
+  averaged 10." The counts are the part that can be checked mechanically, and
+  they are the part that reads as authority.
 - If the call fails, or nothing survives, the letter is the facts themselves.
+
+What is still not checked, and should be read as prose rather than record: a
+sentence that invents an activity without a number — "and you ran a marathon" —
+breaks no rule here. Verifying that would mean giving a model the entries and
+asking what is true of them, which is the thing this product does not do. The
+counts, the quotes and the wording are checked; the adjectives are not.
 """
 
 from __future__ import annotations
@@ -38,15 +49,28 @@ SYSTEM_PROMPT = (
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _QUOTED = re.compile(r"[\"“]([^\"”]+)[\"”]")
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
 def _normalized(text: str) -> str:
     return " ".join((text or "").split())
 
 
-def hold_to_the_rules(text: str, week_entries: list[str]) -> str:
-    """The model's letter, minus every sentence that breaks a rule."""
+def _numbers(text: str) -> set[str]:
+    """Numbers as written, with a trailing ".0" treated as the same number."""
+    return {n.replace(",", ".").rstrip("0").rstrip(".") or "0" for n in _NUMBER.findall(text)}
+
+
+def hold_to_the_rules(text: str, week_entries: list[str], facts: list[str] | None = None) -> str:
+    """The model's letter, minus every sentence that breaks a rule.
+
+    `facts` are the counts the model was given. A sentence may use those and no
+    others: an invented count is the most authoritative-sounding thing a letter
+    can contain, and it is the one kind of invention that can be checked
+    without asking a second model what is true.
+    """
     source = _normalized(" \n ".join(week_entries))
+    allowed_numbers = _numbers(" ".join(facts or []))
     paragraphs = []
     for paragraph in (text or "").split("\n\n"):
         kept = []
@@ -58,6 +82,9 @@ def hold_to_the_rules(text: str, week_entries: list[str]) -> str:
                 continue
             if any(_normalized(q) not in source for q in _QUOTED.findall(sentence)):
                 logger.info("Letter sentence dropped: a quote not found in the week's entries")
+                continue
+            if not _numbers(sentence) <= allowed_numbers:
+                logger.info("Letter sentence dropped: a number it was not given")
                 continue
             kept.append(sentence)
         if kept:
@@ -87,5 +114,5 @@ def compose(facts: list[str], findings: list[str], week_entries: list[str],
     except Exception as e:
         logger.warning(f"Letter could not be written, using the facts: {e}")
         return facts_letter(facts, findings)
-    held = hold_to_the_rules(written, week_entries)
+    held = hold_to_the_rules(written, week_entries, facts + findings)
     return held or facts_letter(facts, findings)

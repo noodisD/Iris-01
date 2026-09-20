@@ -95,6 +95,19 @@ def test_one_shared_entry_is_a_bridge_not_a_shared_subject():
     assert len(consolidate([first, second])) == 2
 
 
+def test_two_subjects_quoted_from_the_same_entries_stay_two_findings():
+    """The same two long entries can hold a finding about coffee and one about
+    walking. Citation overlap used to merge them and keep only the longer
+    sentence; what the other said was gone, with nothing recording it."""
+    one = _cite(1, "coffee before anything else, as usual")
+    two = _cite(2, "walked the long way home again")
+    kept = consolidate([_observation("Coffee appeared in the mornings", [one, two]),
+                        _observation("Evening walks appeared after work", [one, two])])
+
+    assert {o.claim for o in kept} == {"Coffee appeared in the mornings",
+                                       "Evening walks appeared after work"}
+
+
 def test_the_same_finding_restated_in_two_passes_becomes_one():
     """Disjoint passes share no citations, so citation overlap cannot reach
     across them. Identical wording can, and saying two identical sentences are
@@ -119,13 +132,13 @@ def test_merging_does_not_depend_on_the_order_observations_arrive():
 
 
 def test_merging_keeps_every_citation():
-    """Pooling must lose nothing. Overlapping enough to merge, so the property
-    is actually exercised rather than skipped by a fixture that no longer joins."""
+    """Pooling must lose nothing. The same sentence twice, which is what merges
+    now — sharing citations is not itself equivalence (test_merge_criterion)."""
     one = _cite(1, "I went all in on the opening I was most certain about")
     two = _cite(2, "doubled down again")
     merged = consolidate([
         _observation("A", [one, two]),
-        _observation("A longer claim about the same thing", [one, two, _cite(3, "doubled the attack")]),
+        _observation("A", [one, two, _cite(3, "doubled the attack")]),
     ])[0]
 
     assert {c.entry_id for c in merged.citations} == {1, 2, 3}, "evidence is pooled, not discarded"
@@ -150,10 +163,10 @@ def test_pooled_evidence_can_raise_confidence():
     a = _observation("A", [_cite(1, "one", day=date(2026, 1, 1)),
                            _cite(2, "two", day=date(2026, 1, 2)),
                            _cite(3, "three", day=date(2026, 3, 1))])
-    b = _observation("A longer version", [_cite(1, "one", day=date(2026, 1, 1)),
-                                          _cite(2, "two", day=date(2026, 1, 2)),
-                                          _cite(3, "three", day=date(2026, 3, 1)),
-                                          _cite(4, "four", day=date(2026, 4, 1))])
+    b = _observation("A", [_cite(1, "one", day=date(2026, 1, 1)),
+                           _cite(2, "two", day=date(2026, 1, 2)),
+                           _cite(3, "three", day=date(2026, 3, 1)),
+                           _cite(4, "four", day=date(2026, 4, 1))])
     merged = consolidate([a, b])[0]
 
     assert len({c.key for c in merged.citations}) == 4

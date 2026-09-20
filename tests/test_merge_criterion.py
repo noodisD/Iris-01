@@ -1,6 +1,6 @@
 """How much two findings must have in common before they are one finding.
 
-Three attempts at this rule, and the first two were wrong in opposite ways.
+Four attempts at this rule, and the first three were wrong in different ways.
 
 Greedy first-match grouping joined an observation to the first group it touched
 and stopped, so the partition depended on which pass finished first. Replacing it
@@ -13,9 +13,16 @@ two unrelated ones.
 
 Complete linkage is not the remedy, which is the part worth recording. In a group
 bridged by one multi-topic entry, *every* pair genuinely shares that entry, so
-complete linkage's condition is satisfied and the group forms anyway. What
-separates a shared bridge from a shared subject is how much of each finding's
-evidence the other one covers — a ratio, not adjacency.
+complete linkage's condition is satisfied and the group forms anyway.
+
+The ratio that replaced it was wrong too, for a reason no amount of linkage
+arithmetic reaches: two findings can cite exactly the same entries and still be
+different findings. "Coffee appeared in the mornings" and "evening walks
+appeared after work" quote different passages of the same two long entries, and
+the rule kept whichever sentence was longer and dropped the other silently.
+Citations now merge nothing by themselves. Identical wording still merges, and
+everything else goes to the synthesis pass, which asks and records what it
+merged (tests/test_synthesis.py).
 
 Each case below has a correct answer by construction (ADR-0009): the citations
 are written here, so what should group is not a matter of opinion.
@@ -25,7 +32,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from agent.constants import OBSERVATION_MERGE_OVERLAP
 from agent.observations import Citation, Observation, consolidate
 
 
@@ -74,23 +80,31 @@ def test_findings_with_nothing_in_common_stay_apart():
     assert len(consolidate(findings)) == 2
 
 
-# --- what must merge ------------------------------------------------------------
-
-def test_two_findings_over_the_same_evidence_are_one():
+def test_the_same_entries_can_hold_two_different_findings():
+    """The review's case, and the reason the ratio went. Both findings quote the
+    same two entries; one is about coffee and one about walking. Merging kept
+    the longer sentence and deleted the other, with no record of it."""
     same = [("reflection", 1), ("reflection", 2)]
-    findings = [_obs("Certainty and boldness appeared together", same),
-                _obs("The boldest moves sat with the strongest certainty", same)]
-    assert len(consolidate(findings)) == 1
+    findings = [_obs("Coffee appeared in the mornings", same),
+                _obs("Evening walks appeared after work, on the longer days", same)]
+
+    kept = consolidate(findings)
+
+    assert len(kept) == 2
+    assert {o.claim for o in kept} == {f.claim for f in findings}
 
 
-def test_substantial_overlap_merges():
-    """Two thirds shared, one entry each of their own."""
+def test_substantial_overlap_is_not_equivalence():
+    """Two thirds shared evidence says the findings were drawn from the same
+    writing. It does not say they say the same thing; only asking does."""
     findings = [
         _obs("First", [("reflection", 1), ("reflection", 2), ("reflection", 3)]),
         _obs("Second and longer", [("reflection", 1), ("reflection", 2), ("reflection", 4)]),
     ]
-    assert len(consolidate(findings)) == 1
+    assert len(consolidate(findings)) == 2
 
+
+# --- what must merge ------------------------------------------------------------
 
 def test_identical_wording_merges_across_disjoint_passes():
     """Passes share no citations, so overlap can never reach across them. Two
@@ -103,14 +117,6 @@ def test_identical_wording_merges_across_disjoint_passes():
 
 # --- the rule itself ------------------------------------------------------------
 
-def test_the_threshold_is_a_ratio_not_a_count():
-    """One shared entry out of two is half; one out of ten is not. A big finding
-    and a small one sharing a single entry are not the same finding."""
-    small = [("reflection", 1), ("reflection", 2)]
-    large = [("reflection", 1)] + [("reflection", i) for i in range(10, 19)]
-    assert len(consolidate([_obs("Small", small), _obs("Large", large)])) == 2
-
-
 def test_the_result_does_not_depend_on_arrival_order():
     a = _obs("A", [("reflection", 1), ("reflection", 2)])
     b = _obs("B", [("reflection", 2), ("reflection", 3)])
@@ -119,15 +125,12 @@ def test_the_result_does_not_depend_on_arrival_order():
            len(consolidate([c, b, a]))
 
 
-def test_the_threshold_is_stated_once():
-    assert 0 < OBSERVATION_MERGE_OVERLAP <= 1
-
-
 def test_merging_still_pools_every_citation():
-    same = [("reflection", 1), ("reflection", 2)]
-    merged = consolidate([_obs("First", same), _obs("Second and longer", same)])[0]
-    assert {c.entry_id for c in merged.citations} == {1, 2}
-    assert merged.claim == "Second and longer", "the fullest statement survives"
+    claim = "Certainty and boldness appeared together"
+    merged = consolidate([_obs(claim, [("reflection", 1), ("reflection", 2)]),
+                          _obs(claim, [("reflection", 2), ("reflection", 3)])])[0]
+    assert {c.entry_id for c in merged.citations} == {1, 2, 3}
+    assert merged.claim == claim
 
 
 def test_consolidating_nothing_is_nothing():

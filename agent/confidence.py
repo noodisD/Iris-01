@@ -49,7 +49,9 @@ class ConfidenceEngine:
         pattern_id: int,
         timestamps: list[datetime],
         directions: list[str] | None = None,
-        sources: list[str] | None = None
+        sources: list[str] | None = None,
+        agrees_with: str | None = None,
+        independent_support: int | None = None,
     ) -> dict[str, Any]:
         """
         Calculates a reliability score and label for a set of evidence.
@@ -60,6 +62,17 @@ class ConfidenceEngine:
             timestamps: List of occurrences.
             directions: Optional list of labels to assess consistency.
             sources: Optional list of source types (e.g. 'reflection') to apply evidence tiering.
+            independent_support: How many distinct observations actually stand
+                behind those data points, when a caller can count them. Ten
+                anchor days a fortnight apart can share one burst of target
+                writing between their overlapping follow-up windows; without
+                this they counted as ten confirmations of it.
+            agrees_with: The direction actually being reported. Consistency is
+                then the share of the episodes that agree with *it*, not the
+                share holding whatever direction happened to be commonest. Nine
+                episodes fading and one large increase can average out to an
+                increase; calling that 90% consistent described the opposite of
+                what the card said, under the label "direction agreement".
 
         Returns:
             Dictionary containing label, score, and raw components.
@@ -86,6 +99,9 @@ class ConfidenceEngine:
         else:
             effective_count = raw_count
 
+        if independent_support is not None:
+            effective_count = min(effective_count, independent_support)
+
         # Logarithmic scale normalized to 0-1
         sufficiency = min(1.0, math.log(effective_count + 1) / math.log(CONF_HIGH_POINTS + 1))
 
@@ -104,12 +120,15 @@ class ConfidenceEngine:
         consistency = 0.0
 
         if has_direction:
-            # Find the dominant direction
-            counts = {}
-            for d in directions:
-                counts[d] = counts.get(d, 0) + 1
-            dominant_count = max(counts.values()) if counts else 0
-            consistency = dominant_count / len(directions)
+            if agrees_with is not None:
+                agreeing = sum(1 for d in directions if d == agrees_with)
+            else:
+                # No stated direction to agree with: the commonest one.
+                counts: dict[str, int] = {}
+                for d in directions:
+                    counts[d] = counts.get(d, 0) + 1
+                agreeing = max(counts.values()) if counts else 0
+            consistency = agreeing / len(directions)
 
             # Use standard weights
             w_s, w_c, w_r = CONF_WEIGHT_SUFFICIENCY, CONF_WEIGHT_CONSISTENCY, CONF_WEIGHT_RECENCY
