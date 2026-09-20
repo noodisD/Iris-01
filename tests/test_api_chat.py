@@ -129,3 +129,21 @@ def test_a_failed_reply_is_an_error_not_something_iris_said(client, mock_llm, te
     assert events[-1] == {"error": "provider went away", "saved": True}
     roles = [m["role"] for m in client.get("/api/conversations/conv_x/messages").json()]
     assert roles == ["user"], "the owner's message is kept; no partial reply is"
+
+
+def test_a_message_that_could_not_be_stored_is_not_reported_as_saved(client, mock_llm, mocker):
+    """`saved` answers one question: is what they typed in the database?
+
+    It was sent as True for every failure, including a failure of the write
+    that starts the turn — and the browser drops its draft on that word, so a
+    failed save could take the only copy of the owner's writing with it.
+    """
+    mocker.patch("agent.database.db.create_conversation_message",
+                 side_effect=RuntimeError("disk went away"))
+
+    events = _events(client.post("/api/conversations/conv_x/messages/stream",
+                                 json={"text": "please keep this"}).text)
+
+    assert events[-1] == {"error": "disk went away", "saved": False}
+    assert client.get("/api/conversations/conv_x/messages").json() == []
+    mock_llm.stream.assert_not_called()

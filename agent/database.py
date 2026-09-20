@@ -1282,7 +1282,10 @@ class Database:
             cur.execute(
                 """SELECT id, reflection_date, content, mood, energy_level, clarity_level
                    FROM reflections WHERE user_id = %s
-                   ORDER BY reflection_date DESC, id DESC LIMIT %s;""",
+                   -- NULLS LAST, explicitly: DESC puts them first in Postgres,
+                   -- so "the most recent entries" began with the writing whose
+                   -- day is unknown and the dated ones fell off the end.
+                   ORDER BY reflection_date DESC NULLS LAST, id DESC LIMIT %s;""",
                 (user_id, limit),
             )
             keys = ("id", "reflection_date", "content", "mood", "energy_level", "clarity_level")

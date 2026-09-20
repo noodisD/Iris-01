@@ -94,11 +94,13 @@ export interface JournalEntry {
   /** Server-extracted tags; frontend never invents these. */
   tags?: string[];
   irisNote?: string;        // What Iris observed about this entry
-  /** The day the entry was written. Imported entries keep their own date. */
-  occurredOn?: ISODate;
+  /** The day the entry was written, or null when it is not known. Imported
+   *  entries keep their own date; an undated recording stays undated. */
+  occurredOn: ISODate | null;
   /** When the row reached IRIS — the import day for an imported entry. */
   importedAt?: ISODateTime;
-  createdAt: ISODateTime;
+  /** The same day as `occurredOn`; null when that is unknown. */
+  createdAt: ISODateTime | null;
 }
 
 export interface JournalListResponse {
@@ -376,6 +378,9 @@ export interface ImportEntry {
   occurredOn: ISODate | null;
   dateSource: string | null;
   dateConfidence: DateConfidence;
+  /** The owner looked and said the day is not recoverable. Only these commit
+   *  without a date; an entry the parser simply could not date does not. */
+  dateUnknownAccepted: boolean;
   /** The day the entry's file was last saved, where the upload carried it.
    *  Offered as a guess for an undated entry; never applied on its own. */
   fileModifiedOn: ISODate | null;

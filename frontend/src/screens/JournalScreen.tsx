@@ -115,8 +115,11 @@ export function JournalScreen() {
                 }}
               >
                 <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                  {/* A date-only value is a day, not an instant — see lib/dates. */}
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{formatEventDate(e.occurredOn ?? e.createdAt)}</span>
+                  {/* A date-only value is a day, not an instant — see lib/dates.
+                      An entry with no day says so: the server used to send the
+                      import time in its place, so a two-year archive read as
+                      one afternoon. */}
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{e.occurredOn ? formatEventDate(e.occurredOn) : 'undated'}</span>
                   <div className="row" style={{ gap: 4 }}>{(e.tags ?? []).map(t => <span key={t} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{t}</span>)}</div>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>{e.lines.join(' ')}</div>

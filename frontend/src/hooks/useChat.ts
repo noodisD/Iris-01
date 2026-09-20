@@ -42,13 +42,19 @@ export function useSendMessage(conversationId: string | undefined) {
       try {
         let buffer = '';
         let finalId: string | undefined;
+        let finished = false;
         for await (const ev of chatApi.streamReply(conversationId, text)) {
-          if (ev.done) { finalId = ev.messageId; break; }
+          if (ev.done) { finalId = ev.messageId; finished = true; break; }
           buffer += ev.text;
           qc.setQueryData<ChatMessage[]>(key, (old) =>
             (old ?? []).map(m => m.id === replyId ? { ...m, text: buffer } : m),
           );
         }
+        // A stream that stops without its `done` event is an interrupted
+        // reply, not a finished one: the connection dropped, and IRIS saved
+        // nothing in its own name. Saying "complete" left a half sentence on
+        // screen as though it were the whole answer.
+        if (!finished) throw new chatApi.ReplyFailed('The reply was interrupted.', true);
         qc.setQueryData<ChatMessage[]>(key, (old) =>
           (old ?? []).map(m => m.id === replyId ? { ...m, id: finalId ?? replyId, streaming: false } : m),
         );

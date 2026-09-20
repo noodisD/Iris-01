@@ -344,16 +344,28 @@ async def stream_conversation_reply(
     a reply that already existed. Tokens are forwarded as they arrive now.
 
     Events: `{"text": ...}` per fragment, then `{"done": true, "messageId": ...}`.
-    A failure is `{"error": ..., "saved": true}` — the owner's message was
-    stored, the reply was not — and is never rendered as something IRIS said:
-    it used to arrive as a reply reading "I encountered an error…".
+    A failure is `{"error": ..., "saved": ...}` and is never rendered as
+    something IRIS said: it used to arrive as a reply reading "I encountered an
+    error…".
+
+    `saved` is the owner's message, and it is the answer to one question: is
+    what they typed now in the database? It is sent as `true` only after that
+    write returns. It used to be `true` for every failure — including a failure
+    of that write — and the browser, which discards the draft on that word,
+    could lose the only copy of what they had written.
     """
     text = (request or {}).get("text", "")
 
     async def event_gen():
         companion = PersonalAICompanion(user_id=user_id)
         try:
-            async for fragment in iterate_in_threadpool(companion.chat_stream(text)):
+            turn = await run_in_threadpool(companion.begin_turn, text)
+        except Exception as e:
+            logger.error(f"Could not store the message that starts the turn: {e}")
+            yield f"data: {json.dumps({'error': str(e), 'saved': False})}\n\n"
+            return
+        try:
+            async for fragment in iterate_in_threadpool(companion.stream_reply(*turn)):
                 yield f"data: {json.dumps({'text': fragment})}\n\n"
         except Exception as e:
             logger.error(f"Error streaming chat reply: {e}")
@@ -695,9 +707,16 @@ class JournalCreate(BaseModel):
 
 
 def _reflection_to_journal(r: dict, user_id: int) -> dict:
-    """Map a reflection row → the frontend `JournalEntry` shape."""
+    """Map a reflection row → the frontend `JournalEntry` shape.
+
+    An entry whose day is unknown says so. `reflection_date or created_at`
+    filled the gap with the minute the entry was imported, which is a date the
+    owner never wrote and every reader downstream then treated as one
+    (ADR-0013): the transcripts read as though they were written the afternoon
+    the archive was opened.
+    """
     content = r.get("content") or ""
-    occurred = r.get("reflection_date") or r.get("created_at")
+    occurred = r.get("reflection_date")
     return {
         "id": str(r["id"]),
         "userId": str(user_id),
@@ -707,9 +726,9 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         # When it was written. `createdAt` preferred created_at, which for an
         # imported entry is the day it was imported, so a journal spanning two
         # years displayed as one afternoon in September.
-        "occurredOn": occurred.isoformat() if hasattr(occurred, "isoformat") else str(occurred),
+        "occurredOn": occurred.isoformat() if hasattr(occurred, "isoformat") else None,
         "importedAt": _iso(r.get("created_at")),
-        "createdAt": _iso(occurred),
+        "createdAt": _iso(occurred) if occurred is not None else None,
         # Present only for entries that came from a recording, so the journal
         # can offer the audio next to the words it produced.
         "audioUrl": f"/api/audio/{r['id']}" if r.get("audio_path") else None,
@@ -721,16 +740,22 @@ def list_journal(user_id: int = Depends(get_current_user_id),
                        limit: int = 50, cursor: str | None = None):
     """Return reflections as the frontend `JournalListResponse` (newest first).
 
-    `cursor` is the id of the last entry of the previous page; `nextCursor` is
-    returned only when another page exists. The frontend has always sent this
-    parameter — it was previously ignored, so paging silently returned page one
-    forever.
+    `cursor` is "<day>:<id>", or "undated:<id>" once paging reaches the entries
+    whose day is unknown; `nextCursor` is returned only when another page
+    exists. The frontend has always sent this parameter — it was previously
+    ignored, so paging silently returned page one forever.
+
+    Undated entries sort after every dated one (`db.get_journal_page`), so a
+    page can end on one. This used to build the next cursor by calling
+    `.isoformat()` on that row's absent date, which raised — on this archive,
+    page three of the owner's own journal answered 500 and nothing older could
+    be reached.
     """
     before = None
     if cursor:
         try:
-            day, last_id = cursor.split(":")
-            before = (date.fromisoformat(day), int(last_id))
+            day, last_id = cursor.rsplit(":", 1)
+            before = (None if day == "undated" else date.fromisoformat(day), int(last_id))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid cursor")
 
@@ -745,7 +770,9 @@ def list_journal(user_id: int = Depends(get_current_user_id),
         "recurringPhrases": [],
     }
     if has_more and rows:
-        body["nextCursor"] = f"{rows[-1]['reflection_date'].isoformat()}:{rows[-1]['id']}"
+        last_day = rows[-1]["reflection_date"]
+        day = last_day.isoformat() if last_day is not None else "undated"
+        body["nextCursor"] = f"{day}:{rows[-1]['id']}"
     return body
 
 
@@ -880,6 +907,10 @@ def _item_to_contract(item: dict) -> dict:
         "fileModifiedOn": (item["file_modified_at"].astimezone().date().isoformat()
                            if item.get("file_modified_at") else None),
         "status": item["status"],
+        # The owner has looked and says the day is not recoverable — a
+        # different state from "the parser found nothing", and the only one
+        # that may be committed undated (ADR-0013).
+        "dateUnknownAccepted": bool(item.get("date_unknown_accepted")),
         "warnings": item.get("warnings") or [],
         "hasAudio": bool(item.get("audio_path")),
         "error": item.get("error"),

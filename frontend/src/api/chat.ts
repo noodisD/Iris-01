@@ -53,7 +53,10 @@ export async function* streamReply(
   userText: string,
 ): AsyncGenerator<{ text: string; done?: boolean; messageId?: string }> {
   for await (const ev of sse<StreamEvent>(`/conversations/${conversationId}/messages/stream`, { text: userText })) {
-    if (ev.error !== undefined) throw new ReplyFailed(ev.error, ev.saved ?? true);
+    // Default false: the draft is kept unless the server says the message was
+    // stored. Defaulting the other way threw away what they wrote on the word
+    // of a server that had not said it.
+    if (ev.error !== undefined) throw new ReplyFailed(ev.error, ev.saved ?? false);
     yield { text: ev.text ?? '', done: ev.done, messageId: ev.messageId };
   }
 }

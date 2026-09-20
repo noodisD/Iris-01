@@ -183,16 +183,25 @@ class PersonalAICompanion:
         self.memory.add_message("assistant", response_text)
         return response_text
 
-    def chat_stream(self, user_message: str) -> Iterator[str]:
-        """The same turn as `chat`, yielding the reply as it is generated.
+    def begin_turn(self, user_message: str) -> tuple[list[dict], str]:
+        """Store the owner's message and build the model's input, or raise.
 
-        The reply is saved only once it is complete. A stream that fails midway
-        saves nothing in IRIS's name: half a sentence is not something IRIS
-        said, and saving it would feed it back as context on the next turn. The
-        owner's own message is saved before anything else, because they did say
-        it.
+        Separate from the streaming half so a caller can tell the owner what
+        actually happened. The SSE route used to report `saved: true` for every
+        failure, including a failure of this very step, and the browser drops
+        its draft when the server says the message was stored — so a write that
+        failed could take the only copy of what they typed with it.
         """
-        short_term_context, enhanced_prompt = self._begin_turn(user_message)
+        return self._begin_turn(user_message)
+
+    def stream_reply(self, short_term_context: list[dict],
+                     enhanced_prompt: str) -> Iterator[str]:
+        """IRIS's reply as it is generated, saved only once it is complete.
+
+        A stream that fails midway saves nothing in IRIS's name: half a
+        sentence is not something IRIS said, and saving it would feed it back
+        as context on the next turn.
+        """
         parts: list[str] = []
         for fragment in self.intelligence.stream(
             messages=short_term_context,
@@ -203,6 +212,12 @@ class PersonalAICompanion:
             parts.append(fragment)
             yield fragment
         self.memory.add_message("assistant", "".join(parts))
+
+    def chat_stream(self, user_message: str) -> Iterator[str]:
+        """Both halves of a streamed turn, for a caller that needs no
+        acknowledgement between them."""
+        short_term_context, enhanced_prompt = self.begin_turn(user_message)
+        yield from self.stream_reply(short_term_context, enhanced_prompt)
 
     def _get_aggregated_context(self, user_message: str) -> str:
         """
@@ -346,7 +361,14 @@ class PersonalAICompanion:
                 # Every line indented, so a list inside an entry cannot pass for
                 # the next entry.
                 body = "\n".join(f"  {line}" for line in content.splitlines())
-                parts.append(f"- [{r['reflection_date']:%Y-%m-%d}]{meta}\n{body}")
+                # An entry whose day is unknown says "undated" rather than
+                # raising. Formatting a null date threw inside this whole
+                # block's try, so one undated entry replaced every recent
+                # entry — dated ones included — with "Could not retrieve
+                # reflections context.", on every turn.
+                when = (f"{r['reflection_date']:%Y-%m-%d}" if r["reflection_date"]
+                        else "undated")
+                parts.append(f"- [{when}]{meta}\n{body}")
             return "\n".join(parts)
         except Exception as e:
             logger.error(f"Error fetching reflections context: {e}")

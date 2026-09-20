@@ -161,7 +161,10 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
   const counts = batch.counts;
   const waiting = counts.awaitingTranscript > 0;
   const blocked = counts.needsDate > 0 || waiting;
-  const undatedIds = (entries ?? []).filter((e) => e.occurredOn === null && e.status === 'staged')
+  // An entry whose absence of a date the owner has already accepted is settled,
+  // so it is not one of the blockers this bar is about.
+  const undatedIds = (entries ?? [])
+    .filter((e) => e.occurredOn === null && !e.dateUnknownAccepted && e.status === 'staged')
     .map((e) => e.id);
   const fileDatable = (entries ?? [])
     .filter((e) => e.occurredOn === null && e.status === 'staged' && e.fileModifiedOn)
@@ -247,6 +250,15 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
                   onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'set_date', occurredOn: bulkDate })}
                   style={{ fontSize: 11 }}>
             set all
+          </button>
+          {/* The third answer, which the screen never offered: the day is
+              not recoverable, and saying so is not the same as guessing. The
+              service has accepted it since the undated work landed; without
+              this button an archive of undated recordings could only be
+              excluded or abandoned. */}
+          <button className="btn" style={{ fontSize: 11 }}
+                  onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'accept_unknown_date' })}>
+            accept as undated
           </button>
           <button className="btn ghost" style={{ fontSize: 11 }}
                   onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'exclude' })}>

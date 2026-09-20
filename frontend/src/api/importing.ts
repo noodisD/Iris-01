@@ -78,7 +78,7 @@ export async function updateEntry(
 
 export async function bulkUpdate(
   ids: string[],
-  op: 'exclude' | 'include' | 'set_date' | 'use_file_date',
+  op: 'exclude' | 'include' | 'set_date' | 'use_file_date' | 'accept_unknown_date' | 'require_date',
   occurredOn?: string,
 ): Promise<{ updated: number }> {
   return api.post('/import/entries/bulk', { ids: ids.map(Number), op, occurredOn });

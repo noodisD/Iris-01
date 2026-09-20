@@ -74,3 +74,50 @@ def test_journal_last_page_offers_no_cursor(client):
 
 def test_journal_rejects_a_bad_cursor(client):
     assert client.get("/api/journal?cursor=not-a-number").status_code == 400
+
+
+def _undated(client, text: str) -> int:
+    """An entry whose day is unknown, as an import of an undated recording makes."""
+    from agent.database import db
+    from iris_api import get_current_user_id
+    user_id = app.dependency_overrides[get_current_user_id]()
+    return db.create_reflection(user_id, text, undated=True)
+
+
+def test_paging_reaches_the_undated_entries_instead_of_failing(client):
+    """Undated entries sort after every dated one, so a page can end on one.
+
+    The next cursor was built by formatting that row's absent date, which
+    raised: on the owner's archive page three of their own journal answered
+    500, and nothing older could be reached.
+    """
+    for i in range(3):
+        client.post("/api/journal", json={"lines": [f"dated {i}"], "energy": 5})
+    for i in range(3):
+        _undated(client, f"undated {i}")
+
+    seen: list[str] = []
+    cursor = None
+    for _ in range(6):
+        url = "/api/journal?limit=2" + (f"&cursor={cursor}" if cursor else "")
+        page = client.get(url)
+        assert page.status_code == 200, page.text
+        body = page.json()
+        seen.extend(e["id"] for e in body["entries"])
+        cursor = body.get("nextCursor")
+        if not cursor:
+            break
+
+    assert len(seen) == 6, f"every entry is reachable, got {len(seen)}"
+    assert len(set(seen)) == 6, "and each one exactly once"
+
+
+def test_an_undated_entry_is_not_given_the_day_it_was_imported(client):
+    """`reflection_date or created_at` filled an unknown day with the minute the
+    archive was opened — a date the owner never wrote (ADR-0013)."""
+    _undated(client, "no date anywhere in this recording")
+    entry = next(e for e in client.get("/api/journal?limit=50").json()["entries"]
+                 if e["lines"] == ["no date anywhere in this recording"])
+    assert entry["occurredOn"] is None
+    assert entry["createdAt"] is None
+    assert entry["importedAt"], "when it reached IRIS is still known"
