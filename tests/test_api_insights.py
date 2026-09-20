@@ -88,3 +88,17 @@ def test_resolve_hides_insight_from_list(client, seeded_theme):
     assert r.json()["status"] == "resolved"
     remaining = [i["id"] for i in client.get("/api/insights").json()]
     assert insight_id not in remaining
+
+
+def test_a_finding_about_two_themes_shows_no_single_origin(client, test_user, monkeypatch):
+    """`origin` says how a finding was arrived at — clustered, or read and
+    vouched for. A pair has two ends and can have one of each, so the card
+    showed the first theme's origin for the whole thing."""
+    from agent.insights_service import _tension_to_card
+
+    card = _tension_to_card({"theme_a_id": 1, "theme_b_id": 2, "tension_label": "persistent",
+                             "theme_a_summary": "A", "theme_b_summary": "B",
+                             "recent_cooccurrence_count": 3, "past_cooccurrence_count": 2,
+                             "cooccurrence_count": 5, "confidence_level": "medium"})
+
+    assert card["pair_of"] == (1, 2), "the card knows it is about two patterns"

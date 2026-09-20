@@ -122,7 +122,10 @@ export function ChatScreen() {
             )}
             <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'flex-end', gap: 12 }}>
               <textarea value={draft} onChange={e => setDraft(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+                // Enter is ignored while a reply is in flight, as the Send
+                // button already is: a second turn started mid-stream races the
+                // first for the same conversation.
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.isPending) submit(); } }}
                 placeholder="Talk to Iris… (⏎ to send, ⇧⏎ for new line)" rows={1}
                 style={{ flex: 1, background: 'transparent', border: 'none', resize: 'none', color: 'var(--ink)', fontFamily: 'var(--sans)', fontSize: 14, lineHeight: 1.5, outline: 'none', minHeight: 22 }} />
               <button className="btn primary" style={{ padding: '7px 14px' }} onClick={() => submit()} disabled={send.isPending}>Send</button>

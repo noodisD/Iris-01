@@ -113,6 +113,7 @@ export function HabitsScreen() {
 
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
+
   return (
     <div className="col" style={{ padding: '32px 56px 48px', gap: 28 }}>
       <header className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--line)', paddingBottom: 18 }}>
@@ -149,6 +150,14 @@ export function HabitsScreen() {
       )}
 
       <AddHabit />
+
+      {/* A tick that did not reach the server rolls back on screen, which on
+          its own looks like a misclick. */}
+      {toggle.isError && (
+        <div role="alert" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+          That tick didn't save. Nothing is lost — try again.
+        </div>
+      )}
 
       {data.habits.length === 0 ? (
         <div className="serif ital" style={{ fontSize: 20, color: 'var(--ink-3)' }}>

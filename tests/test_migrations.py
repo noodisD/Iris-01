@@ -24,6 +24,8 @@ from agent.database import db
 
 from test_schema_snapshot import SNAPSHOT, _live_schema
 
+ROOT = Path(__file__).parent.parent
+
 
 def _scratch_database(name: str):
     """A genuinely empty database, dropped afterwards."""
@@ -176,3 +178,29 @@ def test_a_failing_migration_leaves_no_partial_state(setup_test_database, tmp_pa
         cur.execute("SELECT to_regclass('public.never_committed');")
         assert cur.fetchone()[0] is None, "a failed migration must roll back"
     assert "9001" not in migrations.applied(), "a failed migration must not be recorded"
+
+
+def test_a_missing_migrations_directory_is_an_error_not_an_empty_history(monkeypatch, tmp_path):
+    """An installation that cannot migrate is not one with nothing to migrate.
+
+    discover() returned [] when the directory was absent, so an installed copy
+    without the SQL files would start and serve against whatever schema it
+    found — the packaging mistake arriving later as a missing column.
+    """
+    monkeypatch.setattr(migrations, "MIGRATIONS_DIR", tmp_path / "nowhere")
+    with pytest.raises(migrations.MigrationError, match="no migrations directory"):
+        migrations.discover()
+
+
+def test_the_recovery_a_migration_names_can_actually_be_carried_out():
+    """Migration 0015 refuses to drop the legacy journal table while rows or
+    references remain, and names the backfill script. That script moves rows
+    and deliberately leaves the references, so on its own it could never
+    satisfy the guard: the recovery path was a dead end. It has a --retire
+    step now, and this keeps the two in step."""
+    sql = (ROOT / "migrations" / "0015_retire_journal_entries.sql").read_text()
+    assert "backfill_journal_entries.py" in sql
+    script = (ROOT / "scripts" / "backfill_journal_entries.py").read_text()
+    assert "--retire" in script, "the named script cannot satisfy the guard it is named in"
+    for table in ("embeddings", "theme_occurrences", "processing_queue"):
+        assert table in script, f"retiring must repoint {table} before the rows go"

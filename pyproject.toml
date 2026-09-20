@@ -53,6 +53,11 @@ build-backend = "hatchling.build"
 # analytical package. Shipping only "agent" produced a wheel whose console
 # script (iris = companion:main) and whose prompts import both failed at
 # runtime.
+#
+# The wheel is not the supported deployment: it carries no migrations/ and no
+# built frontend, so it cannot create or upgrade a schema. IRIS runs from a
+# source checkout (README). agent/migrations.py raises rather than reporting an
+# empty history when the SQL files are not beside it.
 include = ["agent", "prompts", "iris_api.py", "companion.py"]
 
 [dependency-groups]

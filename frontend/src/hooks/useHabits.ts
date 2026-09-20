@@ -33,6 +33,10 @@ export function useToggleHabit() {
         old ? { ...old, habits: old.habits.map(h => h.id === server.id ? server : h) } : old,
       );
     },
+    // The row is the server's word; the aggregates beside it — consistency,
+    // longest streak — are computed across every habit, and showing yesterday's
+    // totals next to today's tick is two answers to one question.
+    onSettled: () => { qc.invalidateQueries({ queryKey: qk.habits }); },
   });
 }
 

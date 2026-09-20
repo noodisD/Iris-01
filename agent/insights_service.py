@@ -211,6 +211,7 @@ def _tension_to_card(r: dict) -> dict | None:
         "engine": "tension",
         "pattern_key": r.get("pattern_key") or f"{a}-{b}",
         "theme_id": a,
+        "pair_of": (a, b),
         "summary": f"{r.get('theme_a_summary','')} vs {r.get('theme_b_summary','')}".strip(),
         "label": r.get("tension_label") or "tension",
         # The engine already returns the recent/earlier split; this
@@ -239,6 +240,7 @@ def _leverage_to_card(r: dict) -> dict | None:
         "engine": "leverage",
         "pattern_key": r.get("pattern_key") or f"{s}-{t}",
         "theme_id": s,
+        "pair_of": (s, t),
         "summary": f"{r.get('source_summary','')} → {r.get('target_summary','')}".strip(),
         # "influence" overstated it: this is a forward/reverse
         # co-occurrence proportion within a lag window.
@@ -267,6 +269,7 @@ def _decision_impact_to_card(r: dict) -> dict | None:
         "engine": "decision_impact",
         "pattern_key": r.get("pattern_key") or f"{a}-{t}",
         "theme_id": a,
+        "pair_of": (a, t),
         "summary": f"{r.get('anchor_summary','')} → {r.get('target_summary','')}".strip(),
         "label": r.get("effect_direction") or "shift",
         # target_total_count is every occurrence the target has ever
@@ -377,14 +380,21 @@ class InsightsService:
             # cluster a machine named after the fact, which defeats the point of
             # asking them. And a 'mention' count says the subject appears in the
             # writing — never how often they did the thing.
-            **self._provenance(raw.get("theme_id")),
+            # A finding about two themes has no single origin, so it shows
+            # none. `theme_id` carries the first of the pair for evidence
+            # lookups, and reading provenance from it put one theme's origin
+            # and claim kind on a card about both — a clustered/confirmed pair
+            # read as though the owner had vouched for the whole thing.
+            **({} if raw.get("pair_of") else self._provenance(raw.get("theme_id"))),
         }
 
     def _provenance(self, theme_id) -> dict:
         """How a finding was arrived at, carried through to the screen.
 
-        Absent rather than guessed when the finding is not theme-shaped: tension
-        and leverage span two patterns, so a single origin would be a fiction.
+        Absent rather than guessed when the finding is not theme-shaped: tension,
+        leverage and decision impact span two patterns, so a single origin would
+        be a fiction. The caller decides by `pair_of`; this used to be reached
+        with the pair's first theme, which is exactly the fiction it describes.
         """
         if not isinstance(theme_id, int):
             return {}

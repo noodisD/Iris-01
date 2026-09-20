@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -160,6 +161,34 @@ def promote(user_id: int, observation, run_id: int = None) -> int | None:
     )
     logger.info(f"Promoted a candidate construct {theme_id} with {len(prototypes)} prototype(s)")
     return theme_id
+
+
+def backfill_proposal_keys(user_id: int) -> int:
+    """Give candidates from before proposal keys an identity, from their own
+    stored evidence.
+
+    A candidate with no key cannot be recognised by a later run, so re-reading
+    the archive offers the same finding again beside the one already waiting,
+    and a decision made about it matches nothing. The key is computed the same
+    way `proposal_key` computes it at promotion — from the claim and the quotes
+    it rests on — so a re-read of unchanged writing lands on the same value.
+
+    Returns how many candidates were given one.
+    """
+    filled = 0
+    for theme in db.get_candidates_without_proposal_key(user_id):
+        prototypes = db.get_theme_prototypes(theme["id"])
+        if not prototypes:
+            continue
+        observation = SimpleNamespace(
+            claim=theme.get("definition") or theme.get("summary") or "",
+            citations=[SimpleNamespace(source_type=p.get("source_type", "reflection"),
+                                       entry_id=p.get("source_id"), text=p.get("quote", ""))
+                       for p in prototypes])
+        db.set_theme_proposal(theme["id"], proposal_key(observation), theme.get("observation_run_id"))
+        filled += 1
+    logger.info(f"Gave {filled} older candidate(s) a proposal identity")
+    return filled
 
 
 def candidates(user_id: int) -> list[dict]:

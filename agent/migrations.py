@@ -49,9 +49,18 @@ def _checksum(text: str) -> str:
 
 
 def discover() -> list[tuple[str, Path]]:
-    """Every migration on disk, in the order they must be applied."""
+    """Every migration on disk, in the order they must be applied.
+
+    A missing directory is an installation that cannot migrate, not an
+    installation with no migrations. It used to return an empty list, so the
+    application would start and serve against whatever schema it found — the
+    failure this would have reported arriving later as a missing column.
+    """
     if not MIGRATIONS_DIR.is_dir():
-        return []
+        raise MigrationError(
+            f"no migrations directory at {MIGRATIONS_DIR}. IRIS is run from a source "
+            "checkout (see README); an installed copy does not carry its schema."
+        )
 
     found = []
     for path in sorted(MIGRATIONS_DIR.iterdir()):

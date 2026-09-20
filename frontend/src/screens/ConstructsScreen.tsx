@@ -23,6 +23,14 @@ function Candidate({ c }: { c: ConstructCandidate }) {
       border: '1px solid var(--line-soft)', borderRadius: 12,
       display: 'flex', flexDirection: 'column', gap: 16,
     }}>
+      {(confirm.isError || reject.isError) && (
+        // Without this the buttons simply became usable again, which reads as
+        // a misclick rather than as a decision that did not reach the server.
+        <div role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>
+          That didn't save. The pattern is still waiting for your decision.
+        </div>
+      )}
+
       <div className="col" style={{ gap: 6 }}>
         <div className="kicker">
           {c.claimKind === 'behaviour'

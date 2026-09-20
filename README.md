@@ -89,6 +89,11 @@ uv run uvicorn iris_api:app --host 127.0.0.1 --port 8000
 Open http://127.0.0.1:8000. Schema migrations run at startup; the single local
 user is created on first request.
 
+**The supported deployment is this source checkout.** The wheel
+(`uv build`) carries the application but not `migrations/` or the built
+frontend, so an installed copy cannot create or upgrade its own schema — and
+now says so instead of reporting that it has no migrations to run.
+
 For frontend work, `cd frontend && npm run dev` serves on :5173 and proxies
 `/api` to :8000, so requests stay same-origin.
 

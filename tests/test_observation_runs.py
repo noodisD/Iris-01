@@ -258,3 +258,27 @@ def test_the_last_run_route_reports_counts_and_no_words(client, test_user, archi
     text = json.dumps(body)
     for words in (CLAIM, QUOTE_ONE, QUOTE_TWO):
         assert words not in text, "the route carries counts, never the writing"
+
+
+def test_a_candidate_from_before_identities_can_be_given_one(test_user, archive):
+    """Candidates promoted before proposal keys existed matched nothing on a
+    rerun, so the same finding could sit on the review screen twice — which is
+    how this archive ended with two runs' proposals side by side."""
+    first = constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                                include_staged=False)
+    theme_id = int(first[0]["id"])
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE themes SET proposal_key = NULL WHERE id = %s;", (theme_id,))
+        conn.commit()
+
+    assert db.get_candidates_without_proposal_key(test_user["id"])
+    assert constructs.backfill_proposal_keys(test_user["id"]) == 1
+    assert db.get_candidates_without_proposal_key(test_user["id"]) == []
+
+    # And the rerun now recognises it instead of offering it again.
+    constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                        include_staged=False)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT count(*) FROM themes
+                        WHERE user_id = %s AND origin = 'observed';""", (test_user["id"],))
+        assert cur.fetchone()[0] == 1, "the same finding was staged twice"

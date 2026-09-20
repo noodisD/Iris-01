@@ -189,6 +189,18 @@ def _parse_reply(reply: str) -> list:
     return data if isinstance(data, list) else []
 
 
+def _tag(claim: str) -> str:
+    """A short, stable handle for a claim, for logs.
+
+    The claim itself is the owner's life read back to them. It was written to
+    the log at INFO on every drop, so using the archive from the browser put
+    claims about the owner into a file that outlives the run and is read by
+    whoever reads logs. The tag is enough to follow one finding through a run
+    and useless to anyone else.
+    """
+    return hashlib.sha256(_claim_key(claim).encode()).hexdigest()[:8]
+
+
 def _span(citations) -> tuple:
     """The stretch of time a claim's own evidence covers.
 
@@ -371,7 +383,7 @@ def check_support(observations: list[Observation], intelligence,
                 max_tokens=OBSERVATION_MAX_TOKENS,
             )
         except Exception as e:
-            logger.warning(f"Support could not be checked, finding dropped: {obs.claim[:60]} ({e})")
+            logger.warning(f"Support could not be checked, finding {_tag(obs.claim)} dropped ({e})")
             tally["unchecked"] += 1
             continue
         # Asked and answered badly is a different failure from never answered:
@@ -381,25 +393,25 @@ def check_support(observations: list[Observation], intelligence,
                         for v in json.loads(_strip_fence(reply)).get("quotes") or []
                         if isinstance(v, dict)}
         except (ValueError, TypeError, KeyError, AttributeError) as e:
-            logger.info(f"Support check reply unreadable, finding dropped: {obs.claim[:60]} ({e})")
+            logger.info(f"Support check reply unreadable, finding {_tag(obs.claim)} dropped ({e})")
             tally["incomplete"] += 1
             continue
 
         if len(verdicts) != len(obs.citations) or not all(
                 verdicts.get(i) in ("supports", "denies", "mentions")
                 for i in range(len(obs.citations))):
-            logger.info(f"Support check answered incompletely, finding dropped: {obs.claim[:60]}")
+            logger.info(f"Support check answered incompletely, finding {_tag(obs.claim)} dropped")
             tally["incomplete"] += 1
             continue
         if any(v == "denies" for v in verdicts.values()):
-            logger.info(f"A quote denies the claim, finding dropped: {obs.claim[:60]}")
+            logger.info(f"A quote denies the claim, finding {_tag(obs.claim)} dropped")
             tally["denied"] += 1
             continue
 
         supporting = tuple(c for i, c in enumerate(obs.citations) if verdicts[i] == "supports")
         if (len(supporting) < OBSERVATION_MIN_CITATIONS
                 or len({c.key for c in supporting}) < OBSERVATION_MIN_ENTRIES_CITED):
-            logger.info(f"Too few quotes support the claim, finding dropped: {obs.claim[:60]}")
+            logger.info(f"Too few quotes support the claim, finding {_tag(obs.claim)} dropped")
             tally["too_few_supporting"] += 1
             continue
 
@@ -557,18 +569,18 @@ class ObservationEngine:
             if FORBIDDEN_REGEX.search(claim):
                 # Not a system error — a model saying "because" is ordinary. The
                 # claim goes, the batch stays.
-                logger.info(f"Observation discarded for causal or prescriptive wording: {claim[:60]}")
+                logger.info(f"Observation {_tag(claim)} discarded for causal or prescriptive wording")
                 continue
 
             citations = self._citations(item.get("quotes") or [], by_id)
             if citations is None:
-                logger.info(f"Observation discarded, a citation failed verification: {claim[:60]}")
+                logger.info(f"Observation {_tag(claim)} discarded, a citation failed verification")
                 continue
             if len(citations) < OBSERVATION_MIN_CITATIONS:
-                logger.info(f"Observation discarded, {len(citations)} verified quote(s): {claim[:60]}")
+                logger.info(f"Observation {_tag(claim)} discarded, {len(citations)} verified quote(s)")
                 continue
             if len({c.key for c in citations}) < OBSERVATION_MIN_ENTRIES_CITED:
-                logger.info(f"Observation discarded, all quotes from one entry: {claim[:60]}")
+                logger.info(f"Observation {_tag(claim)} discarded, all quotes from one entry")
                 continue
 
             span_start, span_end, span_days = _span(citations)

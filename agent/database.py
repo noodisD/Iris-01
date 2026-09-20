@@ -1140,6 +1140,24 @@ class Database:
                 logger.error(f"Failed to store a candidate construct: {e}")
                 raise
 
+    def get_candidates_without_proposal_key(self, user_id: int) -> list[dict]:
+        """Candidate constructs stored before proposals had an identity.
+
+        Without a key a later run cannot tell that it has found the same thing
+        again, so the review queue grows a second copy of a finding the owner
+        is already looking at.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, summary, definition, observation_run_id
+                     FROM themes
+                    WHERE user_id = %s AND origin = 'observed' AND status = 'candidate'
+                      AND proposal_key IS NULL
+                    ORDER BY id;""",
+                (user_id,))
+            return [{"id": r[0], "summary": r[1], "definition": r[2], "observation_run_id": r[3]}
+                    for r in cur.fetchall()]
+
     def get_theme_prototypes(self, theme_id: int) -> list:
         """The sentences a construct is anchored in, oldest first."""
         with self.connection() as conn, conn.cursor() as cur:
