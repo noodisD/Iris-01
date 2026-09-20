@@ -33,15 +33,24 @@ _lock = threading.Lock()
 
 
 def evidence_fingerprint(user_id: int) -> tuple:
-    """What the cross-theme engines read, reduced to a few numbers that change
-    whenever any of it does."""
+    """What the cross-theme engines read, as a value that changes whenever it does.
+
+    Counts and sums are not that value. Moving one occurrence a day earlier and
+    another a day later leaves every total identical, and the relationships
+    these engines measure are made of exactly those distances — so the cached
+    answer would be served for evidence that no longer supports it. A digest
+    over the rows themselves has no such arithmetic to cancel out.
+    """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT COUNT(o.id), COALESCE(SUM(o.id), 0),
-                      COALESCE(SUM(EXTRACT(EPOCH FROM o.occurred_at)), 0),
+            """SELECT COUNT(o.id),
+                      COALESCE(md5(string_agg(
+                          o.id || ':' || o.theme_id || ':' ||
+                          COALESCE(EXTRACT(EPOCH FROM o.occurred_at)::text, 'undated'),
+                          ',' ORDER BY o.id)), ''),
                       (SELECT COUNT(*) FROM themes WHERE user_id = %s AND status = 'active'),
-                      (SELECT COALESCE(SUM(id), 0) FROM themes
-                        WHERE user_id = %s AND status = 'active')
+                      (SELECT COALESCE(md5(string_agg(id::text, ',' ORDER BY id)), '')
+                         FROM themes WHERE user_id = %s AND status = 'active')
                  FROM theme_occurrences o JOIN themes t ON t.id = o.theme_id
                 WHERE t.user_id = %s AND t.status = 'active';""",
             (user_id, user_id, user_id))
