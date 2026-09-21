@@ -30,6 +30,7 @@ from pathlib import Path  # noqa: E402
 
 from agent.connections import TONES, responses_under  # noqa: E402
 from agent.episodes import EXTRACTION_VERSION, Episode  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 
 TITLES = {"better": "What followed read as welcome",
@@ -42,8 +43,12 @@ def main() -> int:
     ap.add_argument("--condition", required=True)
     ap.add_argument("--cache", default="data/episodes.json")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     cache = Path(args.cache)
     if not cache.exists():
@@ -60,7 +65,7 @@ def main() -> int:
         return 0
 
     started = time.time()
-    groups, counts = responses_under(args.condition, episodes, Intelligence())
+    groups, counts = responses_under(args.condition, episodes, Intelligence(model=model_name))
 
     lines = [f"# {args.condition}", "",
              f"Of {counts['comparable']} accounts, {counts['held']} describe this. "

@@ -544,3 +544,25 @@ def test_a_batch_that_could_not_be_asked_says_so():
     labels, counts = label_many([("first", "a circumstance", "")], EPISODES, Down())
 
     assert labels == {} and counts["asked"] is False
+
+
+def test_a_run_can_say_what_it_will_cost_before_it_spends_it():
+    """A number after the fact is an apology; before it, a decision."""
+    from agent.intelligence import Intelligence
+
+    said = Intelligence.estimate("gpt-5.6-luna", 41_000, 8_000)
+    assert "41k tokens" in said and "$0.02" in said
+
+    # A model nobody has priced here is reported as tokens rather than guessed at.
+    assert "price unknown" in Intelligence.estimate("some-new-model", 41_000)
+
+
+def test_the_mechanical_work_and_the_words_the_owner_reads_use_different_models():
+    """Labelling an account against a circumstance is classification, and the
+    cheap tier is the intended tool for it rather than a compromise. What the
+    owner reads is not."""
+    from agent.config import settings
+
+    assert settings.OPENAI_WORKER_MODEL != settings.OPENAI_MODEL
+    assert settings.OPENAI_WORKER_MODEL in __import__(
+        "agent.intelligence", fromlist=["Intelligence"]).Intelligence.PRICE_PER_MTOK

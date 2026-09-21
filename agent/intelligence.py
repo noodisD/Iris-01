@@ -28,6 +28,25 @@ _REJECTS_TEMPERATURE: set[str] = set()
 class Intelligence:
     """Thin wrapper over the OpenAI chat completions API."""
 
+    #: Dollars per million tokens, input and output, from OpenAI's pricing page
+    #: as read on 21 September 2026. Here so a run can say what it is about to
+    #: spend before it spends it; wrong the moment prices move, which is why
+    #: anything not listed is reported as tokens alone rather than guessed at.
+    PRICE_PER_MTOK = {
+        "gpt-5.6-luna": (0.20, 1.20),
+        "gpt-5.6-terra": (2.00, 12.00),
+        "gpt-5.6-sol": (5.00, 30.00),
+    }
+
+    @classmethod
+    def estimate(cls, model: str, tokens_in: int, tokens_out: int = 0) -> str:
+        """What a run of this size would cost, said in words rather than hidden."""
+        price = cls.PRICE_PER_MTOK.get(model)
+        if price is None:
+            return f"{tokens_in // 1000}k tokens in on {model} (price unknown here)"
+        dollars = tokens_in / 1_000_000 * price[0] + tokens_out / 1_000_000 * price[1]
+        return f"{tokens_in // 1000}k tokens in on {model}, about ${dollars:.2f}"
+
     def __init__(self, api_key: str | None = None, model: str = None):
         """Initialise the OpenAI client for this session."""
         self.openai_client = None

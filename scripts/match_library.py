@@ -33,6 +33,7 @@ from pathlib import Path  # noqa: E402
 
 from agent.connections import MAGNITUDES, TONES, weigh  # noqa: E402
 from agent.episodes import Episode, EXTRACTION_VERSION, areas, comparable  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 from agent.library import load  # noqa: E402
 
@@ -48,8 +49,12 @@ def main() -> int:
                          "the repository because they name what the owner does")
     ap.add_argument("--only", action="append", help="match one pattern by id")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     cache = Path(args.cache)
     if not cache.exists():
@@ -73,7 +78,7 @@ def main() -> int:
         return 0
 
     started = time.time()
-    model = Intelligence()
+    model = Intelligence(model=model_name)
     rows, sections = [], []
     for pattern in patterns:
         grid, counts = weigh(pattern.statement, episodes, model, markers=pattern.markers)

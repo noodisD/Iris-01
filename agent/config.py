@@ -23,7 +23,15 @@ class Settings(BaseSettings):
 
     # API Keys (Required in Prod)
     OPENAI_API_KEY: str = Field(default="your_openai_api_key_here")
+    # What the owner reads: chat, the weekly letter, the questions an inquiry
+    # asks. Quality is the whole point here.
     OPENAI_MODEL: str = Field(default="gpt-5.5")
+    # The mechanical passes: labelling an account against a circumstance,
+    # saying where a dictated sentence ends. Classification and routing, where
+    # a cheap model is the intended tool rather than a compromise — and where
+    # the work is checked by construction or by counting, not taken on trust.
+    # luna is a tenth of terra's input price and a twenty-fifth of sol's.
+    OPENAI_WORKER_MODEL: str = Field(default="gpt-5.6-luna")
     # Accuracy matters more than cost here: a transcript becomes a reflection,
     # gets embedded, and is quoted back as something the owner said, so a
     # mis-heard word turns into evidence. gpt-4o-mini-transcribe is the cheaper

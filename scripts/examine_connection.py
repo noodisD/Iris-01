@@ -34,6 +34,7 @@ from pathlib import Path  # noqa: E402
 
 from agent.connections import CELLS, examine  # noqa: E402
 from agent.episodes import EXTRACTION_VERSION, Episode, comparable  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 
 CORNER_TITLES = {
@@ -62,8 +63,12 @@ def main() -> int:
     ap.add_argument("--condition", help="test one claim instead of the file")
     ap.add_argument("--followed", help="what the claim says followed")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     cache = Path(args.cache)
     if not cache.exists():
@@ -101,7 +106,7 @@ def main() -> int:
     summary = []
     for claim in claims:
         cells, counts = examine(claim["condition"], claim.get("followed", ""),
-                                episodes, Intelligence())
+                                episodes, Intelligence(model=model_name))
         summary.append({"label": claim.get("label", claim["condition"][:40]),
                         **{k: counts[k] for k in CELLS},
                         "unclear": counts["unclear"]})

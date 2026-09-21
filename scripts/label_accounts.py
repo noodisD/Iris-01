@@ -28,6 +28,7 @@ from pathlib import Path  # noqa: E402
 
 from agent.connections import label_many, render  # noqa: E402
 from agent.episodes import EXTRACTION_VERSION, Episode, comparable  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 from agent.library import load  # noqa: E402
 
@@ -43,8 +44,12 @@ def main() -> int:
                          "expensive part of the prompt and go once per call; a "
                          "larger batch costs less and loses more when a reply "
                          "cannot be read")
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     cache = Path(args.cache)
     if not cache.exists():
@@ -74,15 +79,16 @@ def main() -> int:
     # accounts times the number of calls. Said before anything is sent.
     per_call = len(render(usable)) // 4
     print(f"accounts: {len(usable)}  patterns: {len(patterns)}  to label: {len(todo)}")
-    print(f"{len(batches)} call(s), about {per_call:,} tokens of accounts each "
-          f"≈ {len(batches) * per_call // 1000}k tokens in. One call per pattern "
-          f"would be {len(todo) * per_call // 1000}k.")
+    print(f"{len(batches)} call(s): "
+          + Intelligence.estimate(model_name, len(batches) * per_call,
+                                  len(batches) * 2000)
+          + f". One call per pattern would be {len(todo) * per_call // 1000}k tokens in.")
     if args.dry_run:
         print("dry run: nothing was sent.")
         return 0
 
     started = time.time()
-    model = Intelligence()
+    model = Intelligence(model=model_name)
     for batch in batches:
         labels, counts = label_many(
             [(p.id, p.statement, p.markers) for p in batch], episodes, model)

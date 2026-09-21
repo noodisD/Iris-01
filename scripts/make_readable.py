@@ -32,6 +32,7 @@ logging.disable(logging.CRITICAL)
 from pathlib import Path  # noqa: E402
 
 from agent.database import db  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 from agent.readable import needs_tidying, readable, words  # noqa: E402
 
@@ -45,8 +46,12 @@ def main() -> int:
     ap.add_argument("--cache", default="data/readable.json")
     ap.add_argument("--all", action="store_true",
                     help="tidy every entry, not only the ones read as one breath")
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     entries = list(db.get_entries_for_reading(args.user, limit=args.limit))
     cache = Path(args.cache)
@@ -58,8 +63,11 @@ def main() -> int:
 
     wanted = [e for e in entries if args.all or needs_tidying(e["content"])]
     todo = [e for e in wanted if str(e["id"]) not in done]
+    # A reading copy costs its entry twice: once going and once coming back.
+    chars = sum(len(e["content"]) for e in todo)
     print(f"entries: {len(entries)}  read as one breath: {len(wanted)}  "
           f"already tidied: {len(done)}  to do: {len(todo)}")
+    print("  " + Intelligence.estimate(model_name, chars // 4, chars // 4))
     if args.dry_run:
         print("dry run: nothing was sent to the model.")
         return 0
@@ -71,7 +79,7 @@ def main() -> int:
                                      "copies": done}, indent=1))
 
     started = time.time()
-    model = Intelligence()
+    model = Intelligence(model=model_name)
     why: dict[str, int] = {}
     for entry in todo:
         copy, reason = readable(entry["content"], model)

@@ -32,6 +32,7 @@ from pathlib import Path  # noqa: E402
 
 from agent.connections import MAGNITUDES, TONES, reflective_questions, weigh  # noqa: E402
 from agent.episodes import EXTRACTION_VERSION, Episode  # noqa: E402
+from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 
 TONE_WORDS = {"better": "welcome", "worse": "unwelcome", "mixed": "both"}
@@ -43,8 +44,12 @@ def main() -> int:
     ap.add_argument("--note", default=None, help="your own reading, kept as yours")
     ap.add_argument("--cache", default="data/episodes.json")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--model", default=None,
+                    help="which model does the work; the cheap worker model by "
+                         "default, since these passes classify and count")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    model_name = args.model or settings.OPENAI_WORKER_MODEL
 
     cache = Path(args.cache)
     if not cache.exists():
@@ -61,7 +66,7 @@ def main() -> int:
         return 0
 
     started = time.time()
-    model = Intelligence()
+    model = Intelligence(model=model_name)
     grid, counts = weigh(args.condition, episodes, model)
     questions = reflective_questions(args.condition, counts, model)
 
