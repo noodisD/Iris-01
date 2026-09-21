@@ -64,6 +64,12 @@ def main() -> int:
         print("dry run: nothing was sent to the model.")
         return 0
 
+    def save() -> None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"version": VERSION, "user": args.user,
+                                     "madeAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "copies": done}, indent=1))
+
     started = time.time()
     model = Intelligence()
     why: dict[str, int] = {}
@@ -72,15 +78,15 @@ def main() -> int:
         why[reason] = why.get(reason, 0) + 1
         if copy is not None:
             done[str(entry["id"])] = copy
+            # Written as they are made. These are minutes of API calls each, and
+            # a run that saves only at the end loses all of them to a timeout.
+            save()
         elif reason == "unavailable":
             # No point asking two hundred more times.
             print("the model could not be reached; stopping.")
             break
 
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps({"version": VERSION, "user": args.user,
-                                 "madeAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                                 "copies": done}, indent=1))
+    save()
 
     print(json.dumps({
         "tidied": why.get("ok", 0),
