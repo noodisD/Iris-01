@@ -415,6 +415,53 @@ _ADVICE_OPENERS = ("should", "could you try", "have you considered", "why not",
                    "wouldn't it", "don't you think", "do you agree")
 
 
+def label(condition: str, episodes: list[Episode], intelligence,
+          markers: str = "") -> tuple[dict[int, dict], dict]:
+    """Each account's answer to one circumstance, kept by position.
+
+    `weigh` counts and throws the answers away, which is enough for one
+    circumstance and useless for comparing several: what was also true on the
+    occasions that went well is a question about the labels, not about the
+    totals. Keeping them makes that arithmetic rather than another model call.
+    """
+    usable = comparable(episodes)
+    labels: dict[int, dict] = {}
+    counts = {"comparable": len(usable), "held": 0, "unclear": 0, "asked": False}
+    if not usable or intelligence is None:
+        return labels, counts
+
+    asked = (f"Circumstance: {condition}\n{markers}\n\nAccounts:\n{render(usable)}"
+             if markers else f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}")
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
+                                  system_prompt=WEIGH_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+    except Exception as e:
+        logger.error(f"Labelling could not be asked: {e}")
+        return labels, counts
+    counts["asked"] = True
+    try:
+        answers = json.loads(_strip_fence(reply)).get("accounts") or []
+    except (ValueError, AttributeError) as e:
+        logger.error(f"Labelling reply unusable: {e}")
+        return labels, counts
+
+    for item in answers:
+        if not isinstance(item, dict):
+            continue
+        idx = _indexes(item.get("i"), len(usable))
+        if not idx or _clean(item.get("held")).lower() != "yes":
+            continue
+        counts["held"] += 1
+        tone = _clean(item.get("went")).lower()
+        size = _clean(item.get("size")).lower()
+        if tone in TONES and size in MAGNITUDES:
+            labels[idx[0]] = {"tone": tone, "size": size}
+        else:
+            counts["unclear"] += 1
+    return labels, counts
+
+
 def weigh(condition: str, episodes: list[Episode], intelligence,
           markers: str = "") -> tuple[dict[tuple[str, str], list[Episode]], dict]:
     """The occasions a circumstance held, by how they went and how big they were.
@@ -430,44 +477,10 @@ def weigh(condition: str, episodes: list[Episode], intelligence,
     it is what the questions are for.
     """
     usable = comparable(episodes)
+    labels, counts = label(condition, episodes, intelligence, markers)
     grid: dict[tuple[str, str], list[Episode]] = {}
-    # "asked" says whether the question was put at all. Without it a provider
-    # that refused every call reported the same thing as an archive in which
-    # nothing matched — which is how three patterns were written up as
-    # under-detecting when the account had simply run out of credit.
-    counts = {"comparable": len(usable), "held": 0, "unclear": 0, "asked": False}
-    if not usable or intelligence is None:
-        return grid, counts
-
-    asked = (f"Circumstance: {condition}\n{markers}\n\nAccounts:\n{render(usable)}"
-             if markers else f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}")
-    try:
-        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
-                                  system_prompt=WEIGH_PROMPT,
-                                  max_tokens=OBSERVATION_MAX_TOKENS)
-    except Exception as e:
-        logger.error(f"Weighing could not be asked: {e}")
-        return grid, counts
-    counts["asked"] = True
-    try:
-        labels = json.loads(_strip_fence(reply)).get("accounts") or []
-    except (ValueError, AttributeError) as e:
-        logger.error(f"Weighing reply unusable: {e}")
-        return grid, counts
-
-    for item in labels:
-        if not isinstance(item, dict):
-            continue
-        idx = _indexes(item.get("i"), len(usable))
-        if not idx or _clean(item.get("held")).lower() != "yes":
-            continue
-        counts["held"] += 1
-        tone = _clean(item.get("went")).lower()
-        size = _clean(item.get("size")).lower()
-        if tone in TONES and size in MAGNITUDES:
-            grid.setdefault((tone, size), []).append(usable[idx[0]])
-        else:
-            counts["unclear"] += 1
+    for i, answer in labels.items():
+        grid.setdefault((answer["tone"], answer["size"]), []).append(usable[i])
     for tone in TONES:
         for size in MAGNITUDES:
             counts[f"{tone}_{size}"] = len(grid.get((tone, size), []))
