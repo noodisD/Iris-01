@@ -221,3 +221,51 @@ def test_the_frame_is_what_a_behaviour_claim_was_missing():
     assert episode.occurred_on is not None
     assert episode.citations, "and the sentences it rests on"
     assert isinstance(episode, Episode)
+
+
+# --- what makes two accounts comparable ------------------------------------------
+
+def test_an_account_that_says_what_followed_can_be_compared():
+    """Requiring every part admitted 19 of 86 accounts on the real archive,
+    because `information` — what arrived while attention was occupied — is the
+    heart of one shape and absent from others. Situation, response and outcome
+    are what two accounts need to be set beside each other; the rest are
+    markers they may or may not share."""
+    from agent.episodes import comparable
+
+    no_cue = verified_episodes([_episode(demand=None, information=None)], ENTRIES)[0]
+
+    assert not no_cue.is_complete
+    assert no_cue.has_shape
+    assert comparable([no_cue]) == [no_cue]
+    assert no_cue.markers == ()
+
+
+def test_an_account_with_no_outcome_has_nothing_to_agree_with():
+    silent = verified_episodes([_episode(outcome=None)], ENTRIES)[0]
+
+    assert not silent.has_shape
+    from agent.episodes import comparable
+    assert comparable([silent]) == []
+
+
+def test_an_explanation_is_kept_as_theirs_and_apart_from_what_happened():
+    """The owner's own account of why is what a proposed connection might
+    agree with or extend — and what decides whether it is new to them."""
+    explained = verified_episodes([_episode(
+        explanation="I think the unfamiliar actions were using up the attention",
+        domain="cycling")], ENTRIES)[0]
+
+    assert explained.explanation.startswith("I think")
+    assert explained.domain == "cycling"
+    assert explained.explanation not in explained.situation
+
+
+def test_an_episode_survives_a_round_trip_through_the_cache():
+    """A cached run is read back as the same accounts, quotes included: the
+    archive is read once and every later experiment runs against that."""
+    original = verified_episodes([_episode(domain="cycling")], ENTRIES)[0]
+
+    restored = Episode.from_dict(original.as_dict())
+
+    assert restored == original

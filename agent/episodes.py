@@ -65,6 +65,18 @@ ACTORS = ("self", "other")
 #: is recorded as absent rather than filled in.
 PARTS = ("situation", "demand", "information", "response", "outcome")
 
+#: What an account needs before it can be set beside another and compared on
+#: its shape. Requiring all five parts was too strict: `information` — what
+#: arrived while attention was occupied — is the heart of one shape and
+#: irrelevant to others ("preparation against live decisions" has no incoming
+#: cue at all). On this archive that test admitted 19 of 86 accounts; this one
+#: admits the 46 that say what followed.
+SHAPE = ("situation", "response", "outcome")
+
+#: Bumped whenever the frame or the prompt changes, so a cached extraction is
+#: never silently mixed with one made by different rules.
+EXTRACTION_VERSION = 2
+
 SYSTEM_PROMPT = """You are reading someone's journal entries and extracting accounts of particular occasions.
 
 An account is one occasion, not a habit or a summary. Extract only what the writing states.
@@ -77,6 +89,8 @@ For each account, give:
 - "information": what came in — something said, seen, noticed — if the writing says.
 - "response": what the person did.
 - "outcome": what the writing says followed. Omit if it does not say.
+- "domain": two or three words for the area of life this happened in, in the writing's own terms.
+- "explanation": the writer's own account of why it went that way, if they give one. Theirs, not yours. Omit if they do not.
 - "quotes": the passages this rests on, each {"entryId": N, "sourceType": "reflection", "text": "..."} quoted word for word.
 
 Rules:
@@ -86,7 +100,7 @@ Rules:
 - An entry may contain no accounts. An empty list is a good answer.
 
 Return JSON only:
-{"episodes": [{"actor": "self", "modality": "happened", "situation": "...", "demand": "...", "information": "...", "response": "...", "outcome": "...", "quotes": [...]}]}"""
+{"episodes": [{"actor": "self", "modality": "happened", "domain": "...", "situation": "...", "demand": "...", "information": "...", "response": "...", "outcome": "...", "explanation": "...", "quotes": [...]}]}"""
 
 
 @dataclass(frozen=True)
@@ -102,16 +116,33 @@ class Episode:
     outcome: str | None
     citations: tuple[Citation, ...]
     occurred_on: date | None
+    domain: str | None = None
+    #: The writer's own account of why it went that way. Kept apart from what
+    #: happened, and never treated as a fact about them: it is the thing a
+    #: connection might agree with, extend, or contradict — and the thing that
+    #: decides whether a connection is new to them or one they already drew.
+    explanation: str | None = None
 
     @property
     def is_complete(self) -> bool:
-        """Whether every part of the frame is present.
-
-        Only a complete episode can be compared with another on its shape: two
-        accounts with no stated outcome have nothing to agree or disagree
-        about. Counting these is the point of the first pass.
-        """
+        """Whether every part of the frame is present, markers included."""
         return all(getattr(self, part) for part in PARTS)
+
+    @property
+    def has_shape(self) -> bool:
+        """Whether there is enough here to set beside another account.
+
+        Situation, response, and what followed. `demand` and `information` are
+        markers two accounts may or may not share; requiring them of every
+        account admitted only the shapes that happen to involve an incoming
+        cue.
+        """
+        return all(getattr(self, part) for part in SHAPE)
+
+    @property
+    def markers(self) -> tuple[str, ...]:
+        """The optional parts this account states, which another may share."""
+        return tuple(p for p in ("demand", "information") if getattr(self, p))
 
     def as_claim(self) -> str:
         """The episode as one sentence, for the support check.
@@ -134,11 +165,30 @@ class Episode:
         return {
             "actor": self.actor,
             "modality": self.modality,
+            "domain": self.domain,
             **{part: getattr(self, part) for part in PARTS},
+            "explanation": self.explanation,
             "occurredOn": self.occurred_on.isoformat() if self.occurred_on else None,
             "citations": [c.as_dict() for c in self.citations],
             "complete": self.is_complete,
+            "hasShape": self.has_shape,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Episode:
+        """An episode read back from a cached run, quotes and all."""
+        return cls(
+            actor=data["actor"], modality=data["modality"], domain=data.get("domain"),
+            situation=data["situation"], response=data["response"],
+            demand=data.get("demand"), information=data.get("information"),
+            outcome=data.get("outcome"), explanation=data.get("explanation"),
+            occurred_on=date.fromisoformat(data["occurredOn"]) if data.get("occurredOn") else None,
+            citations=tuple(
+                Citation(entry_id=int(c["entryId"]),
+                         entry_date=date.fromisoformat(c["entryDate"]) if c.get("entryDate") else None,
+                         text=c["text"], source_type=c.get("sourceType", "reflection"))
+                for c in data.get("citations", [])),
+        )
 
 
 def _clean(value) -> str | None:
@@ -186,6 +236,8 @@ def verified_episodes(raw: list, entries: list[dict]) -> list[Episode]:
             situation=fields["situation"], response=fields["response"],
             demand=fields["demand"], information=fields["information"],
             outcome=fields["outcome"],
+            domain=_clean(item.get("domain")),
+            explanation=_clean(item.get("explanation")),
             citations=citations,
             # The occasion's own day, where the writing that carries it has
             # one. An undated recording can describe an episode; it cannot say
@@ -242,9 +294,51 @@ def tally(episodes: list[Episode]) -> dict:
         "with_outcome": sum(1 for e in episodes if e.outcome),
         "complete": sum(1 for e in episodes if e.is_complete),
         "dated": sum(1 for e in episodes if e.occurred_on),
+        "with_explanation": sum(1 for e in episodes if e.explanation),
+        "labels": len({e.domain for e in episodes if e.domain}),
+        "areas": len(areas(episodes)),
         # The only ones a comparison pass could ever put side by side: the
-        # owner's own occasions, that actually happened, with every part
-        # present. If this number is small, comparing shapes is premature.
-        "comparable": sum(1 for e in episodes
-                          if e.is_complete and e.actor == "self" and e.modality == "happened"),
+        # owner's own occasions, that actually happened, saying what followed.
+        # If this number is small, comparing shapes is premature.
+        "comparable": sum(1 for e in comparable(episodes)),
     }
+
+
+#: Words that carry no area on their own, so "the pottery class" and "pottery"
+#: are one area rather than two.
+_NOT_AN_AREA = {"a", "an", "the", "my", "of", "in", "at", "on", "and", "with",
+                "session", "sessions", "time", "day", "life", "general", "other",
+                "personal", "daily", "routine", "activity", "activities"}
+
+
+def coarse_area(label: str | None) -> str:
+    """One word for the area an account happened in.
+
+    The reader is asked for the area in the writing's own terms, and on this
+    archive it produced 103 different labels for 116 accounts — almost an
+    identifier each, which makes "from two different areas" true of any pair
+    and therefore worthless as a test of cross-domain reach. This reduces a
+    label to its first word that means something, which puts "pottery class",
+    "pottery practice" and "pottery" together without anyone deciding in
+    advance what the areas of a life are.
+
+    A heuristic, and visible as one: the alternative is to give the reader a
+    fixed vocabulary, which costs another read of the archive and decides the
+    categories for the owner.
+    """
+    for word in (label or "").lower().replace("/", " ").replace("-", " ").split():
+        word = "".join(c for c in word if c.isalnum())
+        if len(word) > 2 and word not in _NOT_AN_AREA:
+            return word
+    return "unstated"
+
+
+def areas(episodes: list[Episode]) -> set[str]:
+    """The coarse areas a set of accounts covers."""
+    return {coarse_area(e.domain) for e in episodes} - {"unstated"}
+
+
+def comparable(episodes: list[Episode]) -> list[Episode]:
+    """The owner's own occasions, that happened, that say what followed."""
+    return [e for e in episodes
+            if e.has_shape and e.actor == "self" and e.modality == "happened"]
