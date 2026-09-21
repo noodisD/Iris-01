@@ -344,3 +344,66 @@ def test_a_circumstance_nothing_describes_returns_empty_groups():
 
     assert counts["held"] == 0
     assert all(not g for g in groups.values())
+
+
+# --- weighing a behaviour that sometimes pays ---------------------------------------
+
+def _weighing(*rows):
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"accounts": [
+                {"i": i, "held": h, "went": w, "size": s} for i, (h, w, s) in enumerate(rows)]})
+    return Model()
+
+
+def test_occasions_are_placed_by_how_they_went_and_how_large_they_were():
+    """Counting welcome against unwelcome hides the shape that matters for a
+    behaviour that sometimes pays: a run of small wins beside one large loss."""
+    from agent.connections import weigh
+
+    grid, counts = weigh("more was committed than could be held", EPISODES,
+                         _weighing(("yes", "better", "small"), ("yes", "better", "small"),
+                                   ("yes", "worse", "large"), ("no", "worse", "large")))
+
+    assert counts["held"] == 3
+    assert counts["better_small"] == 2 and counts["worse_large"] == 1
+    assert counts["better_large"] == 0
+    assert len(grid[("worse", "large")]) == 1
+
+
+def test_an_occasion_whose_size_is_not_stated_is_not_given_one():
+    from agent.connections import weigh
+
+    _, counts = weigh("a circumstance", EPISODES,
+                      _weighing(("yes", "worse", "unclear"), ("yes", "unclear", "large"),
+                                ("yes", "better", "small"), ("no", "worse", "small")))
+
+    assert counts["unclear"] == 2 and counts["better_small"] == 1
+
+
+def test_a_question_that_is_an_instruction_is_refused():
+    """The easiest place in this system to smuggle in advice is a question."""
+    from agent.connections import reflective_questions
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"questions": [
+                "Should you take smaller positions in future?",
+                "What would the largest of these outcomes mean if it happened twice more?",
+                "Have you considered stopping?",
+                "This is not a question.",
+                "What would make one of the welcome outcomes worth the largest unwelcome one?",
+            ]})
+
+    kept = reflective_questions("a circumstance", {"held": 5, "better_small": 3,
+                                                   "worse_large": 2}, Model())
+
+    assert len(kept) == 2
+    assert all(q.endswith("?") for q in kept)
+    assert not any(q.lower().startswith(("should", "have you considered")) for q in kept)
+
+
+def test_no_questions_without_a_model():
+    from agent.connections import reflective_questions
+
+    assert reflective_questions("a circumstance", {"held": 3}, None) == []

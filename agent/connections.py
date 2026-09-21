@@ -303,6 +303,133 @@ def responses_under(condition: str, episodes: list[Episode],
     return groups, counts
 
 
+WEIGH_PROMPT = """You are given numbered accounts of occasions from one person's life, and one circumstance.
+
+For EVERY account, say three things, using only what the account itself says:
+- "held": "yes" if the account describes that circumstance, "no" if it clearly does not, "unclear" if it does not say.
+- "went": "better" if what followed reads as welcome to the writer, "worse" if unwelcome, "mixed" if both, "unclear" if the account does not say.
+- "size": how large what followed was, as the account describes it — "small", "moderate", "large", or "unclear". Judge the size of what happened, not how the writer felt about it.
+
+Do not say what should have been done, do not rank anything, and do not explain.
+
+Return JSON only:
+{"accounts": [{"i": 0, "held": "yes", "went": "worse", "size": "large"}]}"""
+
+#: How big what followed was, as the writing describes it. Kept apart from
+#: whether it was welcome: a run of small wins and one enormous loss is the
+#: shape that counting occasions hides, and it is the shape that matters most.
+MAGNITUDES = ("small", "moderate", "large")
+
+QUESTIONS_PROMPT = """You are given a circumstance from someone's life, and a count of what followed on the occasions they wrote down, split by whether it was welcome and by how large it was.
+
+Write up to three questions for that person. Each question must:
+- be answerable only by them — about what they expect, weigh, or would accept, not about what their journal says;
+- refer to what the counts actually show;
+- leave open which side of the count matters. Do not assume the welcome occasions are the point, and do not assume the unwelcome ones are.
+
+Do not give advice, do not say what would be wise, do not name a feeling they have not named, and do not ask anything whose answer you have already decided.
+
+Return JSON only:
+{"questions": ["...", "..."]}"""
+
+#: A question that opens with one of these is an instruction with a question
+#: mark on the end.
+_ADVICE_OPENERS = ("should", "could you try", "have you considered", "why not",
+                   "wouldn't it", "don't you think", "do you agree")
+
+
+def weigh(condition: str, episodes: list[Episode],
+          intelligence) -> tuple[dict[tuple[str, str], list[Episode]], dict]:
+    """The occasions a circumstance held, by how they went and how big they were.
+
+    Counting welcome against unwelcome is the wrong summary for a behaviour
+    that sometimes pays: the occasions that went well are the ones that keep it
+    going, and a tally of them against the others hides whether the two sides
+    are the same size. So each occasion is placed twice — welcome or not, and
+    small, moderate or large as the writing itself describes it — and the
+    arithmetic stays here.
+
+    Nothing in this says which side should weigh more. That is the owner's, and
+    it is what the questions are for.
+    """
+    usable = comparable(episodes)
+    grid: dict[tuple[str, str], list[Episode]] = {}
+    counts = {"comparable": len(usable), "held": 0, "unclear": 0}
+    if not usable or intelligence is None:
+        return grid, counts
+
+    asked = f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}"
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
+                                  system_prompt=WEIGH_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+        labels = json.loads(_strip_fence(reply)).get("accounts") or []
+    except Exception as e:
+        logger.error(f"Weighing failed, nothing labelled: {e}")
+        return grid, counts
+
+    for item in labels:
+        if not isinstance(item, dict):
+            continue
+        idx = _indexes(item.get("i"), len(usable))
+        if not idx or _clean(item.get("held")).lower() != "yes":
+            continue
+        counts["held"] += 1
+        tone = _clean(item.get("went")).lower()
+        size = _clean(item.get("size")).lower()
+        if tone in TONES and size in MAGNITUDES:
+            grid.setdefault((tone, size), []).append(usable[idx[0]])
+        else:
+            counts["unclear"] += 1
+    for tone in TONES:
+        for size in MAGNITUDES:
+            counts[f"{tone}_{size}"] = len(grid.get((tone, size), []))
+    return grid, counts
+
+
+def reflective_questions(condition: str, counts: dict, intelligence) -> list[str]:
+    """Questions that ask the owner to weigh what the counts show.
+
+    Different in kind from the question a candidate carries: that one can be
+    answered by the record and can retire a claim. These can only be answered
+    by the person, because what a rare large outcome is worth against a run of
+    small ones is a judgement about their life and not a fact about their
+    writing.
+
+    Which makes them the easiest place in this system to smuggle in advice, so
+    they are held to the narrative firewall and refused if they open like an
+    instruction.
+    """
+    if intelligence is None:
+        return []
+    shown = {k: v for k, v in counts.items() if any(k.startswith(t) for t in TONES)}
+    asked = (f"Circumstance: {condition}\n"
+             f"Occasions described: {counts.get('held', 0)}\n"
+             + "\n".join(f"{k.replace('_', ', ')}: {v}" for k, v in shown.items() if v))
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
+                                  system_prompt=QUESTIONS_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+        raw = json.loads(_strip_fence(reply)).get("questions") or []
+    except Exception as e:
+        logger.error(f"Questions could not be written: {e}")
+        return []
+
+    kept = []
+    for item in raw:
+        question = _clean(item)
+        if not question.endswith("?"):
+            continue
+        if FORBIDDEN_REGEX.search(question):
+            logger.info("Question refused: advice or causal wording")
+            continue
+        if any(question.lower().lstrip().startswith(o) for o in _ADVICE_OPENERS):
+            logger.info("Question refused: an instruction with a question mark on it")
+            continue
+        kept.append(question)
+    return kept[:3]
+
+
 EXAMINE_PROMPT = """You are given numbered accounts of occasions from one person's life, and one claim about them.
 
 The claim has two halves: a condition, and what followed when it held.
