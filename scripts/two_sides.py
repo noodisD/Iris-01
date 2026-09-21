@@ -71,8 +71,14 @@ def main() -> int:
     sides = compare(by_pattern, args.pattern, episodes)
     rows = distinctive(sides, minimum=args.minimum)
 
+    by = labels.get("by", {})
+    involved = {by.get(pid, "unrecorded") for pid, _, _ in rows} | {by.get(args.pattern, "unrecorded")}
     print(f"{pattern.name}: {len(sides['better'].episodes)} welcome, "
           f"{len(sides['worse'].episodes)} unwelcome")
+    if len(involved) > 1:
+        print(f"  note: these labels come from more than one source "
+              f"({', '.join(sorted(involved))}), and counts from different "
+              "models are not comparable.")
     for other, better, worse in rows:
         print(f"  {other}: {better} welcome / {worse} unwelcome")
 

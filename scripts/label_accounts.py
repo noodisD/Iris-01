@@ -66,11 +66,12 @@ def main() -> int:
     patterns = load(Path(args.library) if args.library else None)
 
     store = Path(args.labels)
-    kept = {}
+    kept, by = {}, {}
     if store.exists():
         previous = json.loads(store.read_text())
         if previous.get("readAt") == body.get("readAt"):
             kept = previous.get("labels", {})
+            by = previous.get("by", {})
         else:
             print("the accounts changed since the last labelling; starting again")
     todo = [p for p in patterns if args.again or p.id not in kept]
@@ -101,13 +102,14 @@ def main() -> int:
                 print(f"  {pattern.id}: no answer in the batch — not recorded")
                 continue
             kept[pattern.id] = {str(i): answer for i, answer in rows.items()}
+            by[pattern.id] = model_name
             print(f"  {pattern.id}: {len(rows)} accounts")
         # Written after each batch: a run that stops keeps what it paid for.
         store.parent.mkdir(parents=True, exist_ok=True)
         store.write_text(json.dumps({"readAt": body.get("readAt"),
                                      "accounts": len(usable),
                                      "labelledAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                                     "labels": kept}, indent=1))
+                                     "by": by, "labels": kept}, indent=1))
 
     print(json.dumps({"patterns_labelled": len(kept), "accounts": len(usable),
                       "seconds": round(time.time() - started), "labels": str(store)}, indent=1))
