@@ -303,6 +303,68 @@ def responses_under(condition: str, episodes: list[Episode],
     return groups, counts
 
 
+CONDITIONS_PROMPT = """You are given numbered accounts of occasions from one person's life.
+
+Name the circumstances that recur across them. A circumstance is something that was true when the occasion happened — not a subject, and not what followed. "Work" is a subject. "A decision was needed before the person had finished thinking" is a circumstance.
+
+Each one must:
+- be ONE circumstance. If you need "or" to join two different ones, they are two.
+- appear in at least three of the accounts, and you must give their numbers.
+- be stated in a few words, without saying why it happens and without advice.
+
+Name at most eight, and fewer if fewer recur.
+
+Return JSON only:
+{"conditions": [{"condition": "...", "accounts": [0, 4, 9]}]}"""
+
+
+def survey_conditions(episodes: list[Episode], intelligence,
+                      limit: int = 8) -> tuple[list[dict], dict]:
+    """The circumstances that recur across the accounts, before any claim.
+
+    A proposal run answers "what relationship holds here", which is a narrow
+    question asked three times. This asks what the archive is *made of* — the
+    circumstances that come round again — so each can be weighed on its own
+    terms. Nothing here says a circumstance matters; it says it recurs.
+    """
+    usable = comparable(episodes)
+    counts = {"comparable": len(usable), "proposed": 0, "kept": 0}
+    if len(usable) < MIN_SUPPORTING or intelligence is None:
+        return [], counts
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": render(usable)}],
+                                  system_prompt=CONDITIONS_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+        raw = json.loads(_strip_fence(reply)).get("conditions") or []
+    except Exception as e:
+        logger.error(f"No conditions came back: {e}")
+        return [], counts
+
+    counts["proposed"] = len(raw)
+    kept: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict) or len(kept) >= limit:
+            continue
+        condition = _clean(item.get("condition"))
+        if not condition or condition.lower() in seen:
+            continue
+        if condition.lower().count(" or ") > MAX_DISJUNCTIONS:
+            logger.info("Condition refused: it is a list of circumstances")
+            continue
+        if FORBIDDEN_REGEX.search(condition):
+            logger.info("Condition refused: causal or prescriptive wording")
+            continue
+        accounts = _indexes(item.get("accounts"), len(usable))
+        if len(accounts) < MIN_SUPPORTING:
+            logger.info(f"Condition refused: named in {len(accounts)} account(s)")
+            continue
+        seen.add(condition.lower())
+        kept.append({"condition": condition, "accounts": accounts})
+    counts["kept"] = len(kept)
+    return kept, counts
+
+
 WEIGH_PROMPT = """You are given numbered accounts of occasions from one person's life, and one circumstance.
 
 For EVERY account, say three things, using only what the account itself says:

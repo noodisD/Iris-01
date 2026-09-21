@@ -407,3 +407,36 @@ def test_no_questions_without_a_model():
     from agent.connections import reflective_questions
 
     assert reflective_questions("a circumstance", {"held": 3}, None) == []
+
+
+# --- what the archive is made of ---------------------------------------------------
+
+def test_a_survey_names_circumstances_that_recur():
+    from agent.connections import survey_conditions
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"conditions": [
+                {"condition": "someone was waiting for an answer", "accounts": [0, 1, 2]},
+                {"condition": "there was time to think", "accounts": [3]},
+                {"condition": "a decision was needed, or someone was waiting, or it was late",
+                 "accounts": [0, 1, 2]},
+                {"condition": "waiting caused the decision", "accounts": [0, 1, 2]},
+                {"condition": "SOMEONE WAS WAITING FOR AN ANSWER", "accounts": [0, 1, 2]},
+            ]})
+
+    kept, counts = survey_conditions(EPISODES, Model())
+
+    assert [k["condition"] for k in kept] == ["someone was waiting for an answer"]
+    assert counts["proposed"] == 5 and counts["kept"] == 1
+
+
+def test_a_survey_needs_accounts_to_survey():
+    from agent.connections import survey_conditions
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            raise AssertionError("nothing should be asked")
+
+    kept, counts = survey_conditions(EPISODES[:2], Model())
+    assert kept == [] and counts["comparable"] == 2
