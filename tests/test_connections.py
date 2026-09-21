@@ -488,3 +488,59 @@ def test_a_weighing_that_was_asked_says_so():
                       _weighing(("yes", "better", "small"), ("no", "worse", "large")))
 
     assert counts["asked"] is True
+
+
+# --- not sending the archive once per question -------------------------------------
+
+def test_several_circumstances_are_asked_in_one_call():
+    """One circumstance per call re-sent every account with every question: 27
+    patterns over 66 accounts sent the archive 27 times, about 186,000 tokens
+    of input, to ask 27 questions about text already shown."""
+    from agent.connections import label_many
+
+    seen = {"calls": 0}
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            seen["calls"] += 1
+            seen["prompt"] = messages[0]["content"]
+            return json.dumps({"circumstances": [
+                {"id": "first", "accounts": [{"i": 0, "went": "worse", "size": "large"},
+                                             {"i": 1, "went": "better", "size": "small"}]},
+                {"id": "second", "accounts": [{"i": 2, "went": "better", "size": "moderate"}]},
+            ]})
+
+    labels, counts = label_many(
+        [("first", "someone was waiting", ""), ("second", "there was time", "")],
+        EPISODES, Model())
+
+    assert seen["calls"] == 1, "the accounts go once"
+    assert counts["asked"] and counts["labelled"] == 2
+    assert labels["first"][0] == {"tone": "worse", "size": "large"}
+    assert labels["second"] == {2: {"tone": "better", "size": "moderate"}}
+    assert seen["prompt"].count("[0] area:") == 1, "and only once"
+
+
+def test_an_answer_about_a_circumstance_that_was_not_asked_is_dropped():
+    from agent.connections import label_many
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"circumstances": [
+                {"id": "invented", "accounts": [{"i": 0, "went": "better", "size": "small"}]}]})
+
+    labels, counts = label_many([("first", "someone was waiting", "")], EPISODES, Model())
+
+    assert labels == {} and counts["asked"] is True
+
+
+def test_a_batch_that_could_not_be_asked_says_so():
+    from agent.connections import label_many
+
+    class Down:
+        def chat(self, messages, system_prompt, **kwargs):
+            raise RuntimeError("no credits remaining")
+
+    labels, counts = label_many([("first", "a circumstance", "")], EPISODES, Down())
+
+    assert labels == {} and counts["asked"] is False

@@ -380,6 +380,76 @@ def survey_conditions(episodes: list[Episode], intelligence, limit: int = 12,
     return kept, counts
 
 
+MANY_PROMPT = """You are given numbered accounts of occasions from one person's life, and several circumstances.
+
+For EVERY circumstance and EVERY account, using only what the account itself says:
+- "held": "yes" if the account describes that circumstance, "no" if it clearly does not, "unclear" if it does not say.
+- "went": "better" if what followed reads as welcome to the writer, "worse" if unwelcome, "mixed" if both, "unclear" if the account does not say.
+- "size": how large what followed was, as the account describes it — "small", "moderate", "large", or "unclear". The size of what happened, not how they felt about it.
+
+Leave out any account where "held" is "no" or "unclear"; only list the ones a circumstance describes.
+
+Do not say what should have been done, do not rank anything, and do not explain.
+
+Return JSON only:
+{"circumstances": [{"id": "the id you were given", "accounts": [{"i": 0, "went": "worse", "size": "large"}]}]}"""
+
+
+def label_many(subjects: list[tuple[str, str, str]], episodes: list[Episode],
+               intelligence) -> tuple[dict[str, dict[int, dict]], dict]:
+    """Several circumstances against the same accounts, in one call.
+
+    `subjects` is (id, statement, markers). Asking one circumstance at a time
+    re-sent every account with every question: 27 patterns over 66 accounts
+    sent the archive 27 times, about 186,000 tokens of input, to answer 27
+    questions about text the model had already been shown. The accounts go once
+    and the questions come with them.
+
+    The cost of that is one unusable reply losing every circumstance in the
+    batch rather than one, so batches are kept small by the caller.
+    """
+    usable = comparable(episodes)
+    out: dict[str, dict[int, dict]] = {}
+    counts = {"comparable": len(usable), "asked": False, "subjects": len(subjects)}
+    if not usable or not subjects or intelligence is None:
+        return out, counts
+
+    described = "\n\n".join(
+        f"[{sid}] {statement}\n{markers}" if markers else f"[{sid}] {statement}"
+        for sid, statement, markers in subjects)
+    asked = f"Circumstances:\n{described}\n\nAccounts:\n{render(usable)}"
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
+                                  system_prompt=MANY_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+    except Exception as e:
+        logger.error(f"Labelling could not be asked: {e}")
+        return out, counts
+    counts["asked"] = True
+    try:
+        answered = json.loads(_strip_fence(reply)).get("circumstances") or []
+    except (ValueError, AttributeError) as e:
+        logger.error(f"Labelling reply unusable: {e}")
+        return out, counts
+
+    known = {sid for sid, _, _ in subjects}
+    for item in answered:
+        if not isinstance(item, dict) or _clean(item.get("id")) not in known:
+            continue
+        rows: dict[int, dict] = {}
+        for account in item.get("accounts") or []:
+            if not isinstance(account, dict):
+                continue
+            idx = _indexes(account.get("i"), len(usable))
+            tone = _clean(account.get("went")).lower()
+            size = _clean(account.get("size")).lower()
+            if idx and tone in TONES and size in MAGNITUDES:
+                rows[idx[0]] = {"tone": tone, "size": size}
+        out[_clean(item.get("id"))] = rows
+    counts["labelled"] = len(out)
+    return out, counts
+
+
 WEIGH_PROMPT = """You are given numbered accounts of occasions from one person's life, and one circumstance.
 
 For EVERY account, say three things, using only what the account itself says:
