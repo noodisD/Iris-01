@@ -64,9 +64,21 @@ export async function getBatch(id: string): Promise<ImportBatch> {
   return api.get(`/import/batches/${id}`);
 }
 
+/** The batch's entries — all of them.
+ *
+ *  The endpoint answers 500 at a time and this asked once, so a larger batch
+ *  showed its first 500 while the readiness counts described the whole thing:
+ *  an undated entry past that point blocked the import from somewhere the
+ *  screen could not reach. */
 export async function listEntries(id: string): Promise<ImportEntry[]> {
-  const body = await api.get<{ entries: ImportEntry[] }>(`/import/batches/${id}/entries`);
-  return body.entries;
+  const page = 500;
+  const entries: ImportEntry[] = [];
+  for (let offset = 0; ; offset += page) {
+    const body = await api.get<{ entries: ImportEntry[] }>(
+      `/import/batches/${id}/entries?limit=${page}&offset=${offset}`);
+    entries.push(...body.entries);
+    if (body.entries.length < page) return entries;
+  }
 }
 
 export async function updateEntry(

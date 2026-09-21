@@ -3,9 +3,23 @@ import { qk } from '@/lib/queryClient';
 import * as importApi from '@/api/importing';
 import type { ImportBatch } from '@/types/api';
 
-/** True while the server is still doing something we are waiting on. */
+/** True while the screen should show "Iris is working", not the review. */
 export function isBusy(batch?: ImportBatch): boolean {
   return !!batch && (batch.status === 'parsing' || batch.status === 'committing');
+}
+
+/**
+ * True while anything the batch's own counts depend on is still happening.
+ *
+ * Transcription finishes after parsing does, and the batch sits in
+ * `needs_review` while it runs. Polling only the two busy states meant the
+ * count of recordings still awaiting a transcript — which is what disables the
+ * Import button — stayed at whatever it was when the page loaded: the
+ * transcript appeared in the list while Import remained refused, until some
+ * other action happened to refresh the batch.
+ */
+export function isWaitingOnWork(batch?: ImportBatch): boolean {
+  return isBusy(batch) || !!batch && batch.counts.awaitingTranscript > 0;
 }
 
 export const useImportAdapters = () =>
@@ -27,7 +41,7 @@ export const useImportBatch = (id: string | undefined) =>
     queryKey: id ? qk.importBatch(id) : ['noop'],
     queryFn: () => importApi.getBatch(id!),
     enabled: !!id,
-    refetchInterval: (q) => (isBusy(q.state.data) ? 1500 : false),
+    refetchInterval: (q) => (isWaitingOnWork(q.state.data) ? 1500 : false),
   });
 
 export const useImportEntries = (id: string | undefined, live: boolean) =>

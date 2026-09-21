@@ -82,6 +82,10 @@ function EntryRow({
 }) {
   const undated = entry.occurredOn === null;
   const excluded = entry.status === 'excluded';
+  // An entry that failed to import is waiting to be tried again, so its button
+  // offers that. It used to offer "exclude", which is the opposite of what
+  // someone looking at a failure wants.
+  const retryable = entry.status === 'failed';
   // Red for "you must fix this", amber for "we guessed, check it".
   const dateColour = undated ? 'var(--rose)'
     : entry.dateConfidence === 'probable' ? 'var(--amber)' : 'var(--line-soft)';
@@ -141,11 +145,12 @@ function EntryRow({
       </span>
       <button
         className="btn ghost"
-        aria-label={excluded ? 'include this entry' : 'exclude this entry'}
+        aria-label={retryable ? 'try this entry again'
+                    : excluded ? 'include this entry' : 'exclude this entry'}
         onClick={() => onToggle(entry)}
-        style={{ fontSize: 13, color: excluded ? 'var(--sage)' : 'var(--ink-4)' }}
+        style={{ fontSize: 13, color: excluded || retryable ? 'var(--sage)' : 'var(--ink-4)' }}
       >
-        {excluded ? '+' : '×'}
+        {excluded || retryable ? '+' : '×'}
       </button>
     </div>
   );
@@ -172,6 +177,24 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
 
   return (
     <section className="col" style={{ gap: 16 }}>
+      {batch.status === 'failed' && (
+        <div role="alert" className="col" style={{ gap: 6, padding: '12px 16px',
+             border: '1px solid var(--line)', borderRadius: 8 }}>
+          <span style={{ fontSize: 13, color: 'var(--ink)' }}>
+            {counts.imported} of {counts.total} entries were imported; {counts.failed} failed.
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            The ones that landed are safe and are not here. Put the rest right below and
+            import again, or discard what is left.
+          </span>
+          {batch.error && (
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-4)' }}>
+              {batch.error}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div className="col" style={{ gap: 4 }}>
           <div className="kicker">read as</div>
@@ -275,7 +298,9 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
               onDate={(id, occurredOn) => actions.setDate.mutate({ id, occurredOn })}
               onFileDate={(id) => actions.bulk.mutate({ ids: [id], op: 'use_file_date' })}
               onToggle={(entry) => actions.setStatus.mutate({
-                id: entry.id, status: entry.status === 'excluded' ? 'staged' : 'excluded',
+                id: entry.id,
+                status: entry.status === 'excluded' || entry.status === 'failed'
+                  ? 'staged' : 'excluded',
               })}
             />
           ))}
@@ -420,7 +445,15 @@ export function ImportScreen() {
 
       {batch && batch.status === 'needs_review' && <Review batch={batch} onDone={done} />}
       {batch && batch.status === 'committed' && <Finished batch={batch} onDone={done} />}
-      {batch && batch.status === 'failed' && (
+      {/* A batch that got as far as entries and then had some of them fail is
+          not an export that could not be read: part of it landed, and the rest
+          can be put right here. It used to show one error and a button that
+          navigated away, so the only route back was importing the file again —
+          which would have duplicated everything that did land. */}
+      {batch && batch.status === 'failed' && batch.counts.total > 0 && (
+        <Review batch={batch} onDone={done} />
+      )}
+      {batch && batch.status === 'failed' && batch.counts.total === 0 && (
         <ErrorState message={batch.error ?? 'That export could not be read.'} onRetry={done} />
       )}
 

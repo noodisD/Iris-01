@@ -133,6 +133,12 @@ export function JournalScreen() {
                   <div className="row" style={{ gap: 4 }}>{(e.tags ?? []).map(t => <span key={t} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{t}</span>)}</div>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>{e.lines.join(' ')}</div>
+                {/* An imported recording keeps its audio; the words here are a
+                    transcript of it, and the owner can check them against it. */}
+                {e.audioUrl && (
+                  <audio controls preload="none" src={e.audioUrl} aria-label="the recording this was transcribed from"
+                         style={{ width: 320, height: 28, marginTop: 2 }} />
+                )}
                 {e.irisNote && (
                   <div className="row" style={{ gap: 6, alignItems: 'flex-start', marginTop: 4, paddingLeft: 10, borderLeft: '1px solid var(--sage-dim)' }}>
                     <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>iris:</span>

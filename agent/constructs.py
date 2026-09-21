@@ -73,6 +73,17 @@ def proposal_key(observation) -> str:
     return hashlib.sha256("|".join([claim, *cited]).encode()).hexdigest()[:32]
 
 
+def evidence_key(observation) -> str:
+    """The sentences a proposal rests on, without its wording.
+
+    `proposal_key` includes the claim, so the same finding reworded is a
+    different proposal and a rejection it had already received did not apply to
+    it. This is the part the owner actually read.
+    """
+    quotes = sorted(c.text for c in (getattr(observation, "citations", ()) or ()))
+    return hashlib.md5("|".join(quotes).encode()).hexdigest()
+
+
 def _summarise(claim: str) -> str:
     """A card-sized name for the pattern, cut at a word boundary."""
     text = " ".join((claim or "").split())
@@ -245,9 +256,17 @@ def discover(user_id: int, intelligence=None, include_staged: bool = True) -> li
     # mean something the next run respects, or rejection is only a way of
     # clearing the screen until someone presses the button.
     already_decided = db.get_decided_proposal_keys(user_id)
+    # Decided on the same sentences, whatever the wording: a rejection that a
+    # paraphrase walks around is not a rejection.
+    decided_evidence = db.get_decided_evidence_keys(user_id)
     staged = skipped = not_embedded = 0
     for observation in observations:
         if proposal_key(observation) in already_decided:
+            skipped += 1
+            continue
+        if evidence_key(observation) in decided_evidence:
+            logger.info(f"Finding {evidence_key(observation)[:8]} rests on sentences "
+                        "already decided on; not offered again")
             skipped += 1
             continue
         if promote(user_id, observation, run_id=run_id) is not None:

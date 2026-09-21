@@ -282,3 +282,22 @@ def test_a_candidate_from_before_identities_can_be_given_one(test_user, archive)
         cur.execute("""SELECT count(*) FROM themes
                         WHERE user_id = %s AND origin = 'observed';""", (test_user["id"],))
         assert cur.fetchone()[0] == 1, "the same finding was staged twice"
+
+
+def test_a_rejection_survives_the_same_finding_reworded(test_user, archive):
+    """The promise is that a rejected proposal is not offered again. Its
+    identity included the claim, so the same sentences under a different
+    sentence came back as something new — the promise walked around by a
+    paraphrase."""
+    first = constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                                include_staged=False)
+    assert len(first) == 1
+    constructs.reject(int(first[0]["id"]))
+
+    reworded = _finding(archive, claim="Boldness ran alongside the strongest certainty")
+    again = constructs.discover(test_user["id"], intelligence=FakeModel(reworded),
+                                include_staged=False)
+
+    assert again == [], "the same quotes, decided on, are not offered again"
+    run = db.get_latest_observation_run(test_user["id"])
+    assert run["dropped"]["already_decided"] == 1

@@ -634,6 +634,25 @@ class Database:
                 (user_id,))
             return {r[0] for r in cur.fetchall()}
 
+    def get_decided_evidence_keys(self, user_id: int) -> set:
+        """The quotes behind proposals the owner has already decided on.
+
+        A proposal's identity includes its claim, so a finding reworded over
+        exactly the same sentences is a different key and comes back as though
+        it had never been shown — the "will not be proposed again" promise
+        broken by a paraphrase. Keyed on the sentences alone, a re-offer of the
+        same evidence can be recognised whatever words are wrapped around it.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT md5(string_agg(p.quote, '|' ORDER BY p.quote))
+                     FROM themes t JOIN theme_prototypes p ON p.theme_id = t.id
+                    WHERE t.user_id = %s AND t.origin = 'observed'
+                      AND t.status <> 'candidate'
+                    GROUP BY t.id;""",
+                (user_id,))
+            return {r[0] for r in cur.fetchall() if r[0]}
+
     def set_theme_proposal(self, theme_id: int, proposal_key: str, run_id: int = None) -> None:
         """Tie a candidate to what proposed it, and to its stable identity."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -1494,9 +1513,10 @@ class Database:
         """Staged import items long enough to be worth reading.
 
         The voice transcripts sit here rather than in reflections because they
-        carry no date, and ImportService.commit refuses a batch with undated
-        entries (ADR-0013): a date is read or it is absent, never invented. They
-        can still be *read* — a quote from one is as real as any other — so they
+        carry no date. ImportService.commit refuses a batch whose dates are
+        still an open question, and commits one whose owner has said the day is
+        not recoverable — a date is read, or its absence is recorded, never
+        invented (ADR-0013). Staged items can still be *read* — a quote from one is as real as any other — so they
         supply citations for discovery while never becoming an occurrence, which
         would need a day they happened on.
 

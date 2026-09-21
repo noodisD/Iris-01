@@ -101,6 +101,8 @@ export interface JournalEntry {
   importedAt?: ISODateTime;
   /** The same day as `occurredOn`; null when that is unknown. */
   createdAt: ISODateTime | null;
+  /** The recording this entry was transcribed from, where one was kept. */
+  audioUrl?: string | null;
 }
 
 export interface JournalListResponse {

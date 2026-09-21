@@ -69,11 +69,15 @@ These 6 modules answer specific questions about patterns. Study them in this ord
 
 **Files:**
 1. `agent/persistence.py` (350+ lines)
-   - Entry point: `PersistenceEngine.get_persistent_themes()`
+   - Entry point: `PersistenceEngine.discover_themes()`, and
+     `check_persistence()` for an entry arriving one at a time
    - Learn: clustering via scikit-learn, similarity scoring, proto-theme formation
-   - Key concepts:
-     - `PERSISTENCE_MATCH_THRESHOLD=0.70` (add to existing theme)
-     - `PERSISTENCE_CLUSTER_THRESHOLD=0.78` (create new theme)
+   - Key concepts, and which pair applies depends on how much evidence exists
+     (ADR-0014: past `PERSISTENCE_STYLE_MIN_ENTRIES=30` the shared voice is
+     removed first and the style-space thresholds are used instead):
+     - raw: `PERSISTENCE_MATCH_THRESHOLD=0.70` / `PERSISTENCE_CLUSTER_THRESHOLD=0.78`
+     - style space: `PERSISTENCE_STYLE_MATCH_THRESHOLD=0.40` /
+       `PERSISTENCE_STYLE_CLUSTER_THRESHOLD=0.50`
      - `PERSISTENCE_MIN_CLUSTER_SIZE=5` (proto-theme boundary)
 
 **Related:**

@@ -60,3 +60,17 @@ describe('an entry with no day', () => {
     expect(await screen.findByText('undated')).toBeInTheDocument();
   });
 });
+
+describe('an entry that came from a recording', () => {
+  it('offers the recording beside its transcript', async () => {
+    entries.list = [{
+      id: '9', userId: '1', lines: ['what the recording said'], tags: [],
+      occurredOn: '2024-03-02', importedAt: '2026-09-19T10:00:00Z',
+      createdAt: '2024-03-02', audioUrl: '/api/audio/9',
+    } as unknown as JournalEntry];
+    show();
+
+    const player = await screen.findByLabelText('the recording this was transcribed from');
+    expect(player).toHaveAttribute('src', '/api/audio/9');
+  });
+});

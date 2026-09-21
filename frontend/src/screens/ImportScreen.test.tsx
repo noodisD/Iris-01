@@ -23,13 +23,15 @@ vi.mock('@/hooks/useImport', () => ({
 
 import { Review } from './ImportScreen';
 
-function batch(needsDate: number): ImportBatch {
+function batch(needsDate: number, over: Partial<ImportBatch> = {},
+               counts: Partial<ImportBatch['counts']> = {}): ImportBatch {
   return {
     id: '9', kind: 'text', adapter: 'markdown', detected: [], originalFilename: 'notes.md',
     status: 'needs_review', error: null, entryCount: 5, committedCount: 0,
     createdAt: '2026-09-19T08:00:00Z',
     counts: { total: 5, staged: 5, excluded: 0, duplicate: 0, imported: 0, failed: 0,
-              needsDate, awaitingTranscript: 0, earliest: null, latest: null },
+              needsDate, awaitingTranscript: 0, earliest: null, latest: null, ...counts },
+    ...over,
   };
 }
 
@@ -74,5 +76,26 @@ describe('an entry whose day cannot be recovered', () => {
     render(<Review batch={batch(0)} onDone={() => {}} />);
 
     expect(screen.queryByRole('button', { name: 'accept as undated' })).toBeNull();
+  });
+});
+
+
+describe('a batch where some entries failed', () => {
+  it('says what landed and keeps the review open', () => {
+    state.entries = [undatedEntry({ status: 'failed', error: 'the embedder went away',
+                                    occurredOn: '2024-04-01' })];
+    render(<Review batch={batch(0, { status: 'failed', error: 'the embedder went away' },
+                                { imported: 4, failed: 1 })} onDone={() => {}} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('4 of 5 entries were imported; 1 failed.');
+    expect(screen.getByRole('button', { name: 'Import 5 entries' })).toBeInTheDocument();
+  });
+
+  it('offers a failed entry another try, not exclusion', () => {
+    state.entries = [undatedEntry({ status: 'failed', occurredOn: '2024-04-01' })];
+    render(<Review batch={batch(0, { status: 'failed' }, { imported: 0, failed: 1 })}
+                   onDone={() => {}} />);
+
+    expect(screen.getByRole('button', { name: 'try this entry again' })).toBeInTheDocument();
   });
 });
