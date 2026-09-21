@@ -39,8 +39,9 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 
-from .constants import OBSERVATION_MAX_TOKENS
+from .constants import OBSERVATION_MAX_TOKENS, OBSERVATION_MIN_QUOTE_CHARS
 from .narrative_policy import FORBIDDEN_REGEX
+from .readable import locate
 from .observations import (
     Citation,
     ObservationEngine,
@@ -196,6 +197,47 @@ def _clean(value) -> str | None:
     return text or None
 
 
+def _citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
+    """Every quote found in the entry it names, or nothing.
+
+    The same all-or-nothing rule the observation reader keeps, with one
+    difference: the quote is matched by its words rather than by its exact
+    characters, and what is stored is the span as the *original* entry wrote
+    it. A model reading a punctuated copy of a dictated entry quotes it with
+    that copy's commas; the owner never typed those commas, and showing them
+    their own writing with someone else's punctuation in it is a small lie in
+    the place this system can least afford one.
+
+    A word that is not in the entry still fails, which is the whole point.
+    """
+    found: list[Citation] = []
+    for q in quotes:
+        if not isinstance(q, dict):
+            return None
+        try:
+            entry_id = int(q.get("entryId"))
+        except (TypeError, ValueError):
+            return None
+        source_type = str(q.get("sourceType") or "reflection")
+        entry = by_id.get((source_type, entry_id))
+        if entry is None:
+            logger.info(f"Citation names {source_type} {entry_id}, which was not read")
+            return None
+        quote = str(q.get("text") or "")
+        if len(quote.strip()) < OBSERVATION_MIN_QUOTE_CHARS:
+            return None
+        # Against the owner's text, never the reading copy: the copy is a way
+        # of reading the entry, not a second version of what they wrote.
+        original = locate(entry["content"], quote)
+        if original is None:
+            logger.info(f"Quote not found in {source_type} {entry_id}")
+            return None
+        found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
+                              text=original,
+                              source_type=entry.get("source_type", "reflection")))
+    return tuple(found)
+
+
 def verified_episodes(raw: list, entries: list[dict]) -> list[Episode]:
     """The episodes a reply describes that the entries actually support.
 
@@ -225,7 +267,7 @@ def verified_episodes(raw: list, entries: list[dict]) -> list[Episode]:
             logger.info("Episode refused: causal or prescriptive wording")
             continue
 
-        citations = ObservationEngine._citations(item.get("quotes") or [], by_id)
+        citations = _citations(item.get("quotes") or [], by_id)
         if not citations:
             logger.info("Episode refused: its quotes could not be verified")
             continue
@@ -259,11 +301,20 @@ class EpisodeReader:
         self.intelligence = intelligence
         self.engine = ObservationEngine(user_id, intelligence=intelligence)
 
-    def read(self, entries: list[dict]) -> list[Episode]:
-        """Every episode these entries support, in one pass per chunk."""
+    def read(self, entries: list[dict], readable: dict | None = None) -> list[Episode]:
+        """Every episode these entries support, in one pass per chunk.
+
+        `readable` maps an entry's id to a punctuated copy of it, which is what
+        the model is shown. Quotes still resolve against the owner's own text
+        (`_citations`), so a reading copy can make an entry easier to parse and
+        can never become the thing that gets cited.
+        """
         if not entries or self.intelligence is None:
             return []
         found: list[Episode] = []
+        if readable:
+            entries = [{**e, "content": readable.get(str(e["id"]), e["content"]),
+                        "_original": e["content"]} for e in entries]
         chunks = chunk_entries(interleave(entries))
         for i, chunk in enumerate(chunks, 1):
             try:
@@ -280,7 +331,9 @@ class EpisodeReader:
             except (ValueError, AttributeError) as e:
                 logger.warning(f"Episode pass {i} did not return JSON: {e}")
                 continue
-            found.extend(verified_episodes(raw, chunk))
+            # Verified against what the owner wrote, whatever was read.
+            originals = [{**e, "content": e.get("_original", e["content"])} for e in chunk]
+            found.extend(verified_episodes(raw, originals))
         return found
 
 

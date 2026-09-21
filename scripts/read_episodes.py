@@ -60,6 +60,9 @@ def main() -> int:
                     help="read the cached accounts instead of the archive")
     ap.add_argument("--cache", default="data/episodes.json",
                     help="where the accounts are kept; gitignored and local")
+    ap.add_argument("--readable", default="data/readable.json",
+                    help="punctuated reading copies, if they have been made; the "
+                         "model reads these and quotes still resolve to the original")
     args = ap.parse_args()
 
     cache = Path(args.cache)
@@ -88,8 +91,15 @@ def main() -> int:
         print("dry run: nothing was sent to the model.")
         return 0
 
+    copies = {}
+    readable_path = Path(args.readable)
+    if readable_path.exists():
+        body = json.loads(readable_path.read_text())
+        copies = body.get("copies", {})
+        print(f"reading copies available for {len(copies)} entries")
+
     started = time.time()
-    episodes = EpisodeReader(args.user, intelligence=Intelligence()).read(entries)
+    episodes = EpisodeReader(args.user, intelligence=Intelligence()).read(entries, copies)
     counts = tally(episodes)
     counts["entries_read"] = len(entries)
     counts["passes"] = len(chunks)
