@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "note": "General patterns, written to be recognisable in any area of life. Nothing here is about any particular person, and nothing here is a diagnosis or a type. A pattern is a question to ask of an account, not a label to attach to someone.",
+  "version": 2,
+  "note": "General patterns, written to be recognisable in any area of life, before any archive is read. They describe what can be observed in an account \u2014 a circumstance and what followed \u2014 and nothing about the person. Several are drawn from what clinical and behavioural literatures describe, but no pattern names a condition and no count of matches is evidence of one: a journal cannot diagnose, and this does not try. A pattern is a question asked of an account, never a label attached to its author.",
   "patterns": [
     {
       "id": "attention-taken",
@@ -137,6 +137,204 @@
       ],
       "question": "What makes the difference between a signal you act on and one you set aside?",
       "retiring_answer": "An account where acting on signals made no difference either way"
+    },
+    {
+      "id": "started-when-it-was-urgent",
+      "name": "Begun only once it could not be put off",
+      "statement": "The thing was started when there was no room left to delay it.",
+      "holds_when": [
+        "it had been available to start for a while",
+        "the start came close to a deadline, a departure or a consequence",
+        "the account says what the finished thing was like"
+      ],
+      "not_when": [
+        "it was started as soon as it arrived",
+        "nothing forced the timing",
+        "there was no earlier opportunity to begin"
+      ],
+      "question": "Was there something you began long before you had to, and what was different that time?",
+      "retiring_answer": "An account of beginning something with no pressure to",
+      "basis": "Described in work on delay and deadline-driven starting."
+    },
+    {
+      "id": "absorbed-without-noticing-time",
+      "name": "Absorbed, with time passing unnoticed",
+      "statement": "They were taken up in something and noticed afterwards how long had passed.",
+      "holds_when": [
+        "the account mentions losing track of time or looking up late",
+        "the absorption was in one activity",
+        "what followed is described"
+      ],
+      "not_when": [
+        "they were watching the clock throughout",
+        "the time was scheduled and kept",
+        "they were interrupted early"
+      ],
+      "question": "What was present in the occasions where you stayed absorbed and still stopped on time?",
+      "retiring_answer": "An account of deep absorption with the time kept",
+      "basis": "Described in work on sustained attention and immersion."
+    },
+    {
+      "id": "interrupted-routine",
+      "name": "A routine broke and the day changed shape",
+      "statement": "Something that usually happens did not, and the rest of the day went differently.",
+      "holds_when": [
+        "a regular part of the day was missed, moved or blocked",
+        "the account connects it to how the rest went",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the routine held",
+        "the change was planned and prepared for",
+        "nothing about the day is described"
+      ],
+      "question": "Was there a day a routine broke and the rest of it went as usual?",
+      "retiring_answer": "An account of a broken routine with no difference after it",
+      "basis": "Described in work on routine, transitions and the cost of switching."
+    },
+    {
+      "id": "switching-cost",
+      "name": "Moving between things took longer than the things",
+      "statement": "Getting from one activity to the next took time or effort of its own.",
+      "holds_when": [
+        "the account mentions the gap between two activities",
+        "the difficulty was in starting the next rather than doing it",
+        "what followed is described"
+      ],
+      "not_when": [
+        "one thing followed another without comment",
+        "the difficulty was in the activity itself",
+        "there was only one activity"
+      ],
+      "question": "Was there a day you moved between things easily, and what was different about it?",
+      "retiring_answer": "An account of moving between activities with no friction",
+      "basis": "Described in work on task switching and transitions."
+    },
+    {
+      "id": "environment-mattered",
+      "name": "The surroundings made the difference",
+      "statement": "Noise, light, crowding or quiet is given as part of how the occasion went.",
+      "holds_when": [
+        "the account names something about the surroundings",
+        "it is connected to how the occasion went",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the surroundings are mentioned only as scene-setting",
+        "nothing about the setting is given",
+        "the setting was chosen and had no effect described"
+      ],
+      "question": "Was there an occasion in the same surroundings that went the other way?",
+      "retiring_answer": "An account where the same setting produced the opposite outcome",
+      "basis": "Described in work on sensory environment and performance."
+    },
+    {
+      "id": "avoided-then-relieved",
+      "name": "Put off, and the relief was immediate",
+      "statement": "Something was avoided and the account says the relief came at once.",
+      "holds_when": [
+        "there was a thing they meant to do or face",
+        "they did not do it",
+        "the account describes feeling better straight away, or worse later"
+      ],
+      "not_when": [
+        "the thing was done",
+        "it was dropped deliberately and stayed dropped",
+        "no relief or later cost is described"
+      ],
+      "question": "Was there something you put off that cost you nothing at all?",
+      "retiring_answer": "An account of avoidance with no later cost",
+      "basis": "Described in behavioural accounts of avoidance and short-term relief."
+    },
+    {
+      "id": "faced-and-it-shrank",
+      "name": "Faced, and it was smaller than expected",
+      "statement": "Something anticipated as hard was approached, and the account says how it compared.",
+      "holds_when": [
+        "the account gives an expectation beforehand",
+        "they went ahead",
+        "the account compares it with what was expected"
+      ],
+      "not_when": [
+        "no expectation is described",
+        "they did not go ahead",
+        "the comparison is absent"
+      ],
+      "question": "Was there something that turned out exactly as hard as you expected, or worse?",
+      "retiring_answer": "An account of something facing up to being as bad as feared",
+      "basis": "Described in work on exposure and expectancy."
+    },
+    {
+      "id": "went-over-it-repeatedly",
+      "name": "Gone over repeatedly without anything new",
+      "statement": "The same occasion was thought about again and again without new information arriving.",
+      "holds_when": [
+        "the account says they kept returning to it",
+        "nothing new was learned between the returns",
+        "what followed is described"
+      ],
+      "not_when": [
+        "each return brought something new",
+        "it was thought about once and set down",
+        "they were working out a decision with fresh material"
+      ],
+      "question": "What was present on the occasions you thought something through once and let it go?",
+      "retiring_answer": "An account of returning to something repeatedly and reaching something new",
+      "basis": "Described in work on repetitive thought."
+    },
+    {
+      "id": "paid-off-sometimes",
+      "name": "It worked often enough to keep doing it",
+      "statement": "The same approach went well on some occasions and badly on others, and both are recorded.",
+      "holds_when": [
+        "the account describes an approach used more than once",
+        "at least one occasion went well",
+        "at least one went badly"
+      ],
+      "not_when": [
+        "it went the same way every time",
+        "only one occasion is described",
+        "the approach differed each time"
+      ],
+      "question": "What would the run of these occasions have to look like for you to stop?",
+      "retiring_answer": "An account where the approach never once paid",
+      "basis": "Described in work on intermittent reinforcement."
+    },
+    {
+      "id": "recovered-alone-after-company",
+      "name": "Time alone after time among people",
+      "statement": "A stretch among people was followed by a need for quiet, or by its absence.",
+      "holds_when": [
+        "the account describes extended company",
+        "it says what they needed or did afterwards",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the company was brief and unremarked",
+        "nothing about afterwards is given",
+        "they were alone throughout"
+      ],
+      "question": "Was there a long stretch of company that left you with energy rather than needing quiet?",
+      "retiring_answer": "An account of extended company followed by no need for recovery",
+      "basis": "Described in work on social load and recovery."
+    },
+    {
+      "id": "acted-on-what-was-said",
+      "name": "What someone said changed the course",
+      "statement": "Another person said something and the account says what was done about it.",
+      "holds_when": [
+        "someone else's words are reported",
+        "the account says whether they were taken up or set aside",
+        "what followed is described"
+      ],
+      "not_when": [
+        "nobody else features",
+        "the words were noted with no action either way",
+        "what followed is absent"
+      ],
+      "question": "What decides whether you act on what someone tells you?",
+      "retiring_answer": "An account where what was said made no difference either way",
+      "basis": "Described in work on feedback and its uptake."
     }
   ]
 }

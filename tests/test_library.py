@@ -106,3 +106,52 @@ def test_the_library_lives_in_the_repository_and_holds_no_ones_writing():
     assert "patterns" in text
     for private in ("i ", "my ", "solana", "dax"):
         assert private not in text, private
+
+
+# --- phenomena, not labels ---------------------------------------------------------
+
+def test_no_pattern_names_a_condition(tmp_path):
+    """The library may describe what the clinical literatures describe. It may
+    not name what they name: count the matches on a pattern called by the name
+    of a condition and the owner reads a verdict about themselves out of their
+    own journal. A journal cannot diagnose, and this does not try."""
+    for named in ("Attention deficit while handling something new",
+                  "An autistic response to a change of plan",
+                  "A depressive stretch with nothing finished",
+                  "Executive dysfunction before a deadline"):
+        with pytest.raises(ValueError, match="names a condition"):
+            load(_write(tmp_path, [{**GOOD, "name": named}]))
+
+
+def test_the_basis_may_not_smuggle_a_label_back_in(tmp_path):
+    with pytest.raises(ValueError, match="names a condition"):
+        load(_write(tmp_path, [{**GOOD, "basis": "Described in the ADHD literature."}]))
+
+
+def test_the_shipped_library_names_none_of_them():
+    for pattern in load():
+        text = f"{pattern.name} {pattern.statement} {pattern.basis}".lower()
+        for label in ("adhd", "autis", "disorder", "diagnos", "symptom", "trauma"):
+            assert label not in text, f"{pattern.id}: {label}"
+
+
+def test_a_pattern_may_say_where_the_idea_comes_from():
+    """Plain words, not a citation, and never a claim that the literature
+    establishes anything about this person."""
+    with_basis = [p for p in load() if p.basis]
+
+    assert len(with_basis) >= 8
+    assert all(len(p.basis) < 200 for p in with_basis)
+
+
+def test_the_library_covers_more_than_one_kind_of_occasion():
+    """Attention, starting, avoidance, repetition, environment, other people:
+    an archive weighted towards one activity should still meet patterns that
+    are not about it."""
+    ids = {p.id for p in load()}
+
+    assert len(ids) >= 15
+    for expected in ("started-when-it-was-urgent", "interrupted-routine",
+                     "avoided-then-relieved", "went-over-it-repeatedly",
+                     "environment-mattered", "acted-on-what-was-said"):
+        assert expected in ids

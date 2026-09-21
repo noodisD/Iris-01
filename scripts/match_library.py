@@ -42,7 +42,10 @@ TONE_WORDS = {"better": "welcome", "worse": "unwelcome", "mixed": "both"}
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cache", default="data/episodes.json")
-    ap.add_argument("--library", default=None)
+    ap.add_argument("--library", default=None,
+                    help="a lens to use instead of the general library, e.g. "
+                         "data/patterns/markets.json — domain lenses live outside "
+                         "the repository because they name what the owner does")
     ap.add_argument("--only", action="append", help="match one pattern by id")
     ap.add_argument("--out", default=None)
     ap.add_argument("--dry-run", action="store_true")
@@ -113,9 +116,12 @@ def main() -> int:
     report = ["# Your accounts, against the library", "",
               f"{len(usable)} accounts of your own that say what followed, across "
               f"{len(areas(usable))} areas, read on {time.strftime('%Y-%m-%d')}.", "",
-              "The patterns are general and were written before your accounts were "
-              "looked at. A pattern found in few of them is not a failing of yours or "
-              "of the pattern: it is a fact about what this archive happens to record.",
+              "The patterns were written before your accounts were looked at. A "
+              "pattern found in few of them is not a failing of yours or of the "
+              "pattern: it is a fact about what this archive happens to record. "
+              "Several are drawn from what clinical and behavioural literatures "
+              "describe, and none of them names a condition — a count of matches "
+              "here is a count of occasions, and is not evidence about you.",
               "", "| pattern | accounts | areas | welcome (s/m/l) | unwelcome (s/m/l) |",
               "|---|---|---|---|---|"]
     for row in rows:

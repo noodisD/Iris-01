@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,20 @@ LIBRARY_PATH = Path(__file__).resolve().parent.parent / "patterns" / "library.js
 
 REQUIRED = ("id", "name", "statement", "holds_when", "not_when", "question",
             "retiring_answer")
+
+#: A pattern may describe what the clinical and behavioural literatures
+#: describe. It may not name what they name. "The thing was started when there
+#: was no room left to delay it" is an observation about an occasion; the same
+#: pattern under the name of a condition is a diagnosis by accumulation — count
+#: the matches and the owner reads a verdict about themselves out of their own
+#: journal. The phenomena are useful; the labels are not available from this
+#: evidence, and the library refuses to carry them.
+DIAGNOSTIC = re.compile(
+    r"\b(adhd|attention deficit|hyperactiv\w*|autis\w*|aspergers?|neurodiverg\w*|"
+    r"neurotyp\w*|depress\w*|"
+    r"anxiety disorder|bipolar|ocd|ptsd|trauma\w*|addict\w*|disorder|syndrome|"
+    r"diagnos\w*|symptom\w*|pathol\w*|comorbid\w*|dysregulat\w*|dysfunction)\b",
+    re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -48,6 +63,9 @@ class Pattern:
     not_when: tuple[str, ...]
     question: str
     retiring_answer: str
+    #: Where the idea comes from, in plain words. Not a citation, and not a
+    #: claim that the literature establishes anything about this person.
+    basis: str = ""
 
     @property
     def markers(self) -> str:
@@ -76,11 +94,15 @@ def load(path: Path | None = None) -> list[Pattern]:
                          *item["not_when"]])
         if FORBIDDEN_REGEX.search(text):
             raise ValueError(f"pattern {item['id']} explains or advises")
+        named = DIAGNOSTIC.search(f"{text} {item['name']} {item.get('basis', '')}")
+        if named:
+            raise ValueError(f"pattern {item['id']} names a condition: {named.group(0)}")
         seen.add(item["id"])
         out.append(Pattern(
             id=item["id"], name=item["name"], statement=item["statement"],
             holds_when=tuple(item["holds_when"]), not_when=tuple(item["not_when"]),
-            question=item["question"], retiring_answer=item["retiring_answer"]))
+            question=item["question"], retiring_answer=item["retiring_answer"],
+            basis=item.get("basis", "")))
     if not out:
         raise ValueError("the library is empty")
     return out
