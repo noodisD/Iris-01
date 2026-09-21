@@ -83,6 +83,10 @@ def main() -> int:
     ap.add_argument("--out", default=None, help="where to write the report")
     ap.add_argument("--dry-run", action="store_true",
                     help="say how many accounts would be sent, and send nothing")
+    ap.add_argument("--max", type=int, default=3,
+                    help="how many candidates may survive a run")
+    ap.add_argument("--judged", default="data/judged.json",
+                    help="relations already judged, which a run must not propose again")
     args = ap.parse_args()
 
     cache = Path(args.cache)
@@ -104,14 +108,27 @@ def main() -> int:
               "without quotes. Nothing was sent.")
         return 0
 
+    judged_path = Path(args.judged)
+    judged = json.loads(judged_path.read_text()) if judged_path.exists() else []
+    avoid = [j["relation"] for j in judged if j.get("relation")]
+
     started = time.time()
-    candidates, counts = propose(episodes, Intelligence())
+    candidates, counts = propose(episodes, Intelligence(), avoid=avoid,
+                                 max_candidates=args.max)
+    counts["already_judged"] = len(avoid)
     out = Path(args.out or f"data/connections-{time.strftime('%Y%m%d-%H%M')}.md")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(_report(candidates, counts))
 
+    # Everything proposed goes into the ledger, so the next run has to find
+    # something else. What the owner thought of it is theirs to add.
+    judged += [{"relation": c.relation, "condition": c.condition,
+                "proposed": time.strftime("%Y-%m-%d"), "verdict": None} for c in candidates]
+    judged_path.parent.mkdir(parents=True, exist_ok=True)
+    judged_path.write_text(json.dumps(judged, indent=1))
+
     print(json.dumps({**counts, "seconds": round(time.time() - started),
-                      "report": str(out)}, indent=1))
+                      "report": str(out), "ledger": str(judged_path)}, indent=1))
     print("\nThe report is for you to read; this prints counts only.")
     return 0
 

@@ -230,3 +230,66 @@ def test_the_condition_and_what_followed_are_kept_apart():
 
     assert candidate.condition == "someone was waiting for an answer"
     assert candidate.followed == "the decision was reconsidered later"
+
+
+# --- testing a claim against the accounts ------------------------------------------
+
+def _labels(*pairs):
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"accounts": [
+                {"i": i, "condition": c, "followed": f} for i, (c, f) in enumerate(pairs)]})
+    return Model()
+
+
+def test_a_claim_is_counted_in_four_corners():
+    """Whether a claim holds is arithmetic, and it stays here: a model asked
+    "does this hold?" answers agreeably."""
+    from agent.connections import examine
+
+    cells, counts = examine("someone was waiting", "it was reconsidered", EPISODES,
+                            _labels(("yes", "yes"), ("yes", "no"),
+                                    ("no", "yes"), ("no", "no")))
+
+    assert counts["supports"] == 1 and counts["contradicts"] == 1
+    assert counts["outcome_without_condition"] == 1 and counts["neither"] == 1
+    assert cells["contradicts"][0] is EPISODES[1]
+    assert counts["labelled"] == 4 and counts["unclear"] == 0
+
+
+def test_an_account_that_says_neither_is_unclear_rather_than_counted():
+    from agent.connections import examine
+
+    _, counts = examine("someone was waiting", "it was reconsidered", EPISODES,
+                        _labels(("yes", "unclear"), ("unclear", "yes"),
+                                ("yes", "yes"), ("no", "no")))
+
+    assert counts["unclear"] == 2
+    assert counts["supports"] == 1
+
+
+def test_an_examination_that_fails_labels_nothing():
+    from agent.connections import examine
+
+    class Broken:
+        def chat(self, messages, system_prompt, **kwargs):
+            raise RuntimeError("provider went away")
+
+    cells, counts = examine("a", "b", EPISODES, Broken())
+    assert counts["labelled"] == 0 and all(not v for v in cells.values())
+
+
+def test_a_second_run_is_told_what_has_already_been_judged():
+    """The same accounts asked the same question give the same few answers.
+    Repeating them is not more discovery."""
+    seen = {}
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            seen["asked"] = messages[0]["content"]
+            return json.dumps({"relationships": []})
+
+    propose(EPISODES, Model(), avoid=["Something already judged"])
+
+    assert "already been considered" in seen["asked"]
+    assert "Something already judged" in seen["asked"]

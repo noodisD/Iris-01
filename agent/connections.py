@@ -144,7 +144,8 @@ def _indexes(value, count: int) -> list[int]:
     return out
 
 
-def vet(raw: list, episodes: list[Episode]) -> list[Candidate]:
+def vet(raw: list, episodes: list[Episode],
+        max_candidates: int = MAX_CANDIDATES) -> list[Candidate]:
     """The proposals that meet every rule, in the order they were made.
 
     Nothing here is repaired. A proposal missing a contrast is not a proposal
@@ -153,7 +154,7 @@ def vet(raw: list, episodes: list[Episode]) -> list[Candidate]:
     """
     kept: list[Candidate] = []
     for item in raw or []:
-        if not isinstance(item, dict) or len(kept) >= MAX_CANDIDATES:
+        if not isinstance(item, dict) or len(kept) >= max_candidates:
             continue
         relation = _clean(item.get("relation"))
         condition = _clean(item.get("condition"))
@@ -235,16 +236,102 @@ def render(episodes: list[Episode]) -> str:
     return "\n".join(lines)
 
 
-def propose(episodes: list[Episode], intelligence) -> tuple[list[Candidate], dict]:
-    """Ask once, then keep only what survives the rules. Returns (kept, counts)."""
+EXAMINE_PROMPT = """You are given numbered accounts of occasions from one person's life, and one claim about them.
+
+The claim has two halves: a condition, and what followed when it held.
+
+For EVERY account, say two things:
+- "condition": "yes" if the account shows that condition, "no" if it shows the condition was absent, "unclear" if the account does not say either way.
+- "followed": "yes" if what the claim says followed did follow, "no" if something else did, "unclear" if the account does not say.
+
+Judge only what the account states. Do not reason about what usually happens, and do not decide whether the claim is true overall — that is arithmetic, and it is not yours to do.
+
+Return JSON only:
+{"accounts": [{"i": 0, "condition": "yes", "followed": "no"}]}"""
+
+#: The four corners a conditional claim is tested in. The first two are the
+#: claim's own cases; the third is what makes it a condition rather than a
+#: description, and the fourth is everything it says nothing about.
+CELLS = ("supports", "contradicts", "outcome_without_condition", "neither")
+
+
+def examine(condition: str, followed: str, episodes: list[Episode],
+            intelligence) -> tuple[dict[str, list[Episode]], dict]:
+    """Test one condition-and-outcome claim against every comparable account.
+
+    The model labels each account on two axes and this counts the four corners:
+    the claim holds, the condition held and something else followed, what it
+    describes happened without the condition, or neither applies. The arithmetic
+    stays here, because "does this claim hold overall" is the question being
+    asked and a model asked to answer it will answer it agreeably.
+
+    An account the model cannot label either way is counted as unclear rather
+    than pressed into a corner.
+    """
+    usable = comparable(episodes)
+    cells: dict[str, list[Episode]] = {name: [] for name in CELLS}
+    counts = {"comparable": len(usable), "labelled": 0, "unclear": 0,
+              **dict.fromkeys(CELLS, 0)}
+    if not usable or intelligence is None:
+        return cells, counts
+
+    claim = f"Condition: {condition}\nWhat followed: {followed}\n\nAccounts:\n{render(usable)}"
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": claim}],
+                                  system_prompt=EXAMINE_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+        labels = json.loads(_strip_fence(reply)).get("accounts") or []
+    except Exception as e:
+        logger.error(f"Examination failed, nothing labelled: {e}")
+        return cells, counts
+
+    for item in labels:
+        if not isinstance(item, dict):
+            continue
+        idx = _indexes(item.get("i"), len(usable))
+        if not idx:
+            continue
+        had = _clean(item.get("condition")).lower()
+        then = _clean(item.get("followed")).lower()
+        episode = usable[idx[0]]
+        counts["labelled"] += 1
+        if had == "yes" and then == "yes":
+            cells["supports"].append(episode)
+        elif had == "yes" and then == "no":
+            cells["contradicts"].append(episode)
+        elif had == "no" and then == "yes":
+            cells["outcome_without_condition"].append(episode)
+        elif had == "no" and then == "no":
+            cells["neither"].append(episode)
+        else:
+            counts["unclear"] += 1
+    for name in CELLS:
+        counts[name] = len(cells[name])
+    return cells, counts
+
+
+def propose(episodes: list[Episode], intelligence,
+            avoid: list[str] | None = None,
+            max_candidates: int = MAX_CANDIDATES) -> tuple[list[Candidate], dict]:
+    """Ask once, then keep only what survives the rules. Returns (kept, counts).
+
+    `avoid` are relations the owner has already judged. A second run over the
+    same accounts will otherwise offer the same few again, which is not more
+    discovery — it is the same discovery, restated.
+    """
     usable = comparable(episodes)
     counts = {"episodes": len(episodes), "comparable": len(usable),
               "areas": len(areas(usable)), "proposed": 0, "kept": 0}
     if len(usable) < MIN_SUPPORTING or intelligence is None:
         return [], counts
+    asked = render(usable)
+    if avoid:
+        asked += ("\n\nThese relationships have already been considered. Do not "
+                  "propose them or restatements of them:\n"
+                  + "\n".join(f"- {a}" for a in avoid))
     try:
         reply = intelligence.chat(
-            messages=[{"role": "user", "content": render(usable)}],
+            messages=[{"role": "user", "content": asked}],
             system_prompt=SYSTEM_PROMPT,
             max_tokens=OBSERVATION_MAX_TOKENS,
         )
@@ -259,7 +346,7 @@ def propose(episodes: list[Episode], intelligence) -> tuple[list[Candidate], dic
         return [], counts
 
     counts["proposed"] = len(raw)
-    kept = vet(raw, usable)
+    kept = vet(raw, usable, max_candidates=max_candidates)
     counts["kept"] = len(kept)
     counts["already_stated"] = sum(1 for c in kept if c.already_stated)
     return kept, counts
