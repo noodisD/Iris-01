@@ -364,6 +364,14 @@ _NOT_AN_AREA = {"a", "an", "the", "my", "of", "in", "at", "on", "and", "with",
                 "personal", "daily", "routine", "activity", "activities"}
 
 
+def _stem(word: str) -> str:
+    """A crude stem, so "painting" and "paint" are one area rather than two."""
+    for suffix in ("ing", "ers", "er", "ed", "es", "s", "e"):
+        if len(word) > len(suffix) + 2 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
 def coarse_area(label: str | None) -> str:
     """One word for the area an account happened in.
 
@@ -382,7 +390,7 @@ def coarse_area(label: str | None) -> str:
     for word in (label or "").lower().replace("/", " ").replace("-", " ").split():
         word = "".join(c for c in word if c.isalnum())
         if len(word) > 2 and word not in _NOT_AN_AREA:
-            return word
+            return _stem(word)
     return "unstated"
 
 

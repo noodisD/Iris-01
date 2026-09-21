@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "note": "General patterns, written to be recognisable in any area of life. Nothing here is about any particular person, and nothing here is a diagnosis or a type. A pattern is a question to ask of an account, not a label to attach to someone.",
+  "patterns": [
+    {
+      "id": "attention-taken",
+      "name": "Attention taken by the unfamiliar",
+      "statement": "Something not yet automatic was taking their attention while information arrived.",
+      "holds_when": [
+        "the person was managing something they had not done often",
+        "something was said, shown or signalled while they were occupied with it",
+        "they acted on part of what arrived, or asked for it again"
+      ],
+      "not_when": [
+        "the information was never delivered",
+        "they took it in fully and chose to ignore it",
+        "the task was familiar and required no deliberate handling"
+      ],
+      "question": "Was there an occasion when you were handling something unfamiliar and still took in everything that arrived?",
+      "retiring_answer": "An account of handling something unfamiliar with nothing missed"
+    },
+    {
+      "id": "incomplete-information",
+      "name": "Acting before the information was complete",
+      "statement": "A response was made while something needed to judge it was still missing.",
+      "holds_when": [
+        "they knew a detail was absent or unclear when they acted",
+        "the missing part arrived later and changed the picture",
+        "they acted rather than waited or asked"
+      ],
+      "not_when": [
+        "everything needed was present and was read",
+        "the missing part turned out not to matter and they knew that",
+        "they deliberately waited until it arrived"
+      ],
+      "question": "Was there an occasion when you waited for the missing part instead of acting, and what made that possible?",
+      "retiring_answer": "An account of routinely waiting for the missing part"
+    },
+    {
+      "id": "settled-in-advance",
+      "name": "Settled in advance, or worked out in the moment",
+      "statement": "What to do was decided before the occasion rather than during it, leaving less to work out while it was happening.",
+      "holds_when": [
+        "a rule, plan or choice existed before the occasion began",
+        "during the occasion they applied it rather than deliberating",
+        "what remained to judge was narrower than it would have been"
+      ],
+      "not_when": [
+        "the plan was made during the occasion",
+        "a plan existed and was abandoned as it began",
+        "nothing had to be decided either way"
+      ],
+      "question": "Was there an occasion where deciding beforehand made no difference, or made things worse?",
+      "retiring_answer": "An account where deciding in advance changed nothing"
+    },
+    {
+      "id": "more-than-can-be-taken-back",
+      "name": "Committed more than could be taken back",
+      "statement": "More was committed \u2014 of what they had, of their time, attention or word \u2014 than could be withdrawn without a cost.",
+      "holds_when": [
+        "withdrawing would have cost something real",
+        "the size of the commitment was noticed at the time or afterwards",
+        "less room was left to respond to what happened next"
+      ],
+      "not_when": [
+        "the commitment could be undone freely",
+        "it was large but within what they could set aside",
+        "the size was decided by someone else"
+      ],
+      "question": "What size of commitment leaves you able to change your mind without it costing you?",
+      "retiring_answer": "An account where a large commitment left full freedom to respond"
+    },
+    {
+      "id": "continuing-after-a-setback",
+      "name": "Continuing in the same direction after a setback",
+      "statement": "Something went against them, and they carried on in the same direction rather than stopping or changing it.",
+      "holds_when": [
+        "a loss, refusal or failure had already happened",
+        "the next action continued the same course",
+        "stopping or changing course was available"
+      ],
+      "not_when": [
+        "the setback had not happened yet",
+        "they stopped, paused or changed approach",
+        "continuing was the only option available"
+      ],
+      "question": "Was there an occasion when you stopped after a setback, and what made stopping possible then?",
+      "retiring_answer": "An account of stopping after a setback as a matter of course"
+    },
+    {
+      "id": "relief-now-cost-later",
+      "name": "Ease now against a cost later",
+      "statement": "They took the option that was easier at the time.",
+      "holds_when": [
+        "one option was easier right then",
+        "they took it",
+        "the account says what followed later"
+      ],
+      "not_when": [
+        "the easier option was also better later",
+        "the later cost is not described",
+        "there was no easier option"
+      ],
+      "question": "Was there an occasion when the easier option turned out to be the better one?",
+      "retiring_answer": "An account where taking the easier option cost nothing later"
+    },
+    {
+      "id": "finishing-while-depleted",
+      "name": "Doing the demanding thing while depleted",
+      "statement": "They did something demanding while tired, foggy or unwilling.",
+      "holds_when": [
+        "they describe being tired, foggy, unwilling or overwhelmed",
+        "they did the demanding thing anyway",
+        "the account says what followed"
+      ],
+      "not_when": [
+        "they were rested and willing",
+        "they did not do it",
+        "the demand was trivial"
+      ],
+      "question": "Was there an occasion when doing it while depleted made things worse rather than better?",
+      "retiring_answer": "An account where pushing through while depleted went badly"
+    },
+    {
+      "id": "signal-acted-on",
+      "name": "A signal arrived and was acted on, or was not",
+      "statement": "Something they could see or feel said what to do.",
+      "holds_when": [
+        "a sign, rule or bodily cue was noticed at the time",
+        "the account says whether it was followed or set aside",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the sign was noticed only in hindsight",
+        "no sign is described",
+        "there was nothing to act on"
+      ],
+      "question": "What makes the difference between a signal you act on and one you set aside?",
+      "retiring_answer": "An account where acting on signals made no difference either way"
+    }
+  ]
+}

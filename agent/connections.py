@@ -303,29 +303,39 @@ def responses_under(condition: str, episodes: list[Episode],
     return groups, counts
 
 
-CONDITIONS_PROMPT = """You are given numbered accounts of occasions from one person's life.
+CONDITIONS_PROMPT = """You are given numbered accounts of occasions from one person's life, each with the area of life it happened in.
 
-Name the circumstances that recur across them. A circumstance is something that was true when the occasion happened — not a subject, and not what followed. "Work" is a subject. "A decision was needed before the person had finished thinking" is a circumstance.
+Name the circumstances that recur ACROSS DIFFERENT AREAS. A circumstance is something that was true when the occasion happened — not a subject, and not what followed. "Work" is a subject. "A decision was needed before the person had finished thinking" is a circumstance.
+
+State each one in words that could fit any area of life. "Too much money was at stake" belongs to one area; "more was committed than could be taken back" is the same circumstance said so that it can be recognised in a lesson, a conversation or a piece of work. Never name an activity, an instrument, a tool or a place in the circumstance itself.
 
 Each one must:
 - be ONE circumstance. If you need "or" to join two different ones, they are two.
-- appear in at least three of the accounts, and you must give their numbers.
+- appear in at least three of the accounts, from at least two different areas, and you must give their numbers.
 - be stated in a few words, without saying why it happens and without advice.
 
-Name at most eight, and fewer if fewer recur.
+Name at most twelve, and fewer if fewer recur across areas.
 
 Return JSON only:
 {"conditions": [{"condition": "...", "accounts": [0, 4, 9]}]}"""
 
 
-def survey_conditions(episodes: list[Episode], intelligence,
-                      limit: int = 8) -> tuple[list[dict], dict]:
-    """The circumstances that recur across the accounts, before any claim.
+def survey_conditions(episodes: list[Episode], intelligence, limit: int = 12,
+                      min_areas: int = MIN_DOMAINS) -> tuple[list[dict], dict]:
+    """The circumstances that recur across areas, before any claim.
 
     A proposal run answers "what relationship holds here", which is a narrow
     question asked three times. This asks what the archive is *made of* — the
     circumstances that come round again — so each can be weighed on its own
     terms. Nothing here says a circumstance matters; it says it recurs.
+
+    Recurrence alone is not enough, and the first run against the real archive
+    showed why: 66 accounts spread over 49 areas, only four of which held three
+    or more, so every circumstance that survived "appears three times" came
+    from the one area with enough repetition to clear it. The owner reads about
+    their whole life and gets a report about one corner of it. A circumstance
+    has to hold in at least `min_areas` of them, and be stated in words that do
+    not name an activity, which is what makes it recognisable somewhere else.
     """
     usable = comparable(episodes)
     counts = {"comparable": len(usable), "proposed": 0, "kept": 0}
@@ -359,8 +369,13 @@ def survey_conditions(episodes: list[Episode], intelligence,
         if len(accounts) < MIN_SUPPORTING:
             logger.info(f"Condition refused: named in {len(accounts)} account(s)")
             continue
+        spread = {coarse_area(usable[i].domain) for i in accounts} - {"unstated"}
+        if len(spread) < min_areas:
+            logger.info(f"Condition refused: confined to {len(spread)} area(s)")
+            continue
         seen.add(condition.lower())
-        kept.append({"condition": condition, "accounts": accounts})
+        kept.append({"condition": condition, "accounts": accounts,
+                     "areas": sorted(spread)})
     counts["kept"] = len(kept)
     return kept, counts
 
@@ -400,8 +415,8 @@ _ADVICE_OPENERS = ("should", "could you try", "have you considered", "why not",
                    "wouldn't it", "don't you think", "do you agree")
 
 
-def weigh(condition: str, episodes: list[Episode],
-          intelligence) -> tuple[dict[tuple[str, str], list[Episode]], dict]:
+def weigh(condition: str, episodes: list[Episode], intelligence,
+          markers: str = "") -> tuple[dict[tuple[str, str], list[Episode]], dict]:
     """The occasions a circumstance held, by how they went and how big they were.
 
     Counting welcome against unwelcome is the wrong summary for a behaviour
@@ -416,18 +431,28 @@ def weigh(condition: str, episodes: list[Episode],
     """
     usable = comparable(episodes)
     grid: dict[tuple[str, str], list[Episode]] = {}
-    counts = {"comparable": len(usable), "held": 0, "unclear": 0}
+    # "asked" says whether the question was put at all. Without it a provider
+    # that refused every call reported the same thing as an archive in which
+    # nothing matched — which is how three patterns were written up as
+    # under-detecting when the account had simply run out of credit.
+    counts = {"comparable": len(usable), "held": 0, "unclear": 0, "asked": False}
     if not usable or intelligence is None:
         return grid, counts
 
-    asked = f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}"
+    asked = (f"Circumstance: {condition}\n{markers}\n\nAccounts:\n{render(usable)}"
+             if markers else f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}")
     try:
         reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
                                   system_prompt=WEIGH_PROMPT,
                                   max_tokens=OBSERVATION_MAX_TOKENS)
-        labels = json.loads(_strip_fence(reply)).get("accounts") or []
     except Exception as e:
-        logger.error(f"Weighing failed, nothing labelled: {e}")
+        logger.error(f"Weighing could not be asked: {e}")
+        return grid, counts
+    counts["asked"] = True
+    try:
+        labels = json.loads(_strip_fence(reply)).get("accounts") or []
+    except (ValueError, AttributeError) as e:
+        logger.error(f"Weighing reply unusable: {e}")
         return grid, counts
 
     for item in labels:

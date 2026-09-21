@@ -72,6 +72,9 @@ def main() -> int:
     for n, item in enumerate(conditions, 1):
         condition = item["condition"]
         grid, counts = weigh(condition, episodes, model)
+        if not counts.get("asked"):
+            print(f"  {n}. the model could not be asked — stopping.")
+            break
         rows.append({"condition": condition, "held": counts["held"],
                      **{f"{t}_{s}": counts.get(f"{t}_{s}", 0)
                         for t in TONES for s in MAGNITUDES}})

@@ -73,7 +73,7 @@ def test_a_relationship_across_domains_with_a_contrast_is_kept():
     assert len(kept) == 1
     candidate = kept[0]
     assert candidate.relation == RELATION
-    assert candidate.domains == ("household", "training", "work")
+    assert candidate.domains == ("household", "train", "work"), "stemmed: paint and painting are one"
     assert candidate.contrast is EPISODES[3]
     assert candidate.retiring_answer == RETIRING
 
@@ -440,3 +440,51 @@ def test_a_survey_needs_accounts_to_survey():
 
     kept, counts = survey_conditions(EPISODES[:2], Model())
     assert kept == [] and counts["comparable"] == 2
+
+
+def test_a_circumstance_confined_to_one_area_is_not_universal():
+    """66 accounts over 49 areas, four of which held three or more — so every
+    circumstance that cleared "appears three times" came from the one corner
+    with enough repetition, and the owner got a report about that corner."""
+    from agent.connections import survey_conditions
+
+    one_corner = [_episode("painting"), _episode("painting"), _episode("paint"),
+                  _episode("household", outcome="it stood")]
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"conditions": [
+                {"condition": "more was at stake than usual", "accounts": [0, 1, 2]},
+                {"condition": "an answer was wanted before it was ready",
+                 "accounts": [0, 1, 3]},
+            ]})
+
+    kept, _ = survey_conditions(one_corner, Model())
+
+    assert [k["condition"] for k in kept] == ["an answer was wanted before it was ready"]
+    assert kept[0]["areas"] == ["household", "paint"]
+
+
+def test_a_weighing_that_could_not_be_asked_is_not_a_weighing_of_nothing():
+    """A provider that refused every call reported what an archive with no
+    matches reports, and three patterns were written up as under-detecting
+    when the account had run out of credit."""
+    from agent.connections import weigh
+
+    class Down:
+        def chat(self, messages, system_prompt, **kwargs):
+            raise RuntimeError("no credits remaining")
+
+    _, counts = weigh("a circumstance", EPISODES, Down())
+
+    assert counts["asked"] is False
+    assert counts["held"] == 0
+
+
+def test_a_weighing_that_was_asked_says_so():
+    from agent.connections import weigh
+
+    _, counts = weigh("a circumstance", EPISODES,
+                      _weighing(("yes", "better", "small"), ("no", "worse", "large")))
+
+    assert counts["asked"] is True
