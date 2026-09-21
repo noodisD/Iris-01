@@ -47,17 +47,26 @@ class Intelligence:
         dollars = tokens_in / 1_000_000 * price[0] + tokens_out / 1_000_000 * price[1]
         return f"{tokens_in // 1000}k tokens in on {model}, about ${dollars:.2f}"
 
-    def __init__(self, api_key: str | None = None, model: str = None):
-        """Initialise the OpenAI client for this session."""
+    def __init__(self, api_key: str | None = None, model: str = None,
+                 base_url: str | None = None):
+        """Initialise the OpenAI client for this session.
+
+        `base_url` points at anything speaking the same protocol — a local
+        Ollama or llama.cpp server, or another provider. What that buys here is
+        not price but distance: a local endpoint means a pass over the archive
+        does not leave the machine.
+        """
         self.openai_client = None
         self.model = model or settings.OPENAI_MODEL
+        self.base_url = base_url or settings.OPENAI_BASE_URL or None
 
         # Initialize OpenAI first (primary)
         openai_key = api_key or settings.OPENAI_API_KEY
 
         if openai_key and openai_key != "your_openai_api_key_here":
             try:
-                self.openai_client = OpenAI(api_key=openai_key)
+                self.openai_client = OpenAI(api_key=openai_key, base_url=self.base_url) \
+                    if self.base_url else OpenAI(api_key=openai_key)
             except Exception as e:
                 print(f"⚠️  OpenAI initialization failed: {e}")
 

@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # the work is checked by construction or by counting, not taken on trust.
     # luna is a tenth of terra's input price and a twenty-fifth of sol's.
     OPENAI_WORKER_MODEL: str = Field(default="gpt-5.6-luna")
+    # Any OpenAI-compatible endpoint: Ollama, llama.cpp's server, vLLM, or
+    # another provider. Empty means OpenAI itself. The reason to set it is not
+    # price — the counting passes already cost pennies — but that a local
+    # endpoint keeps the archive on this machine, which is the constraint the
+    # rest of this product is built around.
+    OPENAI_BASE_URL: str = Field(default="")
     # Accuracy matters more than cost here: a transcript becomes a reflection,
     # gets embedded, and is quoted back as something the owner said, so a
     # mis-heard word turns into evidence. gpt-4o-mini-transcribe is the cheaper
