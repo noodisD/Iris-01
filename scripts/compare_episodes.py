@@ -39,7 +39,9 @@ def _report(candidates, counts) -> str:
         f"From {counts['comparable']} accounts of your own, across "
         f"{counts['areas']} areas, read on {time.strftime('%Y-%m-%d')}.",
         "",
-        "Each of these is IRIS's proposal, not something you wrote. The accounts "
+        "Each of these is IRIS's proposal, not something you wrote. A proposal "
+        "can be wrong in a useful way: the first run's weakest one named three "
+        "conditions at once, and reading it produced three sharper ones. The accounts "
         "under it are yours and were verified against your entries; the relationship "
         "between them was inferred, and the question under each one is there because "
         "its answer could show the connection is wrong.",
@@ -50,7 +52,8 @@ def _report(candidates, counts) -> str:
                   "areas, a contrasting account, two competing explanations, and a "
                   "question that could retire it.", ""]
     for n, c in enumerate(candidates, 1):
-        lines += [f"## {n}. {c.relation}", ""]
+        lines += [f"## {n}. {c.relation}", "",
+                  f"**When:** {c.condition}  →  **what followed:** {c.followed}", ""]
         if c.already_stated:
             lines += ["*You have already drawn this connection yourself in one of the "
                       "accounts below.*", ""]
@@ -61,7 +64,10 @@ def _report(candidates, counts) -> str:
                          f"you {e.response}; {e.outcome}")
             for cite in e.citations:
                 lines.append(f"  > {cite.text}")
-        lines += ["", "**An account that does not fit:**",
+        against = ("the same condition, and something else followed"
+                   if c.contrast_kind == "condition_without_outcome"
+                   else "the same outcome, without the condition")
+        lines += ["", f"**An account that does not fit** ({against}):",
                   f"- *{c.contrast.domain or 'unstated'}* — {c.contrast.situation}; "
                   f"you {c.contrast.response}; {c.contrast.outcome}", ""]
         lines += ["**Explanations that both fit what is here:**"]

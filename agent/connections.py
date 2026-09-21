@@ -19,6 +19,10 @@ What a candidate must survive, all checked after the model answers:
 - A contrast: an episode where the stated condition held and something else
   followed, or where the outcome appeared without it. A candidate that cannot
   name one has not been tested against the archive, only drawn from it.
+- One condition, not a list of them, and one that does not hold in most of the
+  accounts. Both rules come from the first real run: its weakest proposal
+  joined three unrelated conditions with "or" under a good outcome, which the
+  owner read — correctly — as good behaviour marked rather than as a pattern.
 - Two or more competing explanations, kept side by side. The evidence here
   cannot choose between them, and presenting one is asserting what was not
   established.
@@ -58,14 +62,28 @@ MIN_SUPPORTING = 3
 MIN_DOMAINS = 2
 MIN_EXPLANATIONS = 2
 
+#: A condition may name one thing. The first real run proposed "a market signal,
+#: a body-or-mind signal, or a concrete next step appeared, and it was acted on"
+#: — three conditions joined by "or" under one good outcome, which the owner
+#: read as "good behaviour marked" rather than as a pattern. One "or" is a
+#: phrase; two is a list of separate conditions wearing one sentence.
+MAX_DISJUNCTIONS = 1
+
+#: A condition that holds in most accounts is a description of the archive
+#: rather than something that distinguishes one occasion from another.
+MAX_SUPPORT_SHARE = 0.5
+
 SYSTEM_PROMPT = """You are given numbered accounts of occasions from one person's life, each with the area of life it happened in.
 
 Find relationships that hold across accounts from DIFFERENT areas. A relationship is a shared condition and what followed it — not a shared subject. "Both about work" is not a relationship. "Whenever a decision was made while someone was waiting for an answer, it was reconsidered later" is.
 
 For each relationship you propose, give:
-- "relation": one sentence, in plain words, describing the shared condition and what followed. Do not say why it happens and do not give advice.
+- "condition": the ONE thing that was true on those occasions, in a few words. Not a list. If you need "or" to join two different conditions, they are two different relationships — choose one, or do not propose it.
+- "followed": what followed on those occasions, in a few words.
+- "relation": one sentence joining them, in plain words. Do not say why it happens and do not give advice.
 - "supporting": the numbers of the accounts it holds in, at least 3, from at least 2 different areas.
-- "contrast": the number of one account where the same condition held and something else followed, or where the outcome appeared without the condition. If there is none, do not propose the relationship.
+- "contrast": the number of one account where the condition held and something else followed, or where what followed appeared without the condition. If there is none, do not propose the relationship.
+- "contrast_kind": "condition_without_outcome" or "outcome_without_condition", saying which of those the contrasting account is.
 - "explanations": at least two different accounts of why this might be so, each one sentence, neither presented as established.
 - "question": one question to the person whose life this is, whose answer could show the relationship is wrong.
 - "retiring_answer": what answer to that question would mean the relationship does not hold.
@@ -74,7 +92,7 @@ For each relationship you propose, give:
 Propose at most 3, and fewer if fewer hold. An empty list is a good answer when the accounts share no relationship.
 
 Return JSON only:
-{"relationships": [{"relation": "...", "supporting": [0, 4, 9], "contrast": 7, "explanations": ["...", "..."], "question": "...", "retiring_answer": "...", "already_stated": false}]}"""
+{"relationships": [{"condition": "...", "followed": "...", "relation": "...", "supporting": [0, 4, 9], "contrast": 7, "contrast_kind": "condition_without_outcome", "explanations": ["...", "..."], "question": "...", "retiring_answer": "...", "already_stated": false}]}"""
 
 
 @dataclass(frozen=True)
@@ -82,8 +100,11 @@ class Candidate:
     """A proposed relationship, with everything needed to disbelieve it."""
 
     relation: str
+    condition: str
+    followed: str
     supporting: tuple[Episode, ...]
     contrast: Episode
+    contrast_kind: str
     explanations: tuple[str, ...]
     question: str
     retiring_answer: str
@@ -93,6 +114,9 @@ class Candidate:
     def as_dict(self) -> dict:
         return {
             "relation": self.relation,
+            "condition": self.condition,
+            "followed": self.followed,
+            "contrastKind": self.contrast_kind,
             "domains": list(self.domains),
             "supporting": [e.as_dict() for e in self.supporting],
             "contrast": self.contrast.as_dict(),
@@ -132,11 +156,21 @@ def vet(raw: list, episodes: list[Episode]) -> list[Candidate]:
         if not isinstance(item, dict) or len(kept) >= MAX_CANDIDATES:
             continue
         relation = _clean(item.get("relation"))
+        condition = _clean(item.get("condition"))
+        followed = _clean(item.get("followed"))
+        contrast_kind = _clean(item.get("contrast_kind"))
         question = _clean(item.get("question"))
         retiring = _clean(item.get("retiring_answer"))
         explanations = tuple(_clean(e) for e in (item.get("explanations") or []) if _clean(e))
-        if not relation or not question or not retiring:
-            logger.info("Candidate refused: no relation, question or retiring answer")
+        if not relation or not question or not retiring or not condition or not followed:
+            logger.info("Candidate refused: a relation, condition, outcome, question "
+                        "or retiring answer was missing")
+            continue
+        if condition.lower().count(" or ") > MAX_DISJUNCTIONS:
+            logger.info("Candidate refused: the condition is a list of conditions")
+            continue
+        if contrast_kind not in ("condition_without_outcome", "outcome_without_condition"):
+            logger.info("Candidate refused: the contrast does not say what it contrasts")
             continue
         if any(FORBIDDEN_REGEX.search(t) for t in (relation, question, *explanations)):
             logger.info("Candidate refused: causal or prescriptive wording")
@@ -154,6 +188,11 @@ def vet(raw: list, episodes: list[Episode]) -> list[Candidate]:
             logger.info("Candidate refused: no contrasting account")
             continue
 
+        if len(supporting) > max(MIN_SUPPORTING, int(len(episodes) * MAX_SUPPORT_SHARE)):
+            logger.info(f"Candidate refused: holds in {len(supporting)} of {len(episodes)} "
+                        "accounts, which describes the archive rather than a condition in it")
+            continue
+
         episodes_for = tuple(episodes[i] for i in supporting)
         # Coarse areas, not the reader's labels: it names an area in the
         # writing's own terms, which on the real archive meant a different
@@ -165,9 +204,11 @@ def vet(raw: list, episodes: list[Episode]) -> list[Candidate]:
             continue
 
         kept.append(Candidate(
-            relation=relation, supporting=episodes_for, contrast=episodes[contrast[0]],
-            explanations=explanations, question=question, retiring_answer=retiring,
-            already_stated=bool(item.get("already_stated")), domains=domains))
+            relation=relation, condition=condition, followed=followed,
+            supporting=episodes_for, contrast=episodes[contrast[0]],
+            contrast_kind=contrast_kind, explanations=explanations, question=question,
+            retiring_answer=retiring, already_stated=bool(item.get("already_stated")),
+            domains=domains))
     return kept
 
 

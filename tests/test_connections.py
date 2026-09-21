@@ -51,8 +51,11 @@ EPISODES = [
 def _proposal(**over):
     base = {
         "relation": RELATION,
+        "condition": "someone was waiting for an answer",
+        "followed": "the decision was reconsidered later",
         "supporting": [0, 1, 2],
         "contrast": 3,
+        "contrast_kind": "condition_without_outcome",
         "explanations": ["Nothing had been settled in advance",
                          "The other person's waiting shortened the time taken"],
         "question": QUESTION,
@@ -183,3 +186,47 @@ def test_a_candidate_carries_everything_needed_to_disbelieve_it():
     assert len(body["supporting"]) == 3 and body["contrast"]
     assert len(body["explanations"]) >= 2
     assert body["question"] and body["retiringAnswer"]
+
+
+# --- what the first real run taught ------------------------------------------------
+
+def test_a_condition_made_of_several_conditions_is_not_one():
+    """The weakest proposal of the first run against the real archive joined
+    three unrelated conditions with "or" under one good outcome. The owner read
+    it as good behaviour marked rather than as a pattern, and was right."""
+    listed = _proposal(condition="a clear signal appeared, or the body said something, "
+                                 "or a concrete next step was there")
+
+    assert vet([listed], EPISODES) == []
+
+
+def test_one_or_is_a_phrase_rather_than_a_list():
+    joined = _proposal(condition="someone was waiting for an answer or standing there")
+
+    assert len(vet([joined], EPISODES)) == 1
+
+
+def test_a_condition_that_holds_in_most_accounts_describes_the_archive():
+    """A condition shared by most accounts is not a pattern in a life; it is a
+    description of what its owner writes down."""
+    many = [_episode("work") for _ in range(8)] + [_episode("home", outcome="it stood")]
+    everywhere = _proposal(supporting=list(range(8)), contrast=8)
+
+    assert vet([everywhere], many) == []
+
+
+def test_a_contrast_has_to_say_what_it_contrasts():
+    """Either the condition held and something else followed, or what followed
+    appeared without the condition. Which one is the whole information."""
+    assert vet([_proposal(contrast_kind="")], EPISODES) == []
+    assert vet([_proposal(contrast_kind="it is just different")], EPISODES) == []
+
+    kept = vet([_proposal(contrast_kind="outcome_without_condition")], EPISODES)
+    assert kept[0].contrast_kind == "outcome_without_condition"
+
+
+def test_the_condition_and_what_followed_are_kept_apart():
+    candidate = vet([_proposal()], EPISODES)[0]
+
+    assert candidate.condition == "someone was waiting for an answer"
+    assert candidate.followed == "the decision was reconsidered later"
