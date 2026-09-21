@@ -130,8 +130,15 @@ class DecisionImpactEngine:
 
     def _calculate_impact(self, anchor_id: int, anchor_timestamps: list[datetime],
                           target_type: str, target_id: int) -> dict | None:
-        """
-        Computes the aggregate delta across all anchor events.
+        """The aggregate change across every anchor whose window has elapsed.
+
+        The estimand, stated because two different ones used to be reported
+        side by side: the direction comes from the *mean* baseline rate against
+        the *mean* post-anchor rate, so one episode with a large enough burst
+        can set it against the direction most episodes took. The confidence
+        that travels with it measures agreement with the direction actually
+        reported, and counts the target writing the windows saw rather than the
+        number of windows — overlapping follow-ups share their evidence.
         """
         # Get all target occurrences
         all_target_occs = self._get_all_occurrences(target_type, target_id)

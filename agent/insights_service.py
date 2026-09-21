@@ -647,7 +647,14 @@ class InsightsService:
                         "not a measure of one theme causing the other.",
             "decision_impact": "Compares how often a theme occurs in the period "
                                "following an anchor pattern against the period "
-                               "before it. Association over time, not cause.",
+                               "before it. The direction is the *average* of "
+                               "those rates across every anchor whose follow-up "
+                               "window has fully elapsed, so one unusual episode "
+                               "can carry it; the confidence beside it says how "
+                               "many of the episodes agree with that direction, "
+                               "and counts the writing they actually saw rather "
+                               "than the windows that saw it. Association over "
+                               "time, not cause.",
             "lifelong": "Counts every occurrence of the theme across the whole "
                         "record: when it first and last appeared, the year that "
                         "holds most of them, and how long since the last. "
