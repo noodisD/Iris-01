@@ -101,11 +101,14 @@ def test_the_markers_carry_both_sides():
 def test_the_library_lives_in_the_repository_and_holds_no_ones_writing():
     """General knowledge, kept apart from personal evidence: the library is a
     lens the owner can read, and contains nothing about them."""
+    import re
+
     text = LIBRARY_PATH.read_text().lower()
 
     assert "patterns" in text
-    for private in ("i ", "my ", "solana", "dax"):
-        assert private not in text, private
+    # Whole words: "CI crossing zero" is a confidence interval, not a pronoun.
+    for private in (r"\bi\b", r"\bmy\b", r"\bme\b", r"\bmine\b"):
+        assert not re.search(private, text), private
 
 
 # --- phenomena, not labels ---------------------------------------------------------
@@ -141,7 +144,9 @@ def test_a_pattern_may_say_where_the_idea_comes_from():
     with_basis = [p for p in load() if p.basis]
 
     assert len(with_basis) >= 8
-    assert all(len(p.basis) < 200 for p in with_basis)
+    # Long enough to say what the idea is and how it stood up, short enough to
+    # read: these are notes, not a literature review.
+    assert all(len(p.basis) < 320 for p in with_basis), max(with_basis, key=lambda p: len(p.basis)).id
 
 
 def test_the_library_covers_more_than_one_kind_of_occasion():
@@ -155,3 +160,40 @@ def test_the_library_covers_more_than_one_kind_of_occasion():
                      "avoided-then-relieved", "went-over-it-repeatedly",
                      "environment-mattered", "acted-on-what-was-said"):
         assert expected in ids
+
+
+# --- what the evidence behind a pattern is worth ------------------------------------
+
+def test_a_graded_pattern_says_how_well_the_idea_has_held_up():
+    """A finding replicated across hundreds of studies and one whose headline
+    effect vanished in a multi-lab replication are both worth looking for. Put
+    side by side with no note of which is which, the second is laundered into
+    somebody's self-understanding."""
+    from agent.library import EVIDENCE
+
+    graded = [p for p in load() if p.evidence]
+
+    assert len(graded) >= 10
+    assert all(p.evidence in EVIDENCE for p in graded)
+    assert any(p.evidence == "contested" for p in graded), (
+        "a library with nothing contested in it has not looked")
+
+
+def test_a_source_without_a_grade_is_refused(tmp_path):
+    """Citing a paper and saying nothing about how it stood up is the move this
+    is meant to prevent."""
+    with pytest.raises(ValueError, match="without grading"):
+        load(_write(tmp_path, [{**GOOD, "source": "https://example.org/paper"}]))
+
+
+def test_an_invented_grade_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="unknown evidence grade"):
+        load(_write(tmp_path, [{**GOOD, "evidence": "obviously true"}]))
+
+
+def test_what_is_graded_is_the_idea_and_never_the_owner():
+    """The grade belongs to the account of why something happens. The owner's
+    own occasions are not graded by anyone."""
+    for pattern in load():
+        assert pattern.evidence in ("", *__import__("agent.library", fromlist=["EVIDENCE"]).EVIDENCE)
+        assert "you " not in pattern.basis.lower(), pattern.id

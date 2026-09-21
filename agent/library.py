@@ -37,6 +37,14 @@ LIBRARY_PATH = Path(__file__).resolve().parent.parent / "patterns" / "library.js
 REQUIRED = ("id", "name", "statement", "holds_when", "not_when", "question",
             "retiring_answer")
 
+#: How well the idea behind a pattern has held up. A library that lists a
+#: finding replicated across hundreds of studies beside one whose headline
+#: effect vanished in a multi-lab replication, with no note of which is which,
+#: launders the second into somebody's self-understanding. The pattern is still
+#: worth looking for — what is graded here is the account of *why* it happens,
+#: never the owner's own occasions.
+EVIDENCE = ("well replicated", "mixed", "contested")
+
 #: A pattern may describe what the clinical and behavioural literatures
 #: describe. It may not name what they name. "The thing was started when there
 #: was no room left to delay it" is an observation about an occasion; the same
@@ -66,6 +74,9 @@ class Pattern:
     #: Where the idea comes from, in plain words. Not a citation, and not a
     #: claim that the literature establishes anything about this person.
     basis: str = ""
+    #: How well the idea behind it has held up, and where to read about it.
+    evidence: str = ""
+    source: str = ""
 
     @property
     def markers(self) -> str:
@@ -97,12 +108,18 @@ def load(path: Path | None = None) -> list[Pattern]:
         named = DIAGNOSTIC.search(f"{text} {item['name']} {item.get('basis', '')}")
         if named:
             raise ValueError(f"pattern {item['id']} names a condition: {named.group(0)}")
+        grade = item.get("evidence", "")
+        if grade and grade not in EVIDENCE:
+            raise ValueError(f"pattern {item['id']} has an unknown evidence grade: {grade}")
+        if item.get("source") and not grade:
+            raise ValueError(f"pattern {item['id']} cites a source without grading it")
         seen.add(item["id"])
         out.append(Pattern(
             id=item["id"], name=item["name"], statement=item["statement"],
             holds_when=tuple(item["holds_when"]), not_when=tuple(item["not_when"]),
             question=item["question"], retiring_answer=item["retiring_answer"],
-            basis=item.get("basis", "")))
+            basis=item.get("basis", ""), evidence=item.get("evidence", ""),
+            source=item.get("source", "")))
     if not out:
         raise ValueError("the library is empty")
     return out

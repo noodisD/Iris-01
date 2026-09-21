@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "note": "General patterns, written to be recognisable in any area of life, before any archive is read. They describe what can be observed in an account \u2014 a circumstance and what followed \u2014 and nothing about the person. Several are drawn from what clinical and behavioural literatures describe, but no pattern names a condition and no count of matches is evidence of one: a journal cannot diagnose, and this does not try. A pattern is a question asked of an account, never a label attached to its author.",
   "patterns": [
     {
@@ -51,7 +51,10 @@
         "nothing had to be decided either way"
       ],
       "question": "Was there an occasion where deciding beforehand made no difference, or made things worse?",
-      "retiring_answer": "An account where deciding in advance changed nothing"
+      "retiring_answer": "An account where deciding in advance changed nothing",
+      "basis": "Plans that fix when and where to act \u2014 if-then plans \u2014 were found to raise goal attainment over holding the goal alone in a meta-analysis of 94 tests, d=0.65.",
+      "evidence": "well replicated",
+      "source": "https://psycnet.apa.org/record/2007-19538-002"
     },
     {
       "id": "more-than-can-be-taken-back",
@@ -119,7 +122,10 @@
         "the demand was trivial"
       ],
       "question": "Was there an occasion when doing it while depleted made things worse rather than better?",
-      "retiring_answer": "An account where pushing through while depleted went badly"
+      "retiring_answer": "An account where pushing through while depleted went badly",
+      "basis": "The occasion is observable; the popular account of it is not settled. The resource-depletion explanation failed a 23-lab preregistered replication, d=0.04, CI crossing zero.",
+      "evidence": "contested",
+      "source": "https://pubmed.ncbi.nlm.nih.gov/27474142/"
     },
     {
       "id": "signal-acted-on",
@@ -280,7 +286,9 @@
       ],
       "question": "What was present on the occasions you thought something through once and let it go?",
       "retiring_answer": "An account of returning to something repeatedly and reaching something new",
-      "basis": "Described in work on repetitive thought."
+      "basis": "Response-styles work describes repetitive dwelling without new information. It predicts onset of low mood more consistently than duration, and effects attenuate when baseline mood is controlled.",
+      "evidence": "mixed",
+      "source": "https://journals.sagepub.com/doi/10.1111/j.1745-6924.2008.00088.x"
     },
     {
       "id": "paid-off-sometimes",
@@ -298,7 +306,8 @@
       ],
       "question": "What would the run of these occasions have to look like for you to stop?",
       "retiring_answer": "An account where the approach never once paid",
-      "basis": "Described in work on intermittent reinforcement."
+      "basis": "Reinforcement that arrives on some occasions and not others is long established in behaviour analysis as producing responding that persists.",
+      "evidence": "well replicated"
     },
     {
       "id": "recovered-alone-after-company",
@@ -335,6 +344,161 @@
       "question": "What decides whether you act on what someone tells you?",
       "retiring_answer": "An account where what was said made no difference either way",
       "basis": "Described in work on feedback and its uptake."
+    },
+    {
+      "id": "kept-going-because-of-what-was-already-in",
+      "name": "Carried on partly because of what had already gone in",
+      "statement": "What had already been put in was part of why they continued.",
+      "holds_when": [
+        "time, money or effort had already gone in and could not be recovered",
+        "the account connects that to carrying on",
+        "stopping was available"
+      ],
+      "not_when": [
+        "the reason given for continuing is about what is ahead",
+        "nothing had been put in yet",
+        "they stopped"
+      ],
+      "question": "Was there an occasion you stopped despite what had already gone in, and what made that possible?",
+      "retiring_answer": "An account of walking away from something already paid for",
+      "basis": "Described as the sunk cost effect: more had been invested, more was committed to continuing, across repeated experiments.",
+      "evidence": "well replicated",
+      "source": "https://www.sciencedirect.com/science/article/abs/pii/0749597885900494"
+    },
+    {
+      "id": "repeated-in-the-same-setting",
+      "name": "Done again in the same setting",
+      "statement": "The same action happened again in the same place or after the same daily marker.",
+      "holds_when": [
+        "the account names a place, time of day or preceding act",
+        "the same action has happened there before",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the setting differed each time",
+        "it was a first occasion",
+        "no setting is described"
+      ],
+      "question": "Which of the things you repeat still take deliberate effort, however often you have done them?",
+      "retiring_answer": "An account of repetition in one setting that never became easier",
+      "basis": "Repetition in a stable context is how an action becomes automatic. Time to automaticity varied from 18 to over 250 days in the study most often cited for it, and half the participants did not get there.",
+      "evidence": "mixed",
+      "source": "https://onlinelibrary.wiley.com/doi/10.1002/ejsp.674"
+    },
+    {
+      "id": "short-sleep-before",
+      "name": "Little sleep before it",
+      "statement": "They had slept badly or briefly before the occasion.",
+      "holds_when": [
+        "the account mentions poor or short sleep beforehand",
+        "the occasion followed within a day",
+        "what followed is described"
+      ],
+      "not_when": [
+        "sleep is not mentioned",
+        "they had slept well",
+        "the occasion was days later"
+      ],
+      "question": "Was there an occasion after little sleep that went as well as your rested ones?",
+      "retiring_answer": "An account of a short-sleep day that went entirely well",
+      "basis": "Sleep loss reliably lowers positive mood and weakens inhibitory control; its effect on risk-taking is less consistent across studies.",
+      "evidence": "mixed",
+      "source": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8193556/"
+    },
+    {
+      "id": "what-came-of-it-came-at-once",
+      "name": "What came of it arrived immediately",
+      "statement": "What they got from the action arrived at once rather than later.",
+      "holds_when": [
+        "the account describes something gained or felt straight away",
+        "any later consequence is separate from it",
+        "what followed is described"
+      ],
+      "not_when": [
+        "everything about it arrived later",
+        "nothing is described as gained",
+        "the timing is not given"
+      ],
+      "question": "What is present on the occasions you took the slower reward over the immediate one?",
+      "retiring_answer": "An account of routinely choosing the later return",
+      "basis": "A reward available now is weighed more heavily than the same reward later, and the discount is steep at short delays.",
+      "evidence": "well replicated"
+    },
+    {
+      "id": "said-in-advance-to-someone",
+      "name": "Said out loud beforehand what they would do",
+      "statement": "Another person was told in advance what they intended to do.",
+      "holds_when": [
+        "the intention was stated to someone before the occasion",
+        "the account says whether it was carried out",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the intention stayed private",
+        "it was described only afterwards",
+        "nobody else features"
+      ],
+      "question": "Was there something you told nobody about and did anyway?",
+      "retiring_answer": "An account of carrying out something never mentioned to anyone",
+      "basis": "Commitments made to others, and stakes attached to them, are associated with following through, with effects that vary by how the commitment is arranged.",
+      "evidence": "mixed"
+    },
+    {
+      "id": "changed-the-surroundings-first",
+      "name": "Changed something in the surroundings before acting",
+      "statement": "Something in the setting was arranged or removed before the occasion began.",
+      "holds_when": [
+        "the account describes a change made beforehand",
+        "the change was to the surroundings rather than to the plan",
+        "what followed is described"
+      ],
+      "not_when": [
+        "nothing was changed",
+        "the change was made during the occasion",
+        "the change is not connected to what followed"
+      ],
+      "question": "Was there an occasion where arranging the surroundings made no difference?",
+      "retiring_answer": "An account where preparing the setting changed nothing",
+      "basis": "Small changes in how easy or hard an action is to take are associated with how often it is taken, though the size varies widely with the setting.",
+      "evidence": "mixed"
+    },
+    {
+      "id": "measured-against-someone-else",
+      "name": "Measured against how someone else was doing",
+      "statement": "How it went was compared with how another person was doing.",
+      "holds_when": [
+        "another person's progress or result features in the account",
+        "the comparison is to their own",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the comparison is with their own earlier result",
+        "no other person features",
+        "what followed is absent"
+      ],
+      "question": "What is present on the occasions you judged something without reference to anyone else?",
+      "retiring_answer": "An account judged entirely on its own terms",
+      "basis": "People judge their own standing partly by comparison with others, and the direction of the comparison is associated with different reactions.",
+      "evidence": "mixed"
+    },
+    {
+      "id": "stopped-to-notice-first",
+      "name": "Stopped to notice before responding",
+      "statement": "There was a pause to take in what was happening before they responded.",
+      "holds_when": [
+        "the account describes noticing, naming or waiting before acting",
+        "a response followed",
+        "what followed is described"
+      ],
+      "not_when": [
+        "the response was immediate",
+        "the pause was imposed from outside",
+        "nothing was noticed"
+      ],
+      "question": "Was there an occasion where pausing first made things worse?",
+      "retiring_answer": "An account where stopping to notice cost them the occasion",
+      "basis": "Training in attending to the present before responding is associated with moderate changes in distress across trials, with quality of trials varying.",
+      "evidence": "mixed"
     }
   ]
 }
