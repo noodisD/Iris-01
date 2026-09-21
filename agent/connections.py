@@ -77,6 +77,8 @@ SYSTEM_PROMPT = """You are given numbered accounts of occasions from one person'
 
 Find relationships that hold across accounts from DIFFERENT areas. A relationship is a shared condition and what followed it — not a shared subject. "Both about work" is not a relationship. "Whenever a decision was made while someone was waiting for an answer, it was reconsidered later" is.
 
+Do not propose anything that would be true of almost anyone. "When something wanted was blocked, it was difficult" is true of every person alive and says nothing about this one. What distinguishes these occasions from each other is the useful thing: prefer relationships where the same circumstance was followed by different outcomes depending on what the person did.
+
 For each relationship you propose, give:
 - "condition": the ONE thing that was true on those occasions, in a few words. Not a list. If you need "or" to join two different conditions, they are two different relationships — choose one, or do not propose it.
 - "followed": what followed on those occasions, in a few words.
@@ -234,6 +236,71 @@ def render(episodes: list[Episode]) -> str:
             parts.append(f"their own explanation: {e.explanation}")
         lines.append(" | ".join(parts))
     return "\n".join(lines)
+
+
+RESPONSES_PROMPT = """You are given numbered accounts of occasions from one person's life, and one circumstance.
+
+For EVERY account, say two things:
+- "held": "yes" if the account describes that circumstance, "no" if it clearly does not, "unclear" if it does not say.
+- "went": using only the account's own words about what followed — "better" if what followed reads as welcome to the writer, "worse" if it reads as unwelcome, "mixed" if it is both, "unclear" if the account does not say.
+
+Judge nothing else. Do not say what the person should have done, do not rank the responses, and do not explain anything.
+
+Return JSON only:
+{"accounts": [{"i": 0, "held": "yes", "went": "better"}]}"""
+
+#: How what followed read to the writer, in their own words.
+TONES = ("better", "worse", "mixed")
+
+
+def responses_under(condition: str, episodes: list[Episode],
+                    intelligence) -> tuple[dict[str, list[Episode]], dict]:
+    """The same circumstance, sorted by what was done and how it turned out.
+
+    A relationship between a circumstance and a feeling can be true and useless:
+    "when something wanted was blocked, it was difficult" holds for everyone
+    alive and says nothing about this person. What distinguishes their occasions
+    from each other is what they did next — and the accounts already carry it,
+    since a response and an outcome are two of the parts an episode must have.
+
+    So the model is asked for the two things it can judge from the writing — was
+    this that circumstance, and did what followed read as welcome — and the
+    responses are grouped here, unranked. Which of them is worth repeating is
+    not something this system is in a position to say, and saying it would be
+    advice, which it does not give.
+    """
+    usable = comparable(episodes)
+    groups: dict[str, list[Episode]] = {tone: [] for tone in TONES}
+    counts = {"comparable": len(usable), "held": 0, "unclear": 0,
+              **dict.fromkeys(TONES, 0)}
+    if not usable or intelligence is None:
+        return groups, counts
+
+    asked = f"Circumstance: {condition}\n\nAccounts:\n{render(usable)}"
+    try:
+        reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
+                                  system_prompt=RESPONSES_PROMPT,
+                                  max_tokens=OBSERVATION_MAX_TOKENS)
+        labels = json.loads(_strip_fence(reply)).get("accounts") or []
+    except Exception as e:
+        logger.error(f"Grouping by response failed, nothing labelled: {e}")
+        return groups, counts
+
+    for item in labels:
+        if not isinstance(item, dict):
+            continue
+        idx = _indexes(item.get("i"), len(usable))
+        if not idx or _clean(item.get("held")).lower() != "yes":
+            continue
+        counts["held"] += 1
+        tone = _clean(item.get("went")).lower()
+        if tone in TONES:
+            groups[tone].append(usable[idx[0]])
+        else:
+            counts["unclear"] += 1
+    for tone in TONES:
+        counts[tone] = len(groups[tone])
+    return groups, counts
 
 
 EXAMINE_PROMPT = """You are given numbered accounts of occasions from one person's life, and one claim about them.

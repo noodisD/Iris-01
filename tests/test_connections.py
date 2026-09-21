@@ -293,3 +293,54 @@ def test_a_second_run_is_told_what_has_already_been_judged():
 
     assert "already been considered" in seen["asked"]
     assert "Something already judged" in seen["asked"]
+
+
+# --- the same circumstance, different responses -------------------------------------
+
+def test_responses_are_grouped_by_how_what_followed_read():
+    """"When something wanted was blocked, it was difficult" is true of everyone
+    alive. What distinguishes one occasion from another is what was done next,
+    and the accounts already carry it."""
+    from agent.connections import responses_under
+
+    class Model:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"accounts": [
+                {"i": 0, "held": "yes", "went": "worse"},
+                {"i": 1, "held": "yes", "went": "better"},
+                {"i": 2, "held": "no", "went": "better"},
+                {"i": 3, "held": "yes", "went": "unclear"},
+            ]})
+
+    groups, counts = responses_under("a wanted action was blocked", EPISODES, Model())
+
+    assert counts["held"] == 3, "the account where it did not hold is not counted"
+    assert counts["better"] == 1 and counts["worse"] == 1
+    assert counts["unclear"] == 1
+    assert groups["better"][0] is EPISODES[1]
+
+
+def test_the_responses_are_not_ranked_for_the_owner():
+    """Which response is worth repeating is advice, and this does not give it:
+    the groups are what happened, in the writing's own terms."""
+    import inspect
+
+    from agent import connections
+
+    source = inspect.getsource(connections.responses_under)
+    for word in ("best", "recommend", "should", "better strategy"):
+        assert word not in source.lower().replace("better if", "")
+
+
+def test_a_circumstance_nothing_describes_returns_empty_groups():
+    from agent.connections import responses_under
+
+    class Nothing:
+        def chat(self, messages, system_prompt, **kwargs):
+            return json.dumps({"accounts": [{"i": i, "held": "no", "went": "unclear"}
+                                            for i in range(4)]})
+
+    groups, counts = responses_under("something that never happened", EPISODES, Nothing())
+
+    assert counts["held"] == 0
+    assert all(not g for g in groups.values())
