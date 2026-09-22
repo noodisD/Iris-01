@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android Studio
+.idea/
+*.iml
+captures/
+
+# Generated APKs
+*.apk
+*.aab
+
+# Logs
+*.log
