@@ -1,4 +1,10 @@
-"""Pure-module tests for the sensor seam. No database fixtures."""
+"""Pure-module tests for the sensor seam — modules that don't need
+to import from elsewhere in agent/.
+
+Modules that need the agent package (repository.py imports
+agent.database, service.py imports .repository) are tested in
+test_sensor_service.py.
+"""
 
 import importlib.util
 import unittest
@@ -17,7 +23,7 @@ def _load_sensors_module(name: str):
     return module
 
 
-class SeamShapeTests(unittest.TestCase):
+class TransportShapeTests(unittest.TestCase):
     def test_transport_is_an_abstract_base(self):
         transport = _load_sensors_module("transport")
         # LocalExportTransport must subclass SyncTransport and implement fetch.
@@ -29,13 +35,23 @@ class SeamShapeTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             transport.SyncTransport()
 
-    def test_service_seam_mirrors_reflection_service(self):
-        service = _load_sensors_module("service")
-        self.assertTrue(hasattr(service, "SensorService"))
-        # The only public write method is create_sensor_observation, which
-        # takes a confirmed batch, not raw sensor data.
-        self.assertTrue(hasattr(service.SensorService,
-                                "create_sensor_observation"))
+
+class LocalExportTransportTests(unittest.TestCase):
+    def test_picks_up_files_in_arrival_order(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "a.json").write_text("{}")
+            (root / "b.json").write_text("{}")
+            transport = _load_sensors_module("transport").LocalExportTransport(root)
+            paths = transport.fetch()
+            self.assertEqual([p.name for p in paths], ["a.json", "b.json"])
+
+    def test_empty_staging_returns_empty_list(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            transport = _load_sensors_module("transport").LocalExportTransport(Path(d))
+            self.assertEqual(transport.fetch(), [])
 
 
 class EvidenceWeightsTests(unittest.TestCase):
