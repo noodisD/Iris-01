@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # insight and carries on (production).
     NARRATIVE_FAIL_MODE: str = Field(default="raise")
 
+    # LAN bind for the Android app (ADR-0018). The bind is OFF by default;
+    # the owner enables it explicitly via /api/mobile/pair. The bind host
+    # narrows to the LAN interface at enable-time, not at config time.
+    LAN_BIND_HOST: str = Field(default="0.0.0.0")
+    LAN_BIND_PORT: int = Field(default=8765)
+    LAN_BIND_ENABLED: bool = Field(default=False)
+    # Populated by /api/mobile/pair — the SHA-256 hash of the bearer token.
+    # The raw token never lives in process state longer than the request.
+    MOBILE_BEARER_HASH: str | None = Field(default=None)
+
     # Configuration for .env loading
     model_config = SettingsConfigDict(
         env_file=".env",
