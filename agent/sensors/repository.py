@@ -6,7 +6,7 @@ to stage, confirm, and write.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -88,5 +88,5 @@ def _to_date(occurred_at: str | datetime | None):
     if isinstance(occurred_at, str):
         # Accept both 'Z' and explicit offsets.
         normalised = occurred_at.replace("Z", "+00:00")
-        return datetime.fromisoformat(normalised).astimezone(timezone.utc).date()
-    return occurred_at.astimezone(timezone.utc).date()
+        return datetime.fromisoformat(normalised).astimezone(UTC).date()
+    return occurred_at.astimezone(UTC).date()

@@ -92,6 +92,11 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 
+# Bearer-token gate on the LAN bind (ADR-0018). Loopback bypasses; LAN
+# requests need the bearer; the bind defaults to OFF.
+from agent.mobile_auth import MobileAuthMiddleware  # noqa: E402
+app.add_middleware(MobileAuthMiddleware)
+
 # A note on `def` versus `async def` below.
 #
 # Almost everything these handlers do is blocking: psycopg2 queries, embedding
