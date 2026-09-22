@@ -986,6 +986,120 @@
         "type": "character varying"
       }
     },
+    "sensor_batches": {
+      "clock_skew_seconds": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "confirmed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "device_clock": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "dropped_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "host_clock": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "observation_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "payload_path": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "raw_payload_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "received_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "source": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "status": {
+        "default": "'pending'::text",
+        "nullable": "NO",
+        "type": "text"
+      }
+    },
+    "sensor_observations": {
+      "batch_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "lat": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "lon": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "occurred_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "occurred_date": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "payload_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "value_num": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "value_text": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      }
+    },
     "theme_occurrences": {
       "admission_basis": {
         "default": null,
@@ -1917,6 +2031,74 @@
         "type": "n"
       }
     },
+    "sensor_batches": {
+      "sensor_batches_dropped_count_not_null": {
+        "definition": "NOT NULL dropped_count",
+        "type": "n"
+      },
+      "sensor_batches_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "sensor_batches_observation_count_not_null": {
+        "definition": "NOT NULL observation_count",
+        "type": "n"
+      },
+      "sensor_batches_payload_path_not_null": {
+        "definition": "NOT NULL payload_path",
+        "type": "n"
+      },
+      "sensor_batches_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "sensor_batches_received_at_not_null": {
+        "definition": "NOT NULL received_at",
+        "type": "n"
+      },
+      "sensor_batches_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      },
+      "sensor_batches_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text, 'errored'::text])))",
+        "type": "c"
+      },
+      "sensor_batches_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      }
+    },
+    "sensor_observations": {
+      "sensor_observations_batch_id_fkey": {
+        "definition": "FOREIGN KEY (batch_id) REFERENCES sensor_batches(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "sensor_observations_batch_id_not_null": {
+        "definition": "NOT NULL batch_id",
+        "type": "n"
+      },
+      "sensor_observations_batch_id_payload_hash_key": {
+        "definition": "UNIQUE (batch_id, payload_hash)",
+        "type": "u"
+      },
+      "sensor_observations_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "sensor_observations_payload_hash_not_null": {
+        "definition": "NOT NULL payload_hash",
+        "type": "n"
+      },
+      "sensor_observations_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "sensor_observations_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      }
+    },
     "theme_occurrences": {
       "theme_occurrences_id_not_null": {
         "definition": "NOT NULL id",
@@ -2184,6 +2366,16 @@
     },
     "schema_migrations": {
       "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"
+    },
+    "sensor_batches": {
+      "sensor_batches_pkey": "CREATE UNIQUE INDEX sensor_batches_pkey ON public.sensor_batches USING btree (id)",
+      "sensor_batches_status_idx": "CREATE INDEX sensor_batches_status_idx ON public.sensor_batches USING btree (status, received_at DESC)"
+    },
+    "sensor_observations": {
+      "sensor_observations_batch_id_payload_hash_key": "CREATE UNIQUE INDEX sensor_observations_batch_id_payload_hash_key ON public.sensor_observations USING btree (batch_id, payload_hash)",
+      "sensor_observations_occurred_date_idx": "CREATE INDEX sensor_observations_occurred_date_idx ON public.sensor_observations USING btree (occurred_date)",
+      "sensor_observations_pkey": "CREATE UNIQUE INDEX sensor_observations_pkey ON public.sensor_observations USING btree (id)",
+      "sensor_observations_source_occurred_idx": "CREATE INDEX sensor_observations_source_occurred_idx ON public.sensor_observations USING btree (source_type, occurred_at DESC NULLS LAST)"
     },
     "theme_occurrences": {
       "idx_occurrences_source": "CREATE INDEX idx_occurrences_source ON public.theme_occurrences USING btree (source_type, source_id)",
