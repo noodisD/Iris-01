@@ -1,7 +1,13 @@
 # ADR-0018: IRIS exposes a LAN-only API surface for a paired Android app
 
 ## Status
-Proposed — 2026-09-22
+Accepted — 2026-09-22
+
+## Accepted — 2026-09-22
+Implementation lands in `agent/mobile_auth.py` (the bearer middleware)
+and `iris_api.py` (`POST /api/mobile/pair`). The LAN bind remains OFF
+by default and is enabled only by the pairing flow. Mobile settings
+live under `LAN_BIND_*` and `MOBILE_BEARER_HASH` in `agent.config`.
 
 ## Amends
 ADR-0001 — IRIS is a single-user application bound to loopback.
