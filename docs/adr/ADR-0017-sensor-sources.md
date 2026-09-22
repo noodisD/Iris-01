@@ -1,7 +1,13 @@
 # ADR-0017: Sensor sources enter through one seam, as evidence
 
 ## Status
-Proposed — 2026-09-22
+Accepted — 2026-09-22
+
+## Accepted — 2026-09-22
+Implementation lands in `agent/sensors/`. The seam is `SyncTransport`;
+the first transport is `LocalExportTransport`. Sensor evidence weights
+land in `EVIDENCE_WEIGHTS`; the per-day cap lives in
+`MAX_SENSOR_OCCURRENCES_PER_DAY_PER_THEME`.
 
 ## Context
 The owner carries a Pixel 10a and (later this month) a Fitbit Air. Both are
