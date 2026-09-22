@@ -43,6 +43,31 @@ def _read_payload(path) -> tuple[dict[str, Any], bytes]:
     return json.loads(raw), raw
 
 
+def _build_batch(source: str, data: dict[str, Any],
+                 raw_bytes: bytes) -> dict[str, Any]:
+    """Shared batch-construction logic across all adapters."""
+    source_type_map = {
+        "pixel": PixelAdapter.SOURCE_TYPE,
+        "fitbit": FitbitAdapter.SOURCE_TYPE,
+    }[source]
+    cls = {"pixel": PixelAdapter, "fitbit": FitbitAdapter}[source]
+    observations: list[dict[str, Any]] = []
+    dropped = 0
+    for tier, source_type in source_type_map.items():
+        for raw in data.get("tiers", {}).get(tier, []):
+            obs = cls._to_observation(tier, source_type, raw)
+            if obs is None:
+                dropped += 1
+            else:
+                observations.append(obs)
+    return {
+        "source": source,
+        "raw_payload_hash": hashlib.sha256(raw_bytes).hexdigest(),
+        "observations": observations,
+        "dropped_count": dropped,
+    }
+
+
 @register("pixel")
 class PixelAdapter:
     """Parses a manual export from a Pixel 10a.
@@ -60,21 +85,12 @@ class PixelAdapter:
 
     def parse(self, payload_path) -> dict[str, Any]:
         data, raw_bytes = _read_payload(payload_path)
-        observations: list[dict[str, Any]] = []
-        dropped = 0
-        for tier, source_type in self.SOURCE_TYPE.items():
-            for raw in data.get("tiers", {}).get(tier, []):
-                obs = self._to_observation(tier, source_type, raw)
-                if obs is None:
-                    dropped += 1
-                else:
-                    observations.append(obs)
-        return {
-            "source": "pixel",
-            "raw_payload_hash": hashlib.sha256(raw_bytes).hexdigest(),
-            "observations": observations,
-            "dropped_count": dropped,
-        }
+        return _build_batch("pixel", data, raw_bytes)
+
+    def parse_from_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Same as parse() but the JSON is already in memory."""
+        raw_bytes = json.dumps(data, sort_keys=True).encode()
+        return _build_batch("pixel", data, raw_bytes)
 
     @staticmethod
     def _to_observation(tier: str, source_type: str,
@@ -114,21 +130,12 @@ class FitbitAdapter:
 
     def parse(self, payload_path) -> dict[str, Any]:
         data, raw_bytes = _read_payload(payload_path)
-        observations: list[dict[str, Any]] = []
-        dropped = 0
-        for tier, source_type in self.SOURCE_TYPE.items():
-            for raw in data.get("tiers", {}).get(tier, []):
-                obs = self._to_observation(tier, source_type, raw)
-                if obs is None:
-                    dropped += 1
-                else:
-                    observations.append(obs)
-        return {
-            "source": "fitbit",
-            "raw_payload_hash": hashlib.sha256(raw_bytes).hexdigest(),
-            "observations": observations,
-            "dropped_count": dropped,
-        }
+        return _build_batch("fitbit", data, raw_bytes)
+
+    def parse_from_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Same as parse() but the JSON is already in memory."""
+        raw_bytes = json.dumps(data, sort_keys=True).encode()
+        return _build_batch("fitbit", data, raw_bytes)
 
     @staticmethod
     def _to_observation(tier: str, source_type: str,

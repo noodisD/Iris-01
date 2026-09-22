@@ -37,3 +37,39 @@ class LocalExportTransport(SyncTransport):
 
     def fetch(self, since: str | None = None) -> list[Path]:
         return sorted(self._staging.glob("*"))
+
+
+class HttpIntakeTransport(SyncTransport):
+    """Sensor sync via HTTP POST to /api/mobile/sensor/intake.
+
+    Used by the Android app: the phone assembles the JSON and POSTs it
+    over the LAN bind (ADR-0018). This transport is the read side of
+    the seam; the route's SensorService.stage_batch is the write side.
+    ``fetch`` is a no-op because HTTP transport pushes rather than pulls;
+    use ``push(payload)`` instead.
+    """
+
+    def __init__(self, intake_url: str, bearer_token: str) -> None:
+        self._url = intake_url
+        self._token = bearer_token
+
+    def fetch(self, since: str | None = None) -> list[Path]:
+        raise NotImplementedError(
+            "HttpIntakeTransport pushes; it does not pull. "
+            "Use HttpIntakeTransport.push(payload) instead.")
+
+    def push(self, payload: dict) -> dict:
+        """POST the PixelAdapter-shaped JSON to the intake route.
+
+        Returns the parsed response dict. Raises RuntimeError on a
+        non-2xx status so the caller can decide whether to retry.
+        """
+        import json as _json
+        import urllib.request
+        body = _json.dumps(payload).encode()
+        req = urllib.request.Request(
+            self._url, data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {self._token}"})
+        with urllib.request.urlopen(req) as r:
+            return _json.loads(r.read())

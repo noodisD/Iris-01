@@ -294,6 +294,36 @@ async def mobile_pair(request: Request) -> dict:
     return {"status": "paired", "lan_bind_enabled": enabled}
 
 
+@app.post("/api/mobile/sensor/intake")
+async def mobile_sensor_intake(request: Request) -> dict:
+    """Stage a sensor batch from the Android app.
+
+    The phone has already serialised the PixelAdapter-shaped JSON. The
+    route dispatches to the right adapter and calls SensorService.stage_batch
+    — the same seam the manual transport uses. The owner confirms
+    via the existing review path; this route does not auto-confirm.
+    """
+    payload = await request.json()
+    device = str(payload.get("device", "")).strip()
+    if not device:
+        raise HTTPException(status_code=400, detail="device required")
+    if device.startswith("Pixel"):
+        source = "pixel"
+    elif device.lower().startswith("fitbit"):
+        source = "fitbit"
+    else:
+        raise HTTPException(
+            status_code=400, detail=f"unknown device {device!r}")
+    from agent.sensors.adapters import REGISTRY
+    batch = REGISTRY[source]().parse_from_dict(payload)
+    from agent.sensors.service import SensorService
+    batch_id = SensorService().stage_batch(
+        batch, payload_path=f"intake:{device}")
+    return {"batch_id": batch_id,
+            "observation_count": len(batch["observations"]),
+            "dropped_count": batch["dropped_count"]}
+
+
 @app.post("/api/chat/greeting")
 async def get_greeting(user_id: int = Depends(get_current_user_id)):
     """Get a dynamic greeting for the user."""

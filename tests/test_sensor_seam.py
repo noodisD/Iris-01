@@ -54,6 +54,43 @@ class LocalExportTransportTests(unittest.TestCase):
             self.assertEqual(transport.fetch(), [])
 
 
+class HttpIntakeTransportTests(unittest.TestCase):
+    def test_push_posts_payload_with_bearer(self):
+        transport = _load_sensors_module("transport").HttpIntakeTransport(
+            intake_url="http://127.0.0.1:8000/api/mobile/sensor/intake",
+            bearer_token="the-token")
+        seen = {}
+        from contextlib import contextmanager
+        @contextmanager
+        def fake_urlopen(req):
+            seen["url"] = req.full_url
+            seen["method"] = req.method
+            seen["headers"] = dict(req.headers)
+            seen["body"] = req.data.decode()
+            class Resp:
+                def __enter__(self_inner):
+                    return self_inner
+                def __exit__(self_inner, *a):
+                    return False
+                def read(self_inner):
+                    return b'{"batch_id": 7, "observation_count": 5}'
+            yield Resp()
+        import unittest.mock as mock
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            response = transport.push({"device": "Pixel 10a", "tiers": {}})
+        self.assertEqual(response["batch_id"], 7)
+        self.assertEqual(seen["url"], "http://127.0.0.1:8000/api/mobile/sensor/intake")
+        self.assertEqual(seen["headers"]["Authorization"], "Bearer the-token")
+        self.assertIn('"device": "Pixel 10a"', seen["body"])
+
+    def test_fetch_raises_with_helpful_message(self):
+        transport = _load_sensors_module("transport").HttpIntakeTransport(
+            intake_url="http://x", bearer_token="y")
+        with self.assertRaises(NotImplementedError) as cm:
+            transport.fetch()
+        self.assertIn("push", str(cm.exception).lower())
+
+
 class EvidenceWeightsTests(unittest.TestCase):
     """Sensor evidence must be named in EVIDENCE_WEIGHTS.
 
