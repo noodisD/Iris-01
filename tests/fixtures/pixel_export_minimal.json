@@ -1,0 +1,17 @@
+{
+  "device": "Pixel 10a",
+  "exported_at": "2026-09-22T18:00:00Z",
+  "tiers": {
+    "location": [
+      {"ts": "2026-09-22T09:15:00Z", "lat": 52.52, "lon": 13.405, "accuracy_m": 35},
+      {"ts": "2026-09-22T17:42:00Z", "lat": 52.516, "lon": 13.378, "accuracy_m": 18}
+    ],
+    "app_usage": [
+      {"ts": "2026-09-22T10:00:00Z", "package": "com.android.chrome", "foreground_seconds": 240},
+      {"ts": "2026-09-22T14:30:00Z", "package": "com.slack", "foreground_seconds": 120}
+    ],
+    "steps": [
+      {"date": "2026-09-22", "count": 7842}
+    ]
+  }
+}

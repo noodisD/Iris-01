@@ -95,5 +95,48 @@ class EvidenceWeightsTests(unittest.TestCase):
         self.assertGreater(constants.MAX_SENSOR_OCCURRENCES_PER_DAY_PER_THEME, 0)
 
 
+class PixelAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.adapter = _load_sensors_module("adapters").PixelAdapter()
+        self.fixture = ROOT / "tests" / "fixtures" / "pixel_export_minimal.json"
+
+    def test_parses_three_tiers(self):
+        batch = self.adapter.parse(self.fixture)
+        self.assertEqual(batch["source"], "pixel")
+        obs = batch["observations"]
+        # 2 location + 2 app_usage + 1 steps = 5
+        self.assertEqual(len(obs), 5)
+        types = sorted({o["source_type"] for o in obs})
+        self.assertEqual(types, ["pixel_app_usage", "pixel_location", "pixel_steps"])
+
+    def test_each_observation_has_payload_hash(self):
+        batch = self.adapter.parse(self.fixture)
+        for obs in batch["observations"]:
+            self.assertIn("payload_hash", obs)
+            self.assertEqual(len(obs["payload_hash"]), 16)
+
+    def test_missing_date_drops_the_observation(self):
+        # ADR-0013: a date is read or absent; unparseable readings are
+        # dropped at parse time, not committed with a guessed date.
+        import json
+        import tempfile
+        bad = {"device": "Pixel 10a", "tiers": {"location": [
+            {"ts": None, "lat": 0, "lon": 0}]}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(bad, f)
+            path = f.name
+        try:
+            batch = self.adapter.parse(path)
+        finally:
+            Path(path).unlink()
+        self.assertEqual(batch["observations"], [])
+        self.assertEqual(batch["dropped_count"], 1)
+
+    def test_batch_includes_raw_payload_hash(self):
+        batch = self.adapter.parse(self.fixture)
+        self.assertIn("raw_payload_hash", batch)
+        self.assertEqual(len(batch["raw_payload_hash"]), 64)
+
+
 if __name__ == "__main__":
     unittest.main()
