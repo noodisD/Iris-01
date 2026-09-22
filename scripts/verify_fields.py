@@ -29,33 +29,15 @@ from agent.field_support import (  # noqa: E402
     CHECKED, VERIFICATION_VERSION, account_key, check, tally)
 from agent.intelligence import Intelligence  # noqa: E402
 
-#: What the owner said about each field, from data/spot-check.md, in their
-#: words. Mapped to an expected verdict only where the wording is unambiguous;
-#: a hedge is kept as a hedge rather than rounded into agreement.
-REVIEWED: dict[int, dict[str, str]] = {
-    0:  {"response": "no", "outcome": "inferred"},
-    1:  {"response": "yeh kind of but not exeactly", "outcome": "its not I guess"},
-    2:  {"response": "no", "outcome": "its not looks ok"},
-    3:  {"response": "yes", "outcome": "its not a good outcome"},
-    4:  {"response": "yes", "outcome": "its absent"},
-    9:  {"response": "yes", "outcome": "its not"},
-    10: {"response": "no it is not accurate", "outcome": "its not"},
-    48: {"response": "yes", "outcome": "yes"},
-    61: {"response": "kind of", "outcome": "absent"},
-    72: {"response": "yes", "outcome": "yes"},
-}
+#: Reference judgments live in a file the owner fills in, not in this script.
+#: The first attempt hardcoded their words here and mapped "no" to not_stated,
+#: which ran together a passage that says nothing, one that says the opposite,
+#: and one that supports an intention the account reports as a deed.
+REFERENCE = "data/reference-labels.json"
 
-#: Only the wordings that plainly mean one thing. "its not a good outcome"
-#: judges the occasion, not the extraction, and "kind of" is a hedge: both are
-#: excluded from scoring rather than guessed at, and reported as excluded.
-EXPECTED = {
-    "yes": "supported",
-    "no": "not_stated",
-    "no it is not accurate": "not_stated",
-    "its not": "not_stated",
-    "its not I guess": "not_stated",
-    "inferred": "not_stated",
-}
+#: A reference verdict meaning the field should NOT have been admitted. Kept as
+#: a set rather than "anything but supported", so `unsure` stays unscored.
+FAILING = ("not_stated", "contradicted", "wrong_modality", "wrong_actor")
 
 
 def main() -> int:
@@ -69,7 +51,19 @@ def main() -> int:
     args = ap.parse_args()
 
     episodes = json.loads(Path(args.cache).read_text())["episodes"]
-    wanted = sorted(REVIEWED) if args.reviewed else range(len(episodes))
+    if args.reviewed:
+        # Whichever accounts the reference file holds, rather than a list kept
+        # in step by hand: the reference is the only thing that says which
+        # accounts have known answers.
+        reference = json.loads(Path(REFERENCE).read_text()) if Path(REFERENCE).exists() else {}
+        by_key = {account_key(e): i for i, e in enumerate(episodes)}
+        wanted = sorted(by_key[k] for k in reference if k in by_key)
+        if not wanted:
+            print(f"No reference judgments at {REFERENCE}. Build and fill "
+                  "data/reference-labels.md, then `reference_labels.py read`.")
+            return 1
+    else:
+        wanted = range(len(episodes))
     wanted = list(wanted)[:args.limit]
     askable = [i for i in wanted if any(episodes[i].get(f) for f in CHECKED)]
 
@@ -94,28 +88,45 @@ def main() -> int:
               f"{row['contradicted']:>13} {row['unavailable']:>12}")
 
     if args.reviewed:
-        print("\nAgainst what the owner said:\n")
-        print(f"{'account':<9} {'field':<10} {'owner':<30} {'checker':<13} agrees")
-        print("-" * 78)
-        agreed = scored = skipped = 0
+        ref_path = Path(REFERENCE)
+        if not ref_path.exists():
+            print(f"\nNo reference judgments at {ref_path}. Build and fill "
+                  "data/reference-labels.md, then `reference_labels.py read`. "
+                  "Nothing is scored against guesses.")
+            return 1
+        reference = json.loads(ref_path.read_text())
+
+        caught = missed = rejected = kept = abstained = unscored = 0
+        print("\nAgainst the reference judgments:\n")
+        print(f"{'account':<9} {'field':<10} {'reference':<16} {'checker':<13}")
+        print("-" * 52)
         for row in results:
+            ref = reference.get(row["key"], {}).get("verdicts", {})
             for field, verdict in row["verdicts"].items():
-                said = REVIEWED[row["index"]].get(field, "")
-                expected = EXPECTED.get(said)
-                if expected is None:
-                    skipped += 1
-                    mark = "(not scored)"
+                expected = ref.get(field)
+                print(f"#{row['index']:<8} {field:<10} {expected or '—':<16} {verdict:<13}")
+                if expected is None or expected == "unsure":
+                    unscored += 1
+                elif verdict == "unavailable":
+                    abstained += 1
+                elif expected in FAILING:
+                    caught += verdict != "supported"
+                    missed += verdict == "supported"
                 else:
-                    scored += 1
-                    ok = expected == verdict
-                    agreed += ok
-                    mark = "yes" if ok else "NO"
-                print(f"#{row['index']:<8} {field:<10} {said[:29]:<30} {verdict:<13} {mark}")
-        if scored:
-            print(f"\nagreed on {agreed} of {scored} scorable verdicts "
-                  f"({agreed / scored:.0%}); {skipped} not scored because the "
-                  "owner's wording was a hedge or judged the occasion rather "
-                  "than the extraction")
+                    kept += verdict == "supported"
+                    rejected += verdict != "supported"
+
+        errors = caught + missed
+        correct = kept + rejected
+        print(f"\nerrors caught          {caught} of {errors}"
+              + (f"  ({caught / errors:.0%})" if errors else ""))
+        print(f"correct fields rejected {rejected} of {correct}"
+              + (f"  ({rejected / correct:.0%})" if correct else ""))
+        print(f"abstained (unavailable) {abstained}")
+        print(f"not scored              {unscored}  (ambiguous or unjudged)")
+        print("\nA checker that answered \"supported\" every time would catch "
+              f"0 of {errors} and reject 0 of {correct}. Anything that does not "
+              "beat that on the first number is not checking anything.")
         return 0
 
     out = Path(args.cache).parent / "field-support.json"
