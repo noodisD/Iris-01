@@ -138,5 +138,53 @@ class PixelAdapterTests(unittest.TestCase):
         self.assertEqual(len(batch["raw_payload_hash"]), 64)
 
 
+class FitbitAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.adapter = _load_sensors_module("adapters").FitbitAdapter()
+        self.fixture = ROOT / "tests" / "fixtures" / "fitbit_export_minimal.json"
+
+    def test_parses_three_tiers(self):
+        batch = self.adapter.parse(self.fixture)
+        self.assertEqual(batch["source"], "fitbit")
+        types = sorted({o["source_type"] for o in batch["observations"]})
+        self.assertEqual(types,
+                         ["fitbit_heart_rate", "fitbit_sleep", "fitbit_spo2"])
+
+    def test_count_matches_fixture(self):
+        # 2 heart_rate + 1 sleep + 1 spo2 = 4
+        batch = self.adapter.parse(self.fixture)
+        self.assertEqual(len(batch["observations"]), 4)
+
+    def test_seam_is_honest_pixel_and_fitbit_share_shape(self):
+        # The proof that the seam is honest: the two adapters produce
+        # batches of the same shape. If this fails, the seam is wrong.
+        adapters = _load_sensors_module("adapters")
+        pixel_batch = adapters.PixelAdapter().parse(
+            ROOT / "tests" / "fixtures" / "pixel_export_minimal.json")
+        fitbit_batch = adapters.FitbitAdapter().parse(
+            ROOT / "tests" / "fixtures" / "fitbit_export_minimal.json")
+        self.assertEqual(set(pixel_batch), set(fitbit_batch))
+        for key in ("source", "observations", "dropped_count",
+                    "raw_payload_hash"):
+            self.assertIn(key, pixel_batch)
+            self.assertIn(key, fitbit_batch)
+
+
+class DetectTests(unittest.TestCase):
+    def test_detect_picks_pixel(self):
+        adapters = _load_sensors_module("adapters")
+        self.assertEqual(
+            adapters.detect(
+                ROOT / "tests" / "fixtures" / "pixel_export_minimal.json"),
+            "pixel")
+
+    def test_detect_picks_fitbit(self):
+        adapters = _load_sensors_module("adapters")
+        self.assertEqual(
+            adapters.detect(
+                ROOT / "tests" / "fixtures" / "fitbit_export_minimal.json"),
+            "fitbit")
+
+
 if __name__ == "__main__":
     unittest.main()
