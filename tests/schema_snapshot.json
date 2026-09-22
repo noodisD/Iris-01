@@ -513,6 +513,33 @@
         "type": "integer"
       }
     },
+    "mobile_pairing": {
+      "bearer_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "lan_bind_enabled": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
+      "paired_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "paired_device": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      }
+    },
     "observation_runs": {
       "candidates_staged": {
         "default": "0",
@@ -1745,6 +1772,24 @@
         "type": "n"
       }
     },
+    "mobile_pairing": {
+      "mobile_pairing_id_check": {
+        "definition": "CHECK ((id = 1))",
+        "type": "c"
+      },
+      "mobile_pairing_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "mobile_pairing_lan_bind_enabled_not_null": {
+        "definition": "NOT NULL lan_bind_enabled",
+        "type": "n"
+      },
+      "mobile_pairing_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      }
+    },
     "observation_runs": {
       "observation_runs_candidates_staged_not_null": {
         "definition": "NOT NULL candidates_staged",
@@ -2329,6 +2374,9 @@
     },
     "insight_status": {
       "insight_status_pkey": "CREATE UNIQUE INDEX insight_status_pkey ON public.insight_status USING btree (user_id, insight_id)"
+    },
+    "mobile_pairing": {
+      "mobile_pairing_pkey": "CREATE UNIQUE INDEX mobile_pairing_pkey ON public.mobile_pairing USING btree (id)"
     },
     "observation_runs": {
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",

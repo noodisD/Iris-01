@@ -24,7 +24,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -94,7 +94,7 @@ app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 
 # Bearer-token gate on the LAN bind (ADR-0018). Loopback bypasses; LAN
 # requests need the bearer; the bind defaults to OFF.
-from agent.mobile_auth import MobileAuthMiddleware  # noqa: E402
+from agent.mobile_auth import MobileAuthMiddleware, hash_token  # noqa: E402
 app.add_middleware(MobileAuthMiddleware)
 
 # A note on `def` versus `async def` below.
@@ -257,6 +257,41 @@ async def health_check():
 # ============================================================================
 # CHAT ENDPOINTS
 # ============================================================================
+
+
+# ============================================================================
+# MOBILE ENDPOINTS (LAN-bind only, ADR-0018)
+# ============================================================================
+
+
+@app.post("/api/mobile/pair")
+async def mobile_pair(request: Request) -> dict:
+    """Pair the Android app to this IRIS installation.
+
+    The owner pastes a token the app generated; IRIS stores the
+    SHA-256 hash and enables the LAN bind. The raw token never
+    lives in process state beyond this request.
+    """
+    body = await request.json()
+    token = body.get("token")
+    if not token or not isinstance(token, str) or len(token) < 32:
+        raise HTTPException(
+            status_code=400, detail="token must be a string of >= 32 chars")
+    bearer_hash = hash_token(token)
+    enabled = bool(body.get("lan_bind_enabled", True))
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE mobile_pairing SET bearer_hash = %s, "
+            "lan_bind_enabled = %s, paired_at = now(), "
+            "paired_device = 'android' WHERE id = 1",
+            (bearer_hash, enabled))
+        conn.commit()
+    # Mirror into the live settings so the middleware reads the new
+    # value without a process restart.
+    from agent.config import settings as live_settings
+    live_settings.MOBILE_BEARER_HASH = bearer_hash
+    live_settings.LAN_BIND_ENABLED = enabled
+    return {"status": "paired", "lan_bind_enabled": enabled}
 
 
 @app.post("/api/chat/greeting")

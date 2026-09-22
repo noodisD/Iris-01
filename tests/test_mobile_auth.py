@@ -9,7 +9,6 @@ import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
 
-
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -146,6 +145,55 @@ class MiddlewareTests(unittest.TestCase):
             sent, called = _run_middleware(mw, scope)
             self.assertFalse(called)
             self.assertEqual(sent[0]["status"], 503)
+
+
+class PairingEndpointTests(unittest.TestCase):
+    def setUp(self):
+        from agent.database import db
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("TRUNCATE mobile_pairing;")
+            cur.execute(
+                "INSERT INTO mobile_pairing (id) VALUES (1);")
+            conn.commit()
+        from agent import config as cfg
+        cfg.settings.MOBILE_BEARER_HASH = None
+        cfg.settings.LAN_BIND_ENABLED = False
+
+    def tearDown(self):
+        from agent import config as cfg
+        cfg.settings.MOBILE_BEARER_HASH = None
+        cfg.settings.LAN_BIND_ENABLED = False
+
+    def test_pair_stores_hash_and_enables_bind(self):
+        from fastapi.testclient import TestClient
+        from iris_api import app
+        from agent import config as cfg
+        from agent.database import db as database
+        with TestClient(app) as client:
+            r = client.post("/api/mobile/pair",
+                            json={"token": "x" * 64,
+                                  "lan_bind_enabled": True})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(cfg.settings.LAN_BIND_ENABLED)
+            self.assertIsNotNone(cfg.settings.MOBILE_BEARER_HASH)
+            self.assertEqual(len(cfg.settings.MOBILE_BEARER_HASH), 64)
+            # Verify the row in the database matches the in-process setting.
+            with database.connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing "
+                    "WHERE id = 1")
+                row = cur.fetchone()
+                self.assertEqual(row[0], cfg.settings.MOBILE_BEARER_HASH)
+                self.assertTrue(row[1])
+
+    def test_pair_rejects_short_tokens(self):
+        from fastapi.testclient import TestClient
+        from iris_api import app
+        with TestClient(app) as client:
+            r = client.post("/api/mobile/pair",
+                            json={"token": "short",
+                                  "lan_bind_enabled": True})
+            self.assertEqual(r.status_code, 400)
 
 
 if __name__ == "__main__":
