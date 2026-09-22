@@ -23,7 +23,7 @@ import pytest
 
 from reading_fakes import every_quote_supports, is_support_check
 from agent.constants import OBSERVATION_MIN_QUOTE_CHARS
-from agent.observations import ObservationEngine, apply_preferences
+from agent.observations import Citation, Observation, ObservationEngine, apply_preferences, synthesise
 from agent.preferences import UserPreferencesService
 from agent.trackers.reflections import ReflectionService
 
@@ -238,3 +238,63 @@ def test_the_owners_confidence_threshold_governs_here_too(test_user, archive):
 
     prefs.update_pref("min_confidence", "low")
     assert apply_preferences(observations, test_user["id"]) == observations
+
+
+# --- synthesis ------------------------------------------------------------
+
+def test_a_group_holding_a_contradiction_is_refused():
+    """Equivalence chains, but a group the same answer also called incompatible
+    is refused whole, since which link in the chain is the wrong one is exactly
+    what is not known."""
+    walk = Observation(
+        claim="Morning walks lasted longer over the weeks recorded",
+        citations=(Citation(entry_id=1, entry_date=date(2024, 1, 1), text="the morning walk went on longer than usual"),
+                   Citation(entry_id=2, entry_date=date(2024, 1, 8), text="stretched the morning walk out again")),
+        span_start=date(2024, 1, 1), span_end=date(2024, 1, 8), entries_read=4, confidence_level="low")
+    reading = Observation(
+        claim="Reading before bed became steadier over the weeks recorded",
+        citations=(Citation(entry_id=3, entry_date=date(2024, 1, 2), text="read a chapter before turning the light off"),
+                   Citation(entry_id=4, entry_date=date(2024, 1, 9), text="kept reading before bed most nights")),
+        span_start=date(2024, 1, 2), span_end=date(2024, 1, 9), entries_read=4, confidence_level="low")
+    dinner_walk = Observation(
+        claim="Walks after dinner grew shorter over the weeks recorded",
+        citations=(Citation(entry_id=5, entry_date=date(2024, 1, 3), text="cut the after dinner walk short tonight"),
+                   Citation(entry_id=6, entry_date=date(2024, 1, 10), text="the after dinner walk kept getting shorter")),
+        span_start=date(2024, 1, 3), span_end=date(2024, 1, 10), entries_read=4, confidence_level="low")
+
+    # Sorted by claim text this is [walk, reading, dinner_walk] -> [0, 1, 2].
+    intelligence = FakeModel({"pairs": [
+        {"a": 0, "b": 1, "relationship": "equivalent"},
+        {"a": 1, "b": 2, "relationship": "equivalent"},
+        {"a": 0, "b": 2, "relationship": "contradictory"},
+    ]})
+
+    result = synthesise([dinner_walk, walk, reading], intelligence)
+
+    assert len(result) == 3
+    assert all(o.merged_from == () for o in result), "a refused group must not look merged"
+
+
+def test_findings_the_model_calls_equivalent_are_merged():
+    """The ordinary case the rule must not break: no incompatible relationship
+    reported, so equivalence still collapses the pair."""
+    routine_short = Observation(
+        claim="Evening walks became part of a daily routine",
+        citations=(Citation(entry_id=1, entry_date=date(2024, 2, 1), text="took the evening walk again, same as yesterday"),
+                   Citation(entry_id=2, entry_date=date(2024, 2, 8), text="the evening walk is just part of the day now")),
+        span_start=date(2024, 2, 1), span_end=date(2024, 2, 8), entries_read=3, confidence_level="low")
+    routine_long = Observation(
+        claim="Walking each evening turned into part of the daily routine",
+        citations=(Citation(entry_id=3, entry_date=date(2024, 2, 3), text="walked in the evening without having to think about it"),
+                   Citation(entry_id=4, entry_date=date(2024, 2, 10), text="the evening walk happens without deciding to do it")),
+        span_start=date(2024, 2, 3), span_end=date(2024, 2, 10), entries_read=3, confidence_level="low")
+
+    # Sorted by claim text this is [routine_short, routine_long] -> [0, 1].
+    intelligence = FakeModel({"pairs": [
+        {"a": 0, "b": 1, "relationship": "equivalent"},
+    ]})
+
+    result = synthesise([routine_long, routine_short], intelligence)
+
+    assert len(result) == 1
+    assert set(result[0].merged_from) == {routine_short.claim, routine_long.claim}

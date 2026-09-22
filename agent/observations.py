@@ -242,6 +242,12 @@ Return JSON only:
 
 An empty list is a good answer when nothing restates anything else."""
 
+#: Relationships that make a group unsafe to merge, whatever else was said about
+#: its members. "related" is not among them: the prompt offers it as the answer
+#: for uncertainty, so treating it as disagreement would refuse merges on the
+#: strength of a shrug.
+INCOMPATIBLE = frozenset({"contradictory", "narrower", "broader"})
+
 
 def synthesise(observations: list[Observation], intelligence) -> list[Observation]:
     """Merge findings that are the same finding in different words.
@@ -258,6 +264,15 @@ def synthesise(observations: list[Observation], intelligence) -> list[Observatio
     them: a merged finding must be something the model already said and the
     citations already backed. What was merged is recorded on the result, so the
     owner sees it and it can be taken apart again.
+
+    Equivalence chains; disagreement does not. One answer can call A and B the
+    same, B and C the same, and A and C incompatible — and acting on the first
+    two while discarding the third merges a claim with the evidence for its
+    opposite, under whichever of the three wordings happens to be longest. A
+    group holding any pair the same answer called incompatible is therefore
+    refused whole and its findings left standing, because which of the links is
+    the wrong one is exactly what is not known. Leaving restatements unmerged is
+    visible and harmless; merging a contradiction is neither.
     """
     if len(observations) < 2 or intelligence is None:
         return observations
@@ -293,17 +308,31 @@ def synthesise(observations: list[Observation], intelligence) -> list[Observatio
             i = parent[i]
         return i
 
-    merged_any = False
-    for pair in pairs:
-        if not isinstance(pair, dict) or pair.get("relationship") != "equivalent":
-            continue
+    def indices(pair) -> tuple[int, int] | None:
+        """The two findings a pair names, or None if it does not name two."""
+        if not isinstance(pair, dict):
+            return None
         try:
             a, b = int(pair["a"]), int(pair["b"])
         except (KeyError, TypeError, ValueError):
-            continue
+            return None
         if not (0 <= a < len(ordered) and 0 <= b < len(ordered)) or a == b:
+            return None
+        return a, b
+
+    merged_any = False
+    incompatible: list[tuple[int, int]] = []
+    for pair in pairs:
+        where = indices(pair)
+        if where is None:
             continue
-        ra, rb = find(a), find(b)
+        relationship = pair.get("relationship")
+        if relationship in INCOMPATIBLE:
+            incompatible.append(where)
+            continue
+        if relationship != "equivalent":
+            continue
+        ra, rb = find(where[0]), find(where[1])
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
             merged_any = True
@@ -311,16 +340,27 @@ def synthesise(observations: list[Observation], intelligence) -> list[Observatio
     if not merged_any:
         return observations
 
+    # Checked after every union, not during: a pair can become incompatible with
+    # its own group through a chain built later in the same answer.
+    poisoned = {find(a) for a, b in incompatible if find(a) == find(b)}
+
     groups: dict[int, list[int]] = {}
     for i in range(len(ordered)):
         groups.setdefault(find(i), []).append(i)
 
     out: list[Observation] = []
-    for members in groups.values():
+    refused = 0
+    for root, members in groups.items():
         if len(members) == 1:
             out.append(ordered[members[0]])
             continue
+        if root in poisoned:
+            refused += 1
+            out.extend(ordered[i] for i in members)
+            continue
         out.append(_pool([ordered[i] for i in members], merged=True))
+    if refused:
+        logger.info(f"Synthesis refused {refused} group(s) it also called incompatible")
     logger.info(f"Synthesis merged {len(ordered)} finding(s) into {len(out)}")
     return out
 
