@@ -86,6 +86,23 @@ async def lifespan(app: FastAPI):
     # Ingest work is queued rather than run in the request. Starting the
     # worker here also picks up anything the previous process left behind.
     queue_worker.start()
+
+    # Load the mobile pairing state from the DB into the in-process settings.
+    # Without this, the bearer middleware would reject every LAN request
+    # after a restart even though the phone is paired.
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing "
+                "WHERE id = 1")
+            row = cur.fetchone()
+            if row is not None:
+                from agent.config import settings as live_settings
+                live_settings.MOBILE_BEARER_HASH = row[0]
+                live_settings.LAN_BIND_ENABLED = bool(row[1])
+    except Exception as e:  # the table may not exist on a fresh install
+        logger.warning("could not load mobile pairing state: %s", e)
+
     yield
     queue_worker.stop()
 

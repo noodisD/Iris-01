@@ -147,6 +147,48 @@ class MiddlewareTests(unittest.TestCase):
             self.assertEqual(sent[0]["status"], 503)
 
 
+class LifespanLoadTests(unittest.TestCase):
+    """The lifespan must load the pairing row into in-process settings.
+
+    Without this, the bearer middleware rejects every LAN request
+    after a server restart, even though the phone is still paired.
+    """
+
+    def test_lifespan_loads_pairing_into_settings(self):
+        from agent.database import db
+        from agent.config import settings as cfg
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("TRUNCATE mobile_pairing;")
+            cur.execute(
+                "INSERT INTO mobile_pairing (id, bearer_hash, lan_bind_enabled) "
+                "VALUES (1, %s, true)",
+                ("x" * 64,))
+            conn.commit()
+        cfg.MOBILE_BEARER_HASH = None
+        cfg.LAN_BIND_ENABLED = False
+
+        # Drive the lifespan startup path directly. The function is a
+        # context manager: enter it, observe settings, exit without
+        # running the rest of the route table.
+        import asyncio
+        from iris_api import lifespan
+        cm = lifespan(None)  # type: ignore[arg-type]
+        asyncio.run(cm.__aenter__())
+        try:
+            self.assertEqual(cfg.MOBILE_BEARER_HASH, "x" * 64)
+            self.assertTrue(cfg.LAN_BIND_ENABLED)
+        finally:
+            asyncio.run(cm.__aexit__(None, None, None))
+        # Clean up so the rest of the suite is unaffected.
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("TRUNCATE mobile_pairing;")
+            cur.execute(
+                "INSERT INTO mobile_pairing (id) VALUES (1);")
+            conn.commit()
+        cfg.MOBILE_BEARER_HASH = None
+        cfg.LAN_BIND_ENABLED = False
+
+
 class PairingEndpointTests(unittest.TestCase):
     def setUp(self):
         from agent.database import db
