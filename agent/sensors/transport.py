@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 
 class SyncTransport(ABC):
@@ -72,4 +73,5 @@ class HttpIntakeTransport(SyncTransport):
             headers={"Content-Type": "application/json",
                      "Authorization": f"Bearer {self._token}"})
         with urllib.request.urlopen(req) as r:
-            return _json.loads(r.read())
+            result: dict[Any, Any] = _json.loads(r.read())
+            return result

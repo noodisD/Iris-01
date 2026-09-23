@@ -6,7 +6,7 @@ to stage, confirm, and write.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ class SensorRepository:
             if batch_id is None:
                 raise RuntimeError("INSERT into sensor_batches returned no id")
             conn.commit()
-            return batch_id[0]
+            return int(batch_id[0])
 
     def confirm_batch(self, batch_id: int) -> None:
         with db.connection() as conn, conn.cursor() as cur:
@@ -82,7 +82,7 @@ class SensorRepository:
             return bool(row) and row[0] == "confirmed"
 
 
-def _to_date(occurred_at: str | datetime | None):
+def _to_date(occurred_at: str | datetime | None) -> date | None:
     if occurred_at is None:
         return None
     if isinstance(occurred_at, str):

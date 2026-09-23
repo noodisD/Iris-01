@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -10,14 +11,14 @@ from typing import Any
 REGISTRY: dict[str, type] = {}
 
 
-def register(source_name: str):
-    def decorator(cls):
+def register(source_name: str) -> Callable[[type], type]:
+    def decorator(cls: type) -> type:
         REGISTRY[source_name] = cls
         return cls
     return decorator
 
 
-def detect(payload_path) -> str | None:
+def detect(payload_path: Path) -> str | None:
     """Best-effort guess of which adapter owns this payload."""
     try:
         data = json.loads(Path(payload_path).read_text())
@@ -38,7 +39,7 @@ def _payload_hash(source_type: str, ts: str, raw: dict[str, Any]) -> str:
         .encode()).hexdigest()[:16]
 
 
-def _read_payload(path) -> tuple[dict[str, Any], bytes]:
+def _read_payload(path: Path) -> tuple[dict[str, Any], bytes]:
     raw = Path(path).read_bytes()
     return json.loads(raw), raw
 
@@ -46,16 +47,21 @@ def _read_payload(path) -> tuple[dict[str, Any], bytes]:
 def _build_batch(source: str, data: dict[str, Any],
                  raw_bytes: bytes) -> dict[str, Any]:
     """Shared batch-construction logic across all adapters."""
-    source_type_map = {
-        "pixel": PixelAdapter.SOURCE_TYPE,
-        "fitbit": FitbitAdapter.SOURCE_TYPE,
-    }[source]
-    cls = {"pixel": PixelAdapter, "fitbit": FitbitAdapter}[source]
+    source_type_map: dict[str, str]
+    adapter_cls: type
+    if source == "pixel":
+        source_type_map = PixelAdapter.SOURCE_TYPE
+        adapter_cls = PixelAdapter
+    elif source == "fitbit":
+        source_type_map = FitbitAdapter.SOURCE_TYPE
+        adapter_cls = FitbitAdapter
+    else:
+        raise ValueError(f"unknown source {source!r}")
     observations: list[dict[str, Any]] = []
     dropped = 0
     for tier, source_type in source_type_map.items():
         for raw in data.get("tiers", {}).get(tier, []):
-            obs = cls._to_observation(tier, source_type, raw)
+            obs = adapter_cls._to_observation(tier, source_type, raw)
             if obs is None:
                 dropped += 1
             else:
@@ -83,7 +89,7 @@ class PixelAdapter:
         "steps": "pixel_steps",
     }
 
-    def parse(self, payload_path) -> dict[str, Any]:
+    def parse(self, payload_path: Path) -> dict[str, Any]:
         data, raw_bytes = _read_payload(payload_path)
         return _build_batch("pixel", data, raw_bytes)
 
@@ -128,7 +134,7 @@ class FitbitAdapter:
         "spo2": "fitbit_spo2",
     }
 
-    def parse(self, payload_path) -> dict[str, Any]:
+    def parse(self, payload_path: Path) -> dict[str, Any]:
         data, raw_bytes = _read_payload(payload_path)
         return _build_batch("fitbit", data, raw_bytes)
 

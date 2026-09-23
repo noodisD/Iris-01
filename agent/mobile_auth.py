@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 
+from starlette.types import ASGIApp, Message, Scope, Receive, Send
+
 from .config import settings
 
 
@@ -32,10 +34,10 @@ class MobileAuthMiddleware:
     /api/mobile/pair.
     """
 
-    def __init__(self, app) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -69,19 +71,21 @@ class MobileAuthMiddleware:
         await self.app(scope, receive, send)
 
     @staticmethod
-    def _extract_bearer(headers: list) -> str | None:
+    def _extract_bearer(headers: list[tuple[bytes, bytes]]) -> str | None:
         for name, value in headers:
             if name == b"authorization":
                 text = value.decode("latin-1", errors="replace")
                 if text.startswith("Bearer "):
-                    return text[len("Bearer "):].strip()
+                    bearer = text[len("Bearer "):].strip()
+                    return str(bearer) if bearer else None
         return None
 
     @staticmethod
-    async def _reject(send, status: int, detail: str) -> None:
-        await send({"type": "http.response.start",
-                    "status": status,
-                    "headers": [(b"content-type", b"application/json")]})
+    async def _reject(send: Send, status: int, detail: str) -> None:
+        message: Message = {"type": "http.response.start",
+                            "status": status,
+                            "headers": [(b"content-type", b"application/json")]}
+        await send(message)
         await send({"type": "http.response.body",
                     "body": f'{{"detail":"{detail}"}}'.encode()})
 
