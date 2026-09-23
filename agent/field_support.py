@@ -67,23 +67,24 @@ replacing, not tuning. Two candidates, neither tried yet:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 
 from .constants import OBSERVATION_MAX_TOKENS
 from .observations import _strip_fence
+from .reference_evaluation import CHECKED
+from .reference_evaluation import (
+    account_key as account_key,  # noqa: PLC0414 -- legacy public export
+)
 
 logger = logging.getLogger(__name__)
 
-#: Bumped when the prompt or the verdicts change, so a stored result is never
-#: read as though it came from a rule it did not.
-VERIFICATION_VERSION = 1
+#: Bumped when the prompt, verdicts, or parsing rules change. Version 2 keeps
+#: malformed JSON shapes and duplicate fields unavailable instead of crashing
+#: or silently taking the last value. The judgment prompt is unchanged.
+VERIFICATION_VERSION = 2
 
-#: The fields worth checking: the two the spot-check found unreliable. Both are
-#: claims about what occurred, which is what a quote can settle.
-CHECKED = ("response", "outcome")
-
+#: Unavailability is an operational failure, not a semantic verdict.
 VERDICTS = ("supported", "not_stated", "contradicted", "unavailable")
 
 SYSTEM_PROMPT = """You are checking one statement about an occasion against the passages it was drawn from.
@@ -107,23 +108,10 @@ Return JSON only, in exactly this form:
 {"verdicts": [{"field": "<the field name you were given>", "verdict": "supported" | "not_stated" | "contradicted"}]}"""
 
 
-def account_key(episode: dict) -> str:
-    """A stable name for an account, independent of its place in a list.
-
-    Positions move the moment anything is filtered, and a verdict that points
-    at "account #61" is wrong as soon as an earlier account is dropped. This
-    is derived from what the account is made of, so a result can be read back
-    against a different cache and still name the same thing.
-    """
-    parts = [(episode.get("situation") or ""), (episode.get("response") or "")]
-    parts += sorted(f"{c.get('sourceType', 'reflection')}:{c.get('entryId')}"
-                    for c in episode.get("citations", []))
-    return hashlib.sha1("\u0000".join(parts).encode()).hexdigest()[:12]
-
-
 def _asked(episode: dict) -> tuple[str, dict[str, str]]:
     """What to send, and the fields it covers."""
-    fields = {f: episode[f] for f in CHECKED if episode.get(f)}
+    fields = {f: episode[f] for f in CHECKED
+              if isinstance(episode.get(f), str) and episode[f].strip()}
     quotes = "\n".join(f"- {c.get('text')}" for c in episode.get("citations", []))
     said = (f"The passages, as the writing has them:\n{quotes}\n\n"
             f"The occasion is described as: {episode.get('modality')}, "
@@ -133,8 +121,36 @@ def _asked(episode: dict) -> tuple[str, dict[str, str]]:
     return said, fields
 
 
+def _parse_verdicts(reply: str, fields: dict[str, str]) -> dict[str, str]:
+    try:
+        answer = json.loads(_strip_fence(reply))
+    except (ValueError, AttributeError, TypeError):
+        # An unreadable answer is not a judgement about the field either.
+        return dict.fromkeys(fields, "unavailable")
+    if not isinstance(answer, dict) or not isinstance(answer.get("verdicts"), list):
+        return dict.fromkeys(fields, "unavailable")
+    # Keyed by field name rather than positionally, and read from an explicit
+    # "verdicts" list: asking for {"response": ...} invited the model to put the
+    # restated statement under that key, because "response" names a field here
+    # and an answer everywhere else. Two accounts came back that way and were
+    # counted as provider failures.
+    given = {}
+    duplicates = set()
+    for item in answer["verdicts"]:
+        if not isinstance(item, dict) or not isinstance(item.get("field"), str):
+            continue
+        name = item["field"]
+        if name in given:
+            duplicates.add(name)
+        given[name] = item.get("verdict")
+    for name in duplicates:
+        given.pop(name)
+    return {name: (given.get(name) if given.get(name) in VERDICTS[:3] else "unavailable")
+            for name in fields}
+
+
 def check(episode: dict, intelligence) -> dict[str, str]:
-    """A verdict per checked field. Never raises, never edits the account."""
+    """A verdict per populated field; provider/response failures are unavailable."""
     said, fields = _asked(episode)
     if not fields:
         return {}
@@ -145,24 +161,11 @@ def check(episode: dict, intelligence) -> dict[str, str]:
                                   system_prompt=SYSTEM_PROMPT,
                                   max_tokens=OBSERVATION_MAX_TOKENS)
     except Exception as e:
-        logger.error(f"Field support could not be asked: {e}")
+        # An exception can contain source text or credentials. Its type is
+        # enough to diagnose the failure category without logging the payload.
+        logger.error("Field support could not be asked (%s)", type(e).__name__)
         return dict.fromkeys(fields, "unavailable")
-    try:
-        answer = json.loads(_strip_fence(reply))
-    except (ValueError, AttributeError):
-        # An unreadable answer is not a judgement about the field either.
-        return dict.fromkeys(fields, "unavailable")
-    # Keyed by field name rather than positionally, and read from an explicit
-    # "verdicts" list: asking for {"response": ...} invited the model to put the
-    # restated statement under that key, because "response" names a field here
-    # and an answer everywhere else. Two accounts came back that way and were
-    # counted as provider failures.
-    given = {}
-    for item in (answer.get("verdicts") or []):
-        if isinstance(item, dict):
-            given[item.get("field")] = item.get("verdict")
-    return {name: (given.get(name) if given.get(name) in VERDICTS[:3] else "unavailable")
-            for name in fields}
+    return _parse_verdicts(reply, fields)
 
 
 def tally(results: list[dict]) -> dict:

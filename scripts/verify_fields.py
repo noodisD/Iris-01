@@ -2,8 +2,8 @@
 """Check whether an account's response and outcome are stated by its quotes.
 
 Run against the reviewed accounts first. A checker that has not been measured
-against known answers is a second opinion, not a check, and the ten accounts
-the owner went through by hand are the only known answers this system has.
+against known answers is a second opinion, not a check. The owner's completed,
+fingerprinted labels are required; the earlier spot-check is not a substitute.
 
     uv run python scripts/verify_fields.py --reviewed   # measure it, ~10 calls
     uv run python scripts/verify_fields.py              # the whole cache
@@ -17,17 +17,23 @@ it can be read back after anything has been filtered.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
-logging.disable(logging.CRITICAL)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent.field_support import (  # noqa: E402
-    CHECKED, VERIFICATION_VERSION, account_key, check, tally)
-from agent.intelligence import Intelligence  # noqa: E402
+from agent.reference_evaluation import (
+    CHECKED,
+    account_fingerprint,
+    account_key,
+    score_results,
+)
+from scripts.reference_labels import validate_reference
 
 #: Reference judgments live in a file the owner fills in, not in this script.
 #: The first attempt hardcoded their words here and mapped "no" to not_stated,
@@ -35,12 +41,60 @@ from agent.intelligence import Intelligence  # noqa: E402
 #: and one that supports an intention the account reports as a deed.
 REFERENCE = "data/reference-labels.json"
 
-#: A reference verdict meaning the field should NOT have been admitted. Kept as
-#: a set rather than "anything but supported", so `unsure` stays unscored.
-FAILING = ("not_stated", "contradicted", "wrong_modality", "wrong_actor")
+
+def _run_checks(episodes: list[dict], wanted: list[int]) -> tuple[list[dict], dict]:
+    """Only this boundary imports the app and can contact a model.
+
+    Reference validation and dry runs complete before reaching this function.
+    Tests substitute this boundary with synthetic results, never an API client.
+    """
+    from agent.field_support import (  # noqa: PLC0415 -- preflight first
+        SYSTEM_PROMPT,
+        VERIFICATION_VERSION,
+        check,
+    )
+    from agent.intelligence import Intelligence  # noqa: PLC0415 -- preflight first
+
+    intelligence = Intelligence()
+    results = []
+    previous_logging_level = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        for i in wanted:
+            results.append({"index": i, "key": account_key(episodes[i]),
+                            "fingerprint": account_fingerprint(episodes[i]),
+                            "verdicts": check(episodes[i], intelligence)})
+    finally:
+        logging.disable(previous_logging_level)
+    return results, {"version": VERIFICATION_VERSION, "model": intelligence.model,
+                     "promptHash": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()}
 
 
-def main() -> int:
+def _print_score(score: dict) -> None:
+    errors = score["overall"]["known_error"]
+    correct = score["overall"]["correct"]
+    unsure = score["overall"]["unsure"]
+    print("\nAgainst the reference judgments (full reference denominators):")
+    print(f"errors caught           {errors['rejected']} of {errors['total']}")
+    print(f"correct fields rejected {correct['rejected']} of {correct['total']}")
+    print(f"unavailable on errors   {errors['unavailable']} of {errors['total']}")
+    print(f"unavailable on correct  {correct['unavailable']} of {correct['total']}")
+    print(f"reference unsure        {unsure['total']} (not scored)")
+    print(f"  supported {unsure['supported']}, rejected {unsure['rejected']}, "
+          f"unavailable {unsure['unavailable']}")
+    print(f"unjudged result fields  {score['missing_reference']['fields']}")
+    print("\nBaselines on the same complete reference:")
+    for name, baseline in score["baselines"].items():
+        err = baseline["known_error"]
+        good = baseline["correct"]
+        print(f"  {name}: catches {err['rejected']} of {err['total']}; "
+              f"rejects {good['rejected']} of {good['total']} correct fields")
+    print("Unavailable is a service/response failure, not a semantic abstention. "
+          "Catching errors alone is not success; correct-field rejection and "
+          "coverage matter too.")
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cache", default="data/episodes.json")
     ap.add_argument("--reviewed", action="store_true",
@@ -48,94 +102,75 @@ def main() -> int:
                          "against what they said")
     ap.add_argument("--limit", type=int, default=100_000)
     ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    ap.add_argument("--reference", default=REFERENCE)
+    ap.add_argument("--out", help="result artifact (defaults beside the cache)")
+    args = ap.parse_args(argv)
+    if args.limit <= 0:
+        print("--limit must be positive.")
+        return 1
+    filename = "field-support-reviewed.json" if args.reviewed else "field-support.json"
+    out = Path(args.out) if args.out else Path(args.cache).parent / filename
+    protected = [Path(args.cache), Path(args.reference)]
+    if any(out.resolve() == source.resolve()
+           or (out.exists() and source.exists() and out.samefile(source)) for source in protected):
+        print("Refusing to overwrite the cache or reference with checker results.")
+        return 1
+    try:
+        episodes = json.loads(Path(args.cache).read_text())["episodes"]
+        if not isinstance(episodes, list) or any(not isinstance(e, dict) for e in episodes):
+            raise ValueError("Malformed episode cache.")
+    except (OSError, ValueError, KeyError, TypeError):
+        print("Could not read the episode cache.")
+        return 1
 
-    episodes = json.loads(Path(args.cache).read_text())["episodes"]
+    reference = None
     if args.reviewed:
-        # Whichever accounts the reference file holds, rather than a list kept
-        # in step by hand: the reference is the only thing that says which
-        # accounts have known answers.
-        reference = json.loads(Path(REFERENCE).read_text()) if Path(REFERENCE).exists() else {}
-        by_key = {account_key(e): i for i, e in enumerate(episodes)}
-        wanted = sorted(by_key[k] for k in reference if k in by_key)
-        if not wanted:
-            print(f"No reference judgments at {REFERENCE}. Build and fill "
-                  "data/reference-labels.md, then `reference_labels.py read`.")
+        try:
+            reference = json.loads(Path(args.reference).read_text())
+            wanted = validate_reference(reference, episodes)[:args.limit]
+            # --limit defines an explicit evaluation subset; unavailable model
+            # answers must never define that subset after the fact.
+            reference = {"version": reference["version"],
+                         "cohort": [account_key(episodes[i]) for i in wanted], "accounts": {
+                account_key(episodes[i]): reference["accounts"][account_key(episodes[i])]
+                for i in wanted}}
+            validate_reference(reference, episodes)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"Reference not ready: {exc}")
+            print("Fill and parse a current fingerprinted sheet before evaluation.")
             return 1
     else:
-        wanted = range(len(episodes))
-    wanted = list(wanted)[:args.limit]
-    askable = [i for i in wanted if any(episodes[i].get(f) for f in CHECKED)]
+        wanted = list(range(len(episodes)))[:args.limit]
+    askable = [i for i in wanted if any(
+        isinstance(episodes[i].get(f), str) and episodes[i][f].strip() for f in CHECKED)]
 
     print(f"{len(episodes)} accounts in the cache, {len(askable)} to ask about")
-    if args.dry_run:
-        print("dry run: nothing was sent to the model.")
+    if args.dry_run or not askable:
+        print("Dry run or no populated fields: nothing was sent to the model.")
         return 0
 
-    intelligence = Intelligence()
-    results = []
     started = time.time()
-    for i in askable:
-        verdicts = check(episodes[i], intelligence)
-        results.append({"index": i, "key": account_key(episodes[i]),
-                        "verdicts": verdicts})
+    results, metadata = _run_checks(episodes, askable)
 
-    counts = tally(results)
     print(f"\nasked about {len(results)} account(s) in {round(time.time() - started)}s\n")
     print(f"{'field':<10} {'supported':>10} {'not_stated':>11} {'contradicted':>13} {'unavailable':>12}")
-    for field, row in counts.items():
+    for field in CHECKED:
+        row = Counter(result["verdicts"].get(field) for result in results)
         print(f"{field:<10} {row['supported']:>10} {row['not_stated']:>11} "
               f"{row['contradicted']:>13} {row['unavailable']:>12}")
 
-    if args.reviewed:
-        ref_path = Path(REFERENCE)
-        if not ref_path.exists():
-            print(f"\nNo reference judgments at {ref_path}. Build and fill "
-                  "data/reference-labels.md, then `reference_labels.py read`. "
-                  "Nothing is scored against guesses.")
-            return 1
-        reference = json.loads(ref_path.read_text())
-
-        caught = missed = rejected = kept = abstained = unscored = 0
-        print("\nAgainst the reference judgments:\n")
-        print(f"{'account':<9} {'field':<10} {'reference':<16} {'checker':<13}")
-        print("-" * 52)
-        for row in results:
-            ref = reference.get(row["key"], {}).get("verdicts", {})
-            for field, verdict in row["verdicts"].items():
-                expected = ref.get(field)
-                print(f"#{row['index']:<8} {field:<10} {expected or '—':<16} {verdict:<13}")
-                if expected is None or expected == "unsure":
-                    unscored += 1
-                elif verdict == "unavailable":
-                    abstained += 1
-                elif expected in FAILING:
-                    caught += verdict != "supported"
-                    missed += verdict == "supported"
-                else:
-                    kept += verdict == "supported"
-                    rejected += verdict != "supported"
-
-        errors = caught + missed
-        correct = kept + rejected
-        print(f"\nerrors caught          {caught} of {errors}"
-              + (f"  ({caught / errors:.0%})" if errors else ""))
-        print(f"correct fields rejected {rejected} of {correct}"
-              + (f"  ({rejected / correct:.0%})" if correct else ""))
-        print(f"abstained (unavailable) {abstained}")
-        print(f"not scored              {unscored}  (ambiguous or unjudged)")
-        print("\nA checker that answered \"supported\" every time would catch "
-              f"0 of {errors} and reject 0 of {correct}. Anything that does not "
-              "beat that on the first number is not checking anything.")
-        return 0
-
-    out = Path(args.cache).parent / "field-support.json"
-    out.write_text(json.dumps({
-        "version": VERIFICATION_VERSION,
+    artifact = {
+        **metadata,
+        "formatVersion": 2,
         "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "fields": list(CHECKED),
         "results": results,
-    }, indent=1))
+    }
+    if reference is not None:
+        score = score_results(reference["accounts"], results)
+        _print_score(score)
+        artifact.update({"reference": reference, "score": score})
+    out.write_text(json.dumps(artifact, indent=1))
     print(f"\nwritten to {out}")
     print("No account was changed. The original cache is untouched, and every "
           "label or report made before this run is unvalidated until rechecked.")
