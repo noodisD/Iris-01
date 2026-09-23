@@ -10,21 +10,24 @@ This directory is a standard Android Gradle project. Building it
 requires:
 
 - JDK 17
-- Android SDK 34 (platforms;android-34)
-- Android Build Tools 34.0.0
+- Android SDK 35 (platforms;android-35)
+- Android Build Tools 35.0.0
 - A `local.properties` file pointing at your SDK, e.g.:
 
   ```
-  sdk.dir=/opt/android-sdk
+  sdk.dir=/home/noodis/Android/Sdk
   ```
 
   or the `ANDROID_HOME` env var.
 
 ## Build & test
 
+The project ships with a Gradle wrapper, so the only prerequisite is a
+JDK 17 and the Android SDK. The wrapper uses Gradle 8.9.
+
 ```bash
 ./gradlew :app:assembleDebug   # builds the APK
-./gradlew :app:test            # unit tests (MockWebServer)
+./gradlew :app:test            # 5 JVM unit tests for SensorPayloadBuilder
 ```
 
 The first build downloads Compose, OkHttp, WorkManager, and the
@@ -43,8 +46,10 @@ android/
       kotlin/com/iris/android/
         MainActivity.kt            placeholder UI
         IrisApiClient.kt           the only HTTP client to IRIS
-        SensorCollectorService.kt  foreground service stub
-    src/test/kotlin/...            unit tests (added in next task)
+        SensorPayloadBuilder.kt    JVM-testable cross-seam contract
+        SensorCollectorService.kt  foreground service
+        Settings.kt                SharedPreferences storage (temp)
+    src/test/kotlin/...            5 JVM unit tests for the builder
 ```
 
 ## What this branch has
