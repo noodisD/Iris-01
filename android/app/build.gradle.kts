@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "com.iris.android"
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         applicationId = "com.iris.android"
         minSdk = 29
@@ -15,6 +14,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    composeOptions {
+        // Compose compiler matched to Kotlin 1.9.24.
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
