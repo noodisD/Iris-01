@@ -414,9 +414,18 @@ def test_duplicate_provider_field_cannot_silently_select_a_verdict(isolated_chec
 
 
 def test_provider_exception_is_unavailable_and_does_not_log_payload(isolated_checker, caplog):
-    def fail(**kwargs):
-        raise RuntimeError("synthetic-sensitive-text")
-    assert isolated_checker.check(episode(), SimpleNamespace(chat=fail)) == {
-        "response": "unavailable", "outcome": "unavailable"}
-    assert "synthetic-sensitive-text" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    # caplog listens on the root logger, and configure_logging() — run when the
+    # suite's conftest imports the app — stops "agent" propagating to it. Under
+    # the full suite this module's records never reached caplog, so the log was
+    # empty and the payload assertion below passed without testing anything.
+    # Attach the capture to the logger itself so both assertions are real.
+    isolated_checker.logger.addHandler(caplog.handler)
+    try:
+        def fail(**kwargs):
+            raise RuntimeError("synthetic-sensitive-text")
+        assert isolated_checker.check(episode(), SimpleNamespace(chat=fail)) == {
+            "response": "unavailable", "outcome": "unavailable"}
+        assert "synthetic-sensitive-text" not in caplog.text
+        assert "RuntimeError" in caplog.text
+    finally:
+        isolated_checker.logger.removeHandler(caplog.handler)
