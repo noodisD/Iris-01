@@ -11,6 +11,7 @@ const NAV = [
   { to: '/habits',    label: 'Habits' },
   { to: '/decisions', label: 'Decisions' },
   { to: '/insights',  label: 'Insights' },
+  { to: '/patterns',  label: 'Patterns' },
   { to: '/constructs', label: 'Noticed' },
   { to: '/review',    label: 'Review' },
   { to: '/import',    label: 'Import' },

@@ -34,7 +34,7 @@ function toApiError(status: number, payload: unknown, fallback: string): ApiErro
 }
 
 async function request<T>(
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<T> {
@@ -114,6 +114,7 @@ export const api = {
   get:    <T>(path: string)                 => request<T>('GET',    path),
   post:   <T>(path: string, body?: unknown) => request<T>('POST',   path, body),
   patch:  <T>(path: string, body?: unknown) => request<T>('PATCH',  path, body),
+  put:    <T>(path: string, body?: unknown) => request<T>('PUT',    path, body),
   del:    <T>(path: string)                 => request<T>('DELETE', path),
 };
 

@@ -5,6 +5,7 @@ import { TodayScreen } from '@/screens/TodayScreen';
 import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
 import { DecisionsScreen } from '@/screens/DecisionsScreen';
+import { PatternsScreen } from '@/screens/PatternsScreen';
 import { InsightsScreen } from '@/screens/InsightsScreen';
 import { ReviewScreen } from '@/screens/ReviewScreen';
 import { ImportScreen } from '@/screens/ImportScreen';
@@ -27,6 +28,8 @@ const router = createBrowserRouter([
       { path: 'decisions', element: <DecisionsScreen /> },
       { path: 'insights', element: <InsightsScreen /> },
       { path: 'insights/:id', element: <InsightsScreen /> },
+      { path: 'patterns', element: <PatternsScreen /> },
+      { path: 'patterns/:id', element: <PatternsScreen /> },
       { path: 'review', element: <ReviewScreen /> },
       { path: 'import', element: <ImportScreen /> },
       { path: 'constructs', element: <ConstructsScreen /> },

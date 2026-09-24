@@ -44,6 +44,8 @@ try:
     from agent.observations import ObservationEngine, apply_preferences
     from agent import constructs
     from agent import decisions as decision_log
+    from agent import discovery
+    from agent.library import load as load_library
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -221,6 +223,21 @@ class DecisionOutcome(BaseModel):
     outcome: str = Field(min_length=1, max_length=2000)
     followedPlan: Literal["yes", "partly", "no"] | None = None
     wouldRepeat: Literal["yes", "no", "unsure"] | None = None
+
+
+# ============================================================================
+# PATTERN MODELS
+# ============================================================================
+
+class OccasionVerdict(BaseModel):
+    """Whether an occasion is really an instance of the pattern. None clears it."""
+    verdict: Literal["yes", "no", "unsure"] | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+class PatternVerdict(BaseModel):
+    """Whether the pattern rings true at all."""
+    verdict: Literal["rings_true", "does_not", "unsure"]
+    note: str | None = Field(default=None, max_length=1000)
 
 
 # ============================================================================
@@ -882,6 +899,78 @@ def record_decision_outcome(decision_id: int, body: DecisionOutcome,
     if row is None:
         raise HTTPException(status_code=404, detail="No such decision.")
     return _decision_to_contract(row)
+
+
+# ============================================================================
+# PATTERN ENDPOINTS (discovery; see agent/discovery.py and patterns/library.json)
+# ============================================================================
+
+def _library() -> dict:
+    return {p.id: p for p in load_library()}
+
+
+def _pattern_contract(p) -> dict:
+    return {"id": p.id, "name": p.name, "statement": p.statement,
+            "holdsWhen": list(p.holds_when), "notWhen": list(p.not_when),
+            "question": p.question, "basis": p.basis or None,
+            "evidence": p.evidence or None, "source": p.source or None}
+
+
+@app.get("/api/patterns")
+def list_patterns(user_id: int = Depends(get_current_user_id)):
+    """Every library pattern, with its occasions counted by how they went."""
+    return {"patterns": [
+        {**_pattern_contract(s["pattern"]), "occasions": s["occasions"], "tones": s["tones"],
+         "reviewed": s["reviewed"], "rejected": s["rejected"], "labelledBy": s["labelledBy"],
+         "verdict": s["verdict"]}
+        for s in discovery.summaries(user_id, list(_library().values()))]}
+
+
+@app.get("/api/patterns/{pattern_id}")
+def get_pattern(pattern_id: str, user_id: int = Depends(get_current_user_id)):
+    """One pattern: its occasions on both sides, and what else was true on each."""
+    library = _library()
+    if pattern_id not in library:
+        raise HTTPException(status_code=404, detail="No such pattern.")
+    d = discovery.detail(user_id, library[pattern_id])
+    return {
+        "pattern": _pattern_contract(d["pattern"]),
+        "occasions": [{
+            "id": str(o["id"]),
+            "occurredOn": o["occurred_on"].isoformat() if o["occurred_on"] else None,
+            "domain": o["domain"], "situation": o["situation"], "response": o["response"],
+            "outcome": o["outcome"], "explanation": o["explanation"],
+            "citations": [{"entryId": str(c.get("entryId")), "sourceType": c.get("sourceType", "reflection"),
+                           "entryDate": c.get("entryDate"), "text": c.get("text")}
+                          for c in (o["citations"] or [])],
+            "tone": o["label"]["tone"], "size": o["label"]["size"],
+            "labelledBy": o["label"]["labelled_by"],
+            "ownerVerdict": o["label"]["owner_verdict"], "verdictNote": o["label"]["verdict_note"],
+        } for o in d["occasions"]],
+        "alsoTrue": d["alsoTrue"],
+        "distinctive": [{"patternId": pid, "name": library[pid].name if pid in library else pid,
+                         "better": better, "worse": worse} for pid, better, worse in d["distinctive"]],
+        "verdict": d["verdict"],
+    }
+
+
+@app.put("/api/patterns/{pattern_id}/occasions/{occasion_id}")
+def put_occasion_verdict(pattern_id: str, occasion_id: int, body: OccasionVerdict,
+                         user_id: int = Depends(get_current_user_id)):
+    """Whether this occasion is really an instance of the pattern."""
+    if not discovery.set_occasion_verdict(user_id, pattern_id, occasion_id, body.verdict, body.note):
+        raise HTTPException(status_code=404, detail="That occasion is not labelled with this pattern.")
+    return {"ok": True}
+
+
+@app.put("/api/patterns/{pattern_id}/verdict")
+def put_pattern_verdict(pattern_id: str, body: PatternVerdict,
+                        user_id: int = Depends(get_current_user_id)):
+    """Whether the pattern rings true at all."""
+    if pattern_id not in _library():
+        raise HTTPException(status_code=404, detail="No such pattern.")
+    discovery.set_pattern_verdict(user_id, pattern_id, body.verdict, body.note)
+    return {"ok": True}
 
 
 # ============================================================================

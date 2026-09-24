@@ -113,6 +113,77 @@ export interface JournalListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Patterns — discovery: library patterns, the occasions that are instances of them
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** How an occasion turned out, as the labelling pass read it. */
+export type OccasionTone = 'better' | 'worse' | 'mixed';
+export type OccasionVerdictValue = 'yes' | 'no' | 'unsure';
+export type PatternVerdictValue = 'rings_true' | 'does_not' | 'unsure';
+
+export interface PatternInfo {
+  id: string;
+  name: string;
+  statement: string;
+  holdsWhen: string[];
+  notWhen: string[];
+  question: string;
+  basis: string | null;
+  /** How well the idea behind it has held up: 'well replicated' | 'mixed' | 'contested'. */
+  evidence: string | null;
+  source: string | null;
+}
+
+export interface PatternVerdict {
+  verdict: PatternVerdictValue;
+  note: string | null;
+}
+
+export interface PatternSummary extends PatternInfo {
+  /** Occasions, not counting any you said are not this pattern. */
+  occasions: number;
+  tones: Record<OccasionTone, number>;
+  reviewed: number;
+  rejected: number;
+  /** What produced the labels: a sparse pattern may be sparsely labelled, not rare. */
+  labelledBy: string[];
+  verdict: PatternVerdict | null;
+}
+
+export interface OccasionCitation {
+  entryId: ID;
+  sourceType: string;
+  entryDate: string | null;
+  text: string;
+}
+
+export interface Occasion {
+  id: ID;
+  occurredOn: string | null;
+  domain: string | null;
+  situation: string;
+  response: string;
+  outcome: string | null;
+  explanation: string | null;
+  citations: OccasionCitation[];
+  tone: OccasionTone;
+  size: string | null;
+  labelledBy: string | null;
+  ownerVerdict: OccasionVerdictValue | null;
+  verdictNote: string | null;
+}
+
+export interface PatternDetail {
+  pattern: PatternInfo;
+  occasions: Occasion[];
+  /** Other patterns also present on each side, and on how many occasions. */
+  alsoTrue: Record<'better' | 'worse', Record<string, number>>;
+  /** Differences of two or more between the sides. Not causes: differences. */
+  distinctive: { patternId: string; name: string; better: number; worse: number }[];
+  verdict: PatternVerdict | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Decisions — a decision journal, filled in when a decision is made
 // ─────────────────────────────────────────────────────────────────────────────
 

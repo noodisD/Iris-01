@@ -677,6 +677,83 @@
         "type": "integer"
       }
     },
+    "occasions": {
+      "actor": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "citations": {
+        "default": "'[]'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "demand": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "domain": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "explanation": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "fingerprint": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "information": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "modality": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "occurred_on": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "outcome": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "response": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "situation": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "pattern_confidence": {
       "confidence_level": {
         "default": null,
@@ -781,6 +858,53 @@
         "type": "integer"
       }
     },
+    "pattern_labels": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "labelled_by": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "occasion_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "owner_verdict": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "size": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "tone": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "verdict_note": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      }
+    },
     "pattern_leverage": {
       "confidence_level": {
         "default": null,
@@ -877,6 +1001,33 @@
       "resolution_label": {
         "default": null,
         "nullable": "YES",
+        "type": "character varying"
+      }
+    },
+    "pattern_verdicts": {
+      "note": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "updated_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "verdict": {
+        "default": null,
+        "nullable": "NO",
         "type": "character varying"
       }
     },
@@ -1843,6 +1994,64 @@
         "type": "n"
       }
     },
+    "occasions": {
+      "occasions_actor_check": {
+        "definition": "CHECK (((actor)::text = ANY ((ARRAY['self'::character varying, 'other'::character varying])::text[])))",
+        "type": "c"
+      },
+      "occasions_actor_not_null": {
+        "definition": "NOT NULL actor",
+        "type": "n"
+      },
+      "occasions_citations_not_null": {
+        "definition": "NOT NULL citations",
+        "type": "n"
+      },
+      "occasions_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "occasions_fingerprint_not_null": {
+        "definition": "NOT NULL fingerprint",
+        "type": "n"
+      },
+      "occasions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "occasions_modality_check": {
+        "definition": "CHECK (((modality)::text = ANY ((ARRAY['happened'::character varying, 'planned'::character varying, 'hypothetical'::character varying])::text[])))",
+        "type": "c"
+      },
+      "occasions_modality_not_null": {
+        "definition": "NOT NULL modality",
+        "type": "n"
+      },
+      "occasions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "occasions_response_not_null": {
+        "definition": "NOT NULL response",
+        "type": "n"
+      },
+      "occasions_situation_not_null": {
+        "definition": "NOT NULL situation",
+        "type": "n"
+      },
+      "occasions_user_id_fingerprint_key": {
+        "definition": "UNIQUE (user_id, fingerprint)",
+        "type": "u"
+      },
+      "occasions_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "occasions_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "pattern_confidence": {
       "pattern_confidence_id_not_null": {
         "definition": "NOT NULL id",
@@ -1903,6 +2112,52 @@
         "type": "p"
       }
     },
+    "pattern_labels": {
+      "pattern_labels_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "pattern_labels_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "pattern_labels_occasion_id_fkey": {
+        "definition": "FOREIGN KEY (occasion_id) REFERENCES occasions(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "pattern_labels_occasion_id_not_null": {
+        "definition": "NOT NULL occasion_id",
+        "type": "n"
+      },
+      "pattern_labels_occasion_id_pattern_id_key": {
+        "definition": "UNIQUE (occasion_id, pattern_id)",
+        "type": "u"
+      },
+      "pattern_labels_owner_verdict_check": {
+        "definition": "CHECK (((owner_verdict)::text = ANY ((ARRAY['yes'::character varying, 'no'::character varying, 'unsure'::character varying])::text[])))",
+        "type": "c"
+      },
+      "pattern_labels_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "pattern_labels_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "pattern_labels_size_check": {
+        "definition": "CHECK (((size)::text = ANY ((ARRAY['small'::character varying, 'moderate'::character varying, 'large'::character varying])::text[])))",
+        "type": "c"
+      },
+      "pattern_labels_tone_check": {
+        "definition": "CHECK (((tone)::text = ANY ((ARRAY['better'::character varying, 'worse'::character varying, 'mixed'::character varying])::text[])))",
+        "type": "c"
+      },
+      "pattern_labels_tone_not_null": {
+        "definition": "NOT NULL tone",
+        "type": "n"
+      }
+    },
     "pattern_leverage": {
       "pattern_leverage_id_not_null": {
         "definition": "NOT NULL id",
@@ -1953,6 +2208,36 @@
       "pattern_resolutions_pkey": {
         "definition": "PRIMARY KEY (id)",
         "type": "p"
+      }
+    },
+    "pattern_verdicts": {
+      "pattern_verdicts_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "pattern_verdicts_pkey": {
+        "definition": "PRIMARY KEY (user_id, pattern_id)",
+        "type": "p"
+      },
+      "pattern_verdicts_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "pattern_verdicts_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "pattern_verdicts_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "pattern_verdicts_verdict_check": {
+        "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
+        "type": "c"
+      },
+      "pattern_verdicts_verdict_not_null": {
+        "definition": "NOT NULL verdict",
+        "type": "n"
       }
     },
     "preference_audit": {
@@ -2326,6 +2611,10 @@
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",
       "observation_runs_pkey": "CREATE UNIQUE INDEX observation_runs_pkey ON public.observation_runs USING btree (id)"
     },
+    "occasions": {
+      "occasions_pkey": "CREATE UNIQUE INDEX occasions_pkey ON public.occasions USING btree (id)",
+      "occasions_user_id_fingerprint_key": "CREATE UNIQUE INDEX occasions_user_id_fingerprint_key ON public.occasions USING btree (user_id, fingerprint)"
+    },
     "pattern_confidence": {
       "pattern_confidence_pattern_type_pattern_id_key": "CREATE UNIQUE INDEX pattern_confidence_pattern_type_pattern_id_key ON public.pattern_confidence USING btree (pattern_type, pattern_id)",
       "pattern_confidence_pkey": "CREATE UNIQUE INDEX pattern_confidence_pkey ON public.pattern_confidence USING btree (id)"
@@ -2334,6 +2623,11 @@
       "idx_evidence_pattern": "CREATE INDEX idx_evidence_pattern ON public.pattern_evidence USING btree (pattern_type, pattern_id, related_pattern_id, engine_name, created_at DESC)",
       "pattern_evidence_pkey": "CREATE UNIQUE INDEX pattern_evidence_pkey ON public.pattern_evidence USING btree (id)"
     },
+    "pattern_labels": {
+      "pattern_labels_occasion_id_pattern_id_key": "CREATE UNIQUE INDEX pattern_labels_occasion_id_pattern_id_key ON public.pattern_labels USING btree (occasion_id, pattern_id)",
+      "pattern_labels_pattern": "CREATE INDEX pattern_labels_pattern ON public.pattern_labels USING btree (pattern_id)",
+      "pattern_labels_pkey": "CREATE UNIQUE INDEX pattern_labels_pkey ON public.pattern_labels USING btree (id)"
+    },
     "pattern_leverage": {
       "pattern_leverage_pkey": "CREATE UNIQUE INDEX pattern_leverage_pkey ON public.pattern_leverage USING btree (id)",
       "pattern_leverage_source_type_source_id_target_type_target_i_key": "CREATE UNIQUE INDEX pattern_leverage_source_type_source_id_target_type_target_i_key ON public.pattern_leverage USING btree (source_type, source_id, target_type, target_id)"
@@ -2341,6 +2635,9 @@
     "pattern_resolutions": {
       "pattern_resolutions_pattern_type_pattern_id_key": "CREATE UNIQUE INDEX pattern_resolutions_pattern_type_pattern_id_key ON public.pattern_resolutions USING btree (pattern_type, pattern_id)",
       "pattern_resolutions_pkey": "CREATE UNIQUE INDEX pattern_resolutions_pkey ON public.pattern_resolutions USING btree (id)"
+    },
+    "pattern_verdicts": {
+      "pattern_verdicts_pkey": "CREATE UNIQUE INDEX pattern_verdicts_pkey ON public.pattern_verdicts USING btree (user_id, pattern_id)"
     },
     "preference_audit": {
       "preference_audit_pkey": "CREATE UNIQUE INDEX preference_audit_pkey ON public.preference_audit USING btree (id)"
