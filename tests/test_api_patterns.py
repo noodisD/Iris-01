@@ -160,3 +160,27 @@ def test_the_loader_applies_sheet_answers_only_where_none_were_given(tmp_path, m
     assert verdicts["A neighbour's plot came free"] == "no"
     # A second run changes nothing it has already set.
     assert load_discovery.main() == 0
+
+
+def test_the_loader_loads_under_the_same_owner_the_app_shows(tmp_path, monkeypatch):
+    """Run with no --user, it must resolve the owner exactly as the app does.
+
+    A first draft asked for a user named "owner", which would have created a
+    second user and loaded everything where the app never looks.
+    """
+    import iris_api
+    from agent.database import db
+    from scripts import load_discovery
+    cache, labels = tmp_path / "e.json", tmp_path / "l.json"
+    cache.write_text(json.dumps({"episodes": READING}))
+    labels.write_text(json.dumps(LABELS))
+    app_user = db.local_user_id(iris_api.DEFAULT_USERNAME)
+    monkeypatch.setattr(sys, "argv", ["load_discovery.py", "--cache", str(cache), "--labels", str(labels),
+                                      "--answers", str(tmp_path / "none.json")])
+    try:
+        assert load_discovery.main() == 0
+        assert discovery.occasion_id_for(app_user, READING[0]) is not None
+    finally:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM occasions WHERE user_id = %s", (app_user,))
+            conn.commit()
