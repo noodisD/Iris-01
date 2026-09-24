@@ -28,4 +28,5 @@ export const qk = {
   importBatch: (id: string) => ['import', 'batches', id] as const,
   importEntries: (id: string) => ['import', 'batches', id, 'entries'] as const,
   review: ['review', 'latest'] as const,
+  decisions: ['decisions'] as const,
 };

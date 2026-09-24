@@ -27,7 +27,9 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
@@ -41,6 +43,7 @@ try:
     from agent.insights_service import InsightsService
     from agent.observations import ObservationEngine, apply_preferences
     from agent import constructs
+    from agent import decisions as decision_log
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -190,6 +193,31 @@ class ReflectionResponse(BaseModel):
     tags: list[str] | None
     created_at: str
     updated_at: str
+
+
+# ============================================================================
+# DECISION MODELS
+# ============================================================================
+
+class DecisionCreate(BaseModel):
+    """A risky commitment, as it is made. Only `what` is required: a log that
+    demands every field at the moment of deciding gets skipped, and a skipped
+    entry is worse for comparison than a partial one."""
+    what: str = Field(min_length=1, max_length=500)
+    decidedOn: date | None = None
+    sharePct: float | None = Field(default=None, ge=0)
+    borrowed: bool = False
+    lastDays: Literal["big_loss", "big_win", "neither"] | None = None
+    moneyNeededFor: str | None = Field(default=None, max_length=500)
+    moneyNeededBy: date | None = None
+    sleepHours: float | None = Field(default=None, ge=0, le=24)
+    energy: int | None = Field(default=None, ge=1, le=10)
+    plan: str | None = Field(default=None, max_length=1000)
+
+class DecisionOutcome(BaseModel):
+    """What happened, and whether the plan was kept."""
+    outcome: str = Field(min_length=1, max_length=2000)
+    followedPlan: Literal["yes", "partly", "no"] | None = None
 
 
 # ============================================================================
@@ -792,6 +820,67 @@ def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_curren
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _reflection_to_journal(service.get_reflection(reflection_id), user_id)
+
+
+# ============================================================================
+# DECISION ENDPOINTS (a log of risky commitments; see agent/decisions.py)
+# ============================================================================
+
+def _decision_to_contract(row: dict) -> dict:
+    """A stored decision in the frontend `Decision` shape."""
+    def number(value):
+        return float(value) if value is not None else None
+    return {
+        "id": str(row["id"]),
+        "decidedOn": row["decided_on"].isoformat(),
+        "what": row["what"],
+        "sharePct": number(row["share_pct"]),
+        "borrowed": row["borrowed"],
+        "lastDays": row["last_days"],
+        "moneyNeededFor": row["money_needed_for"],
+        "moneyNeededBy": row["money_needed_by"].isoformat() if row["money_needed_by"] else None,
+        "sleepHours": number(row["sleep_hours"]),
+        "energy": row["energy"],
+        "plan": row["plan"],
+        "outcome": row["outcome"],
+        "followedPlan": row["followed_plan"],
+        "closedAt": row["closed_at"].isoformat() if row["closed_at"] else None,
+    }
+
+
+@app.get("/api/decisions")
+def list_decisions(user_id: int = Depends(get_current_user_id)):
+    """Every recorded decision, newest first."""
+    return {"decisions": [_decision_to_contract(r) for r in decision_log.list_for(user_id)]}
+
+
+@app.post("/api/decisions")
+def create_decision(body: DecisionCreate, user_id: int = Depends(get_current_user_id)):
+    """Record a commitment as it is made."""
+    if not body.what.strip():
+        raise HTTPException(status_code=422, detail="Say what the decision is.")
+    if body.moneyNeededBy and not (body.moneyNeededFor or "").strip():
+        # A date with nothing attached to it cannot be read back later.
+        raise HTTPException(status_code=422, detail="Say what the money is needed for.")
+    row = decision_log.create(
+        user_id, what=body.what, decided_on=body.decidedOn, share_pct=body.sharePct,
+        borrowed=body.borrowed, last_days=body.lastDays,
+        money_needed_for=body.moneyNeededFor, money_needed_by=body.moneyNeededBy,
+        sleep_hours=body.sleepHours, energy=body.energy, plan=body.plan)
+    return _decision_to_contract(row)
+
+
+@app.patch("/api/decisions/{decision_id}")
+def record_decision_outcome(decision_id: int, body: DecisionOutcome,
+                            user_id: int = Depends(get_current_user_id)):
+    """What happened, and whether the plan was kept. Recording it again corrects it."""
+    if not body.outcome.strip():
+        raise HTTPException(status_code=422, detail="Say what happened.")
+    row = decision_log.record_outcome(user_id, decision_id, outcome=body.outcome,
+                                   followed_plan=body.followedPlan)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such decision.")
+    return _decision_to_contract(row)
 
 
 # ============================================================================

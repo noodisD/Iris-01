@@ -113,6 +113,43 @@ export interface JournalListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Decisions — a log of risky commitments, recorded when one is made
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** What the days before held. */
+export type LastDays = 'big_loss' | 'big_win' | 'neither';
+export type FollowedPlan = 'yes' | 'partly' | 'no';
+
+export interface Decision {
+  id: ID;
+  /** The day it was made (YYYY-MM-DD, a day not an instant). */
+  decidedOn: string;
+  what: string;
+  /** Share of what you had, as a percentage. Above 100 is possible. */
+  sharePct: number | null;
+  borrowed: boolean;
+  lastDays: LastDays | null;
+  moneyNeededFor: string | null;
+  moneyNeededBy: string | null;
+  sleepHours: number | null;
+  /** 1–10, like the journal's energy. */
+  energy: number | null;
+  plan: string | null;
+  /** Filled in later. `closedAt` is set the first time it is. */
+  outcome: string | null;
+  followedPlan: FollowedPlan | null;
+  closedAt: string | null;
+}
+
+export type DecisionCreate = Pick<Decision, 'what'> & Partial<Omit<Decision,
+  'id' | 'what' | 'outcome' | 'followedPlan' | 'closedAt'>>;
+
+export interface DecisionOutcome {
+  outcome: string;
+  followedPlan?: FollowedPlan | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Habits
 // ─────────────────────────────────────────────────────────────────────────────
 

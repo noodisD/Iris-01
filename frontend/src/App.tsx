@@ -4,6 +4,7 @@ import { ChatScreen } from '@/screens/ChatScreen';
 import { TodayScreen } from '@/screens/TodayScreen';
 import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
+import { DecisionsScreen } from '@/screens/DecisionsScreen';
 import { InsightsScreen } from '@/screens/InsightsScreen';
 import { ReviewScreen } from '@/screens/ReviewScreen';
 import { ImportScreen } from '@/screens/ImportScreen';
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
       { path: 'today', element: <TodayScreen /> },
       { path: 'journal', element: <JournalScreen /> },
       { path: 'habits', element: <HabitsScreen /> },
+      { path: 'decisions', element: <DecisionsScreen /> },
       { path: 'insights', element: <InsightsScreen /> },
       { path: 'insights/:id', element: <InsightsScreen /> },
       { path: 'review', element: <ReviewScreen /> },

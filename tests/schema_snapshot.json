@@ -94,6 +94,88 @@
         "type": "character varying"
       }
     },
+    "decisions": {
+      "borrowed": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
+      "closed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "decided_on": {
+        "default": "CURRENT_DATE",
+        "nullable": "NO",
+        "type": "date"
+      },
+      "energy": {
+        "default": null,
+        "nullable": "YES",
+        "type": "smallint"
+      },
+      "followed_plan": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "last_days": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
+      "money_needed_by": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "money_needed_for": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "outcome": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "plan": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "share_pct": {
+        "default": null,
+        "nullable": "YES",
+        "type": "numeric"
+      },
+      "sleep_hours": {
+        "default": null,
+        "nullable": "YES",
+        "type": "numeric"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "what": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      }
+    },
     "embeddings": {
       "created_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -1397,6 +1479,64 @@
         "type": "n"
       }
     },
+    "decisions": {
+      "decisions_borrowed_not_null": {
+        "definition": "NOT NULL borrowed",
+        "type": "n"
+      },
+      "decisions_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "decisions_decided_on_not_null": {
+        "definition": "NOT NULL decided_on",
+        "type": "n"
+      },
+      "decisions_energy_check": {
+        "definition": "CHECK (((energy >= 1) AND (energy <= 10)))",
+        "type": "c"
+      },
+      "decisions_followed_plan_check": {
+        "definition": "CHECK (((followed_plan)::text = ANY ((ARRAY['yes'::character varying, 'partly'::character varying, 'no'::character varying])::text[])))",
+        "type": "c"
+      },
+      "decisions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "decisions_last_days_check": {
+        "definition": "CHECK (((last_days)::text = ANY ((ARRAY['big_loss'::character varying, 'big_win'::character varying, 'neither'::character varying])::text[])))",
+        "type": "c"
+      },
+      "decisions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "decisions_share_pct_check": {
+        "definition": "CHECK ((share_pct >= (0)::numeric))",
+        "type": "c"
+      },
+      "decisions_sleep_hours_check": {
+        "definition": "CHECK (((sleep_hours >= (0)::numeric) AND (sleep_hours <= (24)::numeric)))",
+        "type": "c"
+      },
+      "decisions_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "decisions_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "decisions_what_check": {
+        "definition": "CHECK ((length(btrim(what)) > 0))",
+        "type": "c"
+      },
+      "decisions_what_not_null": {
+        "definition": "NOT NULL what",
+        "type": "n"
+      }
+    },
     "embeddings": {
       "embeddings_id_not_null": {
         "definition": "NOT NULL id",
@@ -2115,6 +2255,10 @@
     "decision_impacts": {
       "decision_impacts_anchor_type_anchor_id_target_type_target_i_key": "CREATE UNIQUE INDEX decision_impacts_anchor_type_anchor_id_target_type_target_i_key ON public.decision_impacts USING btree (anchor_type, anchor_id, target_type, target_id)",
       "decision_impacts_pkey": "CREATE UNIQUE INDEX decision_impacts_pkey ON public.decision_impacts USING btree (id)"
+    },
+    "decisions": {
+      "decisions_pkey": "CREATE UNIQUE INDEX decisions_pkey ON public.decisions USING btree (id)",
+      "decisions_user_day": "CREATE INDEX decisions_user_day ON public.decisions USING btree (user_id, decided_on DESC, id DESC)"
     },
     "embeddings": {
       "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",
