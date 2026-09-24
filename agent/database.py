@@ -642,13 +642,18 @@ class Database:
         it had never been shown — the "will not be proposed again" promise
         broken by a paraphrase. Keyed on the sentences alone, a re-offer of the
         same evidence can be recognised whatever words are wrapped around it.
+
+        Only confirmed and rejected count as decided. It used to be anything but
+        a candidate, which made a candidate set aside unreviewed ('superseded',
+        when a whole run is replaced by a better method) read as a decision the
+        owner never made.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """SELECT md5(string_agg(p.quote, '|' ORDER BY p.quote))
                      FROM themes t JOIN theme_prototypes p ON p.theme_id = t.id
                     WHERE t.user_id = %s AND t.origin = 'observed'
-                      AND t.status <> 'candidate'
+                      AND t.status IN ('active', 'rejected')
                     GROUP BY t.id;""",
                 (user_id,))
             return {r[0] for r in cur.fetchall() if r[0]}

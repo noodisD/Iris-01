@@ -248,6 +248,16 @@ def test_a_rerun_counts_what_the_owner_already_decided(test_user, archive):
     assert run["candidates_staged"] == 0
 
 
+def test_a_superseded_candidate_is_not_a_decision_the_owner_made(test_user, archive):
+    """Setting aside a run nobody reviewed is not rejecting what it found."""
+    first = constructs.discover(test_user["id"], intelligence=FakeModel(_finding(archive)),
+                                include_staged=False)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE themes SET status = 'superseded' WHERE id = %s;", (int(first[0]["id"]),))
+        conn.commit()
+    assert db.get_decided_evidence_keys(test_user["id"]) == set()
+
+
 def test_the_last_run_route_reports_counts_and_no_words(client, test_user, archive):
     assert client.get("/api/constructs/last-run").json() == {"run": None}
     constructs.discover(test_user["id"], intelligence=DenyingModel(_finding(archive)),
