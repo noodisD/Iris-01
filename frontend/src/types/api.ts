@@ -113,40 +113,51 @@ export interface JournalListResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Decisions — a log of risky commitments, recorded when one is made
+// Decisions — a decision journal, filled in when a decision is made
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type Stake = 'little' | 'fair' | 'a_lot' | 'beyond_means';
+export type Reversible = 'easily' | 'at_a_cost' | 'not_at_all';
 /** What the days before held. */
-export type LastDays = 'big_loss' | 'big_win' | 'neither';
+export type LastDays = 'setback' | 'success' | 'neither';
+export type Pressure = 'deadline' | 'money' | 'people' | 'urge';
+export type Feeling = 'calm' | 'excited' | 'anxious' | 'frustrated';
 export type FollowedPlan = 'yes' | 'partly' | 'no';
+export type WouldRepeat = 'yes' | 'no' | 'unsure';
 
 export interface Decision {
   id: ID;
   /** The day it was made (YYYY-MM-DD, a day not an instant). */
   decidedOn: string;
   what: string;
-  /** Share of what you had, as a percentage. Above 100 is possible. */
-  sharePct: number | null;
-  borrowed: boolean;
+  stake: Stake | null;
+  reversible: Reversible | null;
+  /** How sure, 0–100. */
+  confidence: number | null;
   lastDays: LastDays | null;
-  moneyNeededFor: string | null;
-  moneyNeededBy: string | null;
+  /** What was pushing for a decision now; empty means nothing was. */
+  pressures: Pressure[];
   sleepHours: number | null;
   /** 1–10, like the journal's energy. */
   energy: number | null;
+  feeling: Feeling | null;
+  /** What would make you stop or change course. */
   plan: string | null;
   /** Filled in later. `closedAt` is set the first time it is. */
   outcome: string | null;
   followedPlan: FollowedPlan | null;
+  /** Whether you would decide the same again — not whether it went well. */
+  wouldRepeat: WouldRepeat | null;
   closedAt: string | null;
 }
 
 export type DecisionCreate = Pick<Decision, 'what'> & Partial<Omit<Decision,
-  'id' | 'what' | 'outcome' | 'followedPlan' | 'closedAt'>>;
+  'id' | 'what' | 'outcome' | 'followedPlan' | 'wouldRepeat' | 'closedAt'>>;
 
 export interface DecisionOutcome {
   outcome: string;
   followedPlan?: FollowedPlan | null;
+  wouldRepeat?: WouldRepeat | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

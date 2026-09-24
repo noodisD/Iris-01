@@ -95,15 +95,15 @@
       }
     },
     "decisions": {
-      "borrowed": {
-        "default": "false",
-        "nullable": "NO",
-        "type": "boolean"
-      },
       "closed_at": {
         "default": null,
         "nullable": "YES",
         "type": "timestamp with time zone"
+      },
+      "confidence": {
+        "default": null,
+        "nullable": "YES",
+        "type": "smallint"
       },
       "created_at": {
         "default": "now()",
@@ -120,6 +120,11 @@
         "nullable": "YES",
         "type": "smallint"
       },
+      "feeling": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
+      },
       "followed_plan": {
         "default": null,
         "nullable": "YES",
@@ -135,16 +140,6 @@
         "nullable": "YES",
         "type": "character varying"
       },
-      "money_needed_by": {
-        "default": null,
-        "nullable": "YES",
-        "type": "date"
-      },
-      "money_needed_for": {
-        "default": null,
-        "nullable": "YES",
-        "type": "text"
-      },
       "outcome": {
         "default": null,
         "nullable": "YES",
@@ -155,15 +150,25 @@
         "nullable": "YES",
         "type": "text"
       },
-      "share_pct": {
+      "pressures": {
+        "default": "'{}'::text[]",
+        "nullable": "NO",
+        "type": "ARRAY"
+      },
+      "reversible": {
         "default": null,
         "nullable": "YES",
-        "type": "numeric"
+        "type": "character varying"
       },
       "sleep_hours": {
         "default": null,
         "nullable": "YES",
         "type": "numeric"
+      },
+      "stake": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
       },
       "user_id": {
         "default": null,
@@ -174,6 +179,11 @@
         "default": null,
         "nullable": "NO",
         "type": "text"
+      },
+      "would_repeat": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
       }
     },
     "embeddings": {
@@ -1480,9 +1490,9 @@
       }
     },
     "decisions": {
-      "decisions_borrowed_not_null": {
-        "definition": "NOT NULL borrowed",
-        "type": "n"
+      "decisions_confidence_check": {
+        "definition": "CHECK (((confidence >= 0) AND (confidence <= 100)))",
+        "type": "c"
       },
       "decisions_created_at_not_null": {
         "definition": "NOT NULL created_at",
@@ -1496,6 +1506,10 @@
         "definition": "CHECK (((energy >= 1) AND (energy <= 10)))",
         "type": "c"
       },
+      "decisions_feeling_check": {
+        "definition": "CHECK (((feeling)::text = ANY ((ARRAY['calm'::character varying, 'excited'::character varying, 'anxious'::character varying, 'frustrated'::character varying])::text[])))",
+        "type": "c"
+      },
       "decisions_followed_plan_check": {
         "definition": "CHECK (((followed_plan)::text = ANY ((ARRAY['yes'::character varying, 'partly'::character varying, 'no'::character varying])::text[])))",
         "type": "c"
@@ -1505,19 +1519,31 @@
         "type": "n"
       },
       "decisions_last_days_check": {
-        "definition": "CHECK (((last_days)::text = ANY ((ARRAY['big_loss'::character varying, 'big_win'::character varying, 'neither'::character varying])::text[])))",
+        "definition": "CHECK (((last_days)::text = ANY ((ARRAY['setback'::character varying, 'success'::character varying, 'neither'::character varying])::text[])))",
         "type": "c"
       },
       "decisions_pkey": {
         "definition": "PRIMARY KEY (id)",
         "type": "p"
       },
-      "decisions_share_pct_check": {
-        "definition": "CHECK ((share_pct >= (0)::numeric))",
+      "decisions_pressures_check": {
+        "definition": "CHECK ((pressures <@ ARRAY['deadline'::text, 'money'::text, 'people'::text, 'urge'::text]))",
+        "type": "c"
+      },
+      "decisions_pressures_not_null": {
+        "definition": "NOT NULL pressures",
+        "type": "n"
+      },
+      "decisions_reversible_check": {
+        "definition": "CHECK (((reversible)::text = ANY ((ARRAY['easily'::character varying, 'at_a_cost'::character varying, 'not_at_all'::character varying])::text[])))",
         "type": "c"
       },
       "decisions_sleep_hours_check": {
         "definition": "CHECK (((sleep_hours >= (0)::numeric) AND (sleep_hours <= (24)::numeric)))",
+        "type": "c"
+      },
+      "decisions_stake_check": {
+        "definition": "CHECK (((stake)::text = ANY ((ARRAY['little'::character varying, 'fair'::character varying, 'a_lot'::character varying, 'beyond_means'::character varying])::text[])))",
         "type": "c"
       },
       "decisions_user_id_fkey": {
@@ -1535,6 +1561,10 @@
       "decisions_what_not_null": {
         "definition": "NOT NULL what",
         "type": "n"
+      },
+      "decisions_would_repeat_check": {
+        "definition": "CHECK (((would_repeat)::text = ANY ((ARRAY['yes'::character varying, 'no'::character varying, 'unsure'::character varying])::text[])))",
+        "type": "c"
       }
     },
     "embeddings": {

@@ -1,10 +1,10 @@
 /**
- * Decisions API — a log of risky commitments, recorded when one is made.
+ * Decisions API — a decision journal, filled in when a decision is made.
  *
  * Backend endpoints (iris_api.py):
  *   GET   /api/decisions        → { decisions: Decision[] }   newest first
  *   POST  /api/decisions        → Decision                    (only `what` required)
- *   PATCH /api/decisions/:id    → Decision                    (the outcome, later)
+ *   PATCH /api/decisions/:id    → Decision                    (how it went, later)
  */
 
 import { api } from './client';

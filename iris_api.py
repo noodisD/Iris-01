@@ -200,24 +200,27 @@ class ReflectionResponse(BaseModel):
 # ============================================================================
 
 class DecisionCreate(BaseModel):
-    """A risky commitment, as it is made. Only `what` is required: a log that
-    demands every field at the moment of deciding gets skipped, and a skipped
+    """A decision, as it is made. Only `what` is required: a journal that
+    demands every answer at the moment of deciding gets skipped, and a skipped
     entry is worse for comparison than a partial one."""
     what: str = Field(min_length=1, max_length=500)
     decidedOn: date | None = None
-    sharePct: float | None = Field(default=None, ge=0)
-    borrowed: bool = False
-    lastDays: Literal["big_loss", "big_win", "neither"] | None = None
-    moneyNeededFor: str | None = Field(default=None, max_length=500)
-    moneyNeededBy: date | None = None
+    stake: Literal["little", "fair", "a_lot", "beyond_means"] | None = None
+    reversible: Literal["easily", "at_a_cost", "not_at_all"] | None = None
+    confidence: int | None = Field(default=None, ge=0, le=100)
+    lastDays: Literal["setback", "success", "neither"] | None = None
+    pressures: list[Literal["deadline", "money", "people", "urge"]] = Field(default_factory=list)
     sleepHours: float | None = Field(default=None, ge=0, le=24)
     energy: int | None = Field(default=None, ge=1, le=10)
+    feeling: Literal["calm", "excited", "anxious", "frustrated"] | None = None
     plan: str | None = Field(default=None, max_length=1000)
 
 class DecisionOutcome(BaseModel):
-    """What happened, and whether the plan was kept."""
+    """How it went, whether the plan was kept, and whether the owner would
+    decide the same again: a different question from whether it went well."""
     outcome: str = Field(min_length=1, max_length=2000)
     followedPlan: Literal["yes", "partly", "no"] | None = None
+    wouldRepeat: Literal["yes", "no", "unsure"] | None = None
 
 
 # ============================================================================
@@ -823,27 +826,27 @@ def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_curren
 
 
 # ============================================================================
-# DECISION ENDPOINTS (a log of risky commitments; see agent/decisions.py)
+# DECISION ENDPOINTS (a decision journal; see agent/decisions.py)
 # ============================================================================
 
 def _decision_to_contract(row: dict) -> dict:
     """A stored decision in the frontend `Decision` shape."""
-    def number(value):
-        return float(value) if value is not None else None
     return {
         "id": str(row["id"]),
         "decidedOn": row["decided_on"].isoformat(),
         "what": row["what"],
-        "sharePct": number(row["share_pct"]),
-        "borrowed": row["borrowed"],
+        "stake": row["stake"],
+        "reversible": row["reversible"],
+        "confidence": row["confidence"],
         "lastDays": row["last_days"],
-        "moneyNeededFor": row["money_needed_for"],
-        "moneyNeededBy": row["money_needed_by"].isoformat() if row["money_needed_by"] else None,
-        "sleepHours": number(row["sleep_hours"]),
+        "pressures": list(row["pressures"] or []),
+        "sleepHours": float(row["sleep_hours"]) if row["sleep_hours"] is not None else None,
         "energy": row["energy"],
+        "feeling": row["feeling"],
         "plan": row["plan"],
         "outcome": row["outcome"],
         "followedPlan": row["followed_plan"],
+        "wouldRepeat": row["would_repeat"],
         "closedAt": row["closed_at"].isoformat() if row["closed_at"] else None,
     }
 
@@ -856,28 +859,26 @@ def list_decisions(user_id: int = Depends(get_current_user_id)):
 
 @app.post("/api/decisions")
 def create_decision(body: DecisionCreate, user_id: int = Depends(get_current_user_id)):
-    """Record a commitment as it is made."""
+    """Record a decision as it is made."""
     if not body.what.strip():
         raise HTTPException(status_code=422, detail="Say what the decision is.")
-    if body.moneyNeededBy and not (body.moneyNeededFor or "").strip():
-        # A date with nothing attached to it cannot be read back later.
-        raise HTTPException(status_code=422, detail="Say what the money is needed for.")
     row = decision_log.create(
-        user_id, what=body.what, decided_on=body.decidedOn, share_pct=body.sharePct,
-        borrowed=body.borrowed, last_days=body.lastDays,
-        money_needed_for=body.moneyNeededFor, money_needed_by=body.moneyNeededBy,
-        sleep_hours=body.sleepHours, energy=body.energy, plan=body.plan)
+        user_id, what=body.what, decided_on=body.decidedOn, stake=body.stake,
+        reversible=body.reversible, confidence=body.confidence, last_days=body.lastDays,
+        pressures=list(body.pressures), sleep_hours=body.sleepHours, energy=body.energy,
+        feeling=body.feeling, plan=body.plan)
     return _decision_to_contract(row)
 
 
 @app.patch("/api/decisions/{decision_id}")
 def record_decision_outcome(decision_id: int, body: DecisionOutcome,
                             user_id: int = Depends(get_current_user_id)):
-    """What happened, and whether the plan was kept. Recording it again corrects it."""
+    """How it went, the plan, and whether the same again. Recording it again corrects it."""
     if not body.outcome.strip():
         raise HTTPException(status_code=422, detail="Say what happened.")
     row = decision_log.record_outcome(user_id, decision_id, outcome=body.outcome,
-                                   followed_plan=body.followedPlan)
+                                      followed_plan=body.followedPlan,
+                                      would_repeat=body.wouldRepeat)
     if row is None:
         raise HTTPException(status_code=404, detail="No such decision.")
     return _decision_to_contract(row)
