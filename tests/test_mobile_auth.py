@@ -147,6 +147,92 @@ class MiddlewareTests(unittest.TestCase):
             self.assertEqual(sent[0]["status"], 503)
 
 
+class TailnetDoorTests(unittest.TestCase):
+    """`tailscale serve` reaches IRIS through its own loopback door (ADR-0022).
+
+    Every request there looks local, so the connecting user's login, which
+    `serve` sets and clients cannot forge, is all that tells the owner apart
+    from anyone else on the tailnet.
+    """
+
+    OWNER = "owner@example.com"
+
+    def _run(self, headers, path="/api/decisions", method="GET", owners=OWNER,
+             tailnet=True, kind="http"):
+        from agent import mobile_auth as mod
+        mw = mod.MobileAuthMiddleware(app=None)  # type: ignore[arg-type]
+        scope = {"type": kind, "client": ("127.0.0.1", 50000), "method": method,
+                 "path": path, "headers": headers}
+        if tailnet:
+            scope["iris_tailnet"] = True
+        with patch.object(mod.settings, "TAILNET_OWNERS", owners):
+            return _run_middleware(mw, scope)
+
+    @staticmethod
+    def _login(value):
+        return [(b"tailscale-user-login", value.encode())]
+
+    def test_the_owners_login_is_let_in(self):
+        _, called = self._run(self._login(self.OWNER))
+        self.assertTrue(called)
+
+    def test_the_login_is_compared_without_case(self):
+        _, called = self._run(self._login("Owner@Example.com"))
+        self.assertTrue(called)
+
+    def test_another_login_is_refused(self):
+        sent, called = self._run(self._login("guest@example.com"))
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_no_login_is_refused(self):
+        # A tagged device carries no user, and must not look like the laptop.
+        sent, called = self._run([])
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_two_logins_are_refused(self):
+        sent, called = self._run(self._login(self.OWNER) + self._login("guest@example.com"))
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_nobody_is_let_in_when_no_owner_is_configured(self):
+        sent, called = self._run(self._login(self.OWNER), owners="")
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_one_of_several_owners_is_let_in(self):
+        _, called = self._run(self._login(self.OWNER), owners="other@example.com, owner@example.com")
+        self.assertTrue(called)
+
+    def test_pairing_stays_on_the_laptop(self):
+        for method, path in [("GET", "/api/mobile/connection"), ("POST", "/api/mobile/pair"),
+                             ("POST", "/api/mobile/unpair")]:
+            sent, called = self._run(self._login(self.OWNER), path=path, method=method)
+            self.assertFalse(called, path)
+            self.assertEqual(sent[0]["status"], 404, path)
+
+    def test_the_web_app_itself_is_served(self):
+        _, called = self._run(self._login(self.OWNER), path="/")
+        self.assertTrue(called)
+
+    def test_a_websocket_from_another_login_is_closed(self):
+        sent, called = self._run(self._login("guest@example.com"), kind="websocket")
+        self.assertFalse(called)
+        self.assertEqual(sent[0], {"type": "websocket.close", "code": 1008})
+
+    def test_serve_pointed_at_the_plain_door_is_refused(self):
+        # The owner check runs only on the tailnet door; a login header on the
+        # ordinary loopback door means `serve` was aimed at the wrong port.
+        sent, called = self._run(self._login(self.OWNER), tailnet=False)
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_the_laptop_is_unchanged(self):
+        _, called = self._run([], tailnet=False, owners="")
+        self.assertTrue(called)
+
+
 class LifespanLoadTests(unittest.TestCase):
     """The lifespan must load the pairing row into in-process settings.
 

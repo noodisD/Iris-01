@@ -143,6 +143,14 @@ async def lan_app(scope, receive, send):
     await app(scope, receive, send)
 
 
+async def tailnet_app(scope, receive, send):
+    # The loopback door `tailscale serve` targets (ADR-0022). Tagging it means
+    # the owner-login check runs on every request here, whatever the headers.
+    if scope["type"] in {"http", "websocket"}:
+        scope = {**scope, "iris_tailnet": True}
+    await app(scope, receive, send)
+
+
 def _socket(host: str, port: int) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -218,8 +226,24 @@ async def serve() -> None:
     ))
     local_task = asyncio.create_task(loopback.serve(sockets=[loopback_socket]))
     lan = lan_task = lan_socket = None
+    tailnet = tailnet_task = tailnet_socket = None
     try:
         await _started(loopback, local_task)
+        if settings.tailnet_owners:
+            try:
+                tailnet_socket = _socket("127.0.0.1", settings.TAILNET_PORT)
+                tailnet = LanServer(uvicorn.Config(
+                    tailnet_app, host="127.0.0.1", port=settings.TAILNET_PORT,
+                    lifespan="off", proxy_headers=False,
+                ))
+                tailnet_task = asyncio.create_task(tailnet.serve(sockets=[tailnet_socket]))
+                await _started(tailnet, tailnet_task)
+                LOG.info("Tailnet door: 127.0.0.1:%d, for `tailscale serve` only.",
+                         settings.TAILNET_PORT)
+            except Exception as exc:
+                # Remote access is a convenience; the laptop keeps working without it.
+                LOG.warning("The tailnet door could not open on 127.0.0.1:%d (%s).",
+                            settings.TAILNET_PORT, type(exc).__name__)
         if host:
             started = await _start_lan(host)
             if started is not None:
@@ -239,12 +263,15 @@ async def serve() -> None:
         settings.LAN_URL = None
         settings.LAN_PUBLIC_KEY_SHA256 = None
         loopback.should_exit = True
-        if lan is not None:
-            lan.should_exit = True
-        await asyncio.gather(local_task, *([lan_task] if lan_task else []), return_exceptions=True)
+        for server in (lan, tailnet):
+            if server is not None:
+                server.should_exit = True
+        await asyncio.gather(local_task, *[t for t in (lan_task, tailnet_task) if t],
+                             return_exceptions=True)
         loopback_socket.close()
-        if lan_socket is not None:
-            lan_socket.close()
+        for sock in (lan_socket, tailnet_socket):
+            if sock is not None:
+                sock.close()
 
 
 def main() -> None:

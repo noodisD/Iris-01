@@ -17,17 +17,19 @@ from agent.config import Settings, settings
 from agent.mobile_auth import hash_token
 from iris_api import app
 from scripts import serve_iris
-from scripts.serve_iris import lan_app, prepare_certificate
+from scripts.serve_iris import lan_app, prepare_certificate, tailnet_app
 
 
 def test_host_rejects_wildcard_public_and_loopback():
-    for host in ("0.0.0.0", "127.0.0.1", "8.8.8.8", "::", "localhost", "100.64.0.1"):
+    for host in ("0.0.0.0", "127.0.0.1", "8.8.8.8", "::", "localhost", "100.128.0.1"):
         try:
             Settings(LAN_BIND_HOST=host, _env_file=None)
         except ValueError:
             continue
         raise AssertionError(f"accepted unsafe LAN host {host}")
     assert Settings(LAN_BIND_HOST="192.168.1.42", _env_file=None).LAN_BIND_HOST == "192.168.1.42"
+    # The Tailscale range is private too (ADR-0022); 100.128.0.1 above is just past it.
+    assert Settings(LAN_BIND_HOST="100.64.0.1", _env_file=None).LAN_BIND_HOST == "100.64.0.1"
 
 
 def test_certificate_is_persistent_pinned_and_private(tmp_path: Path):
@@ -164,4 +166,20 @@ def test_remote_browser_cannot_stage_mobile_data():
                                          headers={"Origin": "https://untrusted.example"},
                                          json={"device": "Pixel 10a", "tiers": {}})
             assert response.status_code == 403
+    asyncio.run(exercise())
+
+
+def test_the_tailnet_door_admits_only_the_owner_through_the_real_app():
+    async def exercise():
+        transport = httpx.ASGITransport(app=tailnet_app, client=("127.0.0.1", 3456))
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8001") as client:
+            owner = {"Tailscale-User-Login": "owner@example.com"}
+            with patch.object(settings, "TAILNET_OWNERS", "owner@example.com"):
+                assert (await client.get("/api/mobile/status", headers=owner)).status_code == 200
+                assert (await client.get("/api/mobile/status")).status_code == 403
+                assert (await client.get("/api/mobile/status", headers={
+                    "Tailscale-User-Login": "guest@example.com"})).status_code == 403
+                assert (await client.get("/api/mobile/connection", headers=owner)).status_code == 404
+            with patch.object(settings, "TAILNET_OWNERS", ""):
+                assert (await client.get("/api/mobile/status", headers=owner)).status_code == 403
     asyncio.run(exercise())

@@ -28,3 +28,19 @@ class MobileConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LanHostRuleTests(unittest.TestCase):
+    """Which addresses the phone listener may bind (ADR-0018, ADR-0022)."""
+
+    def test_home_and_private_network_addresses_are_accepted(self):
+        from agent.config import Settings
+        for host in ("192.168.1.30", "10.0.0.5", "172.16.4.2", "100.109.145.71", "100.64.0.1"):
+            self.assertEqual(Settings.validate_lan_host(host), host)
+
+    def test_public_and_unusual_addresses_are_refused(self):
+        from agent.config import Settings
+        # 100.63.x and 100.128.x sit just outside the private-network range.
+        for host in ("8.8.8.8", "100.63.255.255", "100.128.0.1", "0.0.0.0", "::1", "not-an-ip"):
+            with self.assertRaises(ValueError, msg=host):
+                Settings.validate_lan_host(host)

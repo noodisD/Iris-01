@@ -17,7 +17,15 @@ _LOOPBACK_ONLY = frozenset({
     ("POST", "/api/mobile/unpair"),
 })
 
+#: Set by `tailscale serve` to the connecting user's login (ADR-0022).
+_TAILNET_LOGIN = b"tailscale-user-login"
+
 _last_rejection: dict[str, object] | None = None
+
+
+def _header_values(scope: Scope, name: bytes) -> list[str]:
+    return [value.decode("latin-1") for key, value in scope.get("headers") or []
+            if key.lower() == name]
 
 
 def last_rejection() -> dict[str, object] | None:
@@ -48,7 +56,16 @@ class MobileAuthMiddleware:
             # never addresses a real TCP peer can present.
             local_client = client_host in {"testclient", "testserver"}
 
+        if scope.get("iris_tailnet"):
+            await self._tailnet(scope, receive, send)
+            return
+
         if local_client and not scope.get("iris_lan"):
+            if _header_values(scope, _TAILNET_LOGIN):
+                # `tailscale serve` pointed at the plain loopback door, where
+                # the owner check does not run. Only TAILNET_PORT admits it.
+                await self._refuse(scope, send, "tailnet requests use the tailnet door")
+                return
             await self.app(scope, receive, send)
             return
 
@@ -75,6 +92,32 @@ class MobileAuthMiddleware:
             await self._reject(send, 401, "invalid bearer")
             return
         await self.app(scope, receive, send)
+
+    async def _tailnet(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """The door `tailscale serve` targets: the owner's login, or nothing.
+
+        `serve` sets the login header from the connecting device's identity and
+        drops any copy the client sent. A request without exactly one, such as
+        one from a tagged device, which carries no user, is refused, as is
+        every request when no owner is configured.
+        """
+        logins = _header_values(scope, _TAILNET_LOGIN)
+        owners = settings.tailnet_owners
+        if len(logins) != 1 or not owners or logins[0].strip().lower() not in owners:
+            await self._refuse(scope, send, "not the owner's tailnet login")
+            return
+        if (scope.get("method", "POST"), scope.get("path", "")) in _LOOPBACK_ONLY:
+            # Pairing hands out the phone's credentials: laptop only.
+            await self._reject(send, 404, "not found")
+            return
+        await self.app(scope, receive, send)
+
+    @classmethod
+    async def _refuse(cls, scope: Scope, send: Send, detail: str) -> None:
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1008})
+        else:
+            await cls._reject(send, 403, detail)
 
     @staticmethod
     def _extract_bearer(headers: list[tuple[bytes, bytes]]) -> str | None:

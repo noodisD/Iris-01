@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     LAN_BIND_HOST: str = Field(default="")
     LAN_BIND_PORT: int = Field(default=8765, ge=1024, le=65535)
     LAN_BIND_ENABLED: bool = Field(default=False)
+    #: Tailscale logins allowed to use the web app through `tailscale serve`
+    #: (ADR-0022), comma-separated. Setting it opens a second loopback door on
+    #: TAILNET_PORT for `serve` to target; every request there must carry one
+    #: of these logins. Empty keeps that door shut.
+    TAILNET_OWNERS: str = Field(default="")
+    TAILNET_PORT: int = Field(default=8001, ge=1024, le=65535)
     MOBILE_BEARER_HASH: str | None = Field(default=None)
     # Populated by the two-listener launcher only after TLS starts.
     LAN_URL: str | None = Field(default=None, exclude=True)
@@ -81,20 +87,35 @@ class Settings(BaseSettings):
         extra="ignore" # Ignore extra env vars not defined here
     )
 
+    @property
+    def tailnet_owners(self) -> frozenset[str]:
+        """The configured owner logins, compared case-insensitively."""
+        return frozenset(x.strip().lower() for x in self.TAILNET_OWNERS.split(",") if x.strip())
+
     @field_validator("LAN_BIND_HOST")
     @classmethod
     def validate_lan_host(cls, host: str) -> str:
+        """The phone listener binds a home-network or private-network address, never a public one.
+
+        Home ranges are the RFC 1918 blocks. The private-network range is
+        100.64.0.0/10, the shared space Tailscale assigns its devices from
+        (ADR-0022): reachable only by devices in the owner's own network, and
+        fixed per device, unlike a home address a router may reassign. Anything
+        else would put the journal's listener on an address the internet can
+        reach, and is refused.
+        """
         if not host:
             return host
+        message = "LAN_BIND_HOST must be a private IPv4 address (home network or Tailscale)"
         try:
             address = ip_address(host)
         except ValueError as exc:
-            raise ValueError("LAN_BIND_HOST must be a private IPv4 address") from exc
+            raise ValueError(message) from exc
         if address.version != 4 or not any(address in network for network in (
             ip_network("10.0.0.0/8"), ip_network("172.16.0.0/12"),
-            ip_network("192.168.0.0/16"),
+            ip_network("192.168.0.0/16"), ip_network("100.64.0.0/10"),
         )):
-            raise ValueError("LAN_BIND_HOST must be a private IPv4 address")
+            raise ValueError(message)
         return str(address)
 
     @field_validator("NARRATIVE_FAIL_MODE")
