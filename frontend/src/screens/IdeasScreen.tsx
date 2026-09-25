@@ -22,7 +22,7 @@ const POSITIONS: { value: IdeaPosition; label: string }[] = [
 const DOMAINS: { value: IdeaDomain; label: string }[] = [
   { value: 'philosophy', label: 'Philosophy' },
   { value: 'economics', label: 'Economics' },
-  { value: 'trading', label: 'Trading' },
+  { value: 'markets', label: 'Markets' },
   { value: 'politics', label: 'Politics' },
   { value: 'ethics', label: 'Ethics' },
   { value: 'learning', label: 'Learning' },

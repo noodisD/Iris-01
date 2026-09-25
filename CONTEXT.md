@@ -203,9 +203,9 @@ not ideas. One verified passage is enough. The statement does not change once
 proposed; a changed proposition is another idea. This is not a psychological
 engine and is not selectable in Settings (ADR-0021).
 
-**Domain** is one organising category: philosophy, economics, trading, politics,
-ethics, learning, or other. A trading pattern, method, edge, or practice is
-trading, not economics. Economics is how an economy works. A skill, a craft, or
+**Domain** is one organising category: philosophy, economics, markets, politics,
+ethics, learning, or other. A pattern, method, edge, or practice for buying and selling in markets is
+markets, not economics. Economics is how an economy works. A skill, a craft, or
 the time mastery takes is learning. A claim about freedom, dependence, or how a
 life should be ordered is philosophy. Other is only for a position that fits
 none of those areas.

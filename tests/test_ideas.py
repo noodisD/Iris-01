@@ -108,7 +108,7 @@ def test_a_trading_pattern_is_stored_as_trading_not_economics(test_user):
             if system_prompt.startswith("You are extracting"):
                 return json.dumps({"ideas": [{
                     "statement": "A pattern is an edge only after it survives a forward test.",
-                    "domain": "trading",
+                    "domain": "markets",
                     "quotes": [{"entryId": entry_id, "sourceType": "reflection", "text": QUOTE}],
                 }]})
             if system_prompt.startswith("You are checking"):
@@ -120,7 +120,7 @@ def test_a_trading_pattern_is_stored_as_trading_not_economics(test_user):
 
     assert result["run"]["status"] == "complete"
     assert result["run"]["proposed"] == 1
-    assert review["ideas"][0]["idea"]["domain"] == "trading"
+    assert review["ideas"][0]["idea"]["domain"] == "markets"
 
 
 def test_a_source_edited_during_the_read_is_not_saved(test_user):
