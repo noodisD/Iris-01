@@ -26,10 +26,29 @@ const ROUTE_VIBE: Record<string, Exclude<OrbVibe, 'auto'>> = {
   '/habits': 'high', '/insights': 'low', '/patterns': 'low', '/constructs': 'low', '/ideas': 'cool', '/review': 'cool', '/import': 'cool', '/sensors': 'dim', '/settings': 'dim',
 };
 
+const COLLAPSED_KEY = 'iris.sidebar.collapsed';
+
+/** Whether the owner left the menu folded. A convenience, so storage may fail. */
+function readCollapsed(): boolean {
+  try { return window.localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+}
+
+function writeCollapsed(value: boolean) {
+  try { window.localStorage.setItem(COLLAPSED_KEY, value ? '1' : '0'); } catch { /* not remembered */ }
+}
+
+const toggleStyle: React.CSSProperties = {
+  background: 'none', border: '1px solid var(--line-soft)', borderRadius: 6, cursor: 'pointer',
+  color: 'var(--ink-3)', fontSize: 14, lineHeight: 1, width: 26, height: 26, padding: 0,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+};
+
 export function Sidebar() {
   const { data: user } = useUser();
   const { vibe } = useIrisStore();
   const loc = useLocation();
+  const [collapsed, setCollapsed] = React.useState(readCollapsed);
+  const toggle = () => setCollapsed(c => { writeCollapsed(!c); return !c; });
 
   // Drive the orb hue from current route + user vibe choice
   React.useEffect(() => {
@@ -37,18 +56,33 @@ export function Sidebar() {
     applyOrbVibe(vibe, ROUTE_VIBE[key] ?? 'calm');
   }, [loc.pathname, vibe]);
 
-  return (
-    <aside style={{
-      width: 220, height: '100%', background: 'var(--bg-1)',
-      borderRight: '1px solid var(--line-soft)', padding: '22px 0 18px',
-      display: 'flex', flexDirection: 'column', flexShrink: 0,
-    }}>
-      <div className="row" style={{ alignItems: 'center', gap: 10, padding: '0 22px 22px' }}>
+  const aside: React.CSSProperties = {
+    width: collapsed ? 56 : 220, height: '100%', background: 'var(--bg-1)',
+    borderRight: '1px solid var(--line-soft)', padding: '22px 0 18px',
+    display: 'flex', flexDirection: 'column', flexShrink: 0,
+    transition: 'width 160ms ease', overflow: 'hidden',
+  };
+
+  if (collapsed) {
+    return (
+      <aside aria-label="Menu, folded" style={{ ...aside, alignItems: 'center', gap: 14 }}>
         <Orb />
-        <div className="col" style={{ gap: 1, lineHeight: 1 }}>
+        <button type="button" onClick={toggle} aria-label="Open the menu" aria-expanded={false}
+          title="Open the menu" style={toggleStyle}>›</button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside style={aside}>
+      <div className="row" style={{ alignItems: 'center', gap: 10, padding: '0 14px 22px 22px' }}>
+        <Orb />
+        <div className="col" style={{ gap: 1, lineHeight: 1, flex: 1, minWidth: 0 }}>
           <span className="serif" style={{ fontSize: 22, color: 'var(--ink)' }}>Iris</span>
-          <span style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>v.0{user ? ` · day ${user.dayInJourney}` : ''}</span>
+          <span style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.14em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>v.0{user ? ` · day ${user.dayInJourney}` : ''}</span>
         </div>
+        <button type="button" onClick={toggle} aria-label="Fold the menu" aria-expanded={true}
+          title="Fold the menu" style={toggleStyle}>‹</button>
       </div>
 
       <hr className="hairline" style={{ margin: '0 22px' }} />
