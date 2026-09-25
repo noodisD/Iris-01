@@ -16,10 +16,12 @@ IDEA_STATUSES = ("candidate", "active", "rejected")
 IDEA_POSITIONS = ("exploring", "endorsed", "opposed")
 CITATION_STANCES = ("endorsed", "questioned", "opposed")
 STANCE_ANSWERS = (*CITATION_STANCES, "not_stated")
-IDEA_DOMAINS = ("philosophy", "economics", "markets", "politics", "ethics", "learning", "other")
-LINK_KINDS = ("supports", "contradicts", "refines", "depends_on")
+IDEA_DOMAINS = ("philosophy", "economics", "markets", "politics", "ethics", "learning", "life", "other")
+LINK_KINDS = ("supports", "contradicts", "refines", "depends_on", "same_meaning")
+#: Kinds with no direction, stored once with the lower id first.
+SYMMETRIC_LINK_KINDS = ("contradicts", "same_meaning")
 REVIEW_STATUSES = ("candidate", "accepted", "rejected")
-RUN_KINDS = ("discovery", "links")
+RUN_KINDS = ("discovery", "links", "meaning")
 RUN_STATUSES = ("running", "complete", "partial", "failed")
 DROP_KEYS = (
     "invalid_quote",

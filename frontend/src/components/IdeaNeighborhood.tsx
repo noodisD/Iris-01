@@ -6,6 +6,7 @@ const KIND_LABEL: Record<IdeaLink['kind'], string> = {
   contradicts: 'contradicts',
   refines: 'refines',
   depends_on: 'depends on',
+  same_meaning: 'means the same as',
 };
 
 function cut(statement: string): string {

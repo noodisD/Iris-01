@@ -499,8 +499,10 @@ export interface ReviewDay {
 export type IdeaStatus = 'candidate' | 'active' | 'rejected';
 export type IdeaPosition = 'exploring' | 'endorsed' | 'opposed';
 export type CitationStance = 'endorsed' | 'questioned' | 'opposed';
-export type IdeaDomain = 'philosophy' | 'economics' | 'markets' | 'politics' | 'ethics' | 'learning' | 'other';
-export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on';
+/** `life` is a principle the owner states as holding across areas, never one IRIS generalised. */
+export type IdeaDomain = 'philosophy' | 'economics' | 'markets' | 'politics' | 'ethics' | 'learning' | 'life' | 'other';
+/** `same_meaning`: one essential meaning in different words or fields. It has no direction. */
+export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on' | 'same_meaning';
 export type ReviewStatus = 'candidate' | 'accepted' | 'rejected';
 
 export interface IdeaDropped {
@@ -549,7 +551,7 @@ export interface IdeaLink {
 
 export interface IdeaRun {
   id: ID;
-  kind: 'discovery' | 'links';
+  kind: 'discovery' | 'links' | 'meaning';
   status: 'running' | 'complete' | 'partial' | 'failed';
   startedAt: ISODateTime;
   finishedAt: ISODateTime | null;
@@ -559,6 +561,14 @@ export interface IdeaRun {
   proposed: number;
   dropped: IdeaDropped;
   error: string | null;
+}
+
+/** What a same-meaning pass would send (accepted statements only) and cost. */
+export interface MeaningEstimate {
+  ideas: number;
+  calls: number;
+  tokensIn: number;
+  estimate: string;
 }
 
 export interface IdeaCritiqueContent {

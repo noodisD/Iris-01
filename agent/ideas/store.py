@@ -9,7 +9,7 @@ from psycopg2.extras import Json
 from agent.database import db
 from agent.observations import _normalized
 
-from .models import content_hash, empty_dropped, statement_key
+from .models import SYMMETRIC_LINK_KINDS, content_hash, empty_dropped, statement_key
 
 _RUN_KEYS = (
     "id", "user_id", "kind", "started_at", "finished_at", "status", "model",
@@ -566,9 +566,10 @@ def load_graph(user_id: int) -> dict[str, Any]:
 def stage_links(
     user_id: int,
     run_id: int,
-    subject_id: int,
+    subject_id: int | None,
     proposals: list[dict[str, Any]],
 ) -> dict[str, int]:
+    """Stage proposed links as candidates. With a subject, every link must touch it."""
     result = {"created": 0, "already_decided": 0, "duplicate": 0, "source_changed": 0, "malformed": 0}
     if not proposals:
         return result
@@ -576,9 +577,9 @@ def stage_links(
         for proposal in proposals:
             from_id = int(proposal["from_idea_id"])
             to_id = int(proposal["to_idea_id"])
-            if proposal["kind"] == "contradicts" and from_id > to_id:
+            if proposal["kind"] in SYMMETRIC_LINK_KINDS and from_id > to_id:
                 from_id, to_id = to_id, from_id
-            if from_id == to_id or subject_id not in (from_id, to_id):
+            if from_id == to_id or (subject_id is not None and subject_id not in (from_id, to_id)):
                 result["malformed"] += 1
                 continue
             first, second = sorted((from_id, to_id))

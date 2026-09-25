@@ -204,11 +204,14 @@ proposed; a changed proposition is another idea. This is not a psychological
 engine and is not selectable in Settings (ADR-0021).
 
 **Domain** is one organising category: philosophy, economics, markets, politics,
-ethics, learning, or other. A pattern, method, edge, or practice for buying and selling in markets is
+ethics, learning, life, or other. A pattern, method, edge, or practice for buying and selling in markets is
 markets, not economics. Economics is how an economy works. A skill, a craft, or
 the time mastery takes is learning. A claim about freedom, dependence, or how a
-life should be ordered is philosophy. Other is only for a position that fits
-none of those areas.
+life should be ordered is philosophy. **Life** is a principle the owner states, in
+their own words, as holding across areas of life or in many different situations.
+Iris never generalises a field's idea into Life on the owner's behalf; ideas that
+share a meaning are linked instead. Other is only for a position that fits none
+of those areas.
 
 **Citation stance** is what that passage expressed: `"endorsed"`,
 `"questioned"`, or `"opposed"`. A check may also answer `"not_stated"`, which
@@ -220,9 +223,15 @@ the day a belief began.
 choose otherwise. Old writing never sets it.
 
 **Link** is a typed connection the owner confirmed, or a proposal waiting for
-that confirmation: `"supports"`, `"contradicts"`, `"refines"`, or
-`"depends_on"`. Iris may propose one. It is not a claim the journal stated
+that confirmation: `"supports"`, `"contradicts"`, `"refines"`, `"depends_on"`,
+or `"same_meaning"`. Iris may propose one. It is not a claim the journal stated
 the connection.
+
+**Same meaning** links two ideas that express one essential meaning in different
+words or fields, judged by meaning, never by shared words or topic. It has no
+direction. Iris proposes these on request from the accepted statements alone,
+never the journal text, and shows the cost first; the owner accepts or dismisses
+each pair.
 
 **Tension** here is an accepted contradiction between two ideas the owner
 currently holds. It is not the psychological tension engine. Moving either

@@ -2029,6 +2029,18 @@ def discover_ideas(user_id: int = Depends(get_current_user_id)):
     return _analysis_result(IdeaService(user_id).discover())
 
 
+@app.get("/api/ideas/meanings/estimate")
+def estimate_idea_meanings(user_id: int = Depends(get_current_user_id)):
+    """What a same-meaning pass would send and cost. No model call."""
+    return IdeaService(user_id).meaning_estimate()
+
+
+@app.post("/api/ideas/meanings/discover")
+def discover_idea_meanings(user_id: int = Depends(get_current_user_id)):
+    """Propose pairs of accepted ideas that share one meaning. Owner-triggered."""
+    return _analysis_result(IdeaService(user_id).discover_meanings())
+
+
 @app.post("/api/ideas/links/{link_id}/confirm")
 def confirm_idea_link(link_id: int, user_id: int = Depends(get_current_user_id)):
     try:

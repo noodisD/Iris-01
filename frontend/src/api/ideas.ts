@@ -1,7 +1,7 @@
 import { api } from './client';
 import type {
   ConfirmIdeaBody, IdeaCritique, IdeaDetail, IdeaDomain, IdeaPosition, IdeaRun, IdeaSummary,
-  IdeasFramework, IdeasReview,
+  IdeasFramework, IdeasReview, MeaningEstimate,
 } from '@/types/api';
 
 export function getIdeasFramework(): Promise<IdeasFramework> {
@@ -18,6 +18,16 @@ export function getIdea(id: string): Promise<IdeaDetail> {
 
 export function discoverIdeas(): Promise<{ run: IdeaRun }> {
   return api.post('/ideas/discover');
+}
+
+/** No model call: what finding shared meanings would send and cost. */
+export function getMeaningEstimate(): Promise<MeaningEstimate> {
+  return api.get('/ideas/meanings/estimate');
+}
+
+/** Sends the accepted idea statements to the model; proposals wait in Review. */
+export function discoverMeanings(): Promise<{ run: IdeaRun }> {
+  return api.post('/ideas/meanings/discover');
 }
 
 export function confirmIdea(id: string, body: ConfirmIdeaBody): Promise<{ id: string; status: 'active' }> {

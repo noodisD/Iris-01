@@ -91,11 +91,16 @@ const { reject, confirmIdea, rejectLink, fixtures } = vi.hoisted(() => {
   };
 });
 
+// The 3D graph needs WebGL; its own tests cover it.
+vi.mock('@/components/IdeaGraph', () => ({ IdeaGraph: () => <div role="img" aria-label="Ideas graph" /> }));
+
 vi.mock('@/hooks/useIdeas', () => ({
   useIdeasFramework: () => ({ data: fixtures.framework, isLoading: false, isError: false, refetch: vi.fn() }),
   useIdeaReview: () => ({ data: fixtures.review, isLoading: false, isError: false, refetch: vi.fn() }),
   useIdea: (id?: string) => ({ data: id === '8' ? fixtures.linkedDetail : fixtures.detail, isLoading: false, isError: false, refetch: vi.fn() }),
   useDiscoverIdeas: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useDiscoverMeanings: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useMeaningEstimate: () => ({ data: { ideas: 3, calls: 1, tokensIn: 900, estimate: '0k tokens in on m, about $0.01' }, isPending: false, isError: false }),
   useConfirmIdea: () => ({ mutate: confirmIdea, isPending: false, error: null }),
   useRejectIdea: () => ({ mutate: reject, isPending: false, error: null }),
   useRejectIdeaCitations: () => ({ mutate: vi.fn(), isPending: false, error: null }),
@@ -130,9 +135,19 @@ describe('Ideas screen', () => {
     expect(view.getByRole('button', { name: 'Add to framework' })).toBeInTheDocument();
   });
 
-  it('opens on the graph, and lists on request', () => {
+  it('shows what finding shared meanings would send and cost before anything is sent', () => {
     renderAt('/ideas');
-    expect(screen.getByRole('img', { name: 'Ideas graph' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Find ideas with the same meaning' }));
+    const dialog = screen.getByRole('dialog', { name: 'Find ideas with the same meaning' });
+    expect(dialog).toHaveTextContent('Sends your 3 accepted idea statements, and no journal text');
+    expect(dialog).toHaveTextContent('about $0.01');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens on the graph, and lists on request', async () => {
+    renderAt('/ideas');
+    expect(await screen.findByRole('img', { name: 'Ideas graph' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'list' }));
     expect(screen.queryByRole('img', { name: 'Ideas graph' })).toBeNull();
   });

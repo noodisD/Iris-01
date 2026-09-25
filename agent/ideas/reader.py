@@ -24,6 +24,7 @@ from .models import (
     RATIONALE_LIMIT,
     STATEMENT_LIMIT,
     STANCE_ANSWERS,
+    SYMMETRIC_LINK_KINDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,10 +39,13 @@ IDEA_READ_PROMPT = (
     "states their own position on it. One occurrence is enough. Do not require the "
     "position to recur. Do not give advice. Do not say what the owner should believe. "
     "For each position return one statement of at most 600 characters, one domain "
-    "(philosophy, economics, markets, politics, ethics, learning, or other), and verbatim quotes. "
+    "(philosophy, economics, markets, politics, ethics, learning, life, or other), and verbatim quotes. "
     "A pattern, method, edge, or practice for buying and selling in markets is markets, not economics. "
     "Economics is how an economy works. A skill, a craft, or the time mastery takes is learning, not other. "
     "A claim about freedom, dependence, or how a life should be ordered is philosophy, not other. "
+    "Life is only for a principle the owner states, in their own words, as holding across areas "
+    "of life or in many different situations, not within one field. Never generalise a position "
+    "the owner states about one field into life; file it under that field. "
     "Use other only when none of those areas fits. Each "
     "quote must be copied from the named entry and must be at least 16 characters. "
     'Use only entry ids shown to you, with sourceType "reflection". Return JSON only: '
@@ -87,6 +91,20 @@ IDEA_LINK_PROMPT = (
     ' If no relation holds, return {"links":[]}. An empty answer is a good answer.'
 )
 
+IDEA_MEANING_PROMPT = (
+    "You are finding which of the owner's confirmed ideas express the same essential "
+    "meaning. Two ideas share a meaning when the same underlying principle is at work in "
+    "both, even if they use no words in common and come from different fields: for "
+    "example, a rule about markets and a rule about how to live that rest on one principle. "
+    "Judge the meaning, never the wording: shared words or a shared topic are not a shared "
+    "meaning, and neither is one idea supporting, refining, or contradicting the other. Do "
+    "not invent a principle the ideas do not both carry. These are proposals for the owner "
+    "to accept or dismiss. For each pair, the rationale names the shared principle in one "
+    "sentence, at most 1200 characters. Use only ids from the supplied list. Return JSON "
+    'only: {"pairs":[{"a":1,"b":2,"rationale":"..."}]}. If no two ideas share a meaning, '
+    'return {"pairs":[]}. An empty answer is a good answer.'
+)
+
 IDEA_CRITIQUE_PROMPT = (
     "You are a sparring partner asked to challenge one proposition. Critique the "
     "argument, not the person. Do not diagnose them, infer an ideology, or tell them "
@@ -109,6 +127,7 @@ def prompt_version(*parts: str) -> str:
 DISCOVERY_PROMPT_VERSION = prompt_version(IDEA_READ_PROMPT, IDEA_STANCE_PROMPT, IDEA_MATCH_PROMPT)
 LINK_PROMPT_VERSION = prompt_version(IDEA_LINK_PROMPT)
 CRITIQUE_PROMPT_VERSION = prompt_version(IDEA_CRITIQUE_PROMPT)
+MEANING_PROMPT_VERSION = prompt_version(IDEA_MEANING_PROMPT)
 
 
 class ReplyError(Exception):
@@ -199,6 +218,21 @@ class LinkIn(_Strict):
 
 class LinkReply(_Strict):
     links: list[Any]
+
+
+class MeaningPair(_Strict):
+    a: int
+    b: int
+    rationale: str
+
+    @field_validator("rationale")
+    @classmethod
+    def _rationale(cls, value: str) -> str:
+        return _nonblank(value, RATIONALE_LIMIT)
+
+
+class MeaningReply(_Strict):
+    pairs: list[Any]
 
 
 class Objection(_Strict):
@@ -398,7 +432,7 @@ def propose_links(
         ):
             malformed += 1
             continue
-        if link.kind == "contradicts" and link.fromIdeaId > link.toIdeaId:
+        if link.kind in SYMMETRIC_LINK_KINDS and link.fromIdeaId > link.toIdeaId:
             link = link.model_copy(update={"fromIdeaId": link.toIdeaId, "toIdeaId": link.fromIdeaId})
         good.append(link)
     return good, malformed
@@ -408,3 +442,30 @@ def critique(intelligence: Any, basis: dict[str, Any]) -> dict[str, Any]:
     data = _ask(intelligence, IDEA_CRITIQUE_PROMPT, basis)
     reply = _load(CritiqueContent, data)
     return reply.model_dump()
+
+
+def propose_same_meaning(
+    intelligence: Any,
+    batch: list[dict[str, Any]],
+) -> tuple[list[MeaningPair], int]:
+    """Pairs of ideas in the batch that share a meaning, lower id first, and how
+    many individual proposals were malformed."""
+    payload = {"ideas": [{"id": row["id"], "statement": row["statement"]} for row in batch]}
+    data = _ask(intelligence, IDEA_MEANING_PROMPT, payload)
+    reply = _load(MeaningReply, data)
+    assert isinstance(reply, MeaningReply)
+    allowed = {int(row["id"]) for row in batch}
+    good: dict[tuple[int, int], MeaningPair] = {}
+    malformed = 0
+    for item in reply.pairs:
+        try:
+            pair = MeaningPair.model_validate(item)
+        except ValidationError:
+            malformed += 1
+            continue
+        if pair.a == pair.b or pair.a not in allowed or pair.b not in allowed:
+            malformed += 1
+            continue
+        low, high = sorted((pair.a, pair.b))
+        good.setdefault((low, high), pair.model_copy(update={"a": low, "b": high}))
+    return list(good.values()), malformed

@@ -2497,7 +2497,7 @@
     },
     "idea_links": {
       "idea_links_contradicts_order": {
-        "definition": "CHECK (((kind <> 'contradicts'::text) OR (from_idea_id < to_idea_id)))",
+        "definition": "CHECK (((kind <> ALL (ARRAY['contradicts'::text, 'same_meaning'::text])) OR (from_idea_id < to_idea_id)))",
         "type": "c"
       },
       "idea_links_created_at_not_null": {
@@ -2517,7 +2517,7 @@
         "type": "n"
       },
       "idea_links_kind_check": {
-        "definition": "CHECK ((kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'refines'::text, 'depends_on'::text])))",
+        "definition": "CHECK ((kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'refines'::text, 'depends_on'::text, 'same_meaning'::text])))",
         "type": "c"
       },
       "idea_links_kind_not_null": {
@@ -2587,7 +2587,7 @@
         "type": "n"
       },
       "idea_runs_kind_check": {
-        "definition": "CHECK ((kind = ANY (ARRAY['discovery'::text, 'links'::text])))",
+        "definition": "CHECK ((kind = ANY (ARRAY['discovery'::text, 'links'::text, 'meaning'::text])))",
         "type": "c"
       },
       "idea_runs_kind_not_null": {
@@ -2637,7 +2637,7 @@
         "type": "n"
       },
       "ideas_domain_check": {
-        "definition": "CHECK ((domain = ANY (ARRAY['philosophy'::text, 'economics'::text, 'markets'::text, 'politics'::text, 'ethics'::text, 'learning'::text, 'other'::text])))",
+        "definition": "CHECK ((domain = ANY (ARRAY['philosophy'::text, 'economics'::text, 'markets'::text, 'politics'::text, 'ethics'::text, 'learning'::text, 'life'::text, 'other'::text])))",
         "type": "c"
       },
       "ideas_domain_not_null": {

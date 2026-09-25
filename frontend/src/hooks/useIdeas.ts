@@ -44,6 +44,14 @@ export function useDiscoverIdeas() {
   return useIdeaMutation(() => ideasApi.discoverIdeas());
 }
 
+export function useMeaningEstimate(enabled: boolean) {
+  return useQuery({ queryKey: [...qk.ideas, 'meaning-estimate'], queryFn: ideasApi.getMeaningEstimate, enabled, staleTime: 0 });
+}
+
+export function useDiscoverMeanings() {
+  return useIdeaMutation(() => ideasApi.discoverMeanings());
+}
+
 export function useConfirmIdea() {
   return useIdeaMutation(({ id, body }: { id: string; body: ConfirmIdeaBody }) => ideasApi.confirmIdea(id, body));
 }

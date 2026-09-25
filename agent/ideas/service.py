@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from agent.config import settings
+from agent import intelligence
 from agent.intelligence import Intelligence
 from agent.database import db
 from agent.observations import chunk_entries, interleave
@@ -29,11 +30,17 @@ from .models import (
 from .reader import (
     CRITIQUE_PROMPT_VERSION,
     DISCOVERY_PROMPT_VERSION,
+    IDEA_MEANING_PROMPT,
     LINK_PROMPT_VERSION,
+    MEANING_PROMPT_VERSION,
     ReplyError,
 )
 
 logger = logging.getLogger(__name__)
+
+#: Ideas compared in one call. Pairs are only found within a call, so this is
+#: kept well above the size of the owner's framework rather than small.
+MEANING_BATCH_SIZE = 150
 
 IDEA_NOT_FOUND = "Idea not found"
 IDEA_CONFLICT = "This idea or its sources changed. Reload before deciding."
@@ -289,6 +296,73 @@ class IdeaService:
                         tally.bump(key, outcome[key])
         except Exception:
             logger.error("idea link discovery failed for user %s idea %s", self.user_id, idea_id)
+            tally.fail("model_failed")
+        finally:
+            status = _status(tally, len(batches))
+            store.finish_run(
+                run_id, self.user_id, status=status, passes_completed=tally.passes_completed,
+                proposed=tally.proposed, dropped=tally.dropped,
+                error=tally.error if status != "complete" else None,
+            )
+        return {"run": idea_run(store.get_run(run_id, self.user_id))}
+
+    def _meaning_batches(self) -> list[list[dict[str, Any]]]:
+        graph = store.load_graph(self.user_id)
+        ideas = sorted((idea for idea in graph["ideas"]
+                        if idea["status"] == "active" and idea["anchored"]), key=lambda row: int(row["id"]))
+        return _batches(ideas, MEANING_BATCH_SIZE) if len(ideas) >= 2 else []
+
+    def meaning_estimate(self) -> dict[str, Any]:
+        """What a same-meaning pass would send and cost, before anything is sent.
+
+        Only the accepted idea statements are sent, never journal text.
+        """
+        batches = self._meaning_batches()
+        ideas = sum(len(batch) for batch in batches)
+        characters = sum(len(row["statement"]) for batch in batches for row in batch)
+        # About four characters a token, plus the instructions once per call and
+        # a reply budget of a few pairs per call.
+        tokens_in = characters // 4 + len(batches) * (len(IDEA_MEANING_PROMPT) // 4 + 50)
+        tokens_out = len(batches) * 800
+        return {"ideas": ideas, "calls": len(batches), "tokensIn": tokens_in,
+                # The price table, not a client: an estimate never makes one.
+                "estimate": intelligence.Intelligence.estimate(settings.OPENAI_MODEL, tokens_in, tokens_out)}
+
+    def discover_meanings(self) -> dict[str, Any]:
+        """Propose pairs of accepted ideas that share one essential meaning.
+
+        Owner-triggered. Proposals are candidates for the owner to accept or
+        dismiss in Review; nothing is linked by this alone.
+        """
+        batches = self._meaning_batches()
+        run_id = store.start_run(
+            self.user_id, "meaning", settings.OPENAI_MODEL, MEANING_PROMPT_VERSION,
+            sum(len(batch) for batch in batches), len(batches),
+        )
+        tally = _Tally()
+        try:
+            if batches:
+                client = self._client()
+                for batch in batches:
+                    try:
+                        pairs, malformed = reader.propose_same_meaning(client, batch)
+                    except ReplyError as exc:
+                        tally.fail(exc.kind)
+                        if exc.kind == "malformed":
+                            tally.bump("malformed")
+                        continue
+                    tally.passes_completed += 1
+                    tally.bump("malformed", malformed)
+                    outcome = store.stage_links(
+                        self.user_id, run_id, None,
+                        [{"from_idea_id": pair.a, "to_idea_id": pair.b, "kind": "same_meaning",
+                          "rationale": pair.rationale} for pair in pairs],
+                    )
+                    tally.proposed += outcome["created"]
+                    for key in ("already_decided", "duplicate", "source_changed", "malformed"):
+                        tally.bump(key, outcome[key])
+        except Exception:
+            logger.error("same-meaning discovery failed for user %s", self.user_id)
             tally.fail("model_failed")
         finally:
             status = _status(tally, len(batches))

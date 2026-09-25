@@ -1,11 +1,11 @@
 import React from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { IdeaGraph } from '@/components/IdeaGraph';
 import { IdeaNeighborhood } from '@/components/IdeaNeighborhood';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { HttpError } from '@/api/client';
 import {
   useConfirmIdea, useConfirmIdeaLink, useCritiqueIdea, useDiscoverIdeaLinks, useDiscoverIdeas,
+  useDiscoverMeanings, useMeaningEstimate,
   useIdea, useIdeaReview, useIdeasFramework, useRejectIdea, useRejectIdeaCitations,
   useRejectIdeaLink, useUpdateIdea,
 } from '@/hooks/useIdeas';
@@ -27,6 +27,7 @@ const DOMAINS: { value: IdeaDomain; label: string }[] = [
   { value: 'politics', label: 'Politics' },
   { value: 'ethics', label: 'Ethics' },
   { value: 'learning', label: 'Learning' },
+  { value: 'life', label: 'Life' },
   { value: 'other', label: 'Other' },
 ];
 const STANCE_LABEL: Record<IdeaCitation['stance'], string> = {
@@ -39,6 +40,7 @@ const LINK_LABEL: Record<IdeaLink['kind'], string> = {
   contradicts: 'contradicts',
   refines: 'refines',
   depends_on: 'depends on',
+  same_meaning: 'means the same as',
 };
 const DROP_LABEL: [keyof IdeaRun['dropped'], string][] = [
   ['invalid_quote', 'a quote was not in the entry'],
@@ -69,7 +71,7 @@ function RunSummary({ run }: { run: IdeaRun | null }) {
     .map(([key, text]) => `${run.dropped[key]} ${text}`);
   return (
     <p role="status" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-      {run.kind} · {run.status}. {run.itemsRead} read, {run.passesCompleted} of {run.passesPlanned} passes, {run.proposed} proposed.
+      {run.kind === 'meaning' ? 'same meaning' : run.kind} · {run.status}. {run.itemsRead} read, {run.passesCompleted} of {run.passesPlanned} passes, {run.proposed} proposed.
       {drops.length > 0 && ` ${drops.join('; ')}.`}
       {run.status === 'partial' && ' Some of the read did not finish. Proposals already saved are still here.'}
       {run.status === 'failed' && ' The read did not finish.'}
@@ -241,6 +243,45 @@ function Discovery() {
       </button>
       <p>Sends eligible reflections to the configured model</p>
       {discover.error && <div role="alert">{failureText(discover.error)}</div>}
+      <SameMeaning />
+    </div>
+  );
+}
+
+/**
+ * Finding ideas that share one meaning. Asking shows what would be sent and
+ * what it would cost; nothing leaves until the owner presses Send.
+ */
+function SameMeaning() {
+  const [asking, setAsking] = React.useState(false);
+  const estimate = useMeaningEstimate(asking);
+  const find = useDiscoverMeanings();
+  if (!asking) {
+    return (
+      <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+        <button className="btn" onClick={() => setAsking(true)} disabled={find.isPending}>
+          {find.isPending ? 'Finding…' : 'Find ideas with the same meaning'}
+        </button>
+        {find.error && <span role="alert">{failureText(find.error)}</span>}
+      </div>
+    );
+  }
+  const e = estimate.data;
+  return (
+    <div className="card col" role="dialog" aria-label="Find ideas with the same meaning" style={{ gap: 10, padding: 16 }}>
+      {estimate.isPending && <span>Counting…</span>}
+      {estimate.isError && <span role="alert">The estimate did not load.</span>}
+      {e && (e.calls === 0
+        ? <span>You need at least two accepted ideas to compare.</span>
+        : <span>
+            Sends your {e.ideas} accepted idea statements, and no journal text, to the model in {e.calls} call{e.calls > 1 ? 's' : ''}: {e.estimate}.
+            Pairs it finds wait in Review; nothing is linked until you accept it.
+          </span>)}
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn primary" disabled={!e || e.calls === 0}
+          onClick={() => { setAsking(false); find.mutate(undefined); }}>Send</button>
+        <button className="btn" onClick={() => setAsking(false)}>Cancel</button>
+      </div>
     </div>
   );
 }
@@ -256,6 +297,9 @@ function readLayout(): 'graph' | 'list' {
   try { return window.localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'graph'; } catch { return 'graph'; }
 }
 
+// three.js is large; only a visit to the graph loads it.
+const IdeaGraph = React.lazy(() => import('@/components/IdeaGraph').then(m => ({ default: m.IdeaGraph })));
+
 function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" aria-pressed={on} onClick={onClick}
@@ -267,11 +311,28 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
   );
 }
 
+/** Gives its child the height from where it starts to the bottom of the window. */
+function FullHeight({ children }: { children: (height: number) => React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [height, setHeight] = React.useState(640);
+  React.useEffect(() => {
+    const measure = () => {
+      const top = ref.current?.getBoundingClientRect().top ?? 0;
+      setHeight(Math.max(480, Math.round(window.innerHeight - top - 64)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  return <div ref={ref}>{children(height)}</div>;
+}
+
 function FrameworkView({ data, waiting, review }: { data: IdeasFramework; waiting: number; review?: IdeasReview }) {
   const [query, setQuery] = React.useState('');
   const [domain, setDomain] = React.useState<IdeaDomain | ''>('');
   const [layout, setLayoutState] = React.useState(readLayout);
-  const [areas, setAreas] = React.useState(true);
+  // Off by default: ideas float and cluster by their links, as in Obsidian.
+  const [areas, setAreas] = React.useState(false);
   const [proposals, setProposals] = React.useState(false);
   const setLayout = (value: 'graph' | 'list') => {
     setLayoutState(value);
@@ -332,20 +393,20 @@ function FrameworkView({ data, waiting, review }: { data: IdeasFramework; waitin
     return (
       <div className="col" style={{ gap: 16 }}>
         {controls}
-        <IdeaGraph
+        <FullHeight>{height => <React.Suspense fallback={<LoadingState label="Drawing your ideas…" />}><IdeaGraph height={height}
           ideas={data.ideas.filter(idea => shown.has(idea.id))}
           links={data.links}
           proposedIdeas={proposals ? (review?.ideas ?? []).map(card => card.idea).filter(matches) : []}
           proposedLinks={proposals ? review?.links ?? [] : []}
           showAreas={areas}
           areaLabel={value => labelOf(DOMAINS, value)}
-        />
+        /></React.Suspense>}</FullHeight>
       </div>
     );
   }
 
   return (
-    <div className="col" style={{ gap: 28 }}>
+    <div className="col" style={{ gap: 28, maxWidth: 980 }}>
       {controls}
       {tensions.length > 0 && (
         <section className="col" style={{ gap: 8 }}>
@@ -416,7 +477,7 @@ function IdeasIndex() {
   const queue = useIdeaReview();
   const data = review ? queue : framework;
   return (
-    <main className="col" style={{ gap: 28, padding: '40px 48px 72px', maxWidth: 980 }}>
+    <main className="col" style={{ gap: 28, padding: '40px 48px 72px' }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div className="col" style={{ gap: 8 }}>
           <div className="kicker">ideas · positions in your writing</div>
@@ -429,7 +490,7 @@ function IdeasIndex() {
           <button className="btn" onClick={() => setParams({ view: 'review' })}>Review</button>
         </div>
       </div>
-      <Discovery />
+      <div style={{ maxWidth: 980 }}><Discovery /></div>
       <RunSummary run={data.data?.lastRun ?? null} />
       {data.isLoading && <LoadingState label="Loading your framework…" />}
       {data.isError && <ErrorState onRetry={() => data.refetch()} />}
