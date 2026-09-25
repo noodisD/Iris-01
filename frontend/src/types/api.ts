@@ -284,20 +284,8 @@ export interface HabitToggleRequest {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Insights — patterns Iris found
+// Noticed — patterns IRIS found by reading, for you to confirm or reject
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Which measurement a finding is, in words: agent/insights_service.py KIND_MAP.
- *  Nothing here is causal — "which comes first" is order, not influence. */
-export type InsightKind =
-  | 'across the record'         // lifelong
-  | 'direction'                 // trajectory
-  | 'still here or gone quiet'  // resolution
-  | 'co-occurrence'             // tension: two themes on the same days
-  | 'which comes first'         // leverage
-  | 'before and after';         // decision impact
-
-export type InsightStatus = 'new' | 'active' | 'snoozed' | 'resolved';
 
 /** A pattern IRIS noticed by reading, waiting for you to confirm or reject it.
  *  Nothing here is measured by any engine until it is confirmed. */
@@ -343,69 +331,6 @@ export interface ConstructCandidate {
   }[];
 }
 
-/** Why the insights list may be empty: how much recent evidence there is. */
-export interface InsightCoverage {
-  /** False when the check itself failed — not a measured absence. */
-  available: boolean;
-  windowDays: number;
-  observedDaysInWindow: number;
-  /** Days that must be written in before IRIS describes the present. */
-  observedDaysRequired: number;
-  lastEntryOn: ISODate | null;
-  daysSinceLastEntry: number | null;
-  supportsCurrentState: boolean;
-  entries: number;
-  themes: number;
-  entriesInThemes: number;
-  /** Findings the owner's own confidence filter removed. Null when unknown. */
-  suppressedByFilter: number | null;
-  /** Admitted findings hidden because they are resolved or still snoozed. */
-  hiddenByStatus: number | null;
-  /** Findings that passed the admission policy, before status filtering. */
-  admitted: number | null;
-}
-
-export interface InsightSummary {
-  id: ID;
-  kind: InsightKind;
-  status: InsightStatus;
-  /** Three-line headline. Frontend renders frag1 / frag2 / frag3 styled. */
-  headline: { line1: string; line2: string; line3: string };
-  summary: string;
-  /** 'sage' | 'rose' | 'indigo' | 'amber' — used as a theme color. */
-  accentColor: string;
-  featured: boolean;
-  tags: string[];
-  confidence: Confidence;
-  detectedAt: ISODateTime;
-  /** Has the user actually opened this? */
-  seen: boolean;
-  /** How this was arrived at. Absent for findings that span two patterns,
-   *  where a single origin would be a fiction. */
-  origin?: 'observed' | 'clustered';
-  /** 'mention' counts appearances in the writing, never actions taken. */
-  claimKind?: 'mention' | 'behaviour';
-  /** When the owner vouched for it, if they did. */
-  confirmedAt?: ISODateTime | null;
-}
-
-export interface InsightDetail extends InsightSummary {
-  /** Rich body for the deep-dive page. */
-  irisRead: string;
-  /** Evidence series — typed loosely so backend can ship different shapes. */
-  evidence: InsightEvidence[];
-  /** `sourceId` is the journal entry this came from, when it can be opened. */
-  pullQuotes: { sourceDate: ISODate; text: string; sourceKind: 'journal' | 'chat'; sourceId?: ID | null }[];
-  related: { id: ID; label: string; tag: string }[];
-  /** Free-form methodology paragraph the user can expand. */
-  methodology: string;
-}
-
-export type InsightEvidence =
-  | { kind: 'twin-series'; label: string; series: { name: string; color: string; points: { x: string; y: number }[] }[] }
-  | { kind: 'heatmap'; label: string; rows: string[]; cols: string[]; values: number[][] }
-  | { kind: 'comparison'; label: string; items: { label: string; value: number; sub?: string }[] }
-  | { kind: 'callout'; label: string; value: string; sub?: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings — what Iris knows

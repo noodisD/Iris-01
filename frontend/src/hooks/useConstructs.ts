@@ -34,9 +34,7 @@ export function useConfirmConstruct() {
   return useMutation({
     mutationFn: (id: string) => confirmConstruct(id),
     onSuccess: () => {
-      // Confirming writes occurrences, so the insights it now feeds are stale.
       qc.invalidateQueries({ queryKey: qk.constructs });
-      qc.invalidateQueries({ queryKey: qk.insights });
     },
   });
 }

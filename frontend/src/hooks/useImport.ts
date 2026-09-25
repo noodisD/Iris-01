@@ -85,10 +85,8 @@ export function useImportActions(batchId: string | undefined) {
       mutationFn: () => importApi.commit(batchId!),
       onSuccess: () => {
         refresh();
-        // Imported entries are journal entries now, and the analytical layer
-        // will have more to say once the queue catches up.
+        // Imported entries are journal entries now.
         qc.invalidateQueries({ queryKey: qk.journal });
-        qc.invalidateQueries({ queryKey: qk.insights });
         qc.invalidateQueries({ queryKey: qk.importBatches });
       },
     }),

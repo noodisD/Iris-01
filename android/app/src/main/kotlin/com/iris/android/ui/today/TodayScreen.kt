@@ -1,5 +1,6 @@
 package com.iris.android.ui.today
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,7 +32,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.iris.android.api.HabitsTodayResponse
-import com.iris.android.api.InsightSummary
+import com.iris.android.api.PatternSummary
+import com.iris.android.api.PatternsResponse
+import com.iris.android.api.nextPattern
 import com.iris.android.api.IrisLink
 import com.iris.android.ui.Loadable
 import com.iris.android.ui.components.ErrorState
@@ -49,17 +52,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
-import kotlinx.serialization.builtins.ListSerializer
 
 class TodayViewModel : ViewModel() {
     private val _habits = MutableStateFlow<Loadable<HabitsTodayResponse>>(Loadable.Loading)
     val habits = _habits.asStateFlow()
-    private val _insights = MutableStateFlow<Loadable<List<InsightSummary>>>(Loadable.Loading)
-    val insights = _insights.asStateFlow()
+    private val _patterns = MutableStateFlow<Loadable<List<PatternSummary>>>(Loadable.Loading)
+    val patterns = _patterns.asStateFlow()
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
     private var habitsVersion = 0
-    private var insightsVersion = 0
+    private var patternsVersion = 0
 
     fun refresh() {
         viewModelScope.launch {
@@ -67,7 +69,7 @@ class TodayViewModel : ViewModel() {
             try {
                 supervisorScope {
                     launch { fetchHabits() }
-                    launch { fetchInsights() }
+                    launch { fetchPatterns() }
                 }
             } finally {
                 _refreshing.value = false
@@ -76,7 +78,7 @@ class TodayViewModel : ViewModel() {
     }
 
     fun retryHabits() { viewModelScope.launch { fetchHabits() } }
-    fun retryInsights() { viewModelScope.launch { fetchInsights() } }
+    fun retryPatterns() { viewModelScope.launch { fetchPatterns() } }
 
     private suspend fun fetchHabits() {
         val version = ++habitsVersion
@@ -87,13 +89,13 @@ class TodayViewModel : ViewModel() {
         catch (e: Exception) { if (version == habitsVersion) _habits.value = Loadable.Failed(e.message ?: "Habits didn't load.") }
     }
 
-    private suspend fun fetchInsights() {
-        val version = ++insightsVersion
+    private suspend fun fetchPatterns() {
+        val version = ++patternsVersion
         try {
-            val result = IrisLink.api().send("GET", "/insights", null, ListSerializer(InsightSummary.serializer()))
-            if (version == insightsVersion) _insights.value = Loadable.Ready(result)
+            val result = IrisLink.api().send("GET", "/patterns", null, PatternsResponse.serializer())
+            if (version == patternsVersion) _patterns.value = Loadable.Ready(result.patterns)
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { if (version == insightsVersion) _insights.value = Loadable.Failed(e.message ?: "Findings didn't load.") }
+        catch (e: Exception) { if (version == patternsVersion) _patterns.value = Loadable.Failed(e.message ?: "Patterns didn't load.") }
     }
 }
 
@@ -101,7 +103,7 @@ class TodayViewModel : ViewModel() {
 fun TodayScreen(onNavigate: (String) -> Unit) {
     val vm: TodayViewModel = viewModel()
     val habits by vm.habits.collectAsState()
-    val insights by vm.insights.collectAsState()
+    val patterns by vm.patterns.collectAsState()
     val refreshing by vm.refreshing.collectAsState()
     val colors = LocalIrisColors.current
     LaunchedEffect(Unit) { vm.refresh() }
@@ -116,27 +118,30 @@ fun TodayScreen(onNavigate: (String) -> Unit) {
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                if (habits is Loadable.Loading || insights is Loadable.Loading) {
+                if (habits is Loadable.Loading || patterns is Loadable.Loading) {
                     item { LoadingState() }
-                } else if (habits is Loadable.Failed && insights is Loadable.Failed) {
+                } else if (habits is Loadable.Failed && patterns is Loadable.Failed) {
                     item { ErrorState(onRetry = vm::refresh) }
                 } else {
                     item { Button(onClick = { onNavigate("chat") }, modifier = Modifier.fillMaxWidth()) { Text("▷ Daily check-in") } }
-                    val featured = (insights as? Loadable.Ready)?.value?.firstOrNull { it.featured }
+                    // A pattern waiting for the owner's verdict, offered as a question.
+                    val featured = (patterns as? Loadable.Ready)?.value?.let(::nextPattern)
                     if (featured != null) item {
-                        IrisCard(Modifier.fillMaxWidth(), onClick = { onNavigate("insights/${featured.id}") }) {
+                        val open = { onNavigate("patterns/${Uri.encode(featured.id)}") }
+                        IrisCard(Modifier.fillMaxWidth(), onClick = open) {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
                                 IrisOrb()
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Kicker("iris · ${featured.kind}")
-                                    Text("\"${featured.summary}\"", fontFamily = Serif, fontStyle = FontStyle.Italic,
+                                    Kicker("pattern · ${featured.occasions} occasions · does it ring true?")
+                                    Text(featured.name, fontFamily = Serif, fontStyle = FontStyle.Italic,
                                         fontSize = 22.sp, color = colors.ink, lineHeight = 29.sp)
+                                    Text(featured.statement, fontSize = 13.sp, color = colors.ink3)
                                 }
-                                TextButton(onClick = { onNavigate("insights/${featured.id}") }) { Text("↗ open") }
+                                TextButton(onClick = open) { Text("↗ open") }
                             }
                         }
                     }
-                    if (insights is Loadable.Failed) item { Unavailable("Findings", vm::retryInsights) }
+                    if (patterns is Loadable.Failed) item { Unavailable("Patterns", vm::retryPatterns) }
                     if (habits is Loadable.Failed) item { Unavailable("Habits", vm::retryHabits) }
                     val today = (habits as? Loadable.Ready)?.value
                     if (today != null) item {

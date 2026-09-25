@@ -29,8 +29,8 @@ import com.iris.android.api.LinkState
 import com.iris.android.api.OnboardingState
 import com.iris.android.ui.chat.ChatScreen
 import com.iris.android.ui.habits.HabitsScreen
-import com.iris.android.ui.insights.InsightsScreen
-import com.iris.android.ui.insights.InsightDetailScreen
+import com.iris.android.ui.patterns.PatternDetailScreen
+import com.iris.android.ui.patterns.PatternsScreen
 import com.iris.android.ui.journal.JournalScreen
 import com.iris.android.ui.journal.JournalVoiceScreen
 import com.iris.android.ui.importing.ImportScreen
@@ -52,8 +52,8 @@ object Routes {
     const val TODAY = "today"
     const val JOURNAL = "journal?entry={entry}"
     const val JOURNAL_VOICE = "journal/voice"
-    const val INSIGHTS = "insights"
-    const val INSIGHT = "insights/{id}"
+    const val PATTERNS = "patterns"
+    const val PATTERN = "patterns/{id}"
     const val MORE = "more"
     const val HABITS = "habits"
     const val NOTICED = "noticed"
@@ -83,13 +83,13 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
     val route = entry?.destination?.route.orEmpty().substringBefore('?')
     val currentTab = when {
         route == "journal/voice" -> "journal"
-        route.startsWith("insights/") -> "more"
-        route in setOf("more", "insights", "noticed", "review", "import", "sensors", "sensors/{id}", "settings", "collector") -> "more"
+        route.startsWith("patterns/") -> "more"
+        route in setOf("more", "patterns", "noticed", "review", "import", "sensors", "sensors/{id}", "settings", "collector") -> "more"
         else -> route
     }
     val vibe = when {
         route in setOf("journal", "journal/voice", "habits") -> OrbVibe.High
-        route.startsWith("insights") || route == "noticed" -> OrbVibe.Low
+        route.startsWith("patterns") || route == "noticed" -> OrbVibe.Low
         route in setOf("review", "import") -> OrbVibe.Cool
         route.startsWith("sensors") || route == "settings" -> OrbVibe.Dim
         else -> OrbVibe.Calm
@@ -118,7 +118,7 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
     }
     CompositionLocalProvider(LocalOrbVibe provides vibe) {
         Scaffold(bottomBar = {
-            if (route !in setOf("onboarding", "journal/voice", "insights/{id}", "sensors/{id}") && !WindowInsets.isImeVisible) {
+            if (route !in setOf("onboarding", "journal/voice", "patterns/{id}", "sensors/{id}") && !WindowInsets.isImeVisible) {
                 NavigationBar(containerColor = colors.bg1) {
                     tabs.forEach { tab ->
                         val selected = currentTab == tab.route
@@ -166,19 +166,13 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
                             )
                         }
                     }
-                    composable(Routes.INSIGHTS) { gated { InsightsScreen(nav::navigate) } }
-                    composable(Routes.INSIGHT, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
+                    composable(Routes.PATTERNS) { gated { PatternsScreen(nav::navigate) } }
+                    composable(Routes.PATTERN, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
                         gated {
-                            InsightDetailScreen(
+                            PatternDetailScreen(
                                 requireNotNull(it.arguments?.getString("id")),
                                 nav::navigate,
                                 onBack = { nav.popBackStack() },
-                                onDecisionDone = {
-                                    nav.navigate(Routes.INSIGHTS) {
-                                        popUpTo(nav.graph.findStartDestination().id)
-                                        launchSingleTop = true
-                                    }
-                                },
                             )
                         }
                     }

@@ -1,21 +1,33 @@
 import { useHabits } from '@/hooks/useHabits';
-import { useInsights } from '@/hooks/useInsights';
+import { usePatterns } from '@/hooks/usePatterns';
 import { useNavigate } from 'react-router-dom';
 import { LoadingState, ErrorState } from '@/components/states';
+import type { PatternSummary } from '@/types/api';
 
-/** Today: the featured finding, if there is one, and today's habits. */
+/**
+ * The pattern most worth a look: the one found on the most occasions that you
+ * have not yet said rings true or not. It is offered as a question, because
+ * whether a pattern holds for you is yours to say.
+ */
+export function nextPattern(patterns: PatternSummary[] | undefined): PatternSummary | undefined {
+  return (patterns ?? [])
+    .filter(p => p.occasions > 0 && !p.verdict)
+    .sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name))[0];
+}
+
+/** Today: a pattern waiting for your verdict, if there is one, and today's habits. */
 export function TodayScreen() {
   const habitsQuery = useHabits();
-  const insightsQuery = useInsights();
+  const patternsQuery = usePatterns();
   const nav = useNavigate();
 
-  if (habitsQuery.isLoading || insightsQuery.isLoading) return <LoadingState />;
-  if (habitsQuery.isError && insightsQuery.isError) {
-    return <ErrorState onRetry={() => { habitsQuery.refetch(); insightsQuery.refetch(); }} />;
+  if (habitsQuery.isLoading || patternsQuery.isLoading) return <LoadingState />;
+  if (habitsQuery.isError && patternsQuery.isError) {
+    return <ErrorState onRetry={() => { habitsQuery.refetch(); patternsQuery.refetch(); }} />;
   }
 
   const habits = habitsQuery.data;
-  const featured = insightsQuery.data?.find(i => i.featured);
+  const featured = nextPattern(patternsQuery.data?.patterns);
 
   return (
     <div className="col" style={{ padding: '24px 32px 40px', gap: 24 }}>
@@ -30,21 +42,20 @@ export function TodayScreen() {
       </header>
 
       {featured && (
-        <div className="row" style={{ gap: 18, alignItems: 'flex-start', padding: '8px 0 12px', borderBottom: '1px dashed var(--line)', cursor: 'pointer' }} onClick={() => nav(`/insights/${featured.id}`)}>
+        <div className="row" style={{ gap: 18, alignItems: 'flex-start', padding: '8px 0 12px', borderBottom: '1px dashed var(--line)', cursor: 'pointer' }} onClick={() => nav(`/patterns/${featured.id}`)}>
           <div className="iris-orb" style={{ marginTop: 6 }} />
           <div className="col" style={{ flex: 1, gap: 4 }}>
-            {/* The measurement, not a time: a featured finding can be a count
-                across two years, and "just now" said otherwise. */}
-            <div className="kicker">iris · {featured.kind}</div>
+            <div className="kicker">pattern · {featured.occasions} occasions in your writing · does it ring true?</div>
             <div className="serif" style={{ fontSize: 26, fontStyle: 'italic', lineHeight: 1.3, color: 'var(--ink)', maxWidth: 880 }}>
-              "{featured.summary}"
+              {featured.name}
             </div>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', maxWidth: 880 }}>{featured.statement}</div>
           </div>
           <span className="btn" style={{ alignSelf: 'flex-start' }}>↗ open</span>
         </div>
       )}
 
-      {insightsQuery.isError && <Unavailable what="Findings" retry={() => insightsQuery.refetch()} />}
+      {patternsQuery.isError && <Unavailable what="Patterns" retry={() => patternsQuery.refetch()} />}
       {habitsQuery.isError && <Unavailable what="Habits" retry={() => habitsQuery.refetch()} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>

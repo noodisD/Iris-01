@@ -84,7 +84,6 @@ export function SettingsScreen() {
   // that were filtered through it as well as the settings themselves.
   const afterGateChange = () => {
     qc.invalidateQueries({ queryKey: qk.analysis });
-    qc.invalidateQueries({ queryKey: qk.insights });
   };
 
   const setGate = async (patch: Parameters<typeof updateAnalysisPreferences>[0]) => {

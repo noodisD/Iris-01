@@ -1,29 +1,29 @@
 /**
- * Today names the measurement it features, never a time the finding does not
- * have, and a failed load says so instead of showing an empty page.
- *
- * The kicker used to read "iris, just now" above a count that could span two
- * years, and a failed request left the screen silently blank.
+ * Today offers the pattern most worth a verdict, as a question, and a failed
+ * load says so instead of showing an empty page.
  */
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import type { PatternSummary } from '@/types/api';
 
 const state = vi.hoisted(() => ({
-  insights: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
+  patterns: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
   habits: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
 }));
 
-vi.mock('@/hooks/useInsights', () => ({ useInsights: () => state.insights }));
+vi.mock('@/hooks/usePatterns', () => ({ usePatterns: () => state.patterns }));
 vi.mock('@/hooks/useHabits', () => ({ useHabits: () => state.habits }));
 
-import { TodayScreen } from './TodayScreen';
+import { TodayScreen, nextPattern } from './TodayScreen';
 
-const lifelong = {
-  id: 'lifelong:7', kind: 'across the record', status: 'new', featured: true,
-  headline: { line1: 'a', line2: 'b', line3: 'c' }, summary: 'Recurred 40 times across two years.',
-  accentColor: 'sage', tags: [], confidence: 'medium', detectedAt: '2026-09-19T10:00:00Z', seen: false,
-};
+function pattern(id: string, occasions: number, verdict: PatternSummary['verdict'] = null): PatternSummary {
+  return {
+    id, name: `Pattern ${id}`, statement: `What ${id} says.`, holdsWhen: [], notWhen: [], question: '',
+    basis: null, evidence: null, source: null, occasions, tones: { better: 0, worse: occasions, mixed: 0 },
+    reviewed: 0, rejected: 0, labelledBy: [], verdict,
+  };
+}
 const noHabits = { habits: [], doneCount: 0, totalCount: 0 };
 
 function show() {
@@ -31,23 +31,29 @@ function show() {
 }
 
 describe('Today', () => {
-  it('names the measurement, not "just now"', () => {
-    state.insights = { ...state.insights, data: [lifelong], isError: false };
+  it('offers the most frequent pattern still waiting for a verdict', () => {
+    state.patterns = { ...state.patterns, isError: false, data: { patterns: [
+      pattern('a', 9, { verdict: 'rings_true', note: null }), pattern('b', 4), pattern('c', 6), pattern('d', 0),
+    ] } };
     state.habits = { ...state.habits, data: noHabits, isError: false };
     show();
-    expect(screen.getByText('iris · across the record')).toBeInTheDocument();
-    expect(screen.queryByText(/just now/)).toBeNull();
+    expect(screen.getByText('Pattern c')).toBeInTheDocument();
+    expect(screen.getByText(/6 occasions in your writing · does it ring true\?/)).toBeInTheDocument();
   });
 
-  it('says when findings did not load', () => {
-    state.insights = { ...state.insights, data: undefined, isError: true };
+  it('shows nothing when every found pattern has a verdict', () => {
+    expect(nextPattern([pattern('a', 3, { verdict: 'does_not', note: null }), pattern('b', 0)])).toBeUndefined();
+  });
+
+  it('says when patterns did not load', () => {
+    state.patterns = { ...state.patterns, data: undefined, isError: true };
     state.habits = { ...state.habits, data: noHabits, isError: false };
     show();
-    expect(screen.getByRole('alert')).toHaveTextContent("Findings didn't load.");
+    expect(screen.getByRole('alert')).toHaveTextContent("Patterns didn't load.");
   });
 
   it('says when nothing loaded at all', () => {
-    state.insights = { ...state.insights, data: undefined, isError: true };
+    state.patterns = { ...state.patterns, data: undefined, isError: true };
     state.habits = { ...state.habits, data: undefined, isError: true };
     show();
     expect(screen.getByText("Something didn't load.")).toBeInTheDocument();
