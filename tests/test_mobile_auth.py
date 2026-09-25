@@ -213,7 +213,7 @@ class PairingEndpointTests(unittest.TestCase):
         from agent.database import db as database
         with TestClient(app) as client:
             r = client.post("/api/mobile/pair",
-                            json={"token": "x" * 64,
+                            json={"token": "a" * 64,
                                   "lan_bind_enabled": True})
             self.assertEqual(r.status_code, 200, r.text)
             self.assertTrue(cfg.settings.LAN_BIND_ENABLED)
@@ -236,6 +236,40 @@ class PairingEndpointTests(unittest.TestCase):
                             json={"token": "short",
                                   "lan_bind_enabled": True})
             self.assertEqual(r.status_code, 400)
+
+    def test_pair_requires_256_bit_token_and_boolean_gate(self):
+        from fastapi.testclient import TestClient
+        from iris_api import app
+        with TestClient(app) as client:
+            for token in ("x" * 64, "a" * 63, "a" * 65):
+                self.assertEqual(
+                    client.post("/api/mobile/pair",
+                                json={"token": token, "lan_bind_enabled": True}).status_code,
+                    400,
+                )
+            self.assertEqual(
+                client.post("/api/mobile/pair",
+                            json={"token": "a" * 64, "lan_bind_enabled": "false"}).status_code,
+                400,
+            )
+
+    def test_unpair_revokes_persisted_and_live_pairing(self):
+        from fastapi.testclient import TestClient
+        from iris_api import app
+        from agent.database import db
+        from agent.config import settings
+        with TestClient(app) as client:
+            self.assertEqual(client.post("/api/mobile/pair", json={
+                "token": "a" * 64, "lan_bind_enabled": True,
+            }).status_code, 200)
+            self.assertTrue(client.get("/api/mobile/connection").json()["paired"])
+            self.assertEqual(client.post("/api/mobile/unpair").json(), {"status": "unpaired"})
+            self.assertFalse(client.get("/api/mobile/connection").json()["paired"])
+            self.assertFalse(settings.LAN_BIND_ENABLED)
+            self.assertIsNone(settings.MOBILE_BEARER_HASH)
+            with db.connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing WHERE id = 1")
+                self.assertEqual(cur.fetchone(), (None, False))
 
 
 if __name__ == "__main__":

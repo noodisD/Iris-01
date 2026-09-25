@@ -89,7 +89,7 @@ class ConversationMemory:
         """Loads recent conversation history from the database to seed session context."""
         logger.info(f"Loading recent history for user {self.user_id} from database.")
         try:
-            recent_messages = db.get_chat_history(self.user_id, limit=20)
+            recent_messages = db.get_chat_history(self.user_id, limit=20, session_id=self.session_id)
             self.history = [
                 {"role": msg["role"], "content": msg["content"]}
                 for msg in recent_messages

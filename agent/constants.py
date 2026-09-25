@@ -34,9 +34,9 @@ EVIDENCE_WEIGHTS = {
 EVIDENCE_WEIGHTS["pixel_location"] = 0.3
 EVIDENCE_WEIGHTS["pixel_app_usage"] = 0.5
 EVIDENCE_WEIGHTS["pixel_steps"] = 0.5
-EVIDENCE_WEIGHTS["fitbit_heart_rate"] = 0.6
-EVIDENCE_WEIGHTS["fitbit_sleep"] = 0.6
-EVIDENCE_WEIGHTS["fitbit_spo2"] = 0.6
+EVIDENCE_WEIGHTS["health_connect_heart_rate"] = 0.6
+EVIDENCE_WEIGHTS["health_connect_sleep"] = 0.6
+EVIDENCE_WEIGHTS["health_connect_spo2"] = 0.6
 
 # One sensor observation per source per day, max. Prevents a phone
 # reading thousands of times a day from dominating trajectory counts.

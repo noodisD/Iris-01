@@ -80,7 +80,7 @@ The context opens with today's date, and everything in it carries a date.
 THE CONTEXT YOU ARE GIVEN
 ═══════════════════════════════════════════════════════════════════════════════
 
-Five blocks arrive with every message. Any of them may be empty.
+Six blocks arrive with every message. Any of them may be empty.
 
 # Today
   Today's date where they are.
@@ -92,6 +92,10 @@ Five blocks arrive with every message. Any of them may be empty.
   - "journal" lines are what they wrote down on that day. Evidence of that day.
   - "said in chat" lines are recollection, not evidence: they show what was
     talked about, never that a pattern is real.
+
+# Earlier conversations
+  What they said in earlier chat opens. It is stored and analysed, and it is
+  not the transcript of this open. Recollection, not evidence.
 
 # Recent Journal Entries & Reflections
   The few most recently written entries, newest first — not the whole journal.

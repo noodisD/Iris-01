@@ -3,11 +3,13 @@
 ## Status
 Accepted — 2026-09-22
 
-## Accepted — 2026-09-22
-Implementation lands in `agent/mobile_auth.py` (the bearer middleware)
-and `iris_api.py` (`POST /api/mobile/pair`). The LAN bind remains OFF
-by default and is enabled only by the pairing flow. Mobile settings
-live under `LAN_BIND_*` and `MOBILE_BEARER_HASH` in `agent.config`.
+## Implementation status
+Implemented for the sensor collector. The API allow-list in this decision was
+expanded by [ADR-0019](ADR-0019-phone-app-over-lan.md) for the native IRIS app:
+the paired bearer now authorizes `/api/` except laptop-only pairing routes.
+The unauthenticated web UI remains loopback-only. The Android collector still
+pins the server's public key, keeps an outbox and sends only over Wi-Fi on the
+laptop's local subnet.
 
 ## Amends
 ADR-0001 — IRIS is a single-user application bound to loopback.
@@ -15,10 +17,10 @@ The amendment here is narrow: IRIS binds to two interfaces, with
 different authentication posture on each.
 
 ## Context
-The owner has a Pixel 10a and wants an Android app that is the phone-side
-counterpart to the IRIS web app: chat, journal entry, settings, insights
-review, and sensor collection. State stays on the laptop; the phone is a
-thin client. The phone must reach IRIS over the home Wi-Fi.
+The owner has a Pixel 10a and wants an Android app to collect live
+measurements and deliver them to the IRIS laptop over home Wi-Fi. Chat,
+journaling, settings and review remain in the laptop web app; the phone is
+only an opt-in sensor collector.
 
 The cleanest answer would be a private tunnel (Tailscale, WireGuard)
 that preserves ADR-0001's loopback invariant while letting the phone
@@ -29,42 +31,38 @@ contradicts ADR-0001's letter; the right move is to amend it deliberately
 and record what the amendment does and does not allow.
 
 ## Decision
-IRIS binds to two interfaces:
+IRIS runs two listeners from one process:
 
-- `127.0.0.1:8000` — the existing loopback. No authentication. No change.
-- `<lan-interface>:8765` — a new bind, on the LAN interface only (not
-  `0.0.0.0`, not `::`), on a configurable port. Bearer-token authentication
-  is mandatory on this bind. The token is generated at first install of
-  the Android app, displayed once, and entered into IRIS's settings
-  (`POST /api/mobile/pair`); IRIS stores the SHA-256 hash.
+- `127.0.0.1:8000` — the existing unauthenticated web UI and local API.
+- `<private-LAN-IP>:8765` — explicitly configured, TLS-only mobile intake.
+  `0.0.0.0`, public addresses and IPv6 binds are rejected. Only
+  `GET /api/mobile/status` and `POST /api/mobile/sensor/intake` reach the
+  application there; other API and web paths return 404.
 
-All mobile routes live under `/api/mobile/*`. They are the only routes
-that respond on the LAN bind. `/api/*` routes (the existing web surface)
-also respond on the LAN bind, but only with the bearer.
+The local Settings UI generates a 256-bit random token and calls loopback-only
+`POST /api/mobile/pair`. IRIS stores its SHA-256 hash, never the bearer.
+The owner scans a QR containing the LAN URL, SHA-256 server public-key pin and
+one-time bearer. The phone checks the certificate's IP hostname and public key
+before sending the bearer; the key remains private across certificate reissues
+for new IPs. An address-only QR updates the URL without rotating the token.
+A replacement token invalidates the old one; `POST /api/mobile/unpair` revokes
+it immediately.
+Loopback pairing mutations reject browser origins outside loopback, so a
+remote web page cannot rotate or revoke the phone's bearer through the local UI.
 
 ## Consequences
-The loopback invariant is *narrowed*, not removed. The trust boundary
-moves from "the operating system" to "the home Wi-Fi plus a 256-bit
-bearer". A device on the same Wi-Fi that does not have the bearer still
-cannot reach IRIS.
-
-The threat model changes. A passive observer on the same Wi-Fi can see
-that IRIS is talking to a phone. Active attackers can attempt to
-brute-force the bearer. Mitigations: the bearer is 256 bits of entropy;
-the rate limiter on `/api/mobile/pair` caps guesses; the bearer is
-rotatable from IRIS settings.
-
-A separate ADR is required to widen the bind further (e.g., to allow
-the bearer to expire and need a re-pair, or to introduce a short-lived
-JWT). The point of this amendment is the LAN-bind itself, not the
-authentication scheme.
+The web UI remains inaccessible from the LAN. A passive Wi-Fi observer sees
+only TLS metadata, not readings or bearer contents; an active peer cannot
+impersonate IRIS without the pinned certificate. Network isolation and a
+high-entropy bearer still matter: the mobile listener must not be exposed
+to the public Internet. Intake has a 16 MiB request limit and rejects
+unauthorized traffic before parsing. The browser's local settings route is
+deliberately not bearer-accessible over LAN.
 
 ## Risks
-- The laptop's LAN IP changes when the network changes. The Android app
-  asks for it at install and at every connect; the owner re-enters it
-  when it changes. Mitigation: mDNS lookup of `iris.local` is a future
-  follow-up, not part of this amendment.
-- The bearer is the only thing standing between the phone and someone
-  else on the Wi-Fi. Mitigation: the token is stored in the Android
-  Keystore (hardware-backed when available) and is never written to
-  logs or backups.
+- The laptop's private IP may change. The listener regenerates an IP-SAN
+  certificate using the same private key; the owner scans the new address QR.
+  No mDNS discovery is claimed.
+- Losing the phone or its token gives an attacker access to the mobile
+  intake until the owner disconnects it on the laptop. The bearer is
+  Keystore-encrypted on the phone and excluded from Android backup.

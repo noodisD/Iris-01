@@ -10,26 +10,23 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     # Core LLM
     "openai>=1.50.0",
-
     # Data & Validation
     "pydantic>=2.8.0",
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
-
     # Databases
     "psycopg2-binary>=2.9.0",
     "pgvector>=0.2.5",
-
     # ML / Clustering
     "scikit-learn>=1.5.0",
     "numpy>=2.1.0",
-
     # Core application dependencies
     "typing-extensions>=4.8.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
     "python-multipart>=0.0.12",
     "tenacity>=9.0.0",
+    "cryptography>=44.0.0",
 ]
 
 [project.optional-dependencies]
@@ -96,6 +93,9 @@ files = [
     "agent/review_letter.py",
     "agent/timeutils.py",
     "agent/work_queue.py",
+    "agent/ideas/models.py",
+    "agent/ideas/reader.py",
+    "agent/ideas/service.py",
 ]
 
 [tool.ruff]

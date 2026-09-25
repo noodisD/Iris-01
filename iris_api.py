@@ -15,19 +15,22 @@ configure_logging()
 # configure_logging() attaches to "iris_api".
 logger = logging.getLogger("iris_api")
 
+import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
@@ -41,6 +44,19 @@ try:
     from agent.insights_service import InsightsService
     from agent.observations import ObservationEngine, apply_preferences
     from agent import constructs
+    from agent.ideas.service import (
+        ANALYSIS_FAILED,
+        CRITIQUE_FAILED,
+        IDEA_CONFLICT,
+        IDEA_NOT_FOUND,
+        LINK_CONFLICT,
+        LINK_NOT_FOUND,
+        IdeaConflict,
+        IdeaNotFound,
+        IdeaService,
+        IdeaUnavailable,
+    )
+    from agent.ideas.models import IDEA_DOMAINS, IDEA_POSITIONS
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -83,34 +99,33 @@ async def lifespan(app: FastAPI):
     logger.info("Applying schema migrations...")
     migrations.upgrade()
 
-    # Ingest work is queued rather than run in the request. Starting the
-    # worker here also picks up anything the previous process left behind.
+
+    # Load the single pairing row after migrations, before accepting requests.
+    # A failed load must not accidentally retain a previous in-process token.
+    from agent.config import settings as live_settings
+    live_settings.MOBILE_BEARER_HASH = None
+    live_settings.LAN_BIND_ENABLED = False
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing WHERE id = 1"
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("mobile pairing row is missing")
+        live_settings.MOBILE_BEARER_HASH = row[0]
+        live_settings.LAN_BIND_ENABLED = bool(row[1])
+
     queue_worker.start()
-
-    # Load the mobile pairing state from the DB into the in-process settings.
-    # Without this, the bearer middleware would reject every LAN request
-    # after a restart even though the phone is paired.
     try:
-        with db.connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing "
-                "WHERE id = 1")
-            row = cur.fetchone()
-            if row is not None:
-                from agent.config import settings as live_settings
-                live_settings.MOBILE_BEARER_HASH = row[0]
-                live_settings.LAN_BIND_ENABLED = bool(row[1])
-    except Exception as e:  # the table may not exist on a fresh install
-        logger.warning("could not load mobile pairing state: %s", e)
-
-    yield
-    queue_worker.stop()
+        yield
+    finally:
+        queue_worker.stop()
 
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 
-# Bearer-token gate on the LAN bind (ADR-0018). Loopback bypasses; LAN
-# requests need the bearer; the bind defaults to OFF.
+# Keep the accidental non-loopback HTTP bind closed, too. The TLS listener
+# additionally tags all its requests, including those from local processes.
 from agent.mobile_auth import MobileAuthMiddleware, hash_token  # noqa: E402
 app.add_middleware(MobileAuthMiddleware)
 
@@ -280,65 +295,260 @@ async def health_check():
 # MOBILE ENDPOINTS (LAN-bind only, ADR-0018)
 # ============================================================================
 
+def _record_phone_contact(intake: bool) -> None:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE mobile_pairing SET last_seen_at = now(), "
+            "last_intake_at = CASE WHEN %s THEN now() ELSE last_intake_at END WHERE id = 1",
+            (intake,),
+        )
+        conn.commit()
+
+
+@app.get("/api/mobile/connection")
+def mobile_connection() -> dict:
+    """Show the owner the phone listener, pairing and delivery health."""
+    from agent.config import settings as live_settings
+    from agent.mobile_auth import last_rejection
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT paired_at, last_seen_at, last_intake_at "
+            "FROM mobile_pairing WHERE id = 1"
+        )
+        paired_at, last_seen_at, last_intake_at = cur.fetchone()
+        cur.execute("SELECT count(*) FROM sensor_batches WHERE status = 'pending'")
+        pending_batches = cur.fetchone()[0]
+    listener = (
+        "listening" if live_settings.LAN_URL else
+        "failed" if live_settings.LAN_LISTENER_ERROR else
+        "not_started" if live_settings.LAN_BIND_HOST else "not_configured"
+    )
+    return {
+        "lan_url": live_settings.LAN_URL,
+        "public_key_sha256": live_settings.LAN_PUBLIC_KEY_SHA256,
+        "listener": listener,
+        "listener_error": live_settings.LAN_LISTENER_ERROR,
+        "paired": bool(live_settings.MOBILE_BEARER_HASH),
+        "paired_at": paired_at,
+        "last_seen_at": last_seen_at,
+        "last_intake_at": last_intake_at,
+        "last_rejection": last_rejection(),
+        "pending_batches": pending_batches,
+    }
+
+
+@app.get("/api/mobile/status")
+def mobile_status() -> dict:
+    _record_phone_contact(False)
+    return {"status": "connected"}
+
+
+def _require_local_browser_origin(request: Request) -> None:
+    # Browsers can send a cross-site simple POST to loopback without CORS.
+    # A missing Origin is reserved for native local callers; browsers always
+    # supply one on these mutations.
+    origin = request.headers.get("origin")
+    if origin is not None:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {
+            "localhost", "127.0.0.1", "::1",
+        }:
+            raise HTTPException(status_code=403, detail="local browser origin required")
+
 
 @app.post("/api/mobile/pair")
 async def mobile_pair(request: Request) -> dict:
-    """Pair the Android app to this IRIS installation.
-
-    The owner pastes a token the app generated; IRIS stores the
-    SHA-256 hash and enables the LAN bind. The raw token never
-    lives in process state beyond this request.
-    """
-    body = await request.json()
+    """Store the SHA-256 of the 256-bit secret entered in local Settings."""
+    _require_local_browser_origin(request)
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid pairing request") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid pairing request")
     token = body.get("token")
-    if not token or not isinstance(token, str) or len(token) < 32:
-        raise HTTPException(
-            status_code=400, detail="token must be a string of >= 32 chars")
+    if not isinstance(token, str) or re.fullmatch(r"[0-9a-fA-F]{64}", token) is None:
+        raise HTTPException(status_code=400, detail="token must be 64 hexadecimal characters")
+    enabled = body.get("lan_bind_enabled", True)
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="lan_bind_enabled must be a boolean")
     bearer_hash = hash_token(token)
-    enabled = bool(body.get("lan_bind_enabled", True))
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE mobile_pairing SET bearer_hash = %s, "
             "lan_bind_enabled = %s, paired_at = now(), "
-            "paired_device = 'android' WHERE id = 1",
+            "paired_device = 'android', last_seen_at = NULL, "
+            "last_intake_at = NULL WHERE id = 1",
             (bearer_hash, enabled))
         conn.commit()
-    # Mirror into the live settings so the middleware reads the new
-    # value without a process restart.
     from agent.config import settings as live_settings
     live_settings.MOBILE_BEARER_HASH = bearer_hash
     live_settings.LAN_BIND_ENABLED = enabled
+    from agent.mobile_auth import forget_rejection
+    forget_rejection()
     return {"status": "paired", "lan_bind_enabled": enabled}
+
+
+@app.post("/api/mobile/unpair")
+def mobile_unpair(request: Request) -> dict:
+    """Revoke the current bearer immediately, without closing the local UI."""
+    _require_local_browser_origin(request)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE mobile_pairing SET bearer_hash = NULL, "
+            "lan_bind_enabled = false, paired_at = NULL, "
+            "paired_device = NULL, last_seen_at = NULL, "
+            "last_intake_at = NULL WHERE id = 1"
+        )
+        conn.commit()
+    from agent.config import settings as live_settings
+    live_settings.MOBILE_BEARER_HASH = None
+    live_settings.LAN_BIND_ENABLED = False
+    from agent.mobile_auth import forget_rejection
+    forget_rejection()
+    return {"status": "unpaired"}
+
+
+def _parse_sensor_payload(payload: object) -> dict:
+    """Parse a live Pixel or Health Connect payload for owner review."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="sensor payload must be a JSON object")
+    device = payload.get("device")
+    if not isinstance(device, str) or not device.strip():
+        raise HTTPException(status_code=400, detail="device required")
+    from agent.sensors.adapters import REGISTRY
+
+    if device.startswith("Pixel"):
+        source = "pixel"
+    elif device == "Health Connect" or device.lower().startswith("fitbit"):
+        # Old queued phone deliveries retain their original bytes across retries.
+        source = "health_connect"
+    else:
+        raise HTTPException(status_code=400, detail=f"unknown device {device!r}")
+    try:
+        return REGISTRY[source]().parse_from_dict(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="invalid sensor payload") from exc
+
+# A reviewed batch is stored as parsed JSONB; cap intake before decoding so
+# an unbounded sensor payload cannot occupy memory or a single database row.
+MAX_SENSOR_PAYLOAD_BYTES = 16 * 1024**2
+
+
+def _decode_sensor_json(raw: bytes | bytearray) -> object:
+    try:
+        return json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid JSON sensor payload") from exc
+
+
+
+def _clock_skew_seconds(sent_at: str | None) -> int | None:
+    if not sent_at:
+        return None
+    try:
+        sent = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if sent.tzinfo is None:
+        return None
+    return round((datetime.now(UTC) - sent).total_seconds())
 
 
 @app.post("/api/mobile/sensor/intake")
 async def mobile_sensor_intake(request: Request) -> dict:
-    """Stage a sensor batch from the Android app.
-
-    The phone has already serialised the PixelAdapter-shaped JSON. The
-    route dispatches to the right adapter and calls SensorService.stage_batch
-    — the same seam the manual transport uses. The owner confirms
-    via the existing review path; this route does not auto-confirm.
-    """
-    payload = await request.json()
-    device = str(payload.get("device", "")).strip()
-    if not device:
-        raise HTTPException(status_code=400, detail="device required")
-    if device.startswith("Pixel"):
-        source = "pixel"
-    elif device.lower().startswith("fitbit"):
-        source = "fitbit"
-    else:
-        raise HTTPException(
-            status_code=400, detail=f"unknown device {device!r}")
-    from agent.sensors.adapters import REGISTRY
-    batch = REGISTRY[source]().parse_from_dict(payload)
+    """Stage a phone batch for owner review; intake never admits evidence."""
+    _require_local_browser_origin(request)
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > MAX_SENSOR_PAYLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="sensor payload exceeds 16 MB")
+        raw.extend(chunk)
+    batch = _parse_sensor_payload(_decode_sensor_json(raw))
+    delivery_key = hashlib.sha256(raw).hexdigest()
     from agent.sensors.service import SensorService
-    batch_id = SensorService().stage_batch(
-        batch, payload_path=f"intake:{device}")
+
+    batch_id = await run_in_threadpool(
+        SensorService().stage_delivery, batch,
+        delivery_key=delivery_key,
+        review_day=datetime.now(UTC).astimezone().date(),
+        clock_skew_seconds=_clock_skew_seconds(request.headers.get("x-iris-sent-at")),
+    )
+    await run_in_threadpool(_record_phone_contact, True)
+    from agent.sensors.repository import SensorRepository
+    staged = await run_in_threadpool(SensorRepository().get_batch, batch_id)
     return {"batch_id": batch_id,
-            "observation_count": len(batch["observations"]),
-            "dropped_count": batch["dropped_count"]}
+            "observation_count": staged["observation_count"],
+            "dropped_count": staged["dropped_count"]}
+
+
+# ============================================================================
+# SENSOR REVIEW
+# ============================================================================
+
+class SensorBatchConfirm(BaseModel):
+    links: dict[str, int | None]
+    observation_count: int = Field(ge=0)
+
+@app.get("/api/sensors/batches")
+def list_sensor_batches(user_id: int = Depends(get_current_user_id)):
+    """List staged sensor batches."""
+    from agent.sensors.repository import SensorRepository
+    return SensorRepository().list_batches()
+
+@app.get("/api/sensors/batches/{batch_id}")
+def get_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+    from agent.sensors.repository import SensorRepository
+    batch = SensorRepository().get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+@app.post("/api/sensors/batches/{batch_id}/confirm")
+def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm,
+                         user_id: int = Depends(get_current_user_id)):
+    from agent.sensors.service import SensorService
+    from agent.sensors.repository import SensorBatchChanged, SensorRepository
+
+    repo = SensorRepository()
+    if repo.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    try:
+        SensorService().commit_batch(
+            batch_id, links=payload.links, user_id=user_id,
+            expected_observation_count=payload.observation_count,
+        )
+    except SensorBatchChanged as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return repo.get_batch(batch_id)
+
+
+@app.post("/api/sensors/batches/{batch_id}/reject")
+def reject_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+    from agent.sensors.repository import SensorRepository
+
+    repo = SensorRepository()
+    if repo.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    try:
+        repo.reject_batch(batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return repo.get_batch(batch_id)
+
+
+@app.delete("/api/sensors/batches/{batch_id}")
+def delete_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+    from agent.sensors.repository import SensorRepository
+
+    repo = SensorRepository()
+    if repo.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    repo.delete_batch(batch_id)
+    return {"status": "deleted"}
 
 
 @app.post("/api/chat/greeting")
@@ -378,33 +588,50 @@ async def proactive_chat(request: dict, user_id: int = Depends(get_current_user_
 # CONVERSATION ENDPOINTS (single-user; used by the integrated frontend)
 # ============================================================================
 
-
-def _conversation_id_for(user_id: int) -> str:
-    return f"conv_{user_id}"
-
-
 def _iso(ts) -> str:
     return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
 
 
+
+def _conversation_payload(user_id: int, session_id: str, started_at, last_at, count: int) -> dict:
+    return {
+        "id": session_id,
+        "userId": str(user_id),
+        "startedAt": _iso(started_at),
+        "lastMessageAt": _iso(last_at or started_at),
+        "messageCount": count,
+    }
+
+
+def _conversation_for(user_id: int, session: dict) -> dict:
+    counts = db.chat_session_counts(user_id, session["id"])
+    return _conversation_payload(
+        user_id, session["id"], session["created_at"],
+        counts["last_at"], counts["message_count"],
+    )
+
+
+@app.post("/api/conversations")
+def start_conversation(user_id: int = Depends(get_current_user_id)):
+    """Open an empty chat. Earlier messages stay stored and are not shown."""
+    session = db.create_chat_session(user_id)
+    now = session["created_at"]
+    return _conversation_payload(user_id, session["id"], now, now, 0)
+
+
 @app.get("/api/conversations/current")
 def get_current_conversation(user_id: int = Depends(get_current_user_id)):
-    """Return the user's single rolling conversation (Conversation contract shape)."""
-    history = db.get_chat_history(user_id, limit=200)
-    now_iso = datetime.now(UTC).isoformat()
-    return {
-        "id": _conversation_id_for(user_id),
-        "userId": str(user_id),
-        "startedAt": _iso(history[0]["created_at"]) if history else now_iso,
-        "lastMessageAt": _iso(history[-1]["created_at"]) if history else now_iso,
-        "messageCount": len(history),
-    }
+    """The latest open. Chat screens start a new one instead of calling this."""
+    session = db.latest_chat_session(user_id) or db.create_chat_session(user_id)
+    return _conversation_for(user_id, session)
 
 
 @app.get("/api/conversations/{conversation_id}/messages")
 def get_conversation_messages(conversation_id: str, user_id: int = Depends(get_current_user_id)):
-    """Return the conversation's messages as ChatMessage[] (role assistant→iris)."""
-    history = db.get_chat_history(user_id, limit=200)
+    """Messages in this open only. An unknown open is empty, not another session."""
+    if db.get_chat_session(user_id, conversation_id) is None:
+        return []
+    history = db.get_chat_history(user_id, limit=200, session_id=conversation_id)
     return [
         {
             "id": f"{conversation_id}_{i}",
@@ -441,10 +668,12 @@ async def stream_conversation_reply(
     of that write — and the browser, which discards the draft on that word,
     could lose the only copy of what they had written.
     """
+    if db.get_chat_session(user_id, conversation_id) is None:
+        raise HTTPException(status_code=404, detail="No such conversation.")
     text = (request or {}).get("text", "")
 
     async def event_gen():
-        companion = PersonalAICompanion(user_id=user_id)
+        companion = PersonalAICompanion(user_id=user_id, session_id=conversation_id)
         try:
             turn = await run_in_threadpool(companion.begin_turn, text)
         except Exception as e:
@@ -1532,6 +1761,144 @@ def reject_construct(theme_id: int, user_id: int = Depends(get_current_user_id))
         raise HTTPException(status_code=404, detail="Construct not found")
     constructs.reject(theme_id)
     return {"id": str(theme_id), "status": "rejected"}
+
+
+def _citation_ids(values: list[str]) -> list[int]:
+    parsed: list[int] = []
+    for raw in values:
+        if not isinstance(raw, str) or not raw.isdecimal():
+            raise HTTPException(status_code=422, detail="citation ids must be integers")
+        parsed.append(int(raw))
+    return parsed
+
+
+
+
+def _require_enum(value: str | None, allowed: tuple[str, ...], name: str) -> None:
+    if value is not None and value not in allowed:
+        raise HTTPException(status_code=422, detail=f"invalid {name}")
+
+
+def _idea_call(action):
+    try:
+        return action()
+    except IdeaNotFound:
+        raise HTTPException(status_code=404, detail=IDEA_NOT_FOUND)
+    except IdeaConflict:
+        raise HTTPException(status_code=409, detail=IDEA_CONFLICT)
+
+
+def _analysis_result(result: dict) -> dict:
+    if result["run"]["status"] == "failed":
+        raise HTTPException(status_code=502, detail=ANALYSIS_FAILED)
+    return result
+
+
+class ConfirmIdeaBody(BaseModel):
+    citationIds: list[str]
+    position: str
+    domain: str
+
+
+class RejectCitationsBody(BaseModel):
+    citationIds: list[str]
+
+
+class UpdateIdeaBody(BaseModel):
+    position: str | None = None
+    domain: str | None = None
+
+
+@app.get("/api/ideas/framework")
+def get_ideas_framework(user_id: int = Depends(get_current_user_id)):
+    """Active ideas, accepted links, and the derived graph. No model call."""
+    return IdeaService(user_id).framework()
+
+
+@app.get("/api/ideas/review")
+def get_ideas_review(user_id: int = Depends(get_current_user_id)):
+    """Proposals and new quotations waiting for a decision. No model call."""
+    return IdeaService(user_id).review()
+
+
+@app.post("/api/ideas/discover")
+def discover_ideas(user_id: int = Depends(get_current_user_id)):
+    """Read eligible reflections and stage idea proposals. Owner-triggered."""
+    return _analysis_result(IdeaService(user_id).discover())
+
+
+@app.post("/api/ideas/links/{link_id}/confirm")
+def confirm_idea_link(link_id: int, user_id: int = Depends(get_current_user_id)):
+    try:
+        return IdeaService(user_id).confirm_link(link_id)
+    except IdeaNotFound:
+        raise HTTPException(status_code=404, detail=LINK_NOT_FOUND)
+    except IdeaConflict:
+        raise HTTPException(status_code=409, detail=LINK_CONFLICT)
+
+
+@app.post("/api/ideas/links/{link_id}/reject")
+def reject_idea_link(link_id: int, user_id: int = Depends(get_current_user_id)):
+    try:
+        return IdeaService(user_id).reject_link(link_id)
+    except IdeaNotFound:
+        raise HTTPException(status_code=404, detail=LINK_NOT_FOUND)
+    except IdeaConflict:
+        raise HTTPException(status_code=409, detail=LINK_CONFLICT)
+
+
+@app.get("/api/ideas/{idea_id}")
+def get_idea(idea_id: int, user_id: int = Depends(get_current_user_id)):
+    return _idea_call(lambda: IdeaService(user_id).detail(idea_id))
+
+
+@app.post("/api/ideas/{idea_id}/confirm")
+def confirm_idea(idea_id: int, body: ConfirmIdeaBody, user_id: int = Depends(get_current_user_id)):
+    _require_enum(body.position, IDEA_POSITIONS, "position")
+    _require_enum(body.domain, IDEA_DOMAINS, "domain")
+    citation_ids = _citation_ids(body.citationIds)
+    return _idea_call(lambda: IdeaService(user_id).confirm(
+        idea_id, citation_ids, body.position, body.domain))
+
+
+@app.post("/api/ideas/{idea_id}/reject")
+def reject_idea(idea_id: int, user_id: int = Depends(get_current_user_id)):
+    return _idea_call(lambda: IdeaService(user_id).reject(idea_id))
+
+
+@app.post("/api/ideas/{idea_id}/citations/reject")
+def reject_idea_citations(
+    idea_id: int, body: RejectCitationsBody, user_id: int = Depends(get_current_user_id),
+):
+    citation_ids = _citation_ids(body.citationIds)
+    return _idea_call(lambda: IdeaService(user_id).reject_citations(idea_id, citation_ids))
+
+
+@app.patch("/api/ideas/{idea_id}")
+def update_idea(idea_id: int, body: UpdateIdeaBody, user_id: int = Depends(get_current_user_id)):
+    if body.position is None and body.domain is None:
+        raise HTTPException(status_code=422, detail="position or domain is required")
+    _require_enum(body.position, IDEA_POSITIONS, "position")
+    _require_enum(body.domain, IDEA_DOMAINS, "domain")
+    return _idea_call(lambda: IdeaService(user_id).update(
+        idea_id, position=body.position, domain=body.domain))
+
+
+@app.post("/api/ideas/{idea_id}/links/discover")
+def discover_idea_links(idea_id: int, user_id: int = Depends(get_current_user_id)):
+    return _analysis_result(_idea_call(lambda: IdeaService(user_id).discover_links(idea_id)))
+
+
+@app.post("/api/ideas/{idea_id}/critique")
+def critique_idea(idea_id: int, user_id: int = Depends(get_current_user_id)):
+    try:
+        return IdeaService(user_id).critique(idea_id)
+    except IdeaNotFound:
+        raise HTTPException(status_code=404, detail=IDEA_NOT_FOUND)
+    except IdeaConflict:
+        raise HTTPException(status_code=409, detail=IDEA_CONFLICT)
+    except IdeaUnavailable:
+        raise HTTPException(status_code=502, detail=CRITIQUE_FAILED)
 
 
 @app.post("/api/insights/{insight_id}/snooze")

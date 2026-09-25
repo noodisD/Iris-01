@@ -255,6 +255,8 @@ def _truncate_all() -> None:
         tables = cur.fetchone()[0]
         if tables:
             cur.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE;")
+        # Preserve migration 0018's required singleton after clearing test state.
+        cur.execute("INSERT INTO mobile_pairing (id) VALUES (1);")
         conn.commit()
 
 

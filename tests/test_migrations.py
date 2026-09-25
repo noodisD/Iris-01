@@ -14,6 +14,7 @@ surprise.
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg2
 import pytest
@@ -204,3 +205,117 @@ def test_the_recovery_a_migration_names_can_actually_be_carried_out():
     assert "--retire" in script, "the named script cannot satisfy the guard it is named in"
     for table in ("embeddings", "theme_occurrences", "processing_queue"):
         assert table in script, f"retiring must repoint {table} before the rows go"
+
+
+def test_health_connect_migration_preserves_confirmed_evidence_and_pending_retry_keys(
+        setup_test_database):
+    sql = (ROOT / "migrations" / "0023_health_connect_source.sql").read_text()
+    with db.connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO users (username) VALUES (%s) RETURNING id",
+                            (f"migration_health_{uuid4().hex}",))
+                user_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO themes (user_id, centroid_embedding, first_seen_at, last_seen_at) "
+                    "VALUES (%s, (SELECT array_fill(0, ARRAY[1536])::vector), now(), now()) "
+                    "RETURNING id", (user_id,))
+                theme_id = cur.fetchone()[0]
+                types = ("heart_rate", "sleep", "spo2")
+                legacy_readings = [
+                    {"source_type": f"fitbit_{kind}", "occurred_at": "2026-09-22",
+                     "value_num": value, "payload_hash": f"old-{kind}"}
+                    for kind, value in zip(types, (62, 420, 97), strict=True)
+                ]
+                cur.execute(
+                    """INSERT INTO sensor_batches
+                         (source, payload_path, status, parsed_payload, theme_links,
+                          observation_count)
+                       VALUES ('fitbit', 'intake:fitbit', 'confirmed', %s::jsonb, %s::jsonb, 3)
+                       RETURNING id""",
+                    (json.dumps({"source": "fitbit", "observations": legacy_readings}),
+                     json.dumps({f"fitbit_{kind}": theme_id for kind in types})),
+                )
+                confirmed_id = cur.fetchone()[0]
+                observation_ids = []
+                for reading in legacy_readings:
+                    cur.execute(
+                        "INSERT INTO sensor_observations "
+                        "(batch_id, source_type, payload_hash, value_num, occurred_at, occurred_date) "
+                        "VALUES (%s, %s, %s, %s, '2026-09-22', '2026-09-22') RETURNING id",
+                        (confirmed_id, reading["source_type"], reading["payload_hash"],
+                         reading["value_num"]),
+                    )
+                    observation_ids.append(cur.fetchone()[0])
+                cur.execute(
+                    "INSERT INTO theme_occurrences "
+                    "(theme_id, source_type, source_id, snippet, similarity_score, occurred_at) "
+                    "VALUES (%s, 'fitbit_heart_rate', %s, '62 bpm', 1.0, '2026-09-22')",
+                    (theme_id, observation_ids[0]),
+                )
+                cur.execute(
+                    """INSERT INTO sensor_batches
+                         (source, payload_path, status, review_day, parsed_payload,
+                          observation_count, dropped_count)
+                       VALUES ('fitbit', 'intake:fitbit', 'pending', '2026-09-24',
+                               %s::jsonb, 1, 1) RETURNING id""",
+                    (json.dumps({"source": "fitbit", "observations": [legacy_readings[0]]}),),
+                )
+                old_pending_id = cur.fetchone()[0]
+                cur.execute(
+                    """INSERT INTO sensor_batches
+                         (source, payload_path, status, review_day, parsed_payload,
+                          observation_count)
+                       VALUES ('health_connect', 'intake:health_connect', 'pending',
+                               '2026-09-24', %s::jsonb, 1) RETURNING id""",
+                    (json.dumps({"source": "health_connect", "observations": [
+                        {"source_type": "health_connect_sleep", "value_num": 400,
+                         "payload_hash": "new-sleep"}]}),),
+                )
+                current_pending_id = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO sensor_deliveries (delivery_key, batch_id) VALUES (%s, %s)",
+                    ("legacy-health-delivery", old_pending_id),
+                )
+
+                cur.execute(sql)
+
+                cur.execute(
+                    "SELECT source, payload_path, parsed_payload, theme_links "
+                    "FROM sensor_batches WHERE id = %s", (confirmed_id,))
+                source, path, parsed, links = cur.fetchone()
+                assert (source, path) == ("health_connect", "intake:health_connect")
+                assert parsed["source"] == "health_connect"
+                assert [row["source_type"] for row in parsed["observations"]] == [
+                    f"health_connect_{kind}" for kind in types
+                ]
+                assert links == {f"health_connect_{kind}": theme_id for kind in types}
+                cur.execute(
+                    "SELECT id, source_type FROM sensor_observations WHERE batch_id = %s ORDER BY id",
+                    (confirmed_id,),
+                )
+                assert cur.fetchall() == list(zip(
+                    observation_ids, (f"health_connect_{kind}" for kind in types), strict=True))
+                cur.execute(
+                    "SELECT t.source_type, s.source_type, t.snippet FROM theme_occurrences t "
+                    "JOIN sensor_observations s ON s.id = t.source_id "
+                    "AND s.source_type = t.source_type WHERE t.theme_id = %s", (theme_id,))
+                assert cur.fetchall() == [
+                    ("health_connect_heart_rate", "health_connect_heart_rate", "62 bpm"),
+                ]
+                cur.execute(
+                    "SELECT source, parsed_payload, observation_count, dropped_count "
+                    "FROM sensor_batches WHERE id = %s", (current_pending_id,))
+                source, parsed, count, dropped = cur.fetchone()
+                assert (source, count, dropped) == ("health_connect", 2, 1)
+                assert [row["source_type"] for row in parsed["observations"]] == [
+                    "health_connect_heart_rate", "health_connect_sleep",
+                ]
+                cur.execute("SELECT count(*) FROM sensor_batches WHERE id = %s",
+                            (old_pending_id,))
+                assert cur.fetchone()[0] == 0
+                cur.execute("SELECT batch_id FROM sensor_deliveries WHERE delivery_key = %s",
+                            ("legacy-health-delivery",))
+                assert cur.fetchone()[0] == current_pending_id
+        finally:
+            conn.rollback()

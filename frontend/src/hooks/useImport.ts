@@ -97,6 +97,7 @@ export function useImportActions(batchId: string | undefined) {
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: qk.importBatches });
         qc.invalidateQueries({ queryKey: qk.journal });
+        qc.invalidateQueries({ queryKey: qk.ideas });
       },
     }),
   };

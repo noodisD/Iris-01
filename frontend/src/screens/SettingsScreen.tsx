@@ -1,8 +1,10 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useKnowledge, useAnalysisPreferences } from '@/hooks/useData';
-import { forgetFact, updateAnalysisPreferences, resetAnalysisPreferences } from '@/api/settings';
+import { forgetFact, updateAnalysisPreferences, resetAnalysisPreferences, getMobileConnection, pairMobile, unpairMobile, phonePairingCode } from '@/api/settings';
 import { LoadingState, ErrorState } from '@/components/states';
-import { useQueryClient } from '@tanstack/react-query';
+import { QrCode } from '@/components/QrCode';
 import { qk } from '@/lib/queryClient';
 
 /** Engine names as a person would describe what each one watches for. */
@@ -21,6 +23,47 @@ export function SettingsScreen() {
   const { data: analysis } = useAnalysisPreferences();
   const [maxItems, setMaxItems] = React.useState<number | null>(null);
   const qc = useQueryClient();
+  const { data: mobile, error: connectionError } = useQuery({
+    queryKey: qk.mobileConnection, queryFn: getMobileConnection, refetchInterval: 15_000,
+  });
+  const [mobileError, setMobileError] = React.useState('');
+  const [newToken, setNewToken] = React.useState<string | null>(null);
+  const [mobileBusy, setMobileBusy] = React.useState(false);
+
+
+  const generatePairing = async () => {
+    if (mobile?.paired && !window.confirm(
+      'Replace the pairing token? The phone stops delivering until you scan the new pairing code.'
+    )) return;
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const token = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    setMobileBusy(true);
+    setMobileError('');
+    try {
+      await pairMobile(token);
+      setNewToken(token);
+      await qc.invalidateQueries({ queryKey: qk.mobileConnection });
+    } catch (error) {
+      setMobileError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMobileBusy(false);
+    }
+  };
+
+  const revokePairing = async () => {
+    if (!window.confirm('Disconnect the Android collector? It will stop delivering new readings.')) return;
+    setMobileBusy(true);
+    setMobileError('');
+    try {
+      await unpairMobile();
+      setNewToken(null);
+      await qc.invalidateQueries({ queryKey: qk.mobileConnection });
+    } catch (error) {
+      setMobileError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMobileBusy(false);
+    }
+  };
 
   if (isLoading) return <LoadingState label="Iris is gathering what she knows…" />;
   if (isError || !facts) return <ErrorState onRetry={() => refetch()} />;
@@ -182,6 +225,75 @@ export function SettingsScreen() {
               </button>
             </section>
           )}
+
+          <section className="col" style={{ gap: 10, padding: '16px 18px', border: '1px solid var(--line-soft)', borderRadius: 10 }}>
+            <div className="kicker">Android live sensors</div>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+              The Android app collects permitted readings and sends them to IRIS automatically.
+              They appear in Sensors for review; nothing becomes evidence until you link it.
+            </p>
+            {(mobileError || connectionError) && <div role="alert" style={{ color: 'var(--rose)', fontSize: 12 }}>
+              {mobileError || (connectionError instanceof Error ? connectionError.message : String(connectionError))}
+            </div>}
+            {mobile?.listener === 'listening' && mobile.lan_url && mobile.public_key_sha256 && (
+              <>
+                <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                  Laptop address: <code style={{ userSelect: 'all', wordBreak: 'break-all' }}>{mobile.lan_url}</code>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                  Server key SHA-256: <code style={{ userSelect: 'all', wordBreak: 'break-all' }}>{mobile.public_key_sha256}</code>
+                </div>
+                <button className="btn" type="button" disabled={mobileBusy} onClick={generatePairing}>
+                  {mobileBusy ? 'Saving…' : 'Generate pairing token'}
+                </button>
+                {newToken && (
+                  <div role="status" style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                    <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256, newToken)} label="IRIS pairing QR code" />
+                    <div>Pairing token: <code style={{ display: 'block', userSelect: 'all', wordBreak: 'break-all', marginTop: 6 }}>{newToken}</code></div>
+                    In the IRIS phone app tap Scan pairing QR. Shown only until you leave this page.
+                  </div>
+                )}
+                {mobile.paired && !newToken && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                    <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256)} label="IRIS address QR code" />
+                    If this laptop&apos;s address changed, scan this from the phone; the pairing is kept.
+                  </div>
+                )}
+              </>
+            )}
+            {mobile?.listener === 'failed' && (
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--amber)' }}>
+                The phone listener could not start: {mobile.listener_error}. Check LAN_BIND_HOST in .env matches this laptop&apos;s Wi-Fi address, then restart scripts/serve_iris.py.
+              </p>
+            )}
+            {mobile?.listener === 'not_started' && (
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--amber)' }}>
+                LAN_BIND_HOST is set, but IRIS was started without the phone listener. Start it with <code>uv run python scripts/serve_iris.py</code>.
+              </p>
+            )}
+            {mobile?.listener === 'not_configured' && (
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--amber)' }}>
+                No private LAN listener configured. Set LAN_BIND_HOST to this laptop&apos;s private Wi-Fi IP,
+                then start IRIS with <code>uv run python scripts/serve_iris.py</code>. Return here to scan the pairing code.
+              </p>
+            )}
+            {mobile?.last_rejection && <div style={{ fontSize: 12, color: 'var(--amber)' }}>
+              Last refused phone request: {mobile.last_rejection.status} {mobile.last_rejection.detail} at {new Date(mobile.last_rejection.at).toLocaleString()}
+            </div>}
+            {mobile?.paired && (
+              <>
+                <div role="status" style={{ fontSize: 12, color: 'var(--sage)' }}>A phone is paired.</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                  {mobile.last_seen_at ? `Last phone contact: ${new Date(mobile.last_seen_at).toLocaleString()}` :
+                    'No phone request has reached IRIS since pairing. Check that the phone is on this Wi-Fi and that the laptop firewall allows TCP 8765.'}
+                </div>
+                {mobile.last_intake_at && <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>Last delivery: {new Date(mobile.last_intake_at).toLocaleString()}</div>}
+                {mobile.pending_batches > 0 && <Link to="/sensors">{mobile.pending_batches} sensor batches waiting for review</Link>}
+                <button className="btn ghost" type="button" disabled={mobileBusy} onClick={revokePairing}>Disconnect phone</button>
+              </>
+            )}
+            {!mobile && !connectionError && <span role="status" style={{ fontSize: 12 }}>Checking the phone connection…</span>}
+          </section>
 
           <section style={{ padding: '16px 18px', border: '1px solid var(--line-soft)', borderRadius: 10, background: 'var(--bg-2)' }}>
             <div className="row" style={{ gap: 10, alignItems: 'center', marginBottom: 8 }}>

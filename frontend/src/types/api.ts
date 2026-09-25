@@ -429,6 +429,125 @@ export interface ReviewDay {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ideas
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type IdeaStatus = 'candidate' | 'active' | 'rejected';
+export type IdeaPosition = 'exploring' | 'endorsed' | 'opposed';
+export type CitationStance = 'endorsed' | 'questioned' | 'opposed';
+export type IdeaDomain = 'philosophy' | 'economics' | 'trading' | 'politics' | 'ethics' | 'other';
+export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on';
+export type ReviewStatus = 'candidate' | 'accepted' | 'rejected';
+
+export interface IdeaDropped {
+  invalid_quote: number;
+  not_stated: number;
+  unchecked: number;
+  malformed: number;
+  already_decided: number;
+  duplicate: number;
+  source_changed: number;
+}
+
+export interface IdeaSummary {
+  id: ID;
+  statement: string;
+  domain: IdeaDomain;
+  status: IdeaStatus;
+  position: IdeaPosition;
+  citationCount: number;
+  pendingCitationCount: number;
+  firstWrittenOn: ISODate | null;
+  lastWrittenOn: ISODate | null;
+  undatedCount: number;
+  needsEvidence: boolean;
+}
+
+export interface IdeaCitation {
+  id: ID;
+  entryId: ID;
+  entryDate: ISODate | null;
+  text: string;
+  stance: CitationStance;
+  status: ReviewStatus;
+}
+
+export interface IdeaLink {
+  id: ID;
+  fromIdeaId: ID;
+  toIdeaId: ID;
+  kind: LinkKind;
+  rationale: string;
+  status: ReviewStatus;
+  fromStatement: string;
+  toStatement: string;
+}
+
+export interface IdeaRun {
+  id: ID;
+  kind: 'discovery' | 'links';
+  status: 'running' | 'complete' | 'partial' | 'failed';
+  startedAt: ISODateTime;
+  finishedAt: ISODateTime | null;
+  itemsRead: number;
+  passesPlanned: number;
+  passesCompleted: number;
+  proposed: number;
+  dropped: IdeaDropped;
+  error: string | null;
+}
+
+export interface IdeaCritiqueContent {
+  objections: { argument: string; question: string }[];
+  possiblePremises: { premise: string; question: string }[];
+  relatedThought: { name: string; kind: 'thinker' | 'school'; connection: string }[];
+}
+
+export interface IdeaCritique {
+  id: ID;
+  origin: 'iris';
+  createdAt: ISODateTime;
+  model: string;
+  promptVersion: string;
+  basis: unknown;
+  content: IdeaCritiqueContent;
+  isCurrent: boolean;
+}
+
+export interface IdeasFramework {
+  ideas: IdeaSummary[];
+  links: IdeaLink[];
+  tensionIds: ID[];
+  foundationIds: ID[];
+  unconnectedIds: ID[];
+  lastRun: IdeaRun | null;
+}
+
+export interface IdeaReviewCard {
+  idea: IdeaSummary;
+  citations: IdeaCitation[];
+}
+
+export interface IdeasReview {
+  ideas: IdeaReviewCard[];
+  links: IdeaLink[];
+  lastRun: IdeaRun | null;
+}
+
+export interface IdeaDetail {
+  idea: IdeaSummary;
+  citations: IdeaCitation[];
+  links: IdeaLink[];
+  critiques: IdeaCritique[];
+}
+
+export interface ConfirmIdeaBody {
+  citationIds: ID[];
+  position: IdeaPosition;
+  domain: IdeaDomain;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Onboarding
 // ─────────────────────────────────────────────────────────────────────────────
 
