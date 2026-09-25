@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { IdeaGraph } from '@/components/IdeaGraph';
 import { IdeaNeighborhood } from '@/components/IdeaNeighborhood';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { HttpError } from '@/api/client';
@@ -244,9 +245,38 @@ function Discovery() {
   );
 }
 
-function FrameworkView({ data, waiting }: { data: IdeasFramework; waiting: number }) {
+const plain: React.CSSProperties = { color: 'inherit', textDecoration: 'none' };
+const field: React.CSSProperties = {
+  background: 'var(--bg-2)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 6,
+  padding: '6px 10px', fontFamily: 'var(--sans)', fontSize: 13,
+};
+const LAYOUT_KEY = 'iris.ideas.layout';
+
+function readLayout(): 'graph' | 'list' {
+  try { return window.localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'graph'; } catch { return 'graph'; }
+}
+
+function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" aria-pressed={on} onClick={onClick}
+      style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+               border: `1px solid ${on ? 'var(--sage)' : 'var(--line)'}`, background: on ? 'var(--sage)' : 'transparent',
+               color: on ? '#14140f' : 'var(--ink-3)' }}>
+      {children}
+    </button>
+  );
+}
+
+function FrameworkView({ data, waiting, review }: { data: IdeasFramework; waiting: number; review?: IdeasReview }) {
   const [query, setQuery] = React.useState('');
   const [domain, setDomain] = React.useState<IdeaDomain | ''>('');
+  const [layout, setLayoutState] = React.useState(readLayout);
+  const [areas, setAreas] = React.useState(true);
+  const [proposals, setProposals] = React.useState(false);
+  const setLayout = (value: 'graph' | 'list') => {
+    setLayoutState(value);
+    try { window.localStorage.setItem(LAYOUT_KEY, value); } catch { /* not remembered */ }
+  };
   const byId = new Map(data.ideas.map(idea => [idea.id, idea]));
   const matches = (idea: IdeaSummary) => (
     idea.statement.toLowerCase().includes(query.trim().toLowerCase())
@@ -262,7 +292,7 @@ function FrameworkView({ data, waiting }: { data: IdeasFramework; waiting: numbe
   const foundations = data.foundationIds.map(id => byId.get(id)).filter((idea): idea is IdeaSummary => !!idea);
   const unconnected = data.unconnectedIds.map(id => byId.get(id)).filter((idea): idea is IdeaSummary => !!idea && matches(idea));
 
-  if (data.ideas.length === 0) {
+  if (data.ideas.length === 0 && !(layout === 'graph' && proposals)) {
     return (
       <EmptyState
         title="No framework yet."
@@ -276,23 +306,55 @@ function FrameworkView({ data, waiting }: { data: IdeasFramework; waiting: numbe
     );
   }
 
+  const controls = (
+    <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Toggle on={layout === 'graph'} onClick={() => setLayout('graph')}>graph</Toggle>
+      <Toggle on={layout === 'list'} onClick={() => setLayout('list')}>list</Toggle>
+      <span style={{ width: 12 }} />
+      <input aria-label="Search statements" placeholder="Search" value={query} style={field}
+        onChange={event => setQuery(event.target.value)} />
+      <select aria-label="Filter domain" value={domain} style={field}
+        onChange={event => setDomain(event.target.value as IdeaDomain | '')}>
+        <option value="">All domains</option>
+        {DOMAINS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+      {layout === 'graph' && <>
+        <Toggle on={areas} onClick={() => setAreas(a => !a)}>areas</Toggle>
+        <Toggle on={proposals} onClick={() => setProposals(p => !p)}>
+          proposals{review ? ` · ${review.ideas.length}` : ''}
+        </Toggle>
+      </>}
+    </div>
+  );
+
+  if (layout === 'graph') {
+    const shown = new Set(data.ideas.filter(matches).map(idea => idea.id));
+    return (
+      <div className="col" style={{ gap: 16 }}>
+        {controls}
+        <IdeaGraph
+          ideas={data.ideas.filter(idea => shown.has(idea.id))}
+          links={data.links}
+          proposedIdeas={proposals ? (review?.ideas ?? []).map(card => card.idea).filter(matches) : []}
+          proposedLinks={proposals ? review?.links ?? [] : []}
+          showAreas={areas}
+          areaLabel={value => labelOf(DOMAINS, value)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="col" style={{ gap: 28 }}>
-      <div className="row" style={{ gap: 8 }}>
-        <input aria-label="Search statements" value={query} onChange={event => setQuery(event.target.value)} />
-        <select aria-label="Filter domain" value={domain} onChange={event => setDomain(event.target.value as IdeaDomain | '')}>
-          <option value="">All domains</option>
-          {DOMAINS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      </div>
+      {controls}
       {tensions.length > 0 && (
         <section className="col" style={{ gap: 8 }}>
           <h2 className="serif">Open tensions</h2>
           {tensions.map(link => (
             <article key={link.id} className="card" style={{ padding: 16 }}>
-              <p><Link to={`/ideas/${link.fromIdeaId}`}>{link.fromStatement}</Link></p>
+              <p><Link to={`/ideas/${link.fromIdeaId}`} style={plain}>{link.fromStatement}</Link></p>
               <div className="tag">{LINK_LABEL[link.kind]}</div>
-              <p><Link to={`/ideas/${link.toIdeaId}`}>{link.toStatement}</Link></p>
+              <p><Link to={`/ideas/${link.toIdeaId}`} style={plain}>{link.toStatement}</Link></p>
             </article>
           ))}
         </section>
@@ -327,10 +389,10 @@ function FrameworkView({ data, waiting }: { data: IdeasFramework; waiting: numbe
 
 function IdeaRow({ idea }: { idea: IdeaSummary }) {
   return (
-    <Link to={`/ideas/${idea.id}`} className="card" style={{ display: 'block', padding: 16 }}>
+    <Link to={`/ideas/${idea.id}`} className="card" style={{ ...plain, display: 'block', padding: 16 }}>
       <div className="kicker">{labelOf(POSITIONS, idea.position)} · {labelOf(DOMAINS, idea.domain)}</div>
-      <div className="serif">{idea.statement}</div>
-      <div>{idea.citationCount - idea.undatedCount} dated · {idea.undatedCount} undated</div>
+      <div className="serif" style={{ fontSize: 19, color: 'var(--ink)', margin: '4px 0' }}>{idea.statement}</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{idea.citationCount - idea.undatedCount} dated · {idea.undatedCount} undated</div>
     </Link>
   );
 }
@@ -373,7 +435,7 @@ function IdeasIndex() {
       {data.isError && <ErrorState onRetry={() => data.refetch()} />}
       {data.data && (review
         ? <ReviewView data={data.data as IdeasReview} />
-        : <FrameworkView data={data.data as IdeasFramework} waiting={queue.data?.ideas.length ?? 0} />)}
+        : <FrameworkView data={data.data as IdeasFramework} waiting={queue.data?.ideas.length ?? 0} review={queue.data} />)}
     </main>
   );
 }

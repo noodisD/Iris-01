@@ -130,8 +130,16 @@ describe('Ideas screen', () => {
     expect(view.getByRole('button', { name: 'Add to framework' })).toBeInTheDocument();
   });
 
+  it('opens on the graph, and lists on request', () => {
+    renderAt('/ideas');
+    expect(screen.getByRole('img', { name: 'Ideas graph' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'list' }));
+    expect(screen.queryByRole('img', { name: 'Ideas graph' })).toBeNull();
+  });
+
   it('shows an endorsed pair as an open tension', () => {
     renderAt('/ideas');
+    fireEvent.click(screen.getByRole('button', { name: 'list' }));
     const section = screen.getByRole('heading', { name: 'Open tensions' }).closest('section')!;
     const view = within(section);
     expect(view.getByText('Price controls destroy the information prices carry about scarcity.')).toBeInTheDocument();
