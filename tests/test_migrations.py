@@ -319,3 +319,33 @@ def test_health_connect_migration_preserves_confirmed_evidence_and_pending_retry
                 assert cur.fetchone()[0] == current_pending_id
         finally:
             conn.rollback()
+
+
+def test_the_markets_rename_moves_ideas_already_filed_under_the_old_name(test_user):
+    """0028 must work on a database that already has ideas in the renamed area.
+
+    The suite runs on an empty test database, where 0028's update moves nothing,
+    so the suite passed while 0028 failed on real data: it moved the rows before
+    lifting the old rule, which does not admit the new name. This rebuilds 0027's
+    rule, files one idea under the old name, runs 0028 over it and rolls all of it
+    back. The old name is read from 0027 rather than written here.
+    """
+    import re
+    old_rule = (ROOT / "migrations" / "0027_learning_domain.sql").read_text()
+    kept = {"philosophy", "economics", "politics", "ethics", "learning", "other"}
+    old_area = next(a for a in re.findall(r"'([a-z]+)'", old_rule) if a not in kept)
+    rename = (ROOT / "migrations" / "0028_markets_domain.sql").read_text()
+
+    with db.connection() as conn, conn.cursor() as cur:
+        try:
+            cur.execute(old_rule)  # the rule as it stood before 0028
+            cur.execute(
+                """INSERT INTO ideas (user_id, statement, statement_key, domain)
+                   VALUES (%s, %s, %s, %s) RETURNING id""",
+                (test_user["id"], "Buy the dip only with a written exit.", "0" * 64, old_area))
+            idea_id = cur.fetchone()[0]
+            cur.execute(rename)
+            cur.execute("SELECT domain FROM ideas WHERE id = %s", (idea_id,))
+            assert cur.fetchone()[0] == "markets"
+        finally:
+            conn.rollback()
