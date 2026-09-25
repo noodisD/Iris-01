@@ -56,7 +56,11 @@ export function PatternsScreen() {
   if (isPending) return <LoadingState label="Iris is opening the library…" />;
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
 
-  const sorted = [...data.patterns].sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name));
+  // A library pattern is shown once it has been found in the owner's writing;
+  // until then it only counts toward the line at the end of the list.
+  const sorted = [...data.patterns].filter(p => p.occasions > 0)
+    .sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name));
+  const unfound = data.patterns.length - sorted.length;
 
   return (
     <div className="row" style={{ height: '100%' }}>
@@ -80,6 +84,11 @@ export function PatternsScreen() {
             </NavLink>
           ))}
         </div>
+        {unfound > 0 && (
+          <p style={{ margin: '18px 10px 0', fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--mono)' }}>
+            {unfound} more in the library, not yet found in your writing
+          </p>
+        )}
       </nav>
       <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '32px 48px 40px' }}>
         {id ? <PatternView id={id} /> : (

@@ -29,8 +29,8 @@ class PatternsTest {
         assertNull(nextPattern(listOf(p("a", 3, "does_not"), p("b", 0))))
     }
 
-    @Test fun listsByOccasionsThenName() {
-        assertEquals(listOf("b", "c", "a"), byOccasions(listOf(p("a", 1), p("c", 5), p("b", 5))).map { it.id })
+    @Test fun listsFoundPatternsByOccasionsThenName() {
+        assertEquals(listOf("b", "c", "a"), byOccasions(listOf(p("a", 1), p("c", 5), p("b", 5), p("z", 0))).map { it.id })
     }
 
     @Test fun countsTonesAndMentionsMixedOnlyWhenPresent() {

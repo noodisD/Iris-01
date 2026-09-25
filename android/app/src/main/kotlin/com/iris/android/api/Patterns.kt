@@ -86,9 +86,10 @@ fun nextPattern(patterns: List<PatternSummary>): PatternSummary? =
         .sortedWith(compareByDescending<PatternSummary> { it.occasions }.thenBy { it.name })
         .firstOrNull()
 
-/** The list order: most occasions first, then by name. */
+/** The list: patterns found in the owner's writing, most occasions first, then by name. */
 fun byOccasions(patterns: List<PatternSummary>): List<PatternSummary> =
-    patterns.sortedWith(compareByDescending<PatternSummary> { it.occasions }.thenBy { it.name })
+    patterns.filter { it.occasions > 0 }
+        .sortedWith(compareByDescending<PatternSummary> { it.occasions }.thenBy { it.name })
 
 /** "3 worse · 5 better", with mixed only when there are any. */
 fun toneCounts(p: PatternSummary): String {

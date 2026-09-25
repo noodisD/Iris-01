@@ -63,6 +63,9 @@ import kotlinx.serialization.json.put
 class PatternsViewModel : ViewModel() {
     private val _patterns = MutableStateFlow<Loadable<List<PatternSummary>>>(Loadable.Loading)
     val patterns = _patterns.asStateFlow()
+    /** Library patterns not yet found in the owner's writing: counted, not listed. */
+    private val _unfound = MutableStateFlow(0)
+    val unfound = _unfound.asStateFlow()
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
 
@@ -72,7 +75,9 @@ class PatternsViewModel : ViewModel() {
             _refreshing.value = true
             try {
                 val result = IrisLink.api().send("GET", "/patterns", null, PatternsResponse.serializer())
-                _patterns.value = Loadable.Ready(byOccasions(result.patterns))
+                val found = byOccasions(result.patterns)
+                _unfound.value = result.patterns.size - found.size
+                _patterns.value = Loadable.Ready(found)
             } catch (e: Exception) {
                 _patterns.value = Loadable.Failed(e.message ?: "Iris couldn't reach your data just now.")
             } finally {
@@ -87,6 +92,7 @@ fun PatternsScreen(onNavigate: (String) -> Unit) {
     val vm: PatternsViewModel = viewModel()
     val state by vm.patterns.collectAsState()
     val refreshing by vm.refreshing.collectAsState()
+    val unfound by vm.unfound.collectAsState()
     val colors = LocalIrisColors.current
     LaunchedEffect(Unit) { vm.refresh() }
     IrisScaffold(title = "Patterns", kicker = "patterns · a general library") { padding ->
@@ -110,6 +116,10 @@ fun PatternsScreen(onNavigate: (String) -> Unit) {
                                 color = if (p.occasions > 0) colors.ink3 else colors.ink4)
                         }
                     }
+                }
+                if (unfound > 0) item {
+                    Text("$unfound more in the library, not yet found in your writing",
+                        style = IrisType.mono, color = colors.ink4)
                 }
             }
         }

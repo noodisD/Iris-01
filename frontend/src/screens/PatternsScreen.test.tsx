@@ -76,13 +76,15 @@ function show(path: string) {
 describe('the library', () => {
   beforeEach(() => { server.occasionVerdicts = []; server.patternVerdicts = []; });
 
-  it('lists patterns with the most occasions first, and says when none were found', async () => {
+  it('lists only patterns found in the writing, and counts the rest', async () => {
     show('/patterns');
     const nav = await screen.findByRole('navigation', { name: 'Patterns' });
     const links = within(nav).getAllByRole('link');
+    expect(links).toHaveLength(1);
     expect(links[0]).toHaveTextContent('Committed more than could be taken back');
     expect(links[0]).toHaveTextContent('2 worse · 1 better · rings true');
-    expect(links[1]).toHaveTextContent('none found');
+    expect(within(nav).queryByText('A quiet pattern')).toBeNull();
+    expect(within(nav).getByText('1 more in the library, not yet found in your writing')).toBeInTheDocument();
     expect(screen.getByText('Pick a pattern.')).toBeInTheDocument();
   });
 });
