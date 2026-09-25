@@ -1,9 +1,9 @@
 /**
  * Chat / conversation API (single-user backend).
  *
- *   GET  /api/conversations/current              → Conversation
- *   GET  /api/conversations/:id/messages         → ChatMessage[]
- *   POST /api/conversations/:id/messages/stream  → SSE: the reply as it is written
+ *   POST /api/conversations                      → Conversation (empty open)
+ *   GET  /api/conversations/current              → Conversation (latest open only)
+ *   GET  /api/conversations/:id/messages         → ChatMessage[] for that open
  *
  * There is no POST /messages: the stream endpoint stores the owner's message
  * itself, so the bubble shown before the reply arrives is client-side only.
@@ -11,6 +11,11 @@
 
 import { api, sse } from './client';
 import type { ChatMessage, Conversation } from '@/types/api';
+
+/** A new empty open. Earlier messages stay stored and are not returned here. */
+export async function startConversation(): Promise<Conversation> {
+  return api.post<Conversation>('/conversations', {});
+}
 
 export async function getCurrentConversation(): Promise<Conversation> {
   return api.get<Conversation>('/conversations/current');

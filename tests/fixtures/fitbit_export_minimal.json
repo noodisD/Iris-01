@@ -1,0 +1,17 @@
+{
+  "device": "Fitbit Air",
+  "exported_at": "2026-09-22T20:00:00Z",
+  "tiers": {
+    "heart_rate": [
+      {"ts": "2026-09-22T08:00:00Z", "bpm": 62, "context": "resting"},
+      {"ts": "2026-09-22T18:30:00Z", "bpm": 134, "context": "active"}
+    ],
+    "sleep": [
+      {"date": "2026-09-22", "stage_summary": "deep:90 light:240 rem:75 wake:15",
+       "total_minutes": 420}
+    ],
+    "spo2": [
+      {"ts": "2026-09-22T07:30:00Z", "percent": 97}
+    ]
+  }
+}

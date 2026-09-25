@@ -44,3 +44,6 @@ frontend/node_modules/
 /reports/
 /docs/constructs-review.md
 /docs/constructs-erratum.md
+
+# Local benchmark runs stay on the machine that produced them.
+.jev-runs/

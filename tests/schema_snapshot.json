@@ -1,5 +1,22 @@
 {
   "columns": {
+    "chat_sessions": {
+      "created_at": {
+        "default": "CURRENT_TIMESTAMP",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "conversation_messages": {
       "content": {
         "default": null,
@@ -362,6 +379,281 @@
         "type": "double precision"
       }
     },
+    "idea_citations": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "idea_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "quote": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "quote_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "run_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "source_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "stance": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "status": {
+        "default": "'candidate'::text",
+        "nullable": "NO",
+        "type": "text"
+      }
+    },
+    "idea_critiques": {
+      "basis": {
+        "default": null,
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "content": {
+        "default": null,
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "idea_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "input_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "model": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "prompt_version": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "idea_links": {
+      "confirmed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "from_idea_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "kind": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "rationale": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "run_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "status": {
+        "default": "'candidate'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "to_idea_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "idea_runs": {
+      "dropped": {
+        "default": "'{}'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "finished_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "items_read": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "kind": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "model": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "passes_completed": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "passes_planned": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "prompt_version": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "proposed": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "started_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "status": {
+        "default": "'running'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
+    "ideas": {
+      "confirmed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "domain": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "position": {
+        "default": "'exploring'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "run_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "statement": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "statement_key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "status": {
+        "default": "'candidate'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "import_batches": {
       "adapter": {
         "default": null,
@@ -603,6 +895,43 @@
         "default": null,
         "nullable": "NO",
         "type": "integer"
+      }
+    },
+    "mobile_pairing": {
+      "bearer_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "lan_bind_enabled": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
+      "last_intake_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "last_seen_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "paired_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "paired_device": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
       }
     },
     "observation_runs": {
@@ -1229,6 +1558,152 @@
         "type": "character varying"
       }
     },
+    "sensor_batches": {
+      "clock_skew_seconds": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "confirmed_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "device_clock": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "dropped_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "host_clock": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "observation_count": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "parsed_payload": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "payload_path": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "raw_payload_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "received_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "review_day": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "source": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "status": {
+        "default": "'pending'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "theme_links": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      }
+    },
+    "sensor_deliveries": {
+      "batch_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "delivery_key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "received_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      }
+    },
+    "sensor_observations": {
+      "batch_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "lat": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "lon": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "occurred_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "occurred_date": {
+        "default": null,
+        "nullable": "YES",
+        "type": "date"
+      },
+      "payload_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "source_type": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "value_num": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      },
+      "value_text": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      }
+    },
     "theme_occurrences": {
       "admission_basis": {
         "default": null,
@@ -1580,6 +2055,28 @@
     }
   },
   "constraints": {
+    "chat_sessions": {
+      "chat_sessions_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "chat_sessions_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "chat_sessions_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "chat_sessions_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "chat_sessions_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "conversation_messages": {
       "conversation_messages_content_not_null": {
         "definition": "NOT NULL content",
@@ -1812,6 +2309,332 @@
         "type": "n"
       }
     },
+    "idea_citations": {
+      "idea_citations_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "idea_citations_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "idea_citations_idea_id_fkey": {
+        "definition": "FOREIGN KEY (idea_id) REFERENCES ideas(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_citations_idea_id_not_null": {
+        "definition": "NOT NULL idea_id",
+        "type": "n"
+      },
+      "idea_citations_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "idea_citations_quote_check": {
+        "definition": "CHECK ((length(btrim(quote)) > 0))",
+        "type": "c"
+      },
+      "idea_citations_quote_hash_not_null": {
+        "definition": "NOT NULL quote_hash",
+        "type": "n"
+      },
+      "idea_citations_quote_not_null": {
+        "definition": "NOT NULL quote",
+        "type": "n"
+      },
+      "idea_citations_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_citations_reflection_id_not_null": {
+        "definition": "NOT NULL reflection_id",
+        "type": "n"
+      },
+      "idea_citations_run_id_fkey": {
+        "definition": "FOREIGN KEY (run_id) REFERENCES idea_runs(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "idea_citations_source_hash_not_null": {
+        "definition": "NOT NULL source_hash",
+        "type": "n"
+      },
+      "idea_citations_stance_check": {
+        "definition": "CHECK ((stance = ANY (ARRAY['endorsed'::text, 'questioned'::text, 'opposed'::text])))",
+        "type": "c"
+      },
+      "idea_citations_stance_not_null": {
+        "definition": "NOT NULL stance",
+        "type": "n"
+      },
+      "idea_citations_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['candidate'::text, 'accepted'::text, 'rejected'::text])))",
+        "type": "c"
+      },
+      "idea_citations_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "idea_citations_unique": {
+        "definition": "UNIQUE (idea_id, reflection_id, quote_hash)",
+        "type": "u"
+      }
+    },
+    "idea_critiques": {
+      "idea_critiques_basis_not_null": {
+        "definition": "NOT NULL basis",
+        "type": "n"
+      },
+      "idea_critiques_content_not_null": {
+        "definition": "NOT NULL content",
+        "type": "n"
+      },
+      "idea_critiques_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "idea_critiques_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "idea_critiques_idea_fk": {
+        "definition": "FOREIGN KEY (user_id, idea_id) REFERENCES ideas(user_id, id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_critiques_idea_id_not_null": {
+        "definition": "NOT NULL idea_id",
+        "type": "n"
+      },
+      "idea_critiques_input_hash_not_null": {
+        "definition": "NOT NULL input_hash",
+        "type": "n"
+      },
+      "idea_critiques_model_not_null": {
+        "definition": "NOT NULL model",
+        "type": "n"
+      },
+      "idea_critiques_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "idea_critiques_prompt_version_not_null": {
+        "definition": "NOT NULL prompt_version",
+        "type": "n"
+      },
+      "idea_critiques_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_critiques_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "idea_links": {
+      "idea_links_contradicts_order": {
+        "definition": "CHECK (((kind <> 'contradicts'::text) OR (from_idea_id < to_idea_id)))",
+        "type": "c"
+      },
+      "idea_links_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "idea_links_from_fk": {
+        "definition": "FOREIGN KEY (user_id, from_idea_id) REFERENCES ideas(user_id, id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_links_from_idea_id_not_null": {
+        "definition": "NOT NULL from_idea_id",
+        "type": "n"
+      },
+      "idea_links_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "idea_links_kind_check": {
+        "definition": "CHECK ((kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'refines'::text, 'depends_on'::text])))",
+        "type": "c"
+      },
+      "idea_links_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "idea_links_no_self": {
+        "definition": "CHECK ((from_idea_id <> to_idea_id))",
+        "type": "c"
+      },
+      "idea_links_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "idea_links_rationale_check": {
+        "definition": "CHECK (((length(btrim(rationale)) > 0) AND (char_length(rationale) <= 1200)))",
+        "type": "c"
+      },
+      "idea_links_rationale_not_null": {
+        "definition": "NOT NULL rationale",
+        "type": "n"
+      },
+      "idea_links_run_id_fkey": {
+        "definition": "FOREIGN KEY (run_id) REFERENCES idea_runs(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "idea_links_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['candidate'::text, 'accepted'::text, 'rejected'::text])))",
+        "type": "c"
+      },
+      "idea_links_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "idea_links_to_fk": {
+        "definition": "FOREIGN KEY (user_id, to_idea_id) REFERENCES ideas(user_id, id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_links_to_idea_id_not_null": {
+        "definition": "NOT NULL to_idea_id",
+        "type": "n"
+      },
+      "idea_links_unique": {
+        "definition": "UNIQUE (user_id, from_idea_id, to_idea_id, kind)",
+        "type": "u"
+      },
+      "idea_links_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_links_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "idea_runs": {
+      "idea_runs_dropped_not_null": {
+        "definition": "NOT NULL dropped",
+        "type": "n"
+      },
+      "idea_runs_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "idea_runs_items_read_not_null": {
+        "definition": "NOT NULL items_read",
+        "type": "n"
+      },
+      "idea_runs_kind_check": {
+        "definition": "CHECK ((kind = ANY (ARRAY['discovery'::text, 'links'::text])))",
+        "type": "c"
+      },
+      "idea_runs_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "idea_runs_passes_completed_not_null": {
+        "definition": "NOT NULL passes_completed",
+        "type": "n"
+      },
+      "idea_runs_passes_planned_not_null": {
+        "definition": "NOT NULL passes_planned",
+        "type": "n"
+      },
+      "idea_runs_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "idea_runs_proposed_not_null": {
+        "definition": "NOT NULL proposed",
+        "type": "n"
+      },
+      "idea_runs_started_at_not_null": {
+        "definition": "NOT NULL started_at",
+        "type": "n"
+      },
+      "idea_runs_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['running'::text, 'complete'::text, 'partial'::text, 'failed'::text])))",
+        "type": "c"
+      },
+      "idea_runs_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "idea_runs_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "idea_runs_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
+    "ideas": {
+      "ideas_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "ideas_domain_check": {
+        "definition": "CHECK ((domain = ANY (ARRAY['philosophy'::text, 'economics'::text, 'trading'::text, 'politics'::text, 'ethics'::text, 'learning'::text, 'other'::text])))",
+        "type": "c"
+      },
+      "ideas_domain_not_null": {
+        "definition": "NOT NULL domain",
+        "type": "n"
+      },
+      "ideas_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "ideas_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "ideas_position_check": {
+        "definition": "CHECK ((\"position\" = ANY (ARRAY['exploring'::text, 'endorsed'::text, 'opposed'::text])))",
+        "type": "c"
+      },
+      "ideas_position_not_null": {
+        "definition": "NOT NULL \"position\"",
+        "type": "n"
+      },
+      "ideas_run_id_fkey": {
+        "definition": "FOREIGN KEY (run_id) REFERENCES idea_runs(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "ideas_statement_check": {
+        "definition": "CHECK (((length(btrim(statement)) > 0) AND (char_length(statement) <= 600)))",
+        "type": "c"
+      },
+      "ideas_statement_key_not_null": {
+        "definition": "NOT NULL statement_key",
+        "type": "n"
+      },
+      "ideas_statement_not_null": {
+        "definition": "NOT NULL statement",
+        "type": "n"
+      },
+      "ideas_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['candidate'::text, 'active'::text, 'rejected'::text])))",
+        "type": "c"
+      },
+      "ideas_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "ideas_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "ideas_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "ideas_user_id_unique": {
+        "definition": "UNIQUE (user_id, id)",
+        "type": "u"
+      },
+      "ideas_user_statement_key_unique": {
+        "definition": "UNIQUE (user_id, statement_key)",
+        "type": "u"
+      }
+    },
     "import_batches": {
       "import_batches_committed_count_not_null": {
         "definition": "NOT NULL committed_count",
@@ -1950,6 +2773,24 @@
       "insight_status_user_id_not_null": {
         "definition": "NOT NULL user_id",
         "type": "n"
+      }
+    },
+    "mobile_pairing": {
+      "mobile_pairing_id_check": {
+        "definition": "CHECK ((id = 1))",
+        "type": "c"
+      },
+      "mobile_pairing_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "mobile_pairing_lan_bind_enabled_not_null": {
+        "definition": "NOT NULL lan_bind_enabled",
+        "type": "n"
+      },
+      "mobile_pairing_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
       }
     },
     "observation_runs": {
@@ -2372,6 +3213,96 @@
         "type": "n"
       }
     },
+    "sensor_batches": {
+      "sensor_batches_dropped_count_not_null": {
+        "definition": "NOT NULL dropped_count",
+        "type": "n"
+      },
+      "sensor_batches_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "sensor_batches_observation_count_not_null": {
+        "definition": "NOT NULL observation_count",
+        "type": "n"
+      },
+      "sensor_batches_payload_path_not_null": {
+        "definition": "NOT NULL payload_path",
+        "type": "n"
+      },
+      "sensor_batches_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "sensor_batches_received_at_not_null": {
+        "definition": "NOT NULL received_at",
+        "type": "n"
+      },
+      "sensor_batches_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      },
+      "sensor_batches_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text, 'errored'::text])))",
+        "type": "c"
+      },
+      "sensor_batches_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      }
+    },
+    "sensor_deliveries": {
+      "sensor_deliveries_batch_id_fkey": {
+        "definition": "FOREIGN KEY (batch_id) REFERENCES sensor_batches(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "sensor_deliveries_batch_id_not_null": {
+        "definition": "NOT NULL batch_id",
+        "type": "n"
+      },
+      "sensor_deliveries_delivery_key_not_null": {
+        "definition": "NOT NULL delivery_key",
+        "type": "n"
+      },
+      "sensor_deliveries_pkey": {
+        "definition": "PRIMARY KEY (delivery_key)",
+        "type": "p"
+      },
+      "sensor_deliveries_received_at_not_null": {
+        "definition": "NOT NULL received_at",
+        "type": "n"
+      }
+    },
+    "sensor_observations": {
+      "sensor_observations_batch_id_fkey": {
+        "definition": "FOREIGN KEY (batch_id) REFERENCES sensor_batches(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "sensor_observations_batch_id_not_null": {
+        "definition": "NOT NULL batch_id",
+        "type": "n"
+      },
+      "sensor_observations_batch_id_payload_hash_key": {
+        "definition": "UNIQUE (batch_id, payload_hash)",
+        "type": "u"
+      },
+      "sensor_observations_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "sensor_observations_payload_hash_not_null": {
+        "definition": "NOT NULL payload_hash",
+        "type": "n"
+      },
+      "sensor_observations_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "sensor_observations_source_type_not_null": {
+        "definition": "NOT NULL source_type",
+        "type": "n"
+      }
+    },
     "theme_occurrences": {
       "theme_occurrences_id_not_null": {
         "definition": "NOT NULL id",
@@ -2564,8 +3495,13 @@
     }
   },
   "indexes": {
+    "chat_sessions": {
+      "chat_sessions_pkey": "CREATE UNIQUE INDEX chat_sessions_pkey ON public.chat_sessions USING btree (id)",
+      "chat_sessions_user_created_idx": "CREATE INDEX chat_sessions_user_created_idx ON public.chat_sessions USING btree (user_id, created_at DESC, id DESC)"
+    },
     "conversation_messages": {
-      "conversation_messages_pkey": "CREATE UNIQUE INDEX conversation_messages_pkey ON public.conversation_messages USING btree (id)"
+      "conversation_messages_pkey": "CREATE UNIQUE INDEX conversation_messages_pkey ON public.conversation_messages USING btree (id)",
+      "conversation_messages_user_session_created_idx": "CREATE INDEX conversation_messages_user_session_created_idx ON public.conversation_messages USING btree (user_id, session_id, created_at, id)"
     },
     "decision_impacts": {
       "decision_impacts_anchor_type_anchor_id_target_type_target_i_key": "CREATE UNIQUE INDEX decision_impacts_anchor_type_anchor_id_target_type_target_i_key ON public.decision_impacts USING btree (anchor_type, anchor_id, target_type, target_id)",
@@ -2591,6 +3527,32 @@
       "idx_habits_status_date": "CREATE INDEX idx_habits_status_date ON public.habits USING btree (processing_status, created_at)",
       "idx_habits_user_active": "CREATE INDEX idx_habits_user_active ON public.habits USING btree (user_id, is_active)"
     },
+    "idea_citations": {
+      "idea_citations_idea_status_idx": "CREATE INDEX idea_citations_idea_status_idx ON public.idea_citations USING btree (idea_id, status)",
+      "idea_citations_pkey": "CREATE UNIQUE INDEX idea_citations_pkey ON public.idea_citations USING btree (id)",
+      "idea_citations_reflection_idx": "CREATE INDEX idea_citations_reflection_idx ON public.idea_citations USING btree (reflection_id)",
+      "idea_citations_unique": "CREATE UNIQUE INDEX idea_citations_unique ON public.idea_citations USING btree (idea_id, reflection_id, quote_hash)"
+    },
+    "idea_critiques": {
+      "idea_critiques_idea_created_idx": "CREATE INDEX idea_critiques_idea_created_idx ON public.idea_critiques USING btree (idea_id, created_at DESC, id DESC)",
+      "idea_critiques_pkey": "CREATE UNIQUE INDEX idea_critiques_pkey ON public.idea_critiques USING btree (id)"
+    },
+    "idea_links": {
+      "idea_links_pkey": "CREATE UNIQUE INDEX idea_links_pkey ON public.idea_links USING btree (id)",
+      "idea_links_to_idea_idx": "CREATE INDEX idea_links_to_idea_idx ON public.idea_links USING btree (to_idea_id)",
+      "idea_links_unique": "CREATE UNIQUE INDEX idea_links_unique ON public.idea_links USING btree (user_id, from_idea_id, to_idea_id, kind)",
+      "idea_links_user_status_idx": "CREATE INDEX idea_links_user_status_idx ON public.idea_links USING btree (user_id, status)"
+    },
+    "idea_runs": {
+      "idea_runs_pkey": "CREATE UNIQUE INDEX idea_runs_pkey ON public.idea_runs USING btree (id)",
+      "idea_runs_user_started_idx": "CREATE INDEX idea_runs_user_started_idx ON public.idea_runs USING btree (user_id, started_at DESC, id DESC)"
+    },
+    "ideas": {
+      "ideas_pkey": "CREATE UNIQUE INDEX ideas_pkey ON public.ideas USING btree (id)",
+      "ideas_user_id_unique": "CREATE UNIQUE INDEX ideas_user_id_unique ON public.ideas USING btree (user_id, id)",
+      "ideas_user_statement_key_unique": "CREATE UNIQUE INDEX ideas_user_statement_key_unique ON public.ideas USING btree (user_id, statement_key)",
+      "ideas_user_status_idx": "CREATE INDEX ideas_user_status_idx ON public.ideas USING btree (user_id, status)"
+    },
     "import_batches": {
       "idx_import_batches_user": "CREATE INDEX idx_import_batches_user ON public.import_batches USING btree (user_id, created_at DESC)",
       "import_batches_pkey": "CREATE UNIQUE INDEX import_batches_pkey ON public.import_batches USING btree (id)"
@@ -2606,6 +3568,9 @@
     },
     "insight_status": {
       "insight_status_pkey": "CREATE UNIQUE INDEX insight_status_pkey ON public.insight_status USING btree (user_id, insight_id)"
+    },
+    "mobile_pairing": {
+      "mobile_pairing_pkey": "CREATE UNIQUE INDEX mobile_pairing_pkey ON public.mobile_pairing USING btree (id)"
     },
     "observation_runs": {
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",
@@ -2655,6 +3620,21 @@
     },
     "schema_migrations": {
       "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"
+    },
+    "sensor_batches": {
+      "sensor_batches_open_review_day": "CREATE UNIQUE INDEX sensor_batches_open_review_day ON public.sensor_batches USING btree (source, review_day) WHERE ((status = 'pending'::text) AND (review_day IS NOT NULL))",
+      "sensor_batches_pkey": "CREATE UNIQUE INDEX sensor_batches_pkey ON public.sensor_batches USING btree (id)",
+      "sensor_batches_status_idx": "CREATE INDEX sensor_batches_status_idx ON public.sensor_batches USING btree (status, received_at DESC)"
+    },
+    "sensor_deliveries": {
+      "sensor_deliveries_batch_idx": "CREATE INDEX sensor_deliveries_batch_idx ON public.sensor_deliveries USING btree (batch_id)",
+      "sensor_deliveries_pkey": "CREATE UNIQUE INDEX sensor_deliveries_pkey ON public.sensor_deliveries USING btree (delivery_key)"
+    },
+    "sensor_observations": {
+      "sensor_observations_batch_id_payload_hash_key": "CREATE UNIQUE INDEX sensor_observations_batch_id_payload_hash_key ON public.sensor_observations USING btree (batch_id, payload_hash)",
+      "sensor_observations_occurred_date_idx": "CREATE INDEX sensor_observations_occurred_date_idx ON public.sensor_observations USING btree (occurred_date)",
+      "sensor_observations_pkey": "CREATE UNIQUE INDEX sensor_observations_pkey ON public.sensor_observations USING btree (id)",
+      "sensor_observations_source_occurred_idx": "CREATE INDEX sensor_observations_source_occurred_idx ON public.sensor_observations USING btree (source_type, occurred_at DESC NULLS LAST)"
     },
     "theme_occurrences": {
       "idx_occurrences_source": "CREATE INDEX idx_occurrences_source ON public.theme_occurrences USING btree (source_type, source_id)",

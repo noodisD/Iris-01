@@ -1,9 +1,11 @@
 """
 Configuration Management - Pydantic Settings
 
-This module centralizes all environment variables, enforces types, 
+This module centralizes all environment variables, enforces types,
 and provides a fail-fast mechanism for missing required configuration.
 """
+
+from ipaddress import ip_address, ip_network
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -59,12 +61,41 @@ class Settings(BaseSettings):
     # insight and carries on (production).
     NARRATIVE_FAIL_MODE: str = Field(default="raise")
 
+    # Configuring an interface explicitly opts in to the TLS listener. Pairing
+    # controls admission on that listener; it never binds a new interface.
+    LAN_BIND_HOST: str = Field(default="")
+    LAN_BIND_PORT: int = Field(default=8765, ge=1024, le=65535)
+    LAN_BIND_ENABLED: bool = Field(default=False)
+    MOBILE_BEARER_HASH: str | None = Field(default=None)
+    # Populated by the two-listener launcher only after TLS starts.
+    LAN_URL: str | None = Field(default=None, exclude=True)
+    LAN_PUBLIC_KEY_SHA256: str | None = Field(default=None, exclude=True)
+    # Why the configured phone listener is not serving; set by scripts/serve_iris.py.
+    LAN_LISTENER_ERROR: str | None = Field(default=None, exclude=True)
+
+
     # Configuration for .env loading
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore" # Ignore extra env vars not defined here
     )
+
+    @field_validator("LAN_BIND_HOST")
+    @classmethod
+    def validate_lan_host(cls, host: str) -> str:
+        if not host:
+            return host
+        try:
+            address = ip_address(host)
+        except ValueError as exc:
+            raise ValueError("LAN_BIND_HOST must be a private IPv4 address") from exc
+        if address.version != 4 or not any(address in network for network in (
+            ip_network("10.0.0.0/8"), ip_network("172.16.0.0/12"),
+            ip_network("192.168.0.0/16"),
+        )):
+            raise ValueError("LAN_BIND_HOST must be a private IPv4 address")
+        return str(address)
 
     @field_validator("NARRATIVE_FAIL_MODE")
     def validate_fail_mode(cls, v):
@@ -75,7 +106,7 @@ class Settings(BaseSettings):
     def sanitized_dict(self) -> dict:
         """Returns a dict of config with secrets masked for safe logging."""
         d = self.model_dump()
-        secrets = ["OPENAI_API_KEY", "POSTGRES_PASSWORD"]
+        secrets = ["OPENAI_API_KEY", "POSTGRES_PASSWORD", "MOBILE_BEARER_HASH"]
         for s in secrets:
             if d[s] and len(d[s]) > 8:
                 d[s] = f"{d[s][:4]}...{d[s][-4:]}"

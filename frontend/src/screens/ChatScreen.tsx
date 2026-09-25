@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useConversation, useMessages, useSendMessage } from '@/hooks/useChat';
+import { useMessages, useNewConversation, useSendMessage } from '@/hooks/useChat';
 import { useUser } from '@/hooks/useData';
 import { ReplyFailed } from '@/api/chat';
 import { LoadingState, ErrorState } from '@/components/states';
@@ -42,7 +42,8 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 
 export function ChatScreen() {
   const { data: user } = useUser();
-  const { data: convo, isLoading, isError, refetch } = useConversation();
+  const [visit] = React.useState(() => crypto.randomUUID());
+  const { data: convo, isLoading, isError, refetch } = useNewConversation(visit);
   const { data: messages } = useMessages(convo?.id);
   const send = useSendMessage(convo?.id);
   const [params, setParams] = useSearchParams();

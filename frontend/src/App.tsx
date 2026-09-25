@@ -10,6 +10,8 @@ import { InsightsScreen } from '@/screens/InsightsScreen';
 import { ReviewScreen } from '@/screens/ReviewScreen';
 import { ImportScreen } from '@/screens/ImportScreen';
 import { ConstructsScreen } from '@/screens/ConstructsScreen';
+import { IdeasScreen } from '@/screens/IdeasScreen';
+import { SensorsScreen } from '@/screens/SensorsScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
 
@@ -33,6 +35,9 @@ const router = createBrowserRouter([
       { path: 'review', element: <ReviewScreen /> },
       { path: 'import', element: <ImportScreen /> },
       { path: 'constructs', element: <ConstructsScreen /> },
+      { path: 'ideas', element: <IdeasScreen /> },
+      { path: 'ideas/:id', element: <IdeasScreen /> },
+      { path: 'sensors', element: <SensorsScreen /> },
       { path: 'settings', element: <SettingsScreen /> },
     ],
   },

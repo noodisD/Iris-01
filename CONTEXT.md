@@ -44,10 +44,10 @@ A rejection is remembered by `proposal_key`, so a rerun cannot propose it again.
 An instance of a theme in one source.
 
 **Properties:**
-- `theme_id`, `source_type` (`"reflection"`, `"journal_entry"`, `"habit_completion"`), `source_id`
+- `theme_id`, `source_type` (`"reflection"`, `"habit_completion"`, `"pixel_location"`, `"fitbit_sleep"`, etc.), `source_id`
 - `occurred_at` — when the source happened; **null** for writing that carries no date (ADR-0013)
-- `snippet` — the owner's own words from the entry, never the embedded text
-- `admission_basis` — `"citation"` (a sentence the owner read and confirmed) or `"similarity"` (a match a detector proposed)
+- `snippet` — the owner's own words from the entry, or a factual description of a measurement
+- `admission_basis` — `"citation"` (something the owner read and confirmed — a sentence, or a measurement), or `"similarity"` (a match a detector proposed)
 
 **Invariants:**
 - One occurrence per theme × source
@@ -55,15 +55,23 @@ An instance of a theme in one source.
 - Chat messages are embedded for recall and are never occurrences (ADR-0003)
 
 ### Source
-What the owner deliberately logged. Evidence is reflections (a journal entry *is*
-a reflection, ADR-0010) and habit completions. The legacy `journal_entries`
-table was dropped by migration 0015 once nothing was left in it. A skipped habit is not evidence. An entry marked
-memory-only (`evidence_eligible = false`) is searchable but never evidence.
+Evidence comes from owner-authored reflections (including journal entries,
+ADR-0010), completed habits, and sensor readings the owner explicitly links
+to an existing theme during review (ADR-0017). The old `journal_entries`
+table was dropped; sensors are measurements, not reflections.
 
 A reflection's `reflection_date` may be **null**: the owner said the day is not
 known. It is recalled and read, counted without a span, and kept out of every
 window until a date is supplied (`set_reflection_date`), which dates its
 occurrences too.
+
+A paired Android app sends batches to an isolated TLS mobile intake. Staging
+does not create evidence. On confirmation readings enter
+`sensor_observations`; only owner-approved source-to-theme links produce
+capped `theme_occurrences`. The latest approved reading per source, theme
+and UTC day occupies the cap; deletion restores an older approved reading
+when one exists. Unlinked readings stay raw and cannot form themes.
+Date-only step readings retain their calendar day in review.
 
 ### Trajectory
 Whether a theme's recent rate differs from its baseline:
@@ -186,6 +194,44 @@ Insights then read through admission.
 - `max_items` — 1–10 (default 5): how many findings chat may raise; the screen is not limited
 
 Set from Settings or the CLI's `/settings`; both write `user_preferences`.
+
+### Idea
+A substantive proposition — including a normative principle — that the owner
+endorses, questions, or opposes in their own writing. A topic word, an inferred
+trait, and a quotation of another author with no position of the owner's are
+not ideas. One verified passage is enough. The statement does not change once
+proposed; a changed proposition is another idea. This is not a psychological
+engine and is not selectable in Settings (ADR-0021).
+
+**Domain** is one organising category: philosophy, economics, trading, politics,
+ethics, learning, or other. A trading pattern, method, edge, or practice is
+trading, not economics. Economics is how an economy works. A skill, a craft, or
+the time mastery takes is learning. A claim about freedom, dependence, or how a
+life should be ordered is philosophy. Other is only for a position that fits
+none of those areas.
+
+**Citation stance** is what that passage expressed: `"endorsed"`,
+`"questioned"`, or `"opposed"`. A check may also answer `"not_stated"`, which
+is not stored. The date is the day the passage was written, or absent — never
+the day a belief began.
+
+**Present position** is the owner's current selection: `"exploring"`,
+`"endorsed"`, or `"opposed"`. Confirmation starts at exploring unless they
+choose otherwise. Old writing never sets it.
+
+**Link** is a typed connection the owner confirmed, or a proposal waiting for
+that confirmation: `"supports"`, `"contradicts"`, `"refines"`, or
+`"depends_on"`. Iris may propose one. It is not a claim the journal stated
+the connection.
+
+**Tension** here is an accepted contradiction between two ideas the owner
+currently holds. It is not the psychological tension engine. Moving either
+position off `"endorsed"` removes the tension and keeps the edge.
+
+**Critique** is Iris's on-request challenge of one argument: objections,
+possible premises, and unverified suggestions of related thought. It is
+labelled as Iris's, stored apart from the writing, and never becomes an idea,
+a link, or evidence.
 
 ---
 

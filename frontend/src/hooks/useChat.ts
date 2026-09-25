@@ -6,6 +6,18 @@ import type { ChatMessage } from '@/types/api';
 export function useConversation() {
   return useQuery({ queryKey: qk.conversation, queryFn: chatApi.getCurrentConversation });
 }
+/** One empty open per visit. Remounting the screen, not refetching, starts the next. */
+export function useNewConversation(visitId: string) {
+  return useQuery({
+    queryKey: ['conversation', 'visit', visitId],
+    queryFn: chatApi.startConversation,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+}
+
 
 export function useMessages(conversationId: string | undefined) {
   return useQuery({

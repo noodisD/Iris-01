@@ -22,6 +22,11 @@ re-litigated by accident, only deliberately.
 | [0014](ADR-0014-themes-in-what-differs.md) | Themes are found in what differs between entries | Why comparison is mean-centred and linkage is complete |
 | [0015](ADR-0015-reading-entries.md) | Reading entries, with every quote verified | Why a finding without verbatim quotes is dropped |
 | [0016](ADR-0016-stored-candidates.md) | What reading finds is a proposal until confirmed | Why candidates exist and nothing measures them |
+| [0017](ADR-0017-sensor-sources.md) | Sensor sources enter through one seam, as evidence | Why sensor data never forms its own themes |
+| [0018](ADR-0018-mobile-lan-api.md) | LAN-only API surface for a paired Android app | Why the LAN bind defaults to OFF and the bearer gates it |
+| [0019](ADR-0019-phone-app-over-lan.md) | Paired phone accesses the full API over pinned TLS | Why web and pairing remain loopback-only |
+| [0020](ADR-0020-chat-opens-a-new-session.md) | Each chat open starts an empty session | Why web and phone chat do not render the stored transcript |
+| [0021](ADR-0021-ideas-framework.md) | Ideas are confirmed propositions, not measured themes | Why arguments are not occurrences and critiques are not evidence |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

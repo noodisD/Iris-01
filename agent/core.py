@@ -110,19 +110,22 @@ def _best_passage(text: str, query: str, limit: int = MEMORY_CHARS_IN_CONTEXT) -
 class PersonalAICompanion:
     """The core AI companion, orchestrating all services."""
 
-    def __init__(self, user_id: int, model: str = None):
+    def __init__(self, user_id: int, model: str = None, session_id: str | None = None):
         """
         Initialize the companion for a specific user.
 
         `model` defaults to settings.OPENAI_MODEL. It used to be hardcoded here,
         in persistence and in the review endpoint — three different values —
         so the OPENAI_MODEL setting was read by nothing.
+
+        `session_id` is the chat open on screen. Callers without one, such as
+        the CLI, still get a fresh id; they do not reopen another session.
         """
         if user_id is None:
             raise ValueError("PersonalAICompanion requires a valid user_id.")
 
         self.user_id = user_id
-        self.session_id = utc_now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = session_id or utc_now().strftime("%Y%m%d_%H%M%S")
 
         # Initialize the core services for this user/session
         self.intelligence = Intelligence(model=model)
@@ -270,10 +273,25 @@ class PersonalAICompanion:
         return (
             f"# Today: {today:%A, %Y-%m-%d}\n\n"
             f"# Relevant Long-Term Memory:\n{memories}\n\n"
+            f"# Earlier conversations (stored and analysed; not this open):\n{self._earlier_conversations()}\n\n"
             f"# Recent Journal Entries & Reflections (the {RECENT_ENTRIES_IN_CONTEXT} most recently written, newest first):\n{reflections_context}\n\n"
             f"# Current Habits & Streaks:\n{habits_context}\n\n"
             f"{header}\n{body}"
         )
+
+    def _earlier_conversations(self) -> str:
+        """What was said before this open. It stays stored; it is not the transcript."""
+        rows = db.get_earlier_chat_history(self.user_id, self.session_id)
+        if not rows:
+            return "No earlier conversations stored."
+        lines = []
+        for row in rows:
+            text = " ".join(row["content"].split())
+            if len(text) > MEMORY_CHARS_IN_CONTEXT:
+                text = text[:MEMORY_CHARS_IN_CONTEXT - 1] + "…"
+            lines.append(f"- [{row['role']}] {text}")
+        return "\n".join(lines)
+
 
     @staticmethod
     def _format_pattern_body(narratives: list[str], suppression_log: dict, prefs: dict,

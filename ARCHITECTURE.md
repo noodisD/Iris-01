@@ -9,8 +9,10 @@ invariants see `CONTEXT.md`; for the insight lifecycle contract see
 One process, one datastore.
 
 ```
-uvicorn iris_api:app          serves /api/* and the built SPA, loopback only
-  └── agent/                  the analytical package
+scripts/serve_iris.py
+  ├── 127.0.0.1:8000    local API and built SPA
+  ├── private-LAN:8765  pinned-TLS paired Android API (opt-in)
+  └── agent/            analytical package
         └── PostgreSQL 18 + pgvector
 ```
 
@@ -56,6 +58,18 @@ rules about what becomes evidence. An import is staged in `import_items` and
 reviewed first — the format is a guess and the dates come from other people's
 tools, so nothing is committed until someone has looked (ADR-0013).
 
+Sensor measurements use a separate review path (ADR-0017). The Android
+foreground service buffers Pixel readings and permitted Health Connect
+records from any writer, then sends authenticated batches to a pinned-TLS
+private-LAN listener. The paired native Android app also uses this listener
+for the full `/api/` surface; pairing mutations and the web UI remain
+loopback-only (ADR-0019). Byte-identical sensor retries keep one staged
+`sensor_batches` row. The Sensors screen lets the owner link source
+types to existing active themes. Confirmation stores `sensor_observations`
+and admits the latest approved, capped daily `theme_occurrences`. Unlinked
+readings remain raw data; sensors do not enter the embedding queue or form
+themes.
+
 The queue carries two job kinds that are *not* evidence: `transcription` turns a
 stored recording into text, and parsing reads an upload. Neither appears in
 `EVIDENCE_WEIGHTS`; a transcript becomes evidence only once it is committed as a
@@ -72,14 +86,14 @@ worker runs for evidence:
    whether a new theme has formed.
 5. Mark the row `complete`.
 
-**What counts as evidence** is a deliberate boundary. Journal entries,
-reflections and completed habits do. Chat messages are embedded for recall but
-never become occurrences — otherwise talking about a pattern would create proof
-of it, and a dissipated theme would revive itself inside the very request that
-reported on it. Skipped habits are excluded for the same reason in reverse: a
-skip is evidence the pattern did *not* occur, but the embedded text is dominated
-by the habit's own name, so counting it made abandoning a habit look like
-practising it.
+**What counts as evidence** is a deliberate boundary. Reflections (including
+journal entries), completed habits, and owner-linked sensor readings do. Chat
+messages are embedded for recall but never become occurrences — otherwise
+talking about a pattern would create proof of it, and a dissipated theme would
+revive itself inside the very request that reported on it. Skipped habits are
+excluded for the same reason in reverse: a skip is evidence the pattern did
+*not* occur, but its embedded text is dominated by the habit's own name, so
+counting it made abandoning a habit look like practising it.
 
 ## 3. Engines
 
@@ -98,6 +112,12 @@ Clustering is scikit-learn complete linkage over the user's embeddings with thei
 shared voice removed: a theme forms only where every pair of its founding entries
 clears the creation threshold, so it cannot chain (ADR-0014).
 
+Ideas are not an engine. `agent/ideas/` reads eligible reflections only when
+the owner asks, stores propositions and typed links apart from themes, and
+may critique one anchored idea on request. Critiques are labelled Iris output
+and are never read back as writing (ADR-0021). Chat, Insights, and the phone
+app do not use that store.
+
 ## 4. Meta-control
 
 Chat and the Insights screen admit findings through one function
@@ -111,10 +131,9 @@ findings their own engine calls unsupported are dropped. After ranking, chat
 keeps one finding per pattern and cuts to `max_items`; the screen shows the
 whole ranked list. The budget belongs to the caller because it is a limit on
 space, not a statement about what is true.
-
-- **Confidence** weights evidence by source (reflection 1.0, journal 0.9, habit
-  with notes 0.8, bare tick 0.5) and scores sufficiency, consistency and recency
-  at 40/40/20.
+- **Confidence** weights evidence by source (reflection 1.0, habit with notes
+  0.8, bare tick 0.5, sensor types 0.3–0.6) and scores sufficiency,
+  consistency and recency at 40/40/20.
 - **Conflict suppression** silences logically incompatible pairs.
 - **Ranking** orders by confidence, recency, magnitude, novelty and engine
   weight, with lifelong lowest; chat then keeps the top *k* (default 5).

@@ -8,6 +8,7 @@ is stored here canonically.
 
 import logging
 import os
+import uuid
 from contextlib import contextmanager
 from typing import Any
 
@@ -191,6 +192,54 @@ class Database:
     # Conversation Message Methods
     # ============================================================================
 
+    def create_chat_session(self, user_id: int) -> dict:
+        """Opens an empty chat session. Its messages stay in conversation_messages."""
+        session_id = uuid.uuid4().hex
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO chat_sessions (id, user_id)
+                    VALUES (%s, %s)
+                    RETURNING created_at;
+                    """,
+                    (session_id, user_id),
+                )
+                created_at = cur.fetchone()[0]
+                conn.commit()
+                return {"id": session_id, "created_at": created_at}
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to open a chat session for user {user_id}: {e}")
+                raise
+
+    def get_chat_session(self, user_id: int, session_id: str) -> dict | None:
+        """The session only if it belongs to this user."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, created_at FROM chat_sessions
+                WHERE user_id = %s AND id = %s;
+                """,
+                (user_id, session_id),
+            )
+            row = cur.fetchone()
+            return {"id": row[0], "created_at": row[1]} if row else None
+
+    def latest_chat_session(self, user_id: int) -> dict | None:
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, created_at FROM chat_sessions
+                WHERE user_id = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1;
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+            return {"id": row[0], "created_at": row[1]} if row else None
+
     def create_conversation_message(self, user_id: int, session_id: str, role: str, content: str) -> int:
         """Creates a new conversation message and returns its ID."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -213,32 +262,69 @@ class Database:
                 logger.error(f"Failed to create conversation message for user {user_id}: {e}")
                 raise
 
-    def get_chat_history(self, user_id: int, limit: int = 50) -> list:
-        """Retrieves the most recent chat history for a user, returned in chronological order.
+    def get_chat_history(self, user_id: int, limit: int = 50, session_id: str | None = None) -> list:
+        """Retrieves chat history, oldest first.
 
-        Pulls the latest `limit` messages (DESC), then reverses so callers get
-        them oldest-first — the order the LLM expects for conversation context.
+        Without a session, this is the user's stored record. With one, it is
+        only what was said in that open.
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
                     SELECT role, content, created_at FROM (
-                        SELECT role, content, created_at
+                        SELECT id, role, content, created_at
                         FROM conversation_messages
                         WHERE user_id = %s
-                        ORDER BY created_at DESC
+                          AND (%s IS NULL OR session_id = %s)
+                        ORDER BY created_at DESC, id DESC
                         LIMIT %s
                     ) recent
-                    ORDER BY created_at ASC;
+                    ORDER BY created_at ASC, id ASC;
                     """,
-                    (user_id, limit)
+                    (user_id, session_id, session_id, limit)
                 )
                 rows = cur.fetchall()
                 return [{"role": r[0], "content": r[1], "created_at": r[2]} for r in rows]
             except Exception as e:
                 logger.error(f"Failed to get chat history for user {user_id}: {e}")
                 return []
+
+    def get_earlier_chat_history(self, user_id: int, session_id: str, limit: int = 8) -> list:
+        """Stored messages from every session except the one on screen."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT role, content, created_at FROM (
+                        SELECT id, role, content, created_at
+                        FROM conversation_messages
+                        WHERE user_id = %s AND session_id <> %s
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT %s
+                    ) recent
+                    ORDER BY created_at ASC, id ASC;
+                    """,
+                    (user_id, session_id, limit),
+                )
+                return [{"role": r[0], "content": r[1], "created_at": r[2]} for r in cur.fetchall()]
+            except Exception as e:
+                logger.error(f"Failed to get earlier chat history for user {user_id}: {e}")
+                return []
+
+    def chat_session_counts(self, user_id: int, session_id: str) -> dict:
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*), MIN(created_at), MAX(created_at)
+                FROM conversation_messages
+                WHERE user_id = %s AND session_id = %s;
+                """,
+                (user_id, session_id),
+            )
+            count, first, last = cur.fetchone()
+            return {"message_count": count, "first_at": first, "last_at": last}
+
 
     # ============================================================================
     # Embedding Methods
@@ -1233,6 +1319,40 @@ class Database:
                 for row in rows
             ]
 
+    def get_sensor_occurrences(self, theme_id: int, include_undated: bool = False) -> list:
+        """The sensor occurrences of a theme, joined with their measured values.
+
+        This is the read seam for surfaces that need to show the actual measurements
+        (steps, bpm, locations) behind a finding. The engines themselves read them
+        through get_theme_occurrences uniformly.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.source_type, t.source_id, t.snippet, t.occurred_at,
+                       s.value_num, s.value_text, s.lat, s.lon, s.batch_id
+                FROM theme_occurrences t
+                JOIN sensor_observations s ON t.source_id = s.id AND t.source_type = s.source_type
+                WHERE t.theme_id = %s AND (%s OR t.occurred_at IS NOT NULL)
+                ORDER BY t.occurred_at DESC NULLS LAST;
+                """,
+                (theme_id, include_undated)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "source_type": row[0],
+                    "source_id": row[1],
+                    "snippet": row[2],
+                    "occurred_at": row[3],
+                    "value_num": row[4],
+                    "value_text": row[5],
+                    "lat": row[6],
+                    "lon": row[7],
+                    "batch_id": row[8],
+                }
+                for row in rows
+            ]
     def last_observed_day(self, user_id: int):
         """The most recent day the user deliberately logged anything, or None.
 
@@ -1602,7 +1722,7 @@ class Database:
                 for r in cur.fetchall()
             ]
 
-    def get_entries_for_reading(self, user_id: int, limit: int = 60, since=None) -> list:
+    def get_entries_for_reading(self, user_id: int, limit: int | None = 60, since=None) -> list:
         """Entries an engine may read and quote from, newest first.
 
         Only what the owner deliberately logged, and only what still counts as
@@ -1611,6 +1731,9 @@ class Database:
         never become the citation under an observation about the person — a
         quote is meant to be the thing that convinces them, so it has to come
         from something they actually sat down and wrote.
+
+        `limit=None` reads the whole eligible archive (PostgreSQL `LIMIT NULL`).
+        Existing callers keep the default of 60.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -3078,6 +3201,9 @@ class Database:
                             WHERE source_type = 'reflection' AND source_id = %s
                         RETURNING theme_id;""", (reflection_id,))
                     touched = {r[0] for r in cur.fetchall()}
+                    cur.execute(
+                        "DELETE FROM idea_citations WHERE reflection_id = %s;",
+                        (reflection_id,))
                     cur.execute(
                         "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
                         (reflection_id,))

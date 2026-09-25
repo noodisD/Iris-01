@@ -612,7 +612,7 @@ class ObservationEngine:
                 logger.info(f"Observation {_tag(claim)} discarded for causal or prescriptive wording")
                 continue
 
-            citations = self._citations(item.get("quotes") or [], by_id)
+            citations = verify_citations(item.get("quotes") or [], by_id)
             if citations is None:
                 logger.info(f"Observation {_tag(claim)} discarded, a citation failed verification")
                 continue
@@ -634,46 +634,47 @@ class ObservationEngine:
             ))
         return out
 
-    @staticmethod
-    def _citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
-        """Every quote verified, or nothing.
 
-        Returns None when any quote cannot be verified, which drops the whole
-        observation. This used to skip bad quotes individually and keep the rest,
-        so two real quotes plus one invented one produced an observation that
-        looked fully verified — while the module promised the opposite, and while
-        a surviving citation can seed an occurrence by construction.
 
-        A model that fabricated one quote was not careful about the others. The
-        expensive half of this pipeline is deciding what to believe, so the cheap
-        answer to a bad citation is to disbelieve the claim carrying it.
-        """
-        found: list[Citation] = []
-        for q in quotes:
-            if not isinstance(q, dict):
-                logger.info("Citation was not an object, observation refused")
-                return None
-            try:
-                entry_id = int(q.get("entryId"))
-            except (TypeError, ValueError):
-                logger.info("Citation had no usable entry id, observation refused")
-                return None
-            source_type = str(q.get("sourceType") or "reflection")
-            entry = by_id.get((source_type, entry_id))
-            if entry is None:
-                # Either invented, or attributed to something that was not read.
-                logger.info(f"Citation names {source_type} {entry_id}, which was not read; refused")
-                return None
-            quote = _normalized(str(q.get("text") or ""))
-            if len(quote) < OBSERVATION_MIN_QUOTE_CHARS:
-                logger.info("Citation too short to identify a passage, observation refused")
-                return None
-            if quote not in _normalized(entry["content"]):
-                logger.info(f"Quote not found verbatim in {source_type} {entry_id}, observation refused")
-                return None
-            found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
-                                  text=quote, source_type=entry.get("source_type", "reflection")))
-        return tuple(found)
+def verify_citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
+    """Every quote verified, or nothing.
+
+    Returns None when any quote cannot be verified, which drops the whole
+    observation. This used to skip bad quotes individually and keep the rest,
+    so two real quotes plus one invented one produced an observation that
+    looked fully verified — while the module promised the opposite, and while
+    a surviving citation can seed an occurrence by construction.
+
+    A model that fabricated one quote was not careful about the others. The
+    expensive half of this pipeline is deciding what to believe, so the cheap
+    answer to a bad citation is to disbelieve the claim carrying it.
+    """
+    found: list[Citation] = []
+    for q in quotes:
+        if not isinstance(q, dict):
+            logger.info("Citation was not an object, observation refused")
+            return None
+        try:
+            entry_id = int(q.get("entryId"))
+        except (TypeError, ValueError):
+            logger.info("Citation had no usable entry id, observation refused")
+            return None
+        source_type = str(q.get("sourceType") or "reflection")
+        entry = by_id.get((source_type, entry_id))
+        if entry is None:
+            # Either invented, or attributed to something that was not read.
+            logger.info(f"Citation names {source_type} {entry_id}, which was not read; refused")
+            return None
+        quote = _normalized(str(q.get("text") or ""))
+        if len(quote) < OBSERVATION_MIN_QUOTE_CHARS:
+            logger.info("Citation too short to identify a passage, observation refused")
+            return None
+        if quote not in _normalized(entry["content"]):
+            logger.info(f"Quote not found verbatim in {source_type} {entry_id}, observation refused")
+            return None
+        found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
+                              text=quote, source_type=entry.get("source_type", "reflection")))
+    return tuple(found)
 
 
 def interleave(entries: list[dict]) -> list[dict]:

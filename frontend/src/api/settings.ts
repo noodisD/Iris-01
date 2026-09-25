@@ -42,3 +42,32 @@ export async function updateAnalysisPreferences(
 export async function resetAnalysisPreferences(): Promise<AnalysisPreferences> {
   return api.post('/user/analysis/reset');
 }
+
+export interface MobileConnection {
+  lan_url: string | null;
+  public_key_sha256: string | null;
+  listener: 'listening' | 'failed' | 'not_started' | 'not_configured';
+  listener_error: string | null;
+  paired: boolean;
+  paired_at: string | null;
+  last_seen_at: string | null;
+  last_intake_at: string | null;
+  last_rejection: { at: string; status: number; detail: string } | null;
+  pending_batches: number;
+}
+
+export function phonePairingCode(url: string, key: string, token?: string): string {
+  return JSON.stringify(token ? { iris: 1, url, key, token } : { iris: 1, url, key });
+}
+
+export async function getMobileConnection(): Promise<MobileConnection> {
+  return api.get('/mobile/connection');
+}
+
+export async function pairMobile(token: string): Promise<void> {
+  await api.post('/mobile/pair', { token, lan_bind_enabled: true });
+}
+
+export async function unpairMobile(): Promise<void> {
+  await api.post('/mobile/unpair');
+}
