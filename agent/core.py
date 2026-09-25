@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Main services
 from .timeutils import utc_now
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
+from .approved_context import approved_context
 from .database import db
 from .intelligence import Intelligence
 from .journal_entry import JournalEntry
@@ -276,6 +277,7 @@ class PersonalAICompanion:
             f"# Earlier conversations (stored and analysed; not this open):\n{self._earlier_conversations()}\n\n"
             f"# Recent Journal Entries & Reflections (the {RECENT_ENTRIES_IN_CONTEXT} most recently written, newest first):\n{reflections_context}\n\n"
             f"# Current Habits & Streaks:\n{habits_context}\n\n"
+            f"{approved_context(self.user_id)}\n\n"
             f"{header}\n{body}"
         )
 

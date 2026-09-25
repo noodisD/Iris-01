@@ -46,7 +46,7 @@ def test_every_block_the_chat_sends_is_described_in_the_prompt(companion, mocker
     ctx = _context(companion, mocker)
     headers = [re.sub(r"\s*(\(.*\))?:.*$", "", line[2:]).strip()
                for line in ctx.splitlines() if line.startswith("# ")]
-    assert len(headers) == 6, headers
+    assert len(headers) == 7, headers
     for header in headers:
         assert f"# {header}" in SYSTEM_PROMPT, f"the prompt does not describe the {header!r} block"
 
