@@ -1,9 +1,9 @@
 /**
  * The journal records what the owner said, and nothing it made up for them.
  *
- * Energy started at 6 and was sent with every entry, so a number nobody chose
- * became "the energy you reported" in the weekly review. An entry whose day is
- * unknown reads as undated rather than as the day it was imported.
+ * Energy is unset until chosen. An entry whose day is unknown reads as undated
+ * rather than as the day it was imported. The editor is mocked so the suite
+ * does not load CodeMirror.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -19,6 +19,18 @@ vi.mock('@/api/journal', () => ({
   listJournal: async () => ({ entries: entries.list, recurringPhrases: [] }),
 }));
 
+vi.mock('@/components/journal/MarkdownEditor', () => ({
+  MarkdownEditor: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (text: string) => void;
+  }) => (
+    <textarea data-testid="journal-editor" aria-label="journal entry" value={value} onChange={event => onChange(event.target.value)} />
+  ),
+}));
+
 import { JournalScreen } from './JournalScreen';
 
 function show() {
@@ -29,23 +41,37 @@ function show() {
 beforeEach(() => { sent.calls = []; entries.list = []; });
 
 describe('writing an entry', () => {
-  it('records no energy unless one was chosen', async () => {
+  it('records no check-in unless one was chosen', async () => {
     show();
-    const lines = await screen.findAllByRole('textbox');
-    fireEvent.change(lines[0], { target: { value: 'a quiet morning' } });
+    fireEvent.change(await screen.findByTestId('journal-editor'), {
+      target: { value: 'a quiet morning' },
+    });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
 
-    expect(sent.calls).toEqual([{ lines: ['a quiet morning'], energy: undefined }]);
+    expect(sent.calls).toEqual([{ text: 'a quiet morning', format: 'markdown' }]);
   });
 
   it('sends the energy the owner chose', async () => {
     show();
-    const lines = await screen.findAllByRole('textbox');
-    fireEvent.change(lines[0], { target: { value: 'a good day' } });
+    fireEvent.change(await screen.findByTestId('journal-editor'), {
+      target: { value: 'a good day' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'energy 8' }));
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
 
-    expect(sent.calls).toEqual([{ lines: ['a good day'], energy: 8 }]);
+    expect(sent.calls).toEqual([{
+      text: 'a good day',
+      format: 'markdown',
+      checkin: { energy: 8 },
+    }]);
+  });
+
+  it('can save a check-in with no prose', async () => {
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'focus 4' }));
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(sent.calls).toEqual([{ text: '', format: 'markdown', checkin: { focus: 4 } }]);
   });
 });
 
@@ -72,5 +98,20 @@ describe('an entry that came from a recording', () => {
 
     const player = await screen.findByLabelText('the recording this was transcribed from');
     expect(player).toHaveAttribute('src', '/api/audio/9');
+  });
+});
+
+describe('a markdown entry', () => {
+  it('shows the heading and the bold words without the markers', async () => {
+    entries.list = [{
+      id: '3', userId: '1', lines: ['# Soup', '', '**Basil** and salt.'],
+      text: '# Soup\n\n**Basil** and salt.', format: 'markdown', tags: [],
+      occurredOn: '2026-01-02', createdAt: '2026-01-02',
+    } as unknown as JournalEntry];
+    show();
+
+    expect(await screen.findByRole('heading', { name: 'Soup' })).toBeInTheDocument();
+    expect(screen.getByText('Basil')).toBeInTheDocument();
+    expect(screen.queryByText('**Basil**')).not.toBeInTheDocument();
   });
 });

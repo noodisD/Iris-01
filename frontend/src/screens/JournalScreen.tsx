@@ -6,27 +6,70 @@ import { LoadingState, ErrorState } from '@/components/states';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import { formatEventDate } from '@/lib/dates';
+import { CheckinPicker, emptyCheckin } from '@/components/journal/CheckinPicker';
+import type { CheckinValues } from '@/components/journal/CheckinPicker';
+import { EditorToolbar } from '@/components/journal/EditorToolbar';
+import { MarkdownView } from '@/components/journal/MarkdownView';
+import { commandFor } from '@/components/journal/markdownCommands';
+import type { Command } from '@/components/journal/markdownCommands';
+import type { JournalCheckin, JournalEntry } from '@/types/api';
 
-const PROMPTS = ['What happened today?', 'What were you feeling?', 'What do you want Iris to remember?'];
+const MarkdownEditor = React.lazy(() =>
+  import('@/components/journal/MarkdownEditor').then(module => ({ default: module.MarkdownEditor })),
+);
+
+class EditorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+function entryText(entry: JournalEntry): string {
+  return entry.text ?? entry.lines.join('\n');
+}
+
+function checkinLabel(checkin: JournalCheckin | undefined): string {
+  if (!checkin) return '';
+  const parts = [
+    ['energy', checkin.energy],
+    ['mood', checkin.mood],
+    ['sleep', checkin.sleep_quality],
+    ['stress', checkin.stress],
+    ['focus', checkin.focus],
+  ].filter((part): part is [string, number] => typeof part[1] === 'number');
+  return parts.map(([name, value]) => `${name} ${value}`).join(' · ');
+}
+
+function payloadCheckin(value: CheckinValues): JournalCheckin | undefined {
+  const checkin: JournalCheckin = {};
+  (Object.keys(value) as (keyof CheckinValues)[]).forEach(key => {
+    if (value[key] != null) checkin[key] = value[key];
+  });
+  return Object.keys(checkin).length ? checkin : undefined;
+}
 
 export function JournalScreen() {
   const { data, isPending, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useJournal();
   const qc = useQueryClient();
   const [params] = useSearchParams();
-  const [lines, setLines] = React.useState(['', '', '']);
-  // Unset until the owner says otherwise. It used to start at 6 and was sent
-  // with every entry, so the weekly review reported "the energy you reported"
-  // for a number nobody had reported.
-  const [energy, setEnergy] = React.useState<number | null>(null);
+  const [text, setText] = React.useState('');
+  const [selection, setSelection] = React.useState({ start: 0, end: 0 });
+  const [checkin, setCheckin] = React.useState<CheckinValues>(emptyCheckin);
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const fallbackRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // A quote on the Insights screen links here by entry id. The entry may sit
-  // on a page that has not been fetched, so keep asking for older pages until
-  // it turns up rather than showing the newest entries and calling it a link.
   const target = params.get('entry');
   const entries = React.useMemo(() => data?.pages.flatMap(p => p.entries) ?? [], [data]);
   const found = !target || entries.some(e => e.id === target);
+  const canSave = text.trim().length > 0 || Object.values(checkin).some(value => value != null);
 
   React.useEffect(() => {
     if (target && !found && hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -38,69 +81,111 @@ export function JournalScreen() {
     }
   }, [target, found]);
 
+  const apply = (command: Command) => {
+    const field = fallbackRef.current;
+    const start = field?.selectionStart ?? selection.start;
+    const end = field?.selectionEnd ?? selection.end;
+    const next = command(text, start, end);
+    setSelection({ start: next.start, end: next.end });
+    setText(next.text);
+    if (field) {
+      requestAnimationFrame(() => {
+        field.focus();
+        field.setSelectionRange(next.start, next.end);
+      });
+    }
+  };
+
   if (isPending) return <LoadingState label="Iris is opening your journal…" />;
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
 
   const recurringPhrases = data.pages[0]?.recurringPhrases;
 
   const save = async () => {
+    if (!canSave) return;
     setSaving(true);
     setSaveError(null);
     try {
-      await createEntry({ lines: lines.filter(Boolean), energy: energy ?? undefined });
-      setLines(['', '', '']);
-      setEnergy(null);
+      const chosen = payloadCheckin(checkin);
+      await createEntry({ text, format: 'markdown', ...(chosen ? { checkin: chosen } : {}) });
+      setText('');
+      setSelection({ start: 0, end: 0 });
+      setCheckin(emptyCheckin());
       qc.invalidateQueries({ queryKey: qk.journal });
     } catch (err) {
-      // The draft stays and the owner is told. It used to fail in silence,
-      // the button unsticking as though the entry had been saved.
       setSaveError(err instanceof Error ? err.message : String(err));
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
+  const fallback = (
+    <textarea
+      ref={fallbackRef}
+      aria-label="journal entry"
+      value={text}
+      onChange={event => setText(event.target.value)}
+      onSelect={event => setSelection({
+        start: event.currentTarget.selectionStart,
+        end: event.currentTarget.selectionEnd,
+      })}
+      onKeyDown={event => {
+        const command = commandFor(event);
+        if (!command) return;
+        event.preventDefault();
+        apply(command);
+      }}
+      style={{
+        width: '100%',
+        height: '100%',
+        minHeight: 280,
+        resize: 'none',
+        background: 'transparent',
+        border: 'none',
+        outline: 'none',
+        color: 'var(--ink)',
+        fontFamily: 'var(--serif)',
+        fontSize: 20,
+        lineHeight: 1.55,
+      }}
+    />
+  );
+
   return (
-    <div className="row" style={{ height: '100%' }}>
-      <div className="col" style={{ flex: 1, padding: '32px 56px 40px', minWidth: 0, overflow: 'auto' }}>
-        <div className="row" style={{ alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
+    <div className="row" style={{ height: '100%', minHeight: 0 }}>
+      <div className="col" style={{ flex: 1, padding: '28px 48px 24px', minWidth: 0, minHeight: 0 }}>
+        <div className="row" style={{ alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
           <div className="col" style={{ gap: 6 }}>
-            <div className="kicker">today · evening</div>
-            <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
-              Three lines,<br /><span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>please.</span>
+            <div className="kicker">today</div>
+            <h1 className="serif" style={{ margin: 0, fontSize: 48, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
+              Write it <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>down.</span>
             </h1>
           </div>
-          <div className="col gap-8" style={{ alignItems: 'flex-end' }}>
-            <span className="kicker">energy · optional</span>
-            <div className="row" style={{ gap: 4, alignItems: 'center' }}>
-              {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                <button key={n} aria-label={`energy ${n}`} aria-pressed={n === energy}
-                        onClick={() => setEnergy(n === energy ? null : n)} style={{ width: 22, height: 22, borderRadius: '50%', border: `1px solid ${n === energy ? 'var(--sage)' : 'var(--line)'}`, background: n === energy ? 'var(--sage)' : 'transparent', color: n === energy ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, cursor: 'pointer', padding: 0 }}>{n}</button>
-              ))}
-              <button onClick={() => setEnergy(null)} disabled={energy === null}
-                      title="record no energy for this entry"
-                      style={{ fontFamily: 'var(--mono)', fontSize: 10, background: 'none',
-                               border: 'none', color: 'var(--ink-4)',
-                               cursor: energy === null ? 'default' : 'pointer' }}>clear</button>
-            </div>
+          <button className="btn primary" onClick={save} disabled={saving || !canSave}>
+            {saving ? 'Saving…' : 'Save entry'}
+          </button>
+        </div>
+        <CheckinPicker value={checkin} onChange={setCheckin} />
+        <div style={{ marginTop: 14 }}>
+          <EditorToolbar onCommand={apply} />
+        </div>
+        <div style={{ flex: 1, minHeight: 280, marginTop: 8 }}>
+          <EditorBoundary fallback={fallback}>
+            <React.Suspense fallback={fallback}>
+              <MarkdownEditor
+                value={text}
+                selection={selection}
+                onChange={setText}
+                onSelect={(start, end) => setSelection({ start, end })}
+              />
+            </React.Suspense>
+          </EditorBoundary>
+        </div>
+        {saveError && (
+          <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>
+            Not saved: {saveError}
           </div>
-        </div>
-
-        <div className="col" style={{ gap: 8, maxWidth: 720 }}>
-          {PROMPTS.map((prompt, i) => (
-            <div key={i} className="col" style={{ gap: 4, padding: '14px 0', borderBottom: '1px solid var(--line)' }}>
-              <div className="row" style={{ alignItems: 'baseline', gap: 12 }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase', minWidth: 16 }}>0{i+1}</span>
-                <span className="serif ital" style={{ fontSize: 18, color: 'var(--ink-3)' }}>{prompt}</span>
-              </div>
-              <textarea value={lines[i]} onChange={e => { const c = [...lines]; c[i] = e.target.value; setLines(c); }} rows={2}
-                style={{ background: 'transparent', border: 'none', resize: 'none', outline: 'none', color: 'var(--ink)', fontFamily: 'var(--serif)', fontSize: 20, lineHeight: 1.5, padding: '4px 0 4px 28px' }} />
-            </div>
-          ))}
-        </div>
-
-        <div className="row" style={{ gap: 8, marginTop: 18, maxWidth: 720, justifyContent: 'flex-end' }}>
-          <button className="btn primary" onClick={save} disabled={saving || !lines.some(Boolean)}>{saving ? 'Saving…' : 'Save entry'}</button>
-        </div>
-        {saveError && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>Not saved: {saveError}</div>}
+        )}
       </div>
 
       <aside style={{ width: 380, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '32px 28px', overflow: 'auto' }}>
@@ -109,12 +194,14 @@ export function JournalScreen() {
           {entries.length} shown{hasNextPage ? '' : ', all of them'}
         </h3>
         <div className="col" style={{ gap: 22 }}>
-          {entries.map((e) => {
-            const highlighted = e.id === target;
+          {entries.map(entry => {
+            const highlighted = entry.id === target;
+            const body = entryText(entry);
+            const recorded = checkinLabel(entry.checkin);
             return (
               <article
-                key={e.id}
-                id={`entry-${e.id}`}
+                key={entry.id}
+                id={`entry-${entry.id}`}
                 className="col"
                 style={{
                   gap: 6,
@@ -125,31 +212,35 @@ export function JournalScreen() {
                 }}
               >
                 <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                  {/* A date-only value is a day, not an instant — see lib/dates.
-                      An entry with no day says so: the server used to send the
-                      import time in its place, so a two-year archive read as
-                      one afternoon. */}
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{e.occurredOn ? formatEventDate(e.occurredOn) : 'undated'}</span>
-                  <div className="row" style={{ gap: 4 }}>{(e.tags ?? []).map(t => <span key={t} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{t}</span>)}</div>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {entry.occurredOn ? formatEventDate(entry.occurredOn) : 'undated'}
+                  </span>
+                  <div className="row" style={{ gap: 4 }}>
+                    {(entry.tags ?? []).map(tag => (
+                      <span key={tag} style={{ fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--ink-4)' }}>·{tag}</span>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55 }}>{e.lines.join(' ')}</div>
-                {/* An imported recording keeps its audio; the words here are a
-                    transcript of it, and the owner can check them against it. */}
-                {e.audioUrl && (
-                  <audio controls preload="none" src={e.audioUrl} aria-label="the recording this was transcribed from"
+                {recorded && (
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>{recorded}</div>
+                )}
+                {entry.format === 'markdown'
+                  ? <MarkdownView text={body} />
+                  : <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{body}</div>}
+                {entry.audioUrl && (
+                  <audio controls preload="none" src={entry.audioUrl} aria-label="the recording this was transcribed from"
                          style={{ width: 320, height: 28, marginTop: 2 }} />
                 )}
-                {e.irisNote && (
+                {entry.irisNote && (
                   <div className="row" style={{ gap: 6, alignItems: 'flex-start', marginTop: 4, paddingLeft: 10, borderLeft: '1px solid var(--sage-dim)' }}>
                     <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>iris:</span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-2)', fontStyle: 'italic' }}>{e.irisNote}</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-2)', fontStyle: 'italic' }}>{entry.irisNote}</span>
                   </div>
                 )}
               </article>
             );
           })}
         </div>
-
         <div className="row" style={{ marginTop: 20, justifyContent: 'center' }}>
           {hasNextPage ? (
             <button className="btn" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
@@ -161,16 +252,15 @@ export function JournalScreen() {
             </span>
           )}
         </div>
-
         {recurringPhrases && recurringPhrases.length > 0 && (
           <>
             <hr className="dotline" style={{ margin: '28px 0 18px' }} />
             <div className="kicker" style={{ marginBottom: 10 }}>phrases iris keeps hearing</div>
             <div className="col" style={{ gap: 6 }}>
-              {recurringPhrases.map((p, i) => (
-                <div key={i} className="row" style={{ alignItems: 'baseline', gap: 10 }}>
-                  <span style={{ flex: 1, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--ink)' }}>"{p.phrase}"</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>×{p.count}</span>
+              {recurringPhrases.map((phrase, index) => (
+                <div key={index} className="row" style={{ alignItems: 'baseline', gap: 10 }}>
+                  <span style={{ flex: 1, fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--ink)' }}>"{phrase.phrase}"</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>×{phrase.count}</span>
                 </div>
               ))}
             </div>

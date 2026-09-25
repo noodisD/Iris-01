@@ -84,13 +84,25 @@ export interface Conversation {
 // Journal
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface JournalCheckin {
+  energy?: number | null;
+  mood?: number | null;
+  sleep_quality?: number | null;
+  stress?: number | null;
+  focus?: number | null;
+}
+
 export interface JournalEntry {
   id: ID;
   userId: ID;
-  /** "Three-line" prompts; UI shows 3 but backend should accept N. */
+  /** Stored lines. New entries also send `text`. */
   lines: string[];
+  /** The stored writing. Markdown when `format` is markdown. */
+  text?: string;
+  format?: 'plain' | 'markdown';
   /** 1–10 self-rated energy at time of entry. */
   energy?: number;
+  checkin?: JournalCheckin;
   /** Server-extracted tags; frontend never invents these. */
   tags?: string[];
   irisNote?: string;        // What Iris observed about this entry
@@ -103,6 +115,14 @@ export interface JournalEntry {
   createdAt: ISODateTime | null;
   /** The recording this entry was transcribed from, where one was kept. */
   audioUrl?: string | null;
+}
+
+export interface JournalWrite {
+  text?: string;
+  format?: 'plain' | 'markdown';
+  checkin?: JournalCheckin;
+  lines?: string[];
+  energy?: number;
 }
 
 export interface JournalListResponse {
