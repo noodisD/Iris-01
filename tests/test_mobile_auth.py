@@ -206,11 +206,43 @@ class TailnetDoorTests(unittest.TestCase):
         self.assertTrue(called)
 
     def test_pairing_stays_on_the_laptop(self):
-        for method, path in [("GET", "/api/mobile/connection"), ("POST", "/api/mobile/pair"),
-                             ("POST", "/api/mobile/unpair")]:
+        for method, path in [("POST", "/api/mobile/pair"), ("POST", "/api/mobile/unpair")]:
             sent, called = self._run(self._login(self.OWNER), path=path, method=method)
             self.assertFalse(called, path)
             self.assertEqual(sent[0]["status"], 404, path)
+
+    def test_the_connection_view_is_shown_to_the_owner(self):
+        # It carries no secret, and Settings polls it; a 404 there read as a fault.
+        _, called = self._run(self._login(self.OWNER), path="/api/mobile/connection")
+        self.assertTrue(called)
+
+    TS = "laptop.example.ts.net"
+
+    def _post(self, extra):
+        return self._run(self._login(self.OWNER) + [(b"host", self.TS.encode())] + extra,
+                         path="/api/import/batches/1/commit", method="POST")
+
+    def test_a_change_from_the_owners_own_page_is_let_in(self):
+        _, called = self._post([(b"origin", f"https://{self.TS}".encode()),
+                                (b"sec-fetch-site", b"same-origin")])
+        self.assertTrue(called)
+
+    def test_a_change_posted_by_another_website_is_refused(self):
+        # The owner's browser carries their tailnet identity to any site's form.
+        for extra in ([(b"origin", b"https://elsewhere.example")],
+                      [(b"sec-fetch-site", b"cross-site")],
+                      [(b"origin", b"null")],
+                      [(b"origin", f"http://{self.TS}".encode())]):
+            sent, called = self._post(extra)
+            self.assertFalse(called, extra)
+            self.assertEqual(sent[0]["status"], 403, extra)
+
+    def test_a_refusal_here_is_not_reported_as_a_phone_refusal(self):
+        from agent import mobile_auth as mod
+        mod.forget_rejection()
+        self._run(self._login("guest@example.com"))
+        self._post([(b"origin", b"https://elsewhere.example")])
+        self.assertIsNone(mod.last_rejection())
 
     def test_the_web_app_itself_is_served(self):
         _, called = self._run(self._login(self.OWNER), path="/")
@@ -230,6 +262,58 @@ class TailnetDoorTests(unittest.TestCase):
 
     def test_the_laptop_is_unchanged(self):
         _, called = self._run([], tailnet=False, owners="")
+        self.assertTrue(called)
+
+
+class LoopbackBrowserTests(unittest.TestCase):
+    """The laptop's own door: IRIS's own names, and changes only from its own page."""
+
+    def _run(self, headers, method="POST", path="/api/import/batches/1/commit"):
+        from agent import mobile_auth as mod
+        mw = mod.MobileAuthMiddleware(app=None)  # type: ignore[arg-type]
+        scope = {"type": "http", "client": ("127.0.0.1", 50000), "method": method,
+                 "path": path, "headers": headers}
+        return _run_middleware(mw, scope)
+
+    def test_the_web_app_on_its_own_names_is_let_in(self):
+        for host, origin in [(b"127.0.0.1:8000", b"http://127.0.0.1:8000"),
+                             (b"localhost:8000", b"http://localhost:8000"),
+                             (b"[::1]:8000", b"http://[::1]:8000"),
+                             # the Vite dev server proxies with changeOrigin
+                             (b"localhost:8000", b"http://localhost:5173")]:
+            _, called = self._run([(b"host", host), (b"origin", origin),
+                                   (b"sec-fetch-site", b"same-origin")])
+            self.assertTrue(called, host)
+
+    def test_a_rebound_name_cannot_read_the_journal(self):
+        # DNS rebinding: a hostile name re-pointed at 127.0.0.1 is same-origin
+        # with itself, so only the Host tells it apart.
+        sent, called = self._run([(b"host", b"attacker.example:8000")],
+                                 method="GET", path="/api/journal")
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 403)
+
+    def test_a_form_posted_by_another_website_is_refused(self):
+        for extra in ([(b"origin", b"https://elsewhere.example")],
+                      [(b"origin", b"null")],
+                      [(b"sec-fetch-site", b"cross-site")],
+                      [(b"sec-fetch-site", b"same-site")],
+                      [(b"origin", b"http://127.0.0.1:8000"), (b"origin", b"http://127.0.0.1:8000")]):
+            sent, called = self._run([(b"host", b"127.0.0.1:8000")] + extra)
+            self.assertFalse(called, extra)
+            self.assertEqual(sent[0]["status"], 403, extra)
+
+    def test_reading_is_not_affected_by_the_page(self):
+        # A cross-site GET cannot read the answer; blocking it would only break links.
+        _, called = self._run([(b"host", b"127.0.0.1:8000"),
+                               (b"sec-fetch-site", b"cross-site")], method="GET",
+                              path="/api/journal")
+        self.assertTrue(called)
+
+    def test_scripts_without_browser_headers_are_unaffected(self):
+        _, called = self._run([(b"host", b"127.0.0.1:8000")])
+        self.assertTrue(called)
+        _, called = self._run([])
         self.assertTrue(called)
 
 

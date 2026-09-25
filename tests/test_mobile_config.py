@@ -26,9 +26,6 @@ class MobileConfigTests(unittest.TestCase):
         self.assertIsNone(settings.MOBILE_BEARER_HASH)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class LanHostRuleTests(unittest.TestCase):
     """Which addresses the phone listener may bind (ADR-0018, ADR-0022)."""
@@ -44,3 +41,7 @@ class LanHostRuleTests(unittest.TestCase):
         for host in ("8.8.8.8", "100.63.255.255", "100.128.0.1", "0.0.0.0", "::1", "not-an-ip"):
             with self.assertRaises(ValueError, msg=host):
                 Settings.validate_lan_host(host)
+
+
+if __name__ == "__main__":
+    unittest.main()

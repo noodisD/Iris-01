@@ -179,7 +179,24 @@ def test_the_tailnet_door_admits_only_the_owner_through_the_real_app():
                 assert (await client.get("/api/mobile/status")).status_code == 403
                 assert (await client.get("/api/mobile/status", headers={
                     "Tailscale-User-Login": "guest@example.com"})).status_code == 403
-                assert (await client.get("/api/mobile/connection", headers=owner)).status_code == 404
+                assert (await client.get("/api/mobile/connection", headers=owner)).status_code == 200
+                assert (await client.post("/api/mobile/unpair", headers=owner)).status_code == 404
+                assert (await client.post("/api/mobile/unpair", headers={
+                    **owner, "Origin": "https://elsewhere.example"})).status_code == 404
             with patch.object(settings, "TAILNET_OWNERS", ""):
                 assert (await client.get("/api/mobile/status", headers=owner)).status_code == 403
+    asyncio.run(exercise())
+
+
+def test_another_website_cannot_commit_an_import_through_the_real_app():
+    async def exercise():
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 3456))
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+            hostile = {"Origin": "https://elsewhere.example", "Sec-Fetch-Site": "cross-site"}
+            response = await client.post("/api/import/batches/999999/commit", headers=hostile)
+            assert response.status_code == 403
+            assert (await client.post("/api/ideas/discover", headers=hostile)).status_code == 403
+        rebound = httpx.ASGITransport(app=app, client=("127.0.0.1", 3456))
+        async with httpx.AsyncClient(transport=rebound, base_url="http://attacker.example:8000") as client:
+            assert (await client.get("/api/journal")).status_code == 403
     asyncio.run(exercise())

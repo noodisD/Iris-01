@@ -39,12 +39,26 @@ admitted only if it carries exactly one `Tailscale-User-Login` header whose valu
 is in `TAILNET_OWNERS`. `serve` sets that header from the connecting device's
 identity and removes any copy the client sent. Requests without it are refused,
 including those from tagged devices, which carry no user. So are requests on an
-unset owner list. Pairing, unpairing and the connection route return 404 there,
-as they do on the phone listener: the phone's credentials are handed out only at
-the laptop.
+unset owner list. Pairing and unpairing return 404 there, as they do on the phone
+listener: the phone's credentials are handed out only at the laptop. The
+connection view carries no secret and stays readable, so Settings works remotely.
 
 A login header arriving on the plain `127.0.0.1:8000` door is refused, because it
 means `serve` was pointed at the port where the owner check does not run.
+
+**Both web doors refuse other websites.** They recognise the device, not the
+page, so a browser on the owner's device would otherwise carry any site's
+request to them. A request that changes anything (any method but GET, HEAD or
+OPTIONS) is refused when the browser says it came from another site: an
+`Origin` that is not IRIS's own page, or a `Sec-Fetch-Site` other than
+`same-origin` or `none`. On the tailnet door IRIS's own page is
+`https://<Host>`, and `serve` passes the Host through unchanged. On the
+loopback door it is any page on `127.0.0.1`, `localhost` or `::1`, which also
+covers the Vite dev server. The loopback door also refuses any Host other than
+those names, because a hostile domain rebound to 127.0.0.1 would otherwise
+count as same-origin and could read every response. Requests carrying none of
+these headers, such as curl, scripts and tests, are unaffected; no browser
+sends one.
 
 **Tailscale Funnel, which publishes to the public Internet, is never used.**
 
