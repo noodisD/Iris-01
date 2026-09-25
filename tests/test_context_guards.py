@@ -106,9 +106,8 @@ def test_the_engine_lists_agree():
 
     from agent.insights_service import KIND_MAP
     assert set(KIND_MAP) == finding_engines, "what a card is called"
-    types = (ROOT / "frontend" / "src" / "types" / "api.ts").read_text()
-    union = types.split("export type InsightKind =")[1].split(";")[0]
-    assert set(re.findall(r"'([^']+)'", union)) == set(KIND_MAP.values()), "what the screen expects"
+    # No screen shows these cards any more: Insights are differences in outcome
+    # (ADR-0023), so there is no frontend kind list left to agree with.
 
     settings = (ROOT / "frontend" / "src" / "screens" / "SettingsScreen.tsx").read_text()
     block = settings.split("const ENGINE_LABELS")[1].split("};")[0]
