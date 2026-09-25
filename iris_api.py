@@ -301,12 +301,18 @@ def get_current_user_id() -> int:
 if os.path.isdir(os.path.join(FRONTEND_DIST, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
+# The page names the current build's hashed assets, so a browser that keeps an
+# old copy keeps running the old app after an update. Revalidate it every time;
+# the assets themselves are content-hashed and may be cached freely.
+_SPA_HEADERS = {"Cache-Control": "no-cache"}
+
+
 @app.get("/")
 def root():
     """Serve the built SPA. Run `npm run build` in frontend/ if this 404s."""
     spa_index = os.path.join(FRONTEND_DIST, "index.html")
     if os.path.exists(spa_index):
-        return FileResponse(spa_index)
+        return FileResponse(spa_index, headers=_SPA_HEADERS)
     return {"message": "IRIS API online. SPA not built — run `npm run build` in frontend/."}
 
 # Health check
@@ -2296,7 +2302,7 @@ if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
         """Return index.html for unknown non-API paths so React Router can route."""
         if full_path.startswith(("api/", "assets/")) or full_path == "health":
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"), headers=_SPA_HEADERS)
 
 
 # ============================================================================
