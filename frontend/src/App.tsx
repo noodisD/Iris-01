@@ -6,6 +6,7 @@ import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
 import { DecisionsScreen } from '@/screens/DecisionsScreen';
 import { PatternsScreen } from '@/screens/PatternsScreen';
+import { InsightsScreen } from '@/screens/InsightsScreen';
 import { ReviewScreen } from '@/screens/ReviewScreen';
 import { ImportScreen } from '@/screens/ImportScreen';
 import { ConstructsScreen } from '@/screens/ConstructsScreen';
@@ -27,9 +28,9 @@ const router = createBrowserRouter([
       { path: 'journal', element: <JournalScreen /> },
       { path: 'habits', element: <HabitsScreen /> },
       { path: 'decisions', element: <DecisionsScreen /> },
-      // Insights came from the old engine; Patterns replaced them (the data stays).
-      { path: 'insights', element: <Navigate to="/patterns" replace /> },
-      { path: 'insights/:id', element: <Navigate to="/patterns" replace /> },
+      { path: 'insights', element: <InsightsScreen /> },
+      // Old-engine insight links had ids; those insights are gone from the app.
+      { path: 'insights/:id', element: <Navigate to="/insights" replace /> },
       { path: 'patterns', element: <PatternsScreen /> },
       { path: 'patterns/:id', element: <PatternsScreen /> },
       { path: 'review', element: <ReviewScreen /> },

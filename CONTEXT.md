@@ -160,8 +160,8 @@ The facts a finding was computed from, append-only, time-stamped together:
 `engine_name`. Evidence supports or refutes; it never interprets.
 
 ### Admission (Meta-Control)
-One function decides what IRIS has noticed, for chat and the Insights screen
-alike (`agent/pipeline_orchestrator.py`, ADR-0007):
+One function decides what IRIS has noticed, for chat and the old-engine
+insights API alike (`agent/pipeline_orchestrator.py`, ADR-0007):
 
 1. **Collection** — trajectory, tension, resolution, leverage (pairs), decision impact, lifelong; one grain each
 2. **Coverage gate** — a finding about the present needs `COVERAGE_MIN_OBSERVED_DAYS` (3) days written in the last 21; findings about a span are exempt; `"unsupported"` and `"insufficient data"` are dropped
@@ -179,14 +179,14 @@ A finding rendered as a sentence from a fixed template, then checked against a
 firewall of causal and prescriptive words (`agent/narrative_policy.py`); a
 sentence that fails is dropped, never rewritten. Templates quote the counts and
 windows that were measured ("appeared 5 times in the last 14 days, against 2 in
-the 60 days before"). The firewall also runs on the Insights read and on the
+the 60 days before"). The firewall also runs on the old-engine insights read and on the
 weekly letter.
 
 ### Pipeline (ingest)
 A write stores the entry and its queue row in one transaction (ADR-0011); the
 worker embeds it, matches it to the closest theme (or discovers new ones), lets
-confirmed constructs classify it, and refreshes the cross-theme caches. Chat and
-Insights then read through admission.
+confirmed constructs classify it, and refreshes the cross-theme caches. Chat
+then reads through admission.
 
 ### User Preferences
 - `enabled_engines` — a list of engine names, or null for all; the selectable engines are trajectory, tension, resolution, leverage, decision_impact, lifelong and observations
@@ -232,6 +232,26 @@ position off `"endorsed"` removes the tension and keeps the edge.
 possible premises, and unverified suggestions of related thought. It is
 labelled as Iris's, stored apart from the writing, and never becomes an idea,
 a link, or evidence.
+
+### Occasion
+One account the reader found in the owner's writing: what was going on, what
+they did, what followed, in the writing's own terms, with the passages it rests
+on. Occasions are what the Patterns and Insights screens count.
+
+### Library pattern
+A pattern known in general (`patterns/library.json`), not one found in the
+owner's data. A labelling pass says which occasions are instances of it and
+whether each went better or worse. The owner says whether each occasion really
+belongs and whether the pattern rings true. The Patterns screen shows what
+keeps coming up.
+
+### Insight (difference in outcome)
+Among one library pattern's occasions, another pattern that was there at least
+two occasions more often on one side (went better, went worse) than the other,
+with both sides non-empty (ADR-0023). Stated with both sides' counts, as a
+difference and never as a cause; the owner says whether it rings true. The
+old engine's findings are not insights in this sense and no longer appear in
+either client.
 
 ---
 

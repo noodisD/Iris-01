@@ -1279,6 +1279,23 @@ def put_occasion_verdict(pattern_id: str, occasion_id: int, body: OccasionVerdic
     return {"ok": True}
 
 
+@app.get("/api/differences")
+def list_differences(user_id: int = Depends(get_current_user_id)):
+    """Insights: differences in outcome between a pattern's better and worse occasions."""
+    return {"differences": discovery.differences(user_id, list(_library().values()))}
+
+
+@app.put("/api/differences/{pattern_id}/{other_pattern_id}/verdict")
+def put_difference_verdict(pattern_id: str, other_pattern_id: str, body: PatternVerdict,
+                           user_id: int = Depends(get_current_user_id)):
+    """Whether a difference in outcome rings true."""
+    library = _library()
+    if pattern_id not in library or other_pattern_id not in library or pattern_id == other_pattern_id:
+        raise HTTPException(status_code=404, detail="No such difference.")
+    discovery.set_difference_verdict(user_id, pattern_id, other_pattern_id, body.verdict, body.note)
+    return {"ok": True}
+
+
 @app.put("/api/patterns/{pattern_id}/verdict")
 def put_pattern_verdict(pattern_id: str, body: PatternVerdict,
                         user_id: int = Depends(get_current_user_id)):

@@ -263,7 +263,7 @@ private fun OccasionCard(o: Occasion, enabled: Boolean, onNavigate: (String) -> 
 }
 
 @Composable
-private fun Choices(options: List<Pair<String, String>>, current: String?, enabled: Boolean, onPick: (String) -> Unit) {
+internal fun Choices(options: List<Pair<String, String>>, current: String?, enabled: Boolean, onPick: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
             if (value == current) {

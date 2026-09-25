@@ -1,9 +1,12 @@
 package com.iris.android
 
+import com.iris.android.api.Difference
 import com.iris.android.api.PatternSummary
 import com.iris.android.api.PatternVerdict
 import com.iris.android.api.PatternsResponse
+import com.iris.android.api.awaitingFirst
 import com.iris.android.api.byOccasions
+import com.iris.android.api.differenceSentence
 import com.iris.android.api.json
 import com.iris.android.api.nextPattern
 import com.iris.android.api.toneCounts
@@ -44,5 +47,19 @@ class PatternsTest {
         val decoded = json.decodeFromString(PatternsResponse.serializer(), body).patterns.single()
         assertEquals("unsure", decoded.verdict?.verdict)
         assertEquals(1, decoded.tones["better"])
+    }
+
+    private fun d(p: String, o: String, verdict: String? = null) = Difference(
+        patternId = p, patternName = "Pattern $p", otherId = o, otherName = "Pattern $o",
+        worse = 5, worseTotal = 6, better = 1, betterTotal = 7, verdict = verdict?.let { PatternVerdict(it) })
+
+    @Test fun readsADifferenceAsASentenceWithBothSidesCounted() {
+        assertEquals("When pattern a came up, pattern b was there 5 of 6 times it went worse, " +
+            "and 1 of 7 times it went better.", differenceSentence(d("a", "b")))
+    }
+
+    @Test fun putsTheOnesWaitingForAVerdictFirst() {
+        val ordered = awaitingFirst(listOf(d("a", "b", "rings_true"), d("c", "d"), d("e", "f", "unsure"), d("g", "h")))
+        assertEquals(listOf("c", "g", "a", "e"), ordered.map { it.patternId })
     }
 }

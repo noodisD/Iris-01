@@ -183,6 +183,26 @@ export interface PatternDetail {
   verdict: PatternVerdict | null;
 }
 
+/**
+ * An insight: a difference in outcome. Among a pattern's occasions, another
+ * pattern that was there more often when it went one way than the other.
+ * A difference between two sets of occasions, not a cause; the owner judges it.
+ */
+export interface Difference {
+  patternId: string;
+  patternName: string;
+  otherId: string;
+  otherName: string;
+  /** The other pattern was there on `worse` of the `worseTotal` occasions that went worse. */
+  worse: number;
+  worseTotal: number;
+  better: number;
+  betterTotal: number;
+  verdict: PatternVerdict | null;
+  /** The owner's verdict on the pattern itself, if any. */
+  patternVerdict: PatternVerdict | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Decisions — a decision journal, filled in when a decision is made
 // ─────────────────────────────────────────────────────────────────────────────

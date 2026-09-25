@@ -98,3 +98,34 @@ fun toneCounts(p: PatternSummary): String {
     if (mixed > 0) parts += "$mixed mixed"
     return parts.joinToString(" · ")
 }
+
+/**
+ * An insight: a difference in outcome. Among a pattern's occasions, another
+ * pattern that was there more often when it went one way than the other. Not a
+ * cause; the owner judges it. Wire names match GET /api/differences.
+ */
+@Serializable
+data class Difference(
+    val patternId: String,
+    val patternName: String,
+    val otherId: String,
+    val otherName: String,
+    val worse: Int,
+    val worseTotal: Int,
+    val better: Int,
+    val betterTotal: Int,
+    val verdict: PatternVerdict? = null,
+    val patternVerdict: PatternVerdict? = null,
+)
+
+@Serializable
+data class DifferencesResponse(val differences: List<Difference>)
+
+/** The difference as one sentence, both sides counted. */
+fun differenceSentence(d: Difference): String =
+    "When ${d.patternName.lowercase()} came up, ${d.otherName.lowercase()} was there " +
+        "${d.worse} of ${d.worseTotal} times it went worse, and ${d.better} of ${d.betterTotal} times it went better."
+
+/** Those still waiting for the owner's verdict first, each group in server order. */
+fun awaitingFirst(differences: List<Difference>): List<Difference> =
+    differences.filter { it.verdict == null } + differences.filter { it.verdict != null }

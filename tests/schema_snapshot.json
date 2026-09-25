@@ -203,6 +203,38 @@
         "type": "character varying"
       }
     },
+    "difference_verdicts": {
+      "note": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "other_pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "pattern_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "updated_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "verdict": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
     "embeddings": {
       "created_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -2215,6 +2247,40 @@
         "type": "c"
       }
     },
+    "difference_verdicts": {
+      "difference_verdicts_other_pattern_id_not_null": {
+        "definition": "NOT NULL other_pattern_id",
+        "type": "n"
+      },
+      "difference_verdicts_pattern_id_not_null": {
+        "definition": "NOT NULL pattern_id",
+        "type": "n"
+      },
+      "difference_verdicts_pkey": {
+        "definition": "PRIMARY KEY (user_id, pattern_id, other_pattern_id)",
+        "type": "p"
+      },
+      "difference_verdicts_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "difference_verdicts_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "difference_verdicts_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "difference_verdicts_verdict_check": {
+        "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
+        "type": "c"
+      },
+      "difference_verdicts_verdict_not_null": {
+        "definition": "NOT NULL verdict",
+        "type": "n"
+      }
+    },
     "embeddings": {
       "embeddings_id_not_null": {
         "definition": "NOT NULL id",
@@ -3510,6 +3576,9 @@
     "decisions": {
       "decisions_pkey": "CREATE UNIQUE INDEX decisions_pkey ON public.decisions USING btree (id)",
       "decisions_user_day": "CREATE INDEX decisions_user_day ON public.decisions USING btree (user_id, decided_on DESC, id DESC)"
+    },
+    "difference_verdicts": {
+      "difference_verdicts_pkey": "CREATE UNIQUE INDEX difference_verdicts_pkey ON public.difference_verdicts USING btree (user_id, pattern_id, other_pattern_id)"
     },
     "embeddings": {
       "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",

@@ -146,23 +146,32 @@ def summaries(user_id: int, library: list[Pattern]) -> list[dict[str, Any]]:
     return out
 
 
-def detail(user_id: int, pattern: Pattern) -> dict[str, Any]:
-    """One pattern's occasions on both sides, and what else was true on each."""
-    labels = _labels(user_id)
-    mine = {label["occasion_id"]: label for label in labels if label["pattern_id"] == pattern.id}
+def _sides(labels: list[dict[str, Any]], pattern_id: str) -> tuple[dict[str, Side], Counter]:
+    """A pattern's better and worse occasions: what else held on each, and how many."""
     by_occasion: dict[int, list[dict]] = {}
     for label in labels:
         if label["owner_verdict"] != "no":
             by_occasion.setdefault(label["occasion_id"], []).append(label)
-
     sides = {name: Side() for name in SIDES}
-    for occasion_id, label in mine.items():
-        side = sides.get(label["tone"])
-        if side is None or label["owner_verdict"] == "no":
+    totals: Counter = Counter()
+    for label in labels:
+        if label["pattern_id"] != pattern_id or label["owner_verdict"] == "no":
             continue
-        for other in by_occasion.get(occasion_id, []):
-            if other["pattern_id"] != pattern.id:
+        side = sides.get(label["tone"])
+        if side is None:
+            continue
+        totals[label["tone"]] += 1
+        for other in by_occasion.get(label["occasion_id"], []):
+            if other["pattern_id"] != pattern_id:
                 side.others[other["pattern_id"]] += 1
+    return sides, totals
+
+
+def detail(user_id: int, pattern: Pattern) -> dict[str, Any]:
+    """One pattern's occasions on both sides, and what else was true on each."""
+    labels = _labels(user_id)
+    mine = {label["occasion_id"]: label for label in labels if label["pattern_id"] == pattern.id}
+    sides, _ = _sides(labels, pattern.id)
 
     occasions = []
     if mine:
@@ -185,6 +194,52 @@ def detail(user_id: int, pattern: Pattern) -> dict[str, Any]:
         "distinctive": distinctive(sides),
         "verdict": _pattern_verdicts(user_id).get(pattern.id),
     }
+
+
+def differences(user_id: int, library: list[Pattern]) -> list[dict[str, Any]]:
+    """Every difference in outcome across the library: the Insights screen.
+
+    For each pattern with occasions on both sides, each other pattern that sits
+    on one side at least two occasions more than the other. A side with no
+    occasions compares nothing, so a pattern needs both. Largest difference
+    first. Arithmetic over the labels, as on the Patterns screen; what it means
+    is the owner's verdict.
+    """
+    labels = _labels(user_id)
+    names = {p.id: p.name for p in library}
+    pattern_verdicts = _pattern_verdicts(user_id)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT pattern_id, other_pattern_id, verdict, note
+                         FROM difference_verdicts WHERE user_id = %s""", (user_id,))
+        verdicts = {(p, o): {"verdict": v, "note": n} for p, o, v, n in cur.fetchall()}
+    out = []
+    for p in library:
+        sides, totals = _sides(labels, p.id)
+        if not totals["better"] or not totals["worse"]:
+            continue
+        for other, better, worse in distinctive(sides):
+            out.append({
+                "patternId": p.id, "patternName": p.name,
+                "otherId": other, "otherName": names.get(other, other),
+                "worse": worse, "worseTotal": totals["worse"],
+                "better": better, "betterTotal": totals["better"],
+                "verdict": verdicts.get((p.id, other)),
+                "patternVerdict": pattern_verdicts.get(p.id),
+            })
+    return sorted(out, key=lambda d: (-abs(d["worse"] - d["better"]), d["patternName"], d["otherName"]))
+
+
+def set_difference_verdict(user_id: int, pattern_id: str, other_pattern_id: str,
+                           verdict: str, note: str | None = None) -> None:
+    """Whether a difference in outcome rings true to the owner."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO difference_verdicts (user_id, pattern_id, other_pattern_id, verdict, note)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (user_id, pattern_id, other_pattern_id) DO UPDATE
+                  SET verdict = EXCLUDED.verdict, note = EXCLUDED.note, updated_at = now()""",
+            (user_id, pattern_id, other_pattern_id, verdict, (note or "").strip() or None))
+        conn.commit()
 
 
 def set_occasion_verdict(user_id: int, pattern_id: str, occasion_id: int,

@@ -10,6 +10,7 @@ const NAV = [
   { to: '/journal',   label: 'Journal' },
   { to: '/habits',    label: 'Habits' },
   { to: '/decisions', label: 'Decisions' },
+  { to: '/insights',  label: 'Insights' },
   { to: '/patterns',  label: 'Patterns' },
   { to: '/constructs', label: 'Noticed' },
   { to: '/ideas', label: 'Ideas' },
@@ -22,7 +23,7 @@ const NAV = [
 // Per-route default orb vibe
 const ROUTE_VIBE: Record<string, Exclude<OrbVibe, 'auto'>> = {
   '/chat': 'calm', '/today': 'calm', '/journal': 'high',
-  '/habits': 'high', '/patterns': 'low', '/constructs': 'low', '/ideas': 'cool', '/review': 'cool', '/import': 'cool', '/sensors': 'dim', '/settings': 'dim',
+  '/habits': 'high', '/insights': 'low', '/patterns': 'low', '/constructs': 'low', '/ideas': 'cool', '/review': 'cool', '/import': 'cool', '/sensors': 'dim', '/settings': 'dim',
 };
 
 export function Sidebar() {

@@ -32,3 +32,13 @@ export function useOccasionVerdict(patternId: string) {
 export function usePatternVerdict(patternId: string) {
   return useRefreshing((verdict: PatternVerdictValue) => patternsApi.setPatternVerdict(patternId, verdict));
 }
+
+/** Insights: the differences in outcome across every pattern. */
+export function useDifferences() {
+  return useQuery({ queryKey: qk.differences, queryFn: patternsApi.getDifferences });
+}
+
+export function useDifferenceVerdict() {
+  return useRefreshing(({ patternId, otherId, verdict }: { patternId: string; otherId: string; verdict: PatternVerdictValue }) =>
+    patternsApi.setDifferenceVerdict(patternId, otherId, verdict));
+}

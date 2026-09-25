@@ -6,10 +6,12 @@
  *   GET /api/patterns/:id                      → PatternDetail
  *   PUT /api/patterns/:id/occasions/:occasion  → { ok }   is this occasion an instance?
  *   PUT /api/patterns/:id/verdict              → { ok }   does the pattern ring true?
+ *   GET /api/differences                       → { differences: Difference[] }   the Insights screen
+ *   PUT /api/differences/:id/:other/verdict    → { ok }   does this difference ring true?
  */
 
 import { api } from './client';
-import type { OccasionVerdictValue, PatternDetail, PatternSummary, PatternVerdictValue } from '@/types/api';
+import type { Difference, OccasionVerdictValue, PatternDetail, PatternSummary, PatternVerdictValue } from '@/types/api';
 
 export async function getPatterns(): Promise<{ patterns: PatternSummary[] }> {
   return api.get('/patterns');
@@ -26,4 +28,13 @@ export async function setOccasionVerdict(patternId: string, occasionId: string,
 
 export async function setPatternVerdict(patternId: string, verdict: PatternVerdictValue): Promise<{ ok: boolean }> {
   return api.put(`/patterns/${patternId}/verdict`, { verdict });
+}
+
+export async function getDifferences(): Promise<{ differences: Difference[] }> {
+  return api.get('/differences');
+}
+
+export async function setDifferenceVerdict(patternId: string, otherId: string,
+                                           verdict: PatternVerdictValue): Promise<{ ok: boolean }> {
+  return api.put(`/differences/${patternId}/${otherId}/verdict`, { verdict });
 }

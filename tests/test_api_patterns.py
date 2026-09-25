@@ -142,6 +142,47 @@ def test_unknown_patterns_and_verdicts_are_refused(loaded):
     assert loaded.put(f"/api/patterns/{X}/verdict", json={"verdict": "maybe"}).status_code == 422
 
 
+def difference(client, pid, other):
+    return next((d for d in client.get("/api/differences").json()["differences"]
+                 if d["patternId"] == pid and d["otherId"] == other), None)
+
+
+def test_insights_are_the_differences_in_outcome_with_both_sides_counted(loaded):
+    """X went worse 3 times, all with SETBACK, and better once, without it."""
+    rows = loaded.get("/api/differences").json()["differences"]
+    assert [(d["patternId"], d["otherId"]) for d in rows] == [(X, SETBACK)]
+    d = rows[0]
+    assert (d["worse"], d["worseTotal"], d["better"], d["betterTotal"]) == (3, 3, 0, 1)
+    assert d["patternName"] and d["otherName"] and d["verdict"] is None
+
+
+def test_a_pattern_with_only_one_side_compares_nothing(loaded):
+    # SETBACK only ever went worse, so there is no better side to set against it.
+    assert all(d["patternId"] != SETBACK for d in loaded.get("/api/differences").json()["differences"])
+
+
+def test_the_owner_judges_an_insight_and_can_change_their_mind(loaded):
+    url = f"/api/differences/{X}/{SETBACK}/verdict"
+    assert loaded.put(url, json={"verdict": "rings_true"}).status_code == 200
+    assert loaded.put(url, json={"verdict": "does_not", "note": "coincidence"}).status_code == 200
+    assert difference(loaded, X, SETBACK)["verdict"] == {"verdict": "does_not", "note": "coincidence"}
+
+
+def test_rejecting_an_occasion_can_dissolve_an_insight_but_not_the_verdict_on_it(loaded):
+    loaded.put(f"/api/differences/{X}/{SETBACK}/verdict", json={"verdict": "unsure"})
+    better = next(o for o in loaded.get(f"/api/patterns/{X}").json()["occasions"] if o["tone"] == "better")
+    loaded.put(f"/api/patterns/{X}/occasions/{better['id']}", json={"verdict": "no"})
+    assert difference(loaded, X, SETBACK) is None
+    loaded.put(f"/api/patterns/{X}/occasions/{better['id']}", json={"verdict": None})
+    assert difference(loaded, X, SETBACK)["verdict"]["verdict"] == "unsure"
+
+
+def test_unknown_insights_and_verdicts_are_refused(loaded):
+    assert loaded.put(f"/api/differences/no-such/{SETBACK}/verdict", json={"verdict": "unsure"}).status_code == 404
+    assert loaded.put(f"/api/differences/{X}/{X}/verdict", json={"verdict": "unsure"}).status_code == 404
+    assert loaded.put(f"/api/differences/{X}/{SETBACK}/verdict", json={"verdict": "maybe"}).status_code == 422
+
+
 def test_the_loader_applies_sheet_answers_only_where_none_were_given(tmp_path, monkeypatch, test_user):
     from scripts import load_discovery
     cache, labels, answers = tmp_path / "e.json", tmp_path / "l.json", tmp_path / "a.json"

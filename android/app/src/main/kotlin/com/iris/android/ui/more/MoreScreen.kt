@@ -40,7 +40,8 @@ fun MoreScreen(onNavigate: (String) -> Unit) {
         user = runCatching { IrisLink.api().send("GET", "/user", null, User.serializer()) }.getOrNull()
     }
     val destinations = listOf(
-        Triple("Patterns", R.drawable.ic_insights, "patterns"),
+        Triple("Insights", R.drawable.ic_insights, "insights"),
+        Triple("Patterns", R.drawable.ic_repeat, "patterns"),
         Triple("Noticed", R.drawable.ic_visibility, "noticed"),
         Triple("Review", R.drawable.ic_mail, "review"),
         Triple("Import", R.drawable.ic_upload_file, "import"),
