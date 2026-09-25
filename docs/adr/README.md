@@ -27,6 +27,7 @@ re-litigated by accident, only deliberately.
 | [0019](ADR-0019-phone-app-over-lan.md) | Paired phone accesses the full API over pinned TLS | Why web and pairing remain loopback-only |
 | [0020](ADR-0020-chat-opens-a-new-session.md) | Each chat open starts an empty session | Why web and phone chat do not render the stored transcript |
 | [0021](ADR-0021-ideas-framework.md) | Ideas are confirmed propositions, not measured themes | Why arguments are not occurrences and critiques are not evidence |
+| [0022](ADR-0022-reach-iris-over-tailscale.md) | IRIS is reachable away from home over the owner's Tailscale network | Why only the owner's tailnet login gets in, and why Funnel is never used |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

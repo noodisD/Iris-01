@@ -178,12 +178,26 @@ launcher remains loopback-only. It never binds `0.0.0.0`; keep port 8765 off
 public networks. If the LAN listener fails, the loopback web UI keeps serving
 and Settings reports the failure. Allow inbound TCP 8765 only from home Wi-Fi.
 
+To use the phone away from home, set `LAN_BIND_HOST` to the laptop's Tailscale
+address instead, allow TCP 8765 on the `tailscale0` interface only, and scan the
+address QR once. The phone then reaches IRIS over Tailscale on any network.
+
+### Use the web UI away from home
+
+Set `TAILNET_OWNERS` to your Tailscale login, restart IRIS, then run
+`tailscale serve --bg http://127.0.0.1:8001` (enable MagicDNS and HTTPS in the
+Tailscale admin console first). IRIS is then at `https://<laptop>.<tailnet>.ts.net`
+on your own devices; any other login is refused, and pairing stays on the laptop.
+Never use Tailscale Funnel, which would publish IRIS to the Internet. See
+[ADR-0022](docs/adr/ADR-0022-reach-iris-over-tailscale.md).
+
 Build and install the Android collector with
 `cd android && ./gradlew :app:installDebug` after ADB recognizes the Pixel
 (JDK 17, Android SDK 36).
 In laptop **Settings → Android live sensors**, generate a token, then scan
 its pairing QR in the phone app. The phone pins the persistent server public
-key and sends only over Wi-Fi on the laptop's subnet. When the laptop IP changes,
+key and sends only over Wi-Fi on the laptop's subnet, or over Tailscale
+when the laptop's address is a Tailscale one. When the laptop IP changes,
 restart IRIS and scan the address-only QR without rotating the token. Grant
 location, physical activity, notifications and Usage access; Health Connect
 adds heart rate, sleep and SpO2 from any app whose records IRIS is permitted

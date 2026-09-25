@@ -25,6 +25,8 @@ only an opt-in sensor collector.
 The cleanest answer would be a private tunnel (Tailscale, WireGuard)
 that preserves ADR-0001's loopback invariant while letting the phone
 reach the laptop. The owner has decided not to take that route.
+(Revisited in [ADR-0022](ADR-0022-reach-iris-over-tailscale.md): the phone
+listener may now bind the laptop's Tailscale address.)
 
 The remaining option is to bind IRIS to the LAN interface directly. That
 contradicts ADR-0001's letter; the right move is to amend it deliberately
