@@ -111,8 +111,8 @@ describe('a pattern', () => {
     expect(server.patternVerdicts).toEqual([{ patternId: 'big-one', verdict: 'does_not' }]);
   });
 
-  it('says a pattern with no occasions may be sparsely labelled rather than rare', async () => {
+  it('says a pattern with no occasions may have been missed rather than be rare', async () => {
     show('/patterns/empty-one');
-    expect(await screen.findByText(/labelled\s+sparsely/)).toBeInTheDocument();
+    expect(await screen.findByText(/labelling\s+missed it/)).toBeInTheDocument();
   });
 });

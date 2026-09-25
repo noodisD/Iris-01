@@ -132,8 +132,8 @@ function PatternView({ id }: { id: string }) {
 
       {data.occasions.length === 0 ? (
         <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-          None found in the current reading of your archive. That can mean it is rare for you, or that it was labelled
-          sparsely — a fuller labelling pass may find more.
+          None found in the current reading of your archive. That can mean it is rare for you, or that the labelling
+          missed it: labelling misses some occasions and includes some that do not belong.
         </p>
       ) : (
         <>

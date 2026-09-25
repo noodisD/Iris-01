@@ -14,9 +14,10 @@
 -- * `fingerprint` binds an occasion to its exact content. Loading the same
 --   reading twice changes nothing, and a changed reading is a new occasion
 --   rather than a silent edit under verdicts given about the old one.
--- * `labelled_by` names what produced each label. One cheaper model was
---   measured finding 42% of what a stronger one found, so how full a pattern
---   looks depends on who labelled it, and the screen has to be able to say so.
+-- * `labelled_by` names what produced each label. Labellers err in both
+--   directions, including occasions that do not belong and missing ones that
+--   do, so how full a pattern looks depends on who labelled it, and the screen
+--   has to be able to say so.
 -- * The owner's verdicts, at two levels: whether an occasion is really an
 --   instance of the pattern, and whether the pattern rings true at all. A
 --   pattern the owner rejects stays visible, marked, rather than disappearing.

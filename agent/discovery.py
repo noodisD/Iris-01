@@ -12,9 +12,12 @@ difference means is the owner's to say. An occasion the owner says is not an
 instance of a pattern leaves every count for that pattern, but is kept, so the
 verdict can be seen and changed.
 
-Labels are stored with what produced them. A cheaper model was measured finding
-42% of what a stronger one found, so a sparse pattern may be sparsely labelled
-rather than rare, and the screen says which.
+Labels are stored with what produced them, because labellers err in both
+directions. Checked against the owner's verdicts on one pattern, one labeller
+included every candidate, non-instances and all, while another missed some real
+occasions and wrongly included one. So neither a full pattern nor an empty one is
+settled by its labels. The owner's verdicts are the check, and a bigger model is
+not: one measured more conservative, and no more accurate.
 """
 
 from __future__ import annotations

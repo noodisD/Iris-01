@@ -145,7 +145,7 @@ export interface PatternSummary extends PatternInfo {
   tones: Record<OccasionTone, number>;
   reviewed: number;
   rejected: number;
-  /** What produced the labels: a sparse pattern may be sparsely labelled, not rare. */
+  /** What produced the labels. Labellers miss some occasions and include some that do not belong. */
   labelledBy: string[];
   verdict: PatternVerdict | null;
 }
