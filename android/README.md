@@ -30,6 +30,9 @@ depends on the device.
    web UI remains on `127.0.0.1:8000`; the phone listener uses pinned HTTPS on
    port 8765. Allow inbound TCP 8765 only from the home Wi-Fi in the laptop's
    firewall. Settings shows whether this listener started successfully.
+   To reach IRIS away from home, use the laptop's Tailscale address instead
+   and allow 8765 on `tailscale0` only; the phone then syncs over Tailscale on
+   any network, including mobile data ([ADR-0022](../docs/adr/ADR-0022-reach-iris-over-tailscale.md)).
 2. In laptop **Settings → Android live sensors**, generate a pairing token.
    On the Pixel, unlock IRIS with your fingerprint or screen lock, then open
    **More → Phone collector → Scan pairing QR** and **Test connection**.

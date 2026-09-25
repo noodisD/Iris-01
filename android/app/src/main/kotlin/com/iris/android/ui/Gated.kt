@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.iris.android.HomeNetwork
 import com.iris.android.R
 import com.iris.android.api.IrisLink
 import com.iris.android.api.LinkState
@@ -41,9 +42,16 @@ fun Gated(onOpenCollector: () -> Unit, content: @Composable () -> Unit) {
             }
             is LinkState.NoHomeWifi -> {
                 Icon(painterResource(R.drawable.ic_wifi_off), contentDescription = null)
-                EmptyState("Connect to your home Wi-Fi",
-                    "IRIS runs on your laptop at ${link.host}. This phone reaches it only over the Wi-Fi network they share.") {
-                    OutlinedButton(onClick = retry) { Text("Try again") }
+                if (HomeNetwork.isTailnet(link.host)) {
+                    EmptyState("Can't reach IRIS",
+                        "Is Tailscale on and the laptop awake? IRIS runs on your laptop at ${link.host}, reached through Tailscale from any network.") {
+                        OutlinedButton(onClick = retry) { Text("Try again") }
+                    }
+                } else {
+                    EmptyState("Connect to your home Wi-Fi",
+                        "IRIS runs on your laptop at ${link.host}. This phone reaches it only over the Wi-Fi network they share.") {
+                        OutlinedButton(onClick = retry) { Text("Try again") }
+                    }
                 }
             }
             is LinkState.Refused -> EmptyState("IRIS refused this phone", link.message) {

@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkRequest
-import android.net.NetworkCapabilities
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.iris.android.HomeNetwork
 import com.iris.android.R
 import com.iris.android.api.IrisLink
 import com.iris.android.ui.components.IrisOrb
@@ -57,7 +56,7 @@ fun IrisRoot(
     }
     DisposableEffect(context) {
         val manager = context.getSystemService(ConnectivityManager::class.java)
-        val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
+        val request = HomeNetwork.request()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) { scope.launch { IrisLink.refresh(context) } }
             override fun onLost(network: Network) { scope.launch { IrisLink.refresh(context) } }

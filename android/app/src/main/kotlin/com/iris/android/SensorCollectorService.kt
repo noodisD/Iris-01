@@ -12,8 +12,6 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -33,7 +31,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Opt-in collection; Wi-Fi sync has a wakeful idle-safe alarm and a single serial worker. */
+/** Opt-in collection; network sync has a wakeful idle-safe alarm and a single serial worker. */
 class SensorCollectorService : Service(), SensorEventListener {
     private lateinit var store: CollectorStore
     private lateinit var sync: SensorSync
@@ -135,8 +133,7 @@ class SensorCollectorService : Service(), SensorEventListener {
             override fun onAvailable(network: Network) { requestSync(force = false) }
         }
         wifiCallback = callback
-        connectivity.registerNetworkCallback(NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), callback, collectorHandler)
+        connectivity.registerNetworkCallback(HomeNetwork.request(), callback, collectorHandler)
         running = true
         CollectorNotifications.cancelResume(this)
         requestSync(force = true)
@@ -207,7 +204,7 @@ class SensorCollectorService : Service(), SensorEventListener {
             if (network == null) {
                 if (collecting) SyncState.recordAttempt(this, now, false, false,
                     SyncState.Problem.WAITING,
-                    "Waiting for the Wi-Fi network that reaches IRIS at $host")
+                    HomeNetwork.unreachable(host))
             } else {
                 val report = sync.run(network, Settings.collectionStartedAt(this)) { collecting }
                 if (collecting) SyncState.recordAttempt(this, now, report.sentPixel,

@@ -97,8 +97,7 @@ fun CollectorScreen(onBack: () -> Unit) {
                 val network = HomeNetwork.find(context, host)
                 when {
                     host == null -> "Scan the pairing QR from IRIS Settings first"
-                    network == null ->
-                        "This phone is not on a Wi-Fi network that reaches IRIS at $host"
+                    network == null -> HomeNetwork.unreachable(host)
                     else -> runCatching {
                         IrisApiClient(Settings.laptopBaseUrl(context),
                             Settings.bearer(context),
@@ -173,7 +172,7 @@ fun CollectorScreen(onBack: () -> Unit) {
             Text("Connect IRIS", style = MaterialTheme.typography.headlineMedium)
             Text(
                 "On your laptop, open IRIS → Settings → Android live sensors. " +
-                    "Scan its pairing QR while both devices are on your home Wi-Fi.",
+                    "Scan its pairing QR while both devices are on your home Wi-Fi or on Tailscale.",
             )
             if (Settings.hasBearer(context)) {
                 Text("Paired with ${Settings.laptopBaseUrl(context)}")
@@ -281,7 +280,7 @@ fun CollectorScreen(onBack: () -> Unit) {
                 }) { Text("Grant Health Connect access") }
             }
             Text(
-                "Collection sends permitted measurements only over home Wi-Fi. " +
+                "Collection sends permitted measurements only to your laptop, over home Wi-Fi or Tailscale. " +
                     "IRIS stages them for review; they never become evidence automatically.",
             )
             Text(when {

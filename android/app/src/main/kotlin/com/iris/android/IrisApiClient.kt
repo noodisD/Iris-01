@@ -31,7 +31,7 @@ fun IrisResponse.describe(): String = when (this) {
     is IrisResponse.Unreachable -> "IRIS not reachable: $reason"
 }
 
-/** Sensor sync client, bound to home Wi-Fi and pinned to the server key. */
+/** Sensor sync client, bound to the network that reaches IRIS and pinned to the server key. */
 class IrisApiClient(
     baseUrl: String,
     private val bearer: String,
