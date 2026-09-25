@@ -45,12 +45,18 @@ fun Gated(onOpenCollector: () -> Unit, content: @Composable () -> Unit) {
                 if (HomeNetwork.isTailnet(link.host)) {
                     EmptyState("Can't reach IRIS",
                         "Is Tailscale on and the laptop awake? IRIS runs on your laptop at ${link.host}, reached through Tailscale from any network.") {
-                        OutlinedButton(onClick = retry) { Text("Try again") }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            OutlinedButton(onClick = retry) { Text("Try again") }
+                            Button(onClick = onOpenCollector) { Text("Scan a new address") }
+                        }
                     }
                 } else {
                     EmptyState("Connect to your home Wi-Fi",
                         "IRIS runs on your laptop at ${link.host}. This phone reaches it only over the Wi-Fi network they share.") {
-                        OutlinedButton(onClick = retry) { Text("Try again") }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            OutlinedButton(onClick = retry) { Text("Try again") }
+                            Button(onClick = onOpenCollector) { Text("Scan a new address") }
+                        }
                     }
                 }
             }
@@ -61,8 +67,13 @@ fun Gated(onOpenCollector: () -> Unit, content: @Composable () -> Unit) {
                 }
             }
             is LinkState.Unreachable -> EmptyState("Can't reach IRIS",
-                link.message + "\nIs uv run python scripts/serve_iris.py running on the laptop?") {
-                OutlinedButton(onClick = retry) { Text("Try again") }
+                link.message + "\nIs uv run python scripts/serve_iris.py running on the laptop? " +
+                    "If IRIS moved to a new address, scan its address QR.") {
+                // Without a way to the scanner, a changed address locks the app.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    OutlinedButton(onClick = retry) { Text("Try again") }
+                    Button(onClick = onOpenCollector) { Text("Scan a new address") }
+                }
             }
             is LinkState.Ready -> Unit
         }
