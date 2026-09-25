@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iris.android.api.IrisLink
+import com.iris.android.api.Checkin
 import com.iris.android.api.JournalEntry
 import com.iris.android.api.JournalListResponse
 import com.iris.android.api.RecurringPhrase
@@ -22,7 +23,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 
 @Serializable
-private data class NewEntry(val lines: List<String>, val energy: Int? = null)
+private data class NewEntry(
+    val text: String,
+    val format: String = "markdown",
+    val checkin: Checkin? = null,
+)
 
 data class JournalPages(
     val entries: List<JournalEntry>,
@@ -34,10 +39,12 @@ class JournalViewModel : ViewModel() {
     private val _pages = MutableStateFlow<Loadable<JournalPages>>(Loadable.Loading)
     val pages = _pages.asStateFlow()
 
-    private val _lines = MutableStateFlow(listOf("", "", ""))
-    val lines = _lines.asStateFlow()
-    private val _energy = MutableStateFlow<Int?>(null)
-    val energy = _energy.asStateFlow()
+    private val _text = MutableStateFlow("")
+    val text = _text.asStateFlow()
+    private val _selection = MutableStateFlow(0 to 0)
+    val selection = _selection.asStateFlow()
+    private val _checkin = MutableStateFlow(Checkin())
+    val checkin = _checkin.asStateFlow()
     private val _saving = MutableStateFlow(false)
     val saving = _saving.asStateFlow()
     private val _saveError = MutableStateFlow<String?>(null)
@@ -54,11 +61,27 @@ class JournalViewModel : ViewModel() {
     val messages = _messages.asSharedFlow()
     private var listJob: Job? = null
 
-    fun setLine(index: Int, value: String) {
-        _lines.value = _lines.value.toMutableList().also { it[index] = value }
+    fun setDraft(value: String, start: Int, end: Int) {
+        _text.value = value
+        _selection.value = start to end
     }
 
-    fun selectEnergy(value: Int?) { _energy.value = value }
+    fun applyEdit(edit: MarkdownEdit) {
+        _text.value = edit.text
+        _selection.value = edit.start to edit.end
+    }
+
+    fun selectCheckin(field: String, value: Int?) {
+        val current = _checkin.value
+        _checkin.value = when (field) {
+            "energy" -> current.copy(energy = value)
+            "mood" -> current.copy(mood = value)
+            "sleep" -> current.copy(sleepQuality = value)
+            "stress" -> current.copy(stress = value)
+            "focus" -> current.copy(focus = value)
+            else -> current
+        }
+    }
 
     fun refresh() {
         listJob?.cancel()
@@ -115,15 +138,18 @@ class JournalViewModel : ViewModel() {
 
     fun save() {
         if (_saving.value) return
-        val submittedLines = _lines.value.filter { it.isNotEmpty() }
-        if (submittedLines.isEmpty()) return
+        val draft = _checkin.value
+        val hasCheckin = listOf(draft.energy, draft.mood, draft.sleepQuality, draft.stress, draft.focus).any { it != null }
+        if (_text.value.isBlank() && !hasCheckin) return
         _saving.value = true
         _saveError.value = null
         viewModelScope.launch {
             try {
-                IrisLink.api().send("POST", "/journal", json.encodeToString(NewEntry(submittedLines, _energy.value)), JournalEntry.serializer())
-                _lines.value = listOf("", "", "")
-                _energy.value = null
+                val body = NewEntry(_text.value, checkin = if (hasCheckin) draft else null)
+                IrisLink.api().send("POST", "/journal", json.encodeToString(body), JournalEntry.serializer())
+                _text.value = ""
+                _selection.value = 0 to 0
+                _checkin.value = Checkin()
                 refresh()
             } catch (cancelled: CancellationException) {
                 throw cancelled

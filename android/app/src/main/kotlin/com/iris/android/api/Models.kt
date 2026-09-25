@@ -1,5 +1,6 @@
 package com.iris.android.api
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
@@ -53,6 +54,15 @@ data class ChatStreamEvent(
 )
 
 @Serializable
+data class Checkin(
+    val energy: Int? = null,
+    val mood: Int? = null,
+    @SerialName("sleep_quality") val sleepQuality: Int? = null,
+    val stress: Int? = null,
+    val focus: Int? = null,
+)
+
+@Serializable
 data class JournalEntry(
     val id: String,
     val userId: String,
@@ -64,6 +74,9 @@ data class JournalEntry(
     val importedAt: String? = null,
     val createdAt: String? = null,
     val audioUrl: String? = null,
+    val text: String? = null,
+    val format: String? = null,
+    val checkin: Checkin? = null,
 )
 
 @Serializable
