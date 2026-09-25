@@ -586,9 +586,14 @@ function IdeaDetail({ id }: { id: string }) {
   const error = update.error ?? reject.error ?? links.error;
 
   return (
-    <main className="col" style={{ gap: 20, padding: 28 }}>
-      <Link to="/ideas">Framework</Link>
-      <h1 className="serif">{idea.statement}</h1>
+    <main className="col" style={{ gap: 22, padding: '32px 48px 72px', maxWidth: 980 }}>
+      <header className="col" style={{ gap: 10, borderBottom: '1px solid var(--line)', paddingBottom: 20 }}>
+        <Link to="/ideas" style={{ fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.1em',
+                                   textTransform: 'uppercase', color: 'var(--ink-3)' }}>← all ideas</Link>
+        <div className="kicker">idea · {labelOf(POSITIONS, idea.position)} · {labelOf(DOMAINS, idea.domain)}</div>
+        <h1 className="serif" style={{ margin: 0, fontSize: 34, lineHeight: 1.2, letterSpacing: '-0.01em',
+                                       color: 'var(--ink)', fontWeight: 400 }}>{idea.statement}</h1>
+      </header>
       <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
       <button className="btn" disabled={update.isPending} onClick={() => update.mutate({ id, body: { position, domain } })}>
         Save

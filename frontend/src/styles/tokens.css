@@ -105,6 +105,12 @@ html, body {
   margin: 0;
 }
 
+/* Links. Without this every plain link showed the browser's default blue, and
+   purple once visited, on the dark page. Links styled inline keep their own. */
+a { color: var(--sage); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 1px solid var(--sage); outline-offset: 2px; border-radius: 2px; }
+
 /* Card */
 .card {
   background: var(--bg-2);

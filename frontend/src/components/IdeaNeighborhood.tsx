@@ -9,8 +9,8 @@ const KIND_LABEL: Record<IdeaLink['kind'], string> = {
   same_meaning: 'means the same as',
 };
 
-function cut(statement: string): string {
-  return statement.length > 42 ? statement.slice(0, 42) : statement;
+function cut(statement: string, n = 34): string {
+  return statement.length > n ? `${statement.slice(0, n - 1)}…` : statement;
 }
 
 export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: IdeaLink[] }) {
@@ -21,6 +21,10 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
     link.fromIdeaId === idea.id ? [link.toIdeaId] : [link.fromIdeaId]
   )))].sort((a, b) => Number(a) - Number(b));
 
+  if (neighbourIds.length === 0) {
+    return <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)' }}>No accepted connections yet.</p>;
+  }
+
   return (
     <div className="col" style={{ gap: 16 }}>
       <svg viewBox="0 0 640 420" width="100%" role="group" aria-label="Accepted connections">
@@ -29,15 +33,10 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
             <path d="M0,0 L7,3 L0,6 Z" fill="var(--ink-3)" />
           </marker>
         </defs>
-        <circle cx={320} cy={210} r={28} fill="var(--bg-2)" stroke="var(--sage)" />
-        <text x={320} y={214} textAnchor="middle" fontSize={11} fill="var(--ink)">
+        <circle cx={320} cy={210} r={10} fill="var(--sage)" />
+        <text x={320} y={236} textAnchor="middle" fontSize={11} fill="var(--ink)">
           {cut(idea.statement)}
         </text>
-        {neighbourIds.length === 0 && (
-          <text x={320} y={270} textAnchor="middle" fontSize={13} fill="var(--ink-3)">
-            No accepted connections yet.
-          </text>
-        )}
         {neighbourIds.map((id, index) => {
           const angle = (-90 + (index * 360) / neighbourIds.length) * Math.PI / 180;
           const ux = Math.cos(angle);
@@ -54,7 +53,7 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
           return (
             <g key={id}>
               <line
-                x1={320 + 28 * ux} y1={210 + 28 * uy} x2={x - 22 * ux} y2={y - 22 * uy}
+                x1={320 + 14 * ux} y1={210 + 14 * uy} x2={x - 11 * ux} y2={y - 11 * uy}
                 stroke="var(--ink-3)"
                 markerEnd={markerEnd}
                 markerStart={markerStart}
@@ -63,8 +62,8 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
                 {pair.map(link => KIND_LABEL[link.kind]).join(' · ')}
               </text>
               <Link to={`/ideas/${id}`} aria-label={statement}>
-                <circle cx={x} cy={y} r={22} fill="var(--bg-2)" stroke="var(--line)" />
-                <text x={x} y={y + 4} textAnchor="middle" fontSize={10} fill="var(--ink)">
+                <circle cx={x} cy={y} r={7} fill="var(--ink-3)" />
+                <text x={x} y={y + 22} textAnchor="middle" fontSize={10} fill="var(--ink-2)">
                   {cut(statement)}
                 </text>
               </Link>
