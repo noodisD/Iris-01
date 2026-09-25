@@ -121,3 +121,60 @@ def test_an_undated_entry_is_not_given_the_day_it_was_imported(client):
     assert entry["occurredOn"] is None
     assert entry["createdAt"] is None
     assert entry["importedAt"], "when it reached IRIS is still known"
+
+
+def test_the_older_lines_payload_still_works(client):
+    r = client.post("/api/journal", json={"lines": ["salt and pepper"], "energy": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["lines"] == ["salt and pepper"]
+    assert body["text"] == "salt and pepper"
+    assert body["format"] == "plain"
+    assert body["energy"] == 2
+    assert body["checkin"]["energy"] == 2
+    assert body["checkin"]["mood"] is None
+
+
+def test_text_and_checkin_round_trip(client):
+    payload = {
+        "text": "# Soup\n\n**Basil** and salt.",
+        "format": "markdown",
+        "checkin": {
+            "energy": 3,
+            "mood": 4,
+            "sleep_quality": 5,
+            "stress": 6,
+            "focus": 7,
+        },
+    }
+    created = client.post("/api/journal", json=payload)
+    assert created.status_code == 200
+    body = created.json()
+    assert body["text"] == payload["text"]
+    assert body["format"] == "markdown"
+    assert body["energy"] == 3
+    assert body["checkin"] == payload["checkin"]
+    listed = client.get("/api/journal").json()["entries"]
+    match = next(e for e in listed if e["id"] == body["id"])
+    assert match["text"] == payload["text"]
+    assert "**Basil**" in match["text"]
+    assert match["checkin"]["sleep_quality"] == 5
+
+
+def test_a_checkin_with_no_text_is_stored_and_not_queued(client):
+    from agent.database import db
+
+    r = client.post("/api/journal", json={"text": "   ", "format": "markdown", "checkin": {"focus": 6}})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["text"] == ""
+    assert body["checkin"]["focus"] == 6
+    rid = int(body["id"])
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT processing_status FROM reflections WHERE id = %s;", (rid,))
+        assert cur.fetchone()[0] == "complete"
+        cur.execute(
+            "SELECT count(*) FROM processing_queue WHERE source_type = 'reflection' AND source_id = %s;",
+            (rid,),
+        )
+        assert cur.fetchone()[0] == 0

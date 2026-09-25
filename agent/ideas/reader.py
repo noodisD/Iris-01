@@ -309,13 +309,14 @@ def extract_ideas(intelligence: Any, entries: list[dict[str, Any]]) -> tuple[lis
     A reply that is not the expected object fails the pass. One bad idea inside
     a readable reply is a malformed drop, not a failed pass.
     """
+    from agent.markdown_text import for_model
     payload = {
         "entries": [
             {
                 "entryId": entry["id"],
                 "sourceType": "reflection",
                 "date": entry["date"].isoformat() if entry.get("date") else None,
-                "content": entry["content"],
+                "content": for_model(entry.get("content"), entry.get("content_format")),
             }
             for entry in entries
         ]
@@ -357,14 +358,21 @@ def check_stances(
     by_id: dict[tuple[str, int], dict[str, Any]],
 ) -> list[str]:
     """One verdict per surviving quote, or a failed check."""
+    from agent.markdown_text import for_model
     payload = {
         "proposition": statement,
         "quotes": [
             {
                 "i": index,
-                "text": citation.text,
+                "text": for_model(
+                    citation.text,
+                    by_id[(citation.source_type, citation.entry_id)].get("content_format"),
+                ),
                 "entryId": citation.entry_id,
-                "context": by_id[(citation.source_type, citation.entry_id)]["content"],
+                "context": for_model(
+                    by_id[(citation.source_type, citation.entry_id)].get("content"),
+                    by_id[(citation.source_type, citation.entry_id)].get("content_format"),
+                ),
             }
             for index, citation in enumerate(citations)
         ],

@@ -84,3 +84,22 @@ def test_a_finding_s_numbers_count_as_given():
     held = hold_to_the_rules("The lake walks came up 5 times since 2025-03-01.", WEEK,
                              FACTS + FINDINGS)
     assert held == "The lake walks came up 5 times since 2025-03-01."
+
+
+def test_a_markdown_quote_without_markers_is_kept_as_the_original_span():
+    entries = ["The **basil** went into the soup."]
+    held = hold_to_the_rules(
+        'You wrote "The basil went into the soup."',
+        entries,
+        formats=["markdown"],
+    )
+    assert held == 'You wrote "The **basil** went into the soup"'
+
+
+def test_an_invented_word_in_a_markdown_quote_is_dropped():
+    held = hold_to_the_rules(
+        'You wrote "The saffron went into the soup."',
+        ["The **basil** went into the soup."],
+        formats=["markdown"],
+    )
+    assert held == ""

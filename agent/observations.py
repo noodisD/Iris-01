@@ -586,11 +586,13 @@ class ObservationEngine:
         the real archive 15 staged items share a number with a reflection, so an
         id alone does not identify a piece of writing.
         """
+        from .markdown_text import for_model
         parts = ["Here are the entries, newest first.\n"]
         for e in entries:
             when = e["date"].isoformat() if e.get("date") else "undated"
             source = e.get("source_type", "reflection")
-            parts.append(f"[entryId {e['id']} · sourceType {source} · {when}]\n{e['content']}\n")
+            body = for_model(e.get("content"), e.get("content_format"))
+            parts.append(f"[entryId {e['id']} · sourceType {source} · {when}]\n{body}\n")
         return "\n".join(parts)
 
     # --- verification ------------------------------------------------------
@@ -669,11 +671,23 @@ def verify_citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
         if len(quote) < OBSERVATION_MIN_QUOTE_CHARS:
             logger.info("Citation too short to identify a passage, observation refused")
             return None
-        if quote not in _normalized(entry["content"]):
+        original = entry.get("content") or ""
+        if entry.get("content_format") == "markdown":
+            # The model read the words without markers. The stored quote is
+            # the owner's own span, markers included.
+            from .readable import locate
+            span = locate(original, quote)
+            if span is None:
+                logger.info(f"Quote not found in {source_type} {entry_id}, observation refused")
+                return None
+            stored = span
+        elif quote not in _normalized(original):
             logger.info(f"Quote not found verbatim in {source_type} {entry_id}, observation refused")
             return None
+        else:
+            stored = quote
         found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
-                              text=quote, source_type=entry.get("source_type", "reflection")))
+                              text=stored, source_type=entry.get("source_type", "reflection")))
     return tuple(found)
 
 

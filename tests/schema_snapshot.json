@@ -1487,6 +1487,11 @@
         "nullable": "NO",
         "type": "text"
       },
+      "content_format": {
+        "default": "'plain'::character varying",
+        "nullable": "NO",
+        "type": "character varying"
+      },
       "content_hash": {
         "default": null,
         "nullable": "YES",
@@ -3219,6 +3224,14 @@
       "reflections_clarity_level_check": {
         "definition": "CHECK (((clarity_level >= 1) AND (clarity_level <= 10)))",
         "type": "c"
+      },
+      "reflections_content_format_check": {
+        "definition": "CHECK (((content_format)::text = ANY ((ARRAY['plain'::character varying, 'markdown'::character varying])::text[])))",
+        "type": "c"
+      },
+      "reflections_content_format_not_null": {
+        "definition": "NOT NULL content_format",
+        "type": "n"
       },
       "reflections_content_not_null": {
         "definition": "NOT NULL content",

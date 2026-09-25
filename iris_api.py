@@ -1067,13 +1067,62 @@ def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_use
 # JOURNAL ENDPOINTS (single-user; frontend JournalEntry mapped onto reflections)
 # ============================================================================
 
+class Checkin(BaseModel):
+    """Optional 1–10 self-report. Energy is stored on the reflection, not in metrics."""
+    energy: int | None = Field(default=None, ge=1, le=10)
+    mood: int | None = Field(default=None, ge=1, le=10)
+    sleep_quality: int | None = Field(default=None, ge=1, le=10)
+    stress: int | None = Field(default=None, ge=1, le=10)
+    focus: int | None = Field(default=None, ge=1, le=10)
+
+
 class JournalCreate(BaseModel):
-    """Journal create payload from the frontend (Pick<JournalEntry,'lines'|'energy'>)."""
-    lines: list[str]
+    """Journal create payload.
+
+    Older phone builds send `lines` and `energy`. Current clients send `text`,
+    `format` and `checkin`. A check-in with no text is allowed.
+    """
+    lines: list[str] | None = None
     # Named for what it is. This field used to be called "mood" while carrying
     # energy_level, so the weekly review reported average energy as "mood" while
     # reflections.mood — a categorical value inferred from tags — went unsent.
-    energy: int | None = None  # 1-10, stored as the reflection's energy_level
+    energy: int | None = Field(default=None, ge=1, le=10)
+    text: str | None = None
+    format: Literal["plain", "markdown"] | None = None
+    checkin: Checkin | None = None
+
+
+_CHECKIN_METRICS = ("mood", "sleep_quality", "stress", "focus")
+
+
+def _metric_value(metrics: object, key: str) -> int | None:
+    if not isinstance(metrics, dict):
+        return None
+    item = metrics.get(key)
+    if isinstance(item, dict) and item.get("source") == "checkin":
+        value = item.get("value")
+        return value if isinstance(value, int) else None
+    return None
+
+
+def _checkin_from_row(r: dict) -> dict:
+    metrics = r.get("metrics")
+    return {
+        "energy": r.get("energy_level"),
+        "mood": _metric_value(metrics, "mood"),
+        "sleep_quality": _metric_value(metrics, "sleep_quality"),
+        "stress": _metric_value(metrics, "stress"),
+        "focus": _metric_value(metrics, "focus"),
+    }
+
+
+def _checkin_metrics(checkin: Checkin) -> dict | None:
+    metrics = {
+        key: {"value": getattr(checkin, key), "scale": 10, "source": "checkin"}
+        for key in _CHECKIN_METRICS
+        if getattr(checkin, key) is not None
+    }
+    return metrics or None
 
 
 def _reflection_to_journal(r: dict, user_id: int) -> dict:
@@ -1091,7 +1140,10 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         "id": str(r["id"]),
         "userId": str(user_id),
         "lines": content.split("\n"),
+        "text": content,
+        "format": r.get("content_format") or "plain",
         "energy": r.get("energy_level"),
+        "checkin": _checkin_from_row(r),
         "tags": r.get("tags") or [],
         # When it was written. `createdAt` preferred created_at, which for an
         # imported entry is the day it was imported, so a journal spanning two
@@ -1148,16 +1200,29 @@ def list_journal(user_id: int = Depends(get_current_user_id),
 
 @app.post("/api/journal")
 def create_journal_entry(entry: JournalCreate, user_id: int = Depends(get_current_user_id)):
-    """Create a reflection from journal lines/mood and return the `JournalEntry`."""
+    """Create a reflection from journal text or the older lines payload."""
     service = ReflectionService(user_id)
-    content = "\n".join(entry.lines).strip()
-    if not content:
+    if entry.text is not None:
+        content = entry.text.strip()
+        content_format = entry.format or "markdown"
+    else:
+        content = "\n".join(entry.lines or []).strip()
+        content_format = entry.format or "plain"
+    energy = entry.energy
+    metrics = None
+    if entry.checkin is not None:
+        if entry.checkin.energy is not None:
+            energy = entry.checkin.energy
+        metrics = _checkin_metrics(entry.checkin)
+    if not content and energy is None and not metrics:
         raise HTTPException(status_code=400, detail="Journal entry cannot be empty")
     try:
         reflection_id = service.create_reflection(
             content=content,
-            energy_level=entry.energy,
+            energy_level=energy,
             tags=[],
+            metrics=metrics,
+            content_format=content_format,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -2282,7 +2347,10 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     except Exception as e:  # pragma: no cover - no API key
         logger.warning(f"No model for the letter: {e}")
         intelligence = None
-    return review_letter.compose(facts, findings, [r["content"] for r in this_week], intelligence)
+    return review_letter.compose(
+        facts, findings, [r["content"] for r in this_week], intelligence,
+        [r.get("content_format") or "plain" for r in this_week],
+    )
 
 
 @app.get("/api/review/latest")

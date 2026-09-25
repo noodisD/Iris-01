@@ -311,10 +311,22 @@ class EpisodeReader:
         """
         if not entries or self.intelligence is None:
             return []
+        from .markdown_text import for_model
+        prepared = []
+        for entry in entries:
+            if entry.get("content_format") == "markdown":
+                prepared.append({
+                    **entry,
+                    "content": for_model(entry.get("content"), "markdown"),
+                    "_original": entry.get("_original", entry.get("content")),
+                })
+            else:
+                prepared.append(entry)
+        entries = prepared
         found: list[Episode] = []
         if readable:
             entries = [{**e, "content": readable.get(str(e["id"]), e["content"]),
-                        "_original": e["content"]} for e in entries]
+                        "_original": e.get("_original", e["content"])} for e in entries]
         chunks = chunk_entries(interleave(entries))
         for i, chunk in enumerate(chunks, 1):
             try:

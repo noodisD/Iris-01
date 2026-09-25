@@ -150,7 +150,9 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # the writing: identical in every entry of that format, they grouped
         # entries by format rather than by what they say (ADR-0014). The stored
         # entry keeps them.
-        embedding = generate_embedding(strip_prompt_labels(content).strip() or content, model=model_name)
+        from .markdown_text import for_model
+        text = for_model(content, item_data.get("content_format"))
+        embedding = generate_embedding(strip_prompt_labels(text).strip() or text, model=model_name)
 
         # The text may have been edited while it was being embedded. An edit
         # resets the status and re-queues the entry, so if this run's claim is

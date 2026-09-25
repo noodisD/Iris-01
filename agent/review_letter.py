@@ -61,7 +61,28 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", ".").rstrip("0").rstrip(".") or "0" for n in _NUMBER.findall(text)}
 
 
-def hold_to_the_rules(text: str, week_entries: list[str], facts: list[str] | None = None) -> str:
+def _grounded_quote(quote: str, week_entries: list[str], formats: list[str] | None) -> str | None:
+    """The quote as it may be kept, or None if it is not in the week's writing.
+
+    A plain match is the quote itself. A markdown entry is matched by words,
+    and what is kept is the owner's span, markers included.
+    """
+    if _normalized(quote) in _normalized(" \n ".join(week_entries)):
+        return quote
+    if not formats:
+        return None
+    from .readable import locate
+    for entry, fmt in zip(week_entries, formats):
+        if fmt != "markdown":
+            continue
+        span = locate(entry, quote)
+        if span:
+            return span
+    return None
+
+
+def hold_to_the_rules(text: str, week_entries: list[str], facts: list[str] | None = None,
+                      formats: list[str] | None = None) -> str:
     """The model's letter, minus every sentence that breaks a rule.
 
     `facts` are the counts the model was given. A sentence may use those and no
@@ -69,7 +90,6 @@ def hold_to_the_rules(text: str, week_entries: list[str], facts: list[str] | Non
     can contain, and it is the one kind of invention that can be checked
     without asking a second model what is true.
     """
-    source = _normalized(" \n ".join(week_entries))
     allowed_numbers = _numbers(" ".join(facts or []))
     paragraphs = []
     for paragraph in (text or "").split("\n\n"):
@@ -80,13 +100,19 @@ def hold_to_the_rules(text: str, week_entries: list[str], facts: list[str] | Non
             if FORBIDDEN_REGEX.search(sentence):
                 logger.info("Letter sentence dropped: causal or prescriptive wording")
                 continue
-            if any(_normalized(q) not in source for q in _QUOTED.findall(sentence)):
+            quotes = _QUOTED.findall(sentence)
+            grounded = [_grounded_quote(quote, week_entries, formats) for quote in quotes]
+            if any(span is None for span in grounded):
                 logger.info("Letter sentence dropped: a quote not found in the week's entries")
                 continue
             if not _numbers(sentence) <= allowed_numbers:
                 logger.info("Letter sentence dropped: a number it was not given")
                 continue
-            kept.append(sentence)
+            rewritten = sentence
+            for quote, span in zip(quotes, grounded):
+                if span is not None and span != quote:
+                    rewritten = rewritten.replace(quote, span, 1)
+            kept.append(rewritten)
         if kept:
             paragraphs.append(" ".join(kept))
     return "\n\n".join(paragraphs)
@@ -101,8 +127,13 @@ def facts_letter(facts: list[str], findings: list[str]) -> str:
 
 
 def compose(facts: list[str], findings: list[str], week_entries: list[str],
-            intelligence: Any) -> str:
-    """Write the letter, or fall back to the facts."""
+            intelligence: Any, formats: list[str] | None = None) -> str:
+    """Write the letter, or fall back to the facts.
+
+    The model is not given the entries. `formats` only tells the quote check
+    which rows are markdown, so a quote of the words can be kept as the
+    owner's own span.
+    """
     if not week_entries or intelligence is None:
         return facts_letter(facts, findings)
     prompt = ("Facts about the week:\n" + "\n".join(f"- {f}" for f in facts)
@@ -114,5 +145,5 @@ def compose(facts: list[str], findings: list[str], week_entries: list[str],
     except Exception as e:
         logger.warning(f"Letter could not be written, using the facts: {e}")
         return facts_letter(facts, findings)
-    held = hold_to_the_rules(written, week_entries, facts + findings)
+    held = hold_to_the_rules(written, week_entries, facts + findings, formats)
     return held or facts_letter(facts, findings)

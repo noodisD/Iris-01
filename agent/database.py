@@ -472,20 +472,25 @@ class Database:
 
             elif source_type == 'reflection':
                 cur.execute(
-                    f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
+                    f"SELECT id, user_id, content, created_at, mood, energy_level, clarity_level, reflection_date, content_format FROM {table_name} WHERE processing_status = %s{scope} LIMIT %s;",
                     params
                 )
                 items = cur.fetchall()
-                return [
-                    {
+                from .markdown_text import plain_text
+                rows = []
+                for row in items:
+                    body = row[2] or ""
+                    if row[8] == "markdown":
+                        body = plain_text(body)
+                    rows.append({
                         "id": row[0],
                         "user_id": row[1],
-                        "content": f"Anchor: Self-Reflection | Source: Reflection | Mood: {row[4] or 'okay'} (Energy: {row[5] or '?'}/10, Clarity: {row[6] or '?'}/10) | Content: {row[2]}",
+                        "content": f"Anchor: Self-Reflection | Source: Reflection | Mood: {row[4] or 'okay'} (Energy: {row[5] or '?'}/10, Clarity: {row[6] or '?'}/10) | Content: {body}",
                         "created_at": row[3],
-                        "occurred_at": row[7]
-                    }
-                    for row in items
-                ]
+                        "occurred_at": row[7],
+                        "content_format": row[8],
+                    })
+                return rows
 
             elif source_type == 'habit':
                 cur.execute(
@@ -1608,7 +1613,8 @@ class Database:
             cur.execute(
                 """
                 SELECT id, reflection_date, content, mood, energy_level, clarity_level,
-                       tags, created_at, updated_at, audio_path, entry_sequence
+                       tags, created_at, updated_at, audio_path, entry_sequence,
+                       content_format, metrics
                   FROM reflections
                  WHERE user_id = %s
                    AND (%s::int IS NULL
@@ -1631,7 +1637,7 @@ class Database:
             )
             keys = ("id", "reflection_date", "content", "mood", "energy_level",
                     "clarity_level", "tags", "created_at", "updated_at", "audio_path",
-                    "entry_sequence")
+                    "entry_sequence", "content_format", "metrics")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
     def get_staged_for_reading(self, user_id: int, min_chars: int, batch_id: int = None) -> list:
@@ -1738,7 +1744,7 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, reflection_date, content
+                SELECT id, reflection_date, content, content_format
                   FROM reflections
                  WHERE user_id = %s AND evidence_eligible
                    AND (%s::date IS NULL OR reflection_date >= %s::date)
@@ -1749,7 +1755,8 @@ class Database:
                 (user_id, since, since, limit),
             )
             return [{"id": r[0], "date": r[1], "content": r[2],
-                     "source_type": "reflection"} for r in cur.fetchall()]
+                     "content_format": r[3], "source_type": "reflection"}
+                    for r in cur.fetchall()]
 
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
         """Retrieves text content for any source type."""
@@ -2976,13 +2983,17 @@ class Database:
                          metrics: dict = None, date_source: str = None,
                          date_confidence: str = None, evidence_eligible: bool = True,
                          undated: bool = False, entry_sequence: int = None,
-                         import_item_id: int = None) -> int:
+                         import_item_id: int = None, content_format: str = 'plain') -> int:
         """Creates a new reflection and returns its ID.
 
         `source`, `content_hash` and `audio_path` carry provenance for entries
         that did not originate in the app. They default so the existing callers
         are unaffected — in particular content_hash stays NULL for anything
         typed here, which keeps those rows outside the de-duplication index.
+
+        A check-in with no prose is stored and not queued: there is nothing
+        to embed. `content_format` says whether a later reader must strip
+        markdown before a model sees the words.
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
@@ -3003,16 +3014,22 @@ class Database:
                                              energy_level, clarity_level, tags,
                                              source, content_hash, audio_path,
                                              metrics, date_source, date_confidence,
-                                             evidence_eligible, entry_sequence)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                             evidence_eligible, entry_sequence,
+                                             content_format)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
                     (user_id, reflection_date, content, mood, energy_level, clarity_level,
                      Json(tags) if tags else None, source, content_hash, audio_path,
                      Json(metrics) if metrics else None, date_source, date_confidence,
-                     evidence_eligible, entry_sequence)
+                     evidence_eligible, entry_sequence, content_format)
                 )
                 reflection_id = cur.fetchone()[0]
-                self._queue(cur, user_id, 'reflection', reflection_id)
+                if (content or "").strip():
+                    self._queue(cur, user_id, 'reflection', reflection_id)
+                else:
+                    cur.execute(
+                        "UPDATE reflections SET processing_status = 'complete' WHERE id = %s;",
+                        (reflection_id,))
                 if import_item_id is not None:
                     # The staging row learns its reflection in the same commit.
                     # It used to be linked afterwards, so a failure in between
@@ -3051,7 +3068,7 @@ class Database:
             try:
                 cur.execute(
                     """
-                    SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at, audio_path
+                    SELECT id, reflection_date, content, mood, energy_level, clarity_level, tags, created_at, updated_at, audio_path, content_format, metrics
                     FROM reflections
                     WHERE user_id = %s
                       AND (%s::int IS NULL OR id < %s)
@@ -3076,6 +3093,8 @@ class Database:
                         "created_at": row[7],
                         "updated_at": row[8],
                         "audio_path": row[9],
+                        "content_format": row[10],
+                        "metrics": row[11],
                     }
                     for row in rows
                 ]
@@ -3091,7 +3110,8 @@ class Database:
                 cur.execute(
                     """
                     SELECT id, user_id, reflection_date, content, mood, energy_level, tags,
-                           processing_status, created_at, updated_at, audio_path, clarity_level
+                           processing_status, created_at, updated_at, audio_path, clarity_level,
+                           content_format, metrics
                     FROM reflections WHERE id = %s;
                     """,
                     (reflection_id,)
@@ -3111,6 +3131,8 @@ class Database:
                         "updated_at": row[9],
                         "audio_path": row[10],
                         "clarity_level": row[11],
+                        "content_format": row[12],
+                        "metrics": row[13],
                     }
                 return None
             except Exception as e:

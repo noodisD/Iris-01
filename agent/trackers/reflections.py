@@ -59,6 +59,7 @@ class ReflectionService:
         undated: bool = False,
         entry_sequence: int | None = None,
         import_item_id: int | None = None,
+        content_format: str = "plain",
     ) -> int:
         """Create a new reflection. Returns reflection ID.
 
@@ -66,9 +67,14 @@ class ReflectionService:
         from not passing one — an omitted date means "written now" and is
         filled with today. `entry_sequence` orders undated entries among
         themselves, from an ordering the source stated (ADR-0013).
+
+        A check-in may have no prose. That row is stored and not queued.
         """
-        if not content or not content.strip():
+        content = content or ""
+        if not content.strip() and energy_level is None and not metrics:
             raise ValueError("Reflection content cannot be empty")
+        if content_format not in ("plain", "markdown"):
+            raise ValueError("content_format must be plain or markdown")
 
         if energy_level and not (1 <= energy_level <= 10):
             raise ValueError("Energy level must be between 1 and 10")
@@ -99,12 +105,15 @@ class ReflectionService:
             undated,
             entry_sequence,
             import_item_id,
+            content_format,
         )
 
         # Stored and queued in one commit (Database._queue), so a provider
         # outage delays turning it into evidence instead of losing it. This
-        # asks the worker to start now rather than at its next poll.
-        notify()
+        # asks the worker to start now rather than at its next poll. A
+        # check-in with no prose has no job to wake.
+        if content.strip():
+            notify()
 
         return reflection_id
 
