@@ -204,8 +204,11 @@ proposed; a changed proposition is another idea. This is not a psychological
 engine and is not selectable in Settings (ADR-0021).
 
 **Domain** is one organising category: philosophy, economics, trading, politics,
-ethics, or other. A trading pattern, method, edge, or practice is trading, not
-economics. Economics is how an economy works.
+ethics, learning, or other. A trading pattern, method, edge, or practice is
+trading, not economics. Economics is how an economy works. A skill, a craft, or
+the time mastery takes is learning. A claim about freedom, dependence, or how a
+life should be ordered is philosophy. Other is only for a position that fits
+none of those areas.
 
 **Citation stance** is what that passage expressed: `"endorsed"`,
 `"questioned"`, or `"opposed"`. A check may also answer `"not_stated"`, which

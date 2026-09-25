@@ -6,11 +6,21 @@ import type { ConfirmIdeaBody, IdeaDomain, IdeaPosition } from '@/types/api';
 const fresh = { staleTime: 0, refetchOnMount: 'always' as const, refetchOnWindowFocus: true };
 
 export function useIdeasFramework() {
-  return useQuery({ queryKey: qk.ideasFramework, queryFn: ideasApi.getIdeasFramework, ...fresh });
+  return useQuery({
+    queryKey: qk.ideasFramework,
+    queryFn: ideasApi.getIdeasFramework,
+    ...fresh,
+    refetchInterval: query => query.state.data?.lastRun?.status === 'running' ? 3000 : false,
+  });
 }
 
 export function useIdeaReview() {
-  return useQuery({ queryKey: qk.ideaReview, queryFn: ideasApi.getIdeaReview, ...fresh });
+  return useQuery({
+    queryKey: qk.ideaReview,
+    queryFn: ideasApi.getIdeaReview,
+    ...fresh,
+    refetchInterval: query => query.state.data?.lastRun?.status === 'running' ? 3000 : false,
+  });
 }
 
 export function useIdea(id: string | undefined) {

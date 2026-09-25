@@ -38,9 +38,11 @@ IDEA_READ_PROMPT = (
     "states their own position on it. One occurrence is enough. Do not require the "
     "position to recur. Do not give advice. Do not say what the owner should believe. "
     "For each position return one statement of at most 600 characters, one domain "
-    "(philosophy, economics, trading, politics, ethics, or other), and verbatim quotes. "
+    "(philosophy, economics, trading, politics, ethics, learning, or other), and verbatim quotes. "
     "A trading pattern, method, edge, or practice is trading, not economics. "
-    "Economics is how an economy works. Each "
+    "Economics is how an economy works. A skill, a craft, or the time mastery takes is learning, not other. "
+    "A claim about freedom, dependence, or how a life should be ordered is philosophy, not other. "
+    "Use other only when none of those areas fits. Each "
     "quote must be copied from the named entry and must be at least 16 characters. "
     'Use only entry ids shown to you, with sourceType "reflection". Return JSON only: '
     '{"ideas":[{"statement":"...","domain":"economics","quotes":[{"entryId":12,'

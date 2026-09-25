@@ -435,7 +435,7 @@ export interface ReviewDay {
 export type IdeaStatus = 'candidate' | 'active' | 'rejected';
 export type IdeaPosition = 'exploring' | 'endorsed' | 'opposed';
 export type CitationStance = 'endorsed' | 'questioned' | 'opposed';
-export type IdeaDomain = 'philosophy' | 'economics' | 'trading' | 'politics' | 'ethics' | 'other';
+export type IdeaDomain = 'philosophy' | 'economics' | 'trading' | 'politics' | 'ethics' | 'learning' | 'other';
 export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on';
 export type ReviewStatus = 'candidate' | 'accepted' | 'rejected';
 

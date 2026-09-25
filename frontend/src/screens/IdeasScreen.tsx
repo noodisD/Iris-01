@@ -25,6 +25,7 @@ const DOMAINS: { value: IdeaDomain; label: string }[] = [
   { value: 'trading', label: 'Trading' },
   { value: 'politics', label: 'Politics' },
   { value: 'ethics', label: 'Ethics' },
+  { value: 'learning', label: 'Learning' },
   { value: 'other', label: 'Other' },
 ];
 const STANCE_LABEL: Record<IdeaCitation['stance'], string> = {
@@ -83,17 +84,33 @@ function Selectors({
   onPosition: (value: IdeaPosition) => void;
   onDomain: (value: IdeaDomain) => void;
 }) {
+  const control: React.CSSProperties = {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    background: 'var(--bg-0)',
+    color: 'var(--ink)',
+    border: '1px solid var(--line)',
+    borderRadius: 8,
+    padding: '8px 28px 8px 12px',
+    fontFamily: 'var(--sans)',
+    fontSize: 13,
+    colorScheme: 'dark',
+    backgroundImage: 'linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%)',
+    backgroundPosition: 'right 12px center, right 7px center',
+    backgroundSize: '5px 5px, 5px 5px',
+    backgroundRepeat: 'no-repeat',
+  };
   return (
-    <div className="row" style={{ gap: 8 }}>
-      <label>
-        Position
-        <select value={position} onChange={event => onPosition(event.target.value as IdeaPosition)}>
+    <div className="row" style={{ gap: 20, flexWrap: 'wrap' }}>
+      <label className="col" style={{ gap: 6, minWidth: 160 }}>
+        <span className="kicker">Position</span>
+        <select style={control} value={position} onChange={event => onPosition(event.target.value as IdeaPosition)}>
           {POSITIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
-      <label>
-        Domain
-        <select value={domain} onChange={event => onDomain(event.target.value as IdeaDomain)}>
+      <label className="col" style={{ gap: 6, minWidth: 160 }}>
+        <span className="kicker">Domain</span>
+        <select style={control} value={domain} onChange={event => onDomain(event.target.value as IdeaDomain)}>
           {DOMAINS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
@@ -105,15 +122,17 @@ function QuoteList({ citations }: { citations: IdeaCitation[] }) {
   const dated = citations.filter(citation => citation.entryDate);
   const undated = citations.filter(citation => !citation.entryDate);
   const quote = (citation: IdeaCitation) => (
-    <blockquote key={citation.id} style={{ margin: 0, paddingLeft: 16, borderLeft: '2px solid var(--sage-dim)' }}>
-      <div className="serif" style={{ fontSize: 17 }}>"{citation.text}"</div>
-      <div className="kicker">{STANCE_LABEL[citation.stance]}</div>
-      <div>
-        {citation.entryDate
-          ? `Written on ${formatEventDate(citation.entryDate, DAY_LONG)}`
-          : 'Undated'}
+    <blockquote key={citation.id} style={{ margin: 0, padding: '2px 0 2px 16px', borderLeft: '2px solid var(--sage-dim)' }}>
+      <div className="serif ital" style={{ fontSize: 18, lineHeight: 1.45, color: 'var(--ink)' }}>"{citation.text}"</div>
+      <div className="row" style={{ gap: 12, marginTop: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span className="kicker">{STANCE_LABEL[citation.stance]}</span>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-4)' }}>
+          {citation.entryDate ? `Written on ${formatEventDate(citation.entryDate, DAY_LONG)}` : 'Undated'}
+        </span>
+        <Link to={`/journal?entry=${citation.entryId}`} style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--sage)', textDecoration: 'none' }}>
+          Source
+        </Link>
       </div>
-      <Link to={`/journal?entry=${citation.entryId}`}>Source</Link>
     </blockquote>
   );
   return (
@@ -143,33 +162,41 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
   const isNew = card.idea.status === 'candidate';
 
   return (
-    <article className="card col" style={{ gap: 12, padding: 24 }}>
-      <div className="kicker">Iris restatement of your writing</div>
-      <h3 className="serif" style={{ margin: 0 }}>{card.idea.statement}</h3>
-      <QuoteList citations={card.citations} />
-      <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
+    <article className="card col" style={{ gap: 22, padding: '28px 32px' }}>
+      <div className="col" style={{ gap: 10, maxWidth: 680 }}>
+        <div className="kicker">Iris restatement of your writing</div>
+        <h3 className="serif" style={{ margin: 0, fontSize: 28, lineHeight: 1.15, letterSpacing: '-0.02em' }}>{card.idea.statement}</h3>
+      </div>
+      <div className="col" style={{ gap: 14, maxWidth: 680 }}>
+        <div className="kicker">In your writing</div>
+        <QuoteList citations={card.citations} />
+      </div>
       {isNew && ids.length === 0 && (
-        <p>This proposal no longer has a valid quotation, so it cannot be added.</p>
+        <p style={{ margin: 0, color: 'var(--ink-3)' }}>This proposal no longer has a valid quotation, so it cannot be added.</p>
       )}
       {error && <div role="alert">{failureText(error)}</div>}
-      <div className="row" style={{ gap: 8 }}>
-        {isNew ? (
-          <>
-            <button className="btn primary" disabled={busy || ids.length === 0} onClick={() => confirm.mutate({
-              id: card.idea.id, body: { citationIds: ids, position, domain },
-            })}>Add to framework</button>
-            <button className="btn" disabled={busy} onClick={() => reject.mutate(card.idea.id)}>Dismiss proposal</button>
-          </>
-        ) : (
-          <>
-            <button className="btn primary" disabled={busy} onClick={() => confirm.mutate({
-              id: card.idea.id, body: { citationIds: ids, position, domain },
-            })}>Accept new quotes</button>
-            <button className="btn" disabled={busy} onClick={() => dismissQuotes.mutate({
-              id: card.idea.id, citationIds: ids,
-            })}>Dismiss new quotes</button>
-          </>
-        )}
+      <hr className="hairline" />
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
+        <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
+        <div className="row" style={{ gap: 8 }}>
+          {isNew ? (
+            <>
+              <button className="btn" disabled={busy} onClick={() => reject.mutate(card.idea.id)}>Dismiss proposal</button>
+              <button className="btn primary" disabled={busy || ids.length === 0} onClick={() => confirm.mutate({
+                id: card.idea.id, body: { citationIds: ids, position, domain },
+              })}>Add to framework</button>
+            </>
+          ) : (
+            <>
+              <button className="btn" disabled={busy} onClick={() => dismissQuotes.mutate({
+                id: card.idea.id, citationIds: ids,
+              })}>Dismiss new quotes</button>
+              <button className="btn primary" disabled={busy} onClick={() => confirm.mutate({
+                id: card.idea.id, body: { citationIds: ids, position, domain },
+              })}>Accept new quotes</button>
+            </>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -217,7 +244,7 @@ function Discovery() {
   );
 }
 
-function FrameworkView({ data }: { data: IdeasFramework }) {
+function FrameworkView({ data, waiting }: { data: IdeasFramework; waiting: number }) {
   const [query, setQuery] = React.useState('');
   const [domain, setDomain] = React.useState<IdeaDomain | ''>('');
   const byId = new Map(data.ideas.map(idea => [idea.id, idea]));
@@ -239,8 +266,12 @@ function FrameworkView({ data }: { data: IdeasFramework }) {
     return (
       <EmptyState
         title="No framework yet."
-        body="Read your reflections to propose ideas. Nothing is added until you accept the quotes."
-        action={<Link to="/journal">Journal</Link>}
+        body={waiting
+          ? `${waiting} proposals are waiting in Review. Nothing is added until you accept the quotes.`
+          : 'Read your reflections to propose ideas. Nothing is added until you accept the quotes.'}
+        action={waiting
+          ? <Link to="/ideas?view=review">Review proposals</Link>
+          : <Link to="/journal">Journal</Link>}
       />
     );
   }
@@ -309,7 +340,7 @@ function ReviewView({ data }: { data: IdeasReview }) {
     return <EmptyState title="Nothing waiting." body="Accepted ideas stay in the framework. New proposals and new quotes wait here." />;
   }
   return (
-    <div className="col" style={{ gap: 16 }}>
+    <div className="col" style={{ gap: 20, maxWidth: 820 }}>
       {data.ideas.map(card => <ReviewCard key={card.idea.id} card={card} />)}
       {data.links.map(link => <LinkCard key={link.id} link={link} />)}
     </div>
@@ -323,9 +354,14 @@ function IdeasIndex() {
   const queue = useIdeaReview();
   const data = review ? queue : framework;
   return (
-    <main className="col" style={{ gap: 20, padding: 28 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <h1 className="serif">Ideas</h1>
+    <main className="col" style={{ gap: 28, padding: '40px 48px 72px', maxWidth: 980 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div className="col" style={{ gap: 8 }}>
+          <div className="kicker">ideas · positions in your writing</div>
+          <h1 className="serif" style={{ margin: 0, fontSize: 48, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
+            {review ? <>Waiting<br /><span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>on you.</span></> : 'Ideas'}
+          </h1>
+        </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn" onClick={() => setParams({})}>Framework</button>
           <button className="btn" onClick={() => setParams({ view: 'review' })}>Review</button>
@@ -337,7 +373,7 @@ function IdeasIndex() {
       {data.isError && <ErrorState onRetry={() => data.refetch()} />}
       {data.data && (review
         ? <ReviewView data={data.data as IdeasReview} />
-        : <FrameworkView data={data.data as IdeasFramework} />)}
+        : <FrameworkView data={data.data as IdeasFramework} waiting={queue.data?.ideas.length ?? 0} />)}
     </main>
   );
 }
