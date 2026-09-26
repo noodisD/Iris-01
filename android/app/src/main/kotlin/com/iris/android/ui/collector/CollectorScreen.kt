@@ -240,6 +240,15 @@ fun CollectorScreen(onBack: () -> Unit) {
                     context.getSystemService(LocationManager::class.java))) {
                 Text("Location is turned off on this phone")
             }
+            val autoResume = refresh.let { com.iris.android.backgroundLocationGranted(context) }
+            Text("Resume after a restart or update: ${if (autoResume) "automatic (location allowed all the time)" else "tap Start each time"}")
+            if (locationGranted && !autoResume) {
+                // Android shows this as a choice in Settings, never as a dialog:
+                // the owner picks "Allow all the time" there.
+                TextButton(onClick = {
+                    runtimePermissions.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+                }) { Text("Allow location all the time") }
+            }
             Text("Phone steps: ${if (!stepCounterAvailable) "no step counter on this phone" else if (activityGranted) "allowed" else "permission needed"}")
             Text("Step counts are increments observed while IRIS runs, not full-day totals.")
             Button(onClick = {
