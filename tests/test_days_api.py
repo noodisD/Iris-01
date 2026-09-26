@@ -166,3 +166,95 @@ def test_date_only_step_counts_stay_on_the_owner_calendar_day(test_user):
         if batch_id is not None:
             SensorRepository().delete_batch(batch_id)
         app.dependency_overrides.clear()
+
+
+def _timeline(client, segments: list[dict]) -> list[int]:
+    response = client.post(
+        "/api/sensors/import/google-timeline",
+        files={"file": ("timeline.json", json.dumps({"semanticSegments": segments}), "application/json")},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["batches"]
+
+
+def _cleanup(staged: list[int]) -> None:
+    repo = SensorRepository()
+    for batch_id in staged:
+        if repo.get_batch(batch_id) is not None:
+            repo.delete_batch(batch_id)
+
+
+def test_recomputing_one_day_still_sees_a_visit_that_began_the_day_before(test_user):
+    """Only readings near the wanted days are loaded; one that spans into them counts."""
+    client = _client(test_user["id"])
+    staged: list[int] = []
+    try:
+        staged = _timeline(client, [
+            {"startTime": "2043-05-01T20:00:00Z", "endTime": "2043-05-02T14:00:00Z",
+             "visit": {"topCandidate": {"semanticType": "HOME", "placeLocation": {"latLng": "0.0°, 0.0°"}}}},
+        ])
+        client.post("/api/places", json={"name": "Home", "kind": "home", "lat": 0.0, "lon": 0.0, "radiusM": 300})
+        client.post("/api/sensors/confirm-range", json={"start": "2043-05-01", "end": "2043-05-02", "links": {}})
+        whole = {d["day"]: d["homeMinutes"] for d in list_days(test_user["id"]) if d["day"].startswith("2043-05")}
+        recompute(test_user["id"], [date(2043, 5, 2)])
+        again = {d["day"]: d["homeMinutes"] for d in list_days(test_user["id"]) if d["day"].startswith("2043-05")}
+        assert again == whole and whole.get("2043-05-02", 0) > 0
+    finally:
+        _cleanup(staged)
+        app.dependency_overrides.clear()
+
+
+def test_a_failed_range_confirmation_still_rebuilds_the_days_it_confirmed(test_user, monkeypatch):
+    client = _client(test_user["id"])
+    staged: list[int] = []
+    try:
+        staged = _timeline(client, [
+            {"startTime": "2044-06-01T08:00:00Z", "endTime": "2044-06-01T18:00:00Z",
+             "visit": {"topCandidate": {"semanticType": "HOME", "placeLocation": {"latLng": "0.0°, 0.0°"}}}},
+            {"startTime": "2044-06-02T08:00:00Z", "endTime": "2044-06-02T18:00:00Z",
+             "visit": {"topCandidate": {"semanticType": "HOME", "placeLocation": {"latLng": "0.0°, 0.0°"}}}},
+        ])
+        assert len(staged) == 2
+        from agent.sensors.repository import SensorBatchChanged
+        from agent.sensors.service import SensorService
+        real = SensorService.commit_batch
+        calls = {"n": 0}
+
+        def second_fails(self, batch_id, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise SensorBatchChanged("changed under review")
+            return real(self, batch_id, **kwargs)
+
+        monkeypatch.setattr(SensorService, "commit_batch", second_fails)
+        response = client.post("/api/sensors/confirm-range", json={"start": "2044-06-01", "end": "2044-06-02", "links": {}})
+        assert response.status_code == 409
+        assert any(day["day"] == "2044-06-01" for day in list_days(test_user["id"]))
+    finally:
+        monkeypatch.undo()
+        _cleanup(staged)
+        app.dependency_overrides.clear()
+
+
+def test_deleting_a_batch_removes_only_its_days(test_user):
+    client = _client(test_user["id"])
+    staged: list[int] = []
+    try:
+        staged = _timeline(client, [
+            {"startTime": "2045-07-01T08:00:00Z", "endTime": "2045-07-01T18:00:00Z",
+             "visit": {"topCandidate": {"semanticType": "HOME", "placeLocation": {"latLng": "0.0°, 0.0°"}}}},
+            {"startTime": "2045-07-09T08:00:00Z", "endTime": "2045-07-09T18:00:00Z",
+             "visit": {"topCandidate": {"semanticType": "HOME", "placeLocation": {"latLng": "0.0°, 0.0°"}}}},
+        ])
+        client.post("/api/sensors/confirm-range", json={"start": "2045-07-01", "end": "2045-07-09", "links": {}})
+        first = staged[0]
+
+        def days():
+            return {d["day"] for d in list_days(test_user["id"]) if d["day"].startswith("2045-07")}
+
+        assert days() == {"2045-07-01", "2045-07-09"}
+        assert client.delete(f"/api/sensors/batches/{first}").status_code == 200
+        assert len(days()) == 1
+    finally:
+        _cleanup(staged)
+        app.dependency_overrides.clear()

@@ -584,8 +584,10 @@ def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm, request: Re
             batch_id, links=payload.links, user_id=user_id,
             expected_observation_count=payload.observation_count,
         )
-        from agent.days.recompute import recompute
-        recompute(user_id)
+        from agent.days.recompute import batch_days, recompute
+        days = batch_days(user_id, batch_id)
+        if days:
+            recompute(user_id, days)
     except SensorBatchChanged as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -600,9 +602,9 @@ def reject_sensor_batch(batch_id: int, request: Request, user_id: int = Depends(
     repo = SensorRepository()
     _reviewable_batch(request, repo.get_batch(batch_id))
     try:
+        # Only a pending batch can be rejected, and pending readings never
+        # reach a day, so there is nothing to recompute.
         repo.reject_batch(batch_id)
-        from agent.days.recompute import recompute
-        recompute(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return repo.get_batch(batch_id)
@@ -614,9 +616,11 @@ def delete_sensor_batch(batch_id: int, request: Request, user_id: int = Depends(
 
     repo = SensorRepository()
     _reviewable_batch(request, repo.get_batch(batch_id))
+    from agent.days.recompute import batch_days, recompute
+    days = batch_days(user_id, batch_id)  # before the readings go with the batch
     repo.delete_batch(batch_id)
-    from agent.days.recompute import recompute
-    recompute(user_id)
+    if days:
+        recompute(user_id, days)
     return {"status": "deleted"}
 
 
@@ -671,26 +675,33 @@ async def import_google_timeline(file: UploadFile, user_id: int = Depends(get_cu
 @app.post("/api/sensors/confirm-range")
 def confirm_sensor_range(body: ConfirmRange, user_id: int = Depends(get_current_user_id)):
     """Confirm every pending Timeline batch in the range, one commit_batch each."""
-    from agent.days.recompute import recompute
+    from agent.days.recompute import batch_days, recompute
     from agent.sensors.repository import SensorBatchChanged, SensorRepository
     from agent.sensors.service import SensorService
     if body.end < body.start:
         raise HTTPException(status_code=400, detail="range is backwards")
     repo = SensorRepository()
     service = SensorService()
-    confirmed = []
-    for batch in repo.pending_between("google_timeline", body.start, body.end):
-        try:
-            service.commit_batch(
-                batch["id"], links=body.links, user_id=user_id,
-                expected_observation_count=batch["observation_count"],
-            )
-        except SensorBatchChanged as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        confirmed.append(batch["id"])
-    recompute(user_id, None)
+    confirmed: list[int] = []
+    touched: set = set()
+    try:
+        for batch in repo.pending_between("google_timeline", body.start, body.end):
+            try:
+                service.commit_batch(
+                    batch["id"], links=body.links, user_id=user_id,
+                    expected_observation_count=batch["observation_count"],
+                )
+            except SensorBatchChanged as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            confirmed.append(batch["id"])
+            touched.update(batch_days(user_id, batch["id"]))
+    finally:
+        # Batches confirmed before a failure stay confirmed, so their days
+        # are rebuilt either way rather than left stale.
+        if touched:
+            recompute(user_id, sorted(touched))
     return {"confirmed": confirmed}
 
 

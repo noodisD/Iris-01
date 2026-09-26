@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -28,7 +28,10 @@ def recompute(user_id: int, days: list[date] | None = None) -> list[date]:
         for row in list_places(user_id)
     ]
     overrides = {row["package"]: row["category"] for row in list_categories(user_id)}
-    rows = _confirmed(user_id)
+    # Only the readings that can touch the wanted days are loaded: a batch
+    # confirmation used to reload every confirmed reading ever kept.
+    window = (min(wanted), max(wanted)) if wanted else None
+    rows = _confirmed(user_id, window)
     by_day = _group(rows, zone, wanted)
     if wanted is None:
         with db.connection() as conn, conn.cursor() as cur:
@@ -103,10 +106,24 @@ def _zone(user_id: int) -> ZoneInfo:
     return _host_zone()
 
 
-def _confirmed(user_id: int) -> list[dict]:
+#: Slack around a window, in days: a reading's local day can differ from its
+#: UTC instant by one day either way, and a visit may start the day before.
+_WINDOW_SLACK = timedelta(days=2)
+
+
+def _confirmed(user_id: int, window: tuple[date, date] | None = None) -> list[dict]:
+    """Confirmed readings, all of them or only those that can reach `window`."""
     # Older, untagged batches belong to the single local owner. New reviews
     # record their owner so other users in the database never inherit a day.
     legacy_owner = user_id == db.local_user_id()
+    where, params = "", []
+    if window is not None:
+        first, last = window[0] - _WINDOW_SLACK, window[1] + _WINDOW_SLACK
+        lo = datetime.combine(first, time.min, tzinfo=UTC)
+        hi = datetime.combine(last + timedelta(days=1), time.min, tzinfo=UTC)
+        where = """ AND ((o.occurred_date BETWEEN %s AND %s)
+                         OR (o.occurred_at < %s AND COALESCE(o.ended_at, o.occurred_at) >= %s))"""
+        params = [first, last, hi, lo]
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """SELECT o.source_type, o.occurred_at, o.ended_at, o.value_num, o.value_text,
@@ -115,8 +132,8 @@ def _confirmed(user_id: int) -> list[dict]:
                  JOIN sensor_batches b ON b.id = o.batch_id
                 WHERE b.status = 'confirmed'
                   AND (b.parsed_payload ->> 'day_owner_user_id' = %s
-                       OR (b.parsed_payload ->> 'day_owner_user_id' IS NULL AND %s))""",
-            (str(user_id), legacy_owner),
+                       OR (b.parsed_payload ->> 'day_owner_user_id' IS NULL AND %s))""" + where,
+            (str(user_id), legacy_owner, *params),
         )
         keys = ("source_type", "occurred_at", "ended_at", "value_num", "value_text",
                 "lat", "lon", "accuracy_m", "detail", "occurred_date")
@@ -270,3 +287,15 @@ def _day(row: tuple) -> dict:
         "sleepMinutes": row[10],
         "locationCoverage": row[11],
     }
+
+
+def batch_days(user_id: int, batch_id: int) -> list[date]:
+    """The local days one batch's readings fall on: what confirming or deleting
+    it can change. Read before a delete, since the readings go with the batch."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT source_type, occurred_at, ended_at, occurred_date
+                 FROM sensor_observations WHERE batch_id = %s""", (batch_id,))
+        keys = ("source_type", "occurred_at", "ended_at", "occurred_date")
+        rows = [dict(zip(keys, row)) for row in cur.fetchall()]
+    return sorted(_group(rows, _zone(user_id), None))
