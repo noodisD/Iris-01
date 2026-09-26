@@ -7,24 +7,25 @@ const COMMANDS: { label: string; title: string; command: Command }[] = [
   { label: 'H1', title: 'Heading 1', command: heading(1) },
   { label: 'H2', title: 'Heading 2', command: heading(2) },
   { label: 'H3', title: 'Heading 3', command: heading(3) },
-  { label: '•', title: 'Bullet', command: bullet },
-  { label: '☑', title: 'Checklist', command: checklist },
-  { label: '❝', title: 'Quote', command: quote },
+  { label: '• List', title: 'Bullet', command: bullet },
+  { label: '[ ] Task', title: 'Checklist', command: checklist },
+  { label: '“ Quote', title: 'Quote', command: quote },
 ];
 
 export function EditorToolbar({ onCommand }: { onCommand: (command: Command) => void }) {
   return (
-    <div className="row" role="toolbar" aria-label="formatting" style={{ gap: 6, flexWrap: 'wrap' }}>
+    <div className="row" role="toolbar" aria-label="formatting"
+      style={{ gap: 2, flexWrap: 'wrap', padding: '6px 8px', borderBottom: '1px solid var(--line-soft)' }}>
       {COMMANDS.map(item => (
         <button
           key={item.title}
           type="button"
-          className="btn"
+          className="btn ghost"
           title={item.title}
           aria-label={item.title}
           onMouseDown={event => event.preventDefault()}
           onClick={() => onCommand(item.command)}
-          style={{ minWidth: 36, fontFamily: 'var(--mono)', fontSize: 12 }}
+          style={{ minWidth: 34, padding: '4px 9px', fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--ink-2)' }}
         >
           {item.label}
         </button>

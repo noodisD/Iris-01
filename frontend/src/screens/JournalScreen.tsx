@@ -9,6 +9,8 @@ import { formatEventDate } from '@/lib/dates';
 import { CheckinPicker, emptyCheckin } from '@/components/journal/CheckinPicker';
 import type { CheckinValues } from '@/components/journal/CheckinPicker';
 import { EditorToolbar } from '@/components/journal/EditorToolbar';
+// Also in MarkdownEditor, which is loaded lazily; kept here so the fallback needs no editor code.
+const JOURNAL_PLACEHOLDER = 'Write about your day…   **bold**  # heading  - list  - [ ] task  > quote';
 import { MarkdownView } from '@/components/journal/MarkdownView';
 import { commandFor } from '@/components/journal/markdownCommands';
 import type { Command } from '@/components/journal/markdownCommands';
@@ -124,6 +126,7 @@ export function JournalScreen() {
       ref={fallbackRef}
       aria-label="journal entry"
       value={text}
+      placeholder={JOURNAL_PLACEHOLDER}
       onChange={event => setText(event.target.value)}
       onSelect={event => setSelection({
         start: event.currentTarget.selectionStart,
@@ -166,10 +169,11 @@ export function JournalScreen() {
           </button>
         </div>
         <CheckinPicker value={checkin} onChange={setCheckin} />
-        <div style={{ marginTop: 14 }}>
+        {/* One visible pane: its toolbar along the top edge, the page to write on
+            below. Without a surface of its own the editor read as empty space. */}
+        <div className="journal-pane col" style={{ flex: 1, minHeight: 320, marginTop: 16 }}>
           <EditorToolbar onCommand={apply} />
-        </div>
-        <div style={{ flex: 1, minHeight: 280, marginTop: 8 }}>
+          <div style={{ flex: 1, minHeight: 280, padding: '14px 22px 0' }}>
           <EditorBoundary fallback={fallback}>
             <React.Suspense fallback={fallback}>
               <MarkdownEditor
@@ -180,6 +184,7 @@ export function JournalScreen() {
               />
             </React.Suspense>
           </EditorBoundary>
+          </div>
         </div>
         {saveError && (
           <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>

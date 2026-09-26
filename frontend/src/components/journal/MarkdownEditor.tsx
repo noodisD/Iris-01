@@ -3,9 +3,12 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { bold, bullet, checklist, h1, h2, h3, italic, quote, type Command } from './markdownCommands';
+
+/** Shown in the empty pane: where to write, and that Markdown works. */
+export const JOURNAL_PLACEHOLDER = 'Write about your day…   **bold**  # heading  - list  - [ ] task  > quote';
 
 const highlight = HighlightStyle.define([
   { tag: tags.heading1, fontWeight: '700', fontSize: '1.7em' },
@@ -70,6 +73,7 @@ export function MarkdownEditor({
           markdown(),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
+          placeholder(JOURNAL_PLACEHOLDER),
           EditorView.theme({
             '&': { height: '100%', background: 'transparent', color: 'var(--ink)' },
             '.cm-scroller': {
@@ -82,6 +86,7 @@ export function MarkdownEditor({
             '&.cm-focused': { outline: 'none' },
             '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--sage)' },
             '.cm-gutters': { display: 'none' },
+            '.cm-placeholder': { color: 'var(--ink-4)', fontStyle: 'italic' },
           }),
           EditorView.updateListener.of(update => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());

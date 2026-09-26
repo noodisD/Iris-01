@@ -111,6 +111,11 @@ a { color: var(--sage); text-decoration: none; }
 a:hover { text-decoration: underline; }
 a:focus-visible { outline: 1px solid var(--sage); outline-offset: 2px; border-radius: 2px; }
 
+/* The journal's writing pane: a surface of its own, lit while you type. */
+.journal-pane { background: var(--bg-1); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.journal-pane:focus-within { border-color: var(--sage-dim); }
+.journal-pane textarea::placeholder { color: var(--ink-4); font-style: italic; }
+
 /* Card */
 .card {
   background: var(--bg-2);
