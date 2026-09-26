@@ -132,6 +132,15 @@ class MobileAuthMiddleware:
             # never addresses a real TCP peer can present.
             local_client = client_host in {"testclient", "testserver"}
 
+        # Place coordinates and Timeline exports stay on the laptop. A paired
+        # phone may read coordinate-free day summaries, not these owner routes.
+        path = scope.get("path", "")
+        if (scope["type"] == "http" and
+                (scope.get("iris_tailnet") or scope.get("iris_lan") or not local_client) and
+                (path == "/api/places" or path.startswith("/api/places/")
+                 or path == "/api/sensors/import/google-timeline")):
+            await self._reject(send, 404, "not found")
+            return
         if scope.get("iris_tailnet"):
             await self._tailnet(scope, receive, send)
             return

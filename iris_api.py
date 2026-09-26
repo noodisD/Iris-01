@@ -573,6 +573,8 @@ def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm,
             batch_id, links=payload.links, user_id=user_id,
             expected_observation_count=payload.observation_count,
         )
+        from agent.days.recompute import recompute
+        recompute(user_id)
     except SensorBatchChanged as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
@@ -589,6 +591,8 @@ def reject_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_i
         raise HTTPException(status_code=404, detail="Batch not found")
     try:
         repo.reject_batch(batch_id)
+        from agent.days.recompute import recompute
+        recompute(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return repo.get_batch(batch_id)
@@ -602,7 +606,158 @@ def delete_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_i
     if repo.get_batch(batch_id) is None:
         raise HTTPException(status_code=404, detail="Batch not found")
     repo.delete_batch(batch_id)
+    from agent.days.recompute import recompute
+    recompute(user_id)
     return {"status": "deleted"}
+
+
+MAX_TIMELINE_UPLOAD_BYTES = 80 * 1024 ** 2
+
+
+class ConfirmRange(BaseModel):
+    start: date
+    end: date
+    links: dict[str, int | None] = Field(default_factory=dict)
+
+
+class PlaceBody(BaseModel):
+    name: str
+    kind: Literal["home", "office", "other"]
+    lat: float
+    lon: float
+    radiusM: int = 150
+    source: Literal["owner", "timeline"] = "owner"
+
+
+class CategoryBody(BaseModel):
+    package: str
+    category: str
+
+
+def _no_coordinates(value: object) -> None:
+    banned = {"lat", "lon", "latitude", "longitude", "coordinates"}
+    if isinstance(value, dict):
+        if banned & set(value):
+            raise HTTPException(status_code=500, detail="day features must not include coordinates")
+        for item in value.values():
+            _no_coordinates(item)
+    elif isinstance(value, list):
+        for item in value:
+            _no_coordinates(item)
+
+
+@app.post("/api/sensors/import/google-timeline")
+async def import_google_timeline(file: UploadFile, user_id: int = Depends(get_current_user_id)):
+    """Stage a Timeline export. Coordinates stay in the sensor tables."""
+    raw = await file.read(MAX_TIMELINE_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_TIMELINE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="timeline export is too large")
+    from agent.sensors.timeline import stage_export
+    try:
+        return stage_export(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sensors/confirm-range")
+def confirm_sensor_range(body: ConfirmRange, user_id: int = Depends(get_current_user_id)):
+    """Confirm every pending Timeline batch in the range, one commit_batch each."""
+    from agent.days.recompute import recompute
+    from agent.sensors.repository import SensorBatchChanged, SensorRepository
+    from agent.sensors.service import SensorService
+    if body.end < body.start:
+        raise HTTPException(status_code=400, detail="range is backwards")
+    repo = SensorRepository()
+    service = SensorService()
+    confirmed = []
+    for batch in repo.pending_between("google_timeline", body.start, body.end):
+        try:
+            service.commit_batch(
+                batch["id"], links=body.links, user_id=user_id,
+                expected_observation_count=batch["observation_count"],
+            )
+        except SensorBatchChanged as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        confirmed.append(batch["id"])
+    recompute(user_id, None)
+    return {"confirmed": confirmed}
+
+
+@app.get("/api/places")
+def list_places(user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import list_places as _list
+    return {"places": _list(user_id)}
+
+
+@app.get("/api/places/suggestions")
+def suggest_places(user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import suggest_from_timeline
+    return suggest_from_timeline(user_id)
+
+
+@app.post("/api/places")
+def create_place(body: PlaceBody, user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import create_place as _create
+    from agent.days.recompute import recompute
+    try:
+        place = _create(user_id, name=body.name, kind=body.kind, lat=body.lat, lon=body.lon,
+                        radius_m=body.radiusM, source=body.source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    recompute(user_id)
+    return place
+
+
+@app.patch("/api/places/{place_id}")
+def update_place(place_id: int, body: PlaceBody, user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import update_place as _update
+    from agent.days.recompute import recompute
+    try:
+        place = _update(user_id, place_id, name=body.name, kind=body.kind, lat=body.lat,
+                        lon=body.lon, radius_m=body.radiusM)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if place is None:
+        raise HTTPException(status_code=404, detail="place not found")
+    recompute(user_id)
+    return place
+
+
+@app.delete("/api/places/{place_id}")
+def delete_place(place_id: int, user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import remove_place
+    from agent.days.recompute import recompute
+    if not remove_place(user_id, place_id):
+        raise HTTPException(status_code=404, detail="place not found")
+    recompute(user_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/app-categories")
+def list_app_categories(user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import list_categories
+    return {"categories": list_categories(user_id)}
+
+
+@app.put("/api/app-categories")
+def put_app_category(body: CategoryBody, user_id: int = Depends(get_current_user_id)):
+    from agent.days.places import set_category
+    from agent.days.recompute import recompute
+    if not body.package.strip() or not body.category.strip():
+        raise HTTPException(status_code=400, detail="package and category are required")
+    set_category(user_id, body.package, body.category)
+    recompute(user_id)
+    return {"package": body.package.strip(), "category": body.category.strip()}
+
+
+@app.get("/api/days")
+def list_day_features(user_id: int = Depends(get_current_user_id)):
+    from agent.days.recompute import list_days
+    body = {"days": list_days(user_id)}
+    _no_coordinates(body)
+    return body
 
 
 @app.post("/api/chat/greeting")

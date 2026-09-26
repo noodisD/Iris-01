@@ -7,6 +7,7 @@ from typing import Any
 
 from agent.constants import MAX_SENSOR_OCCURRENCES_PER_DAY_PER_THEME
 from agent.database import db
+from psycopg2.extras import Json
 
 from .adapters import describe_observation, has_essential_measurement, to_timestamp
 
@@ -135,14 +136,17 @@ class SensorRepository:
             cur.execute(
                 """INSERT INTO sensor_observations
                        (batch_id, source_type, occurred_at, occurred_date,
-                        value_num, value_text, lat, lon, payload_hash)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        value_num, value_text, lat, lon, payload_hash,
+                        accuracy_m, ended_at, detail)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (batch_id, payload_hash) DO NOTHING
                    RETURNING id""",
                 (batch_id, obs["source_type"], occurred_at,
                  occurred_at.date() if occurred_at else None,
                  obs.get("value_num"), obs.get("value_text"),
-                 obs.get("lat"), obs.get("lon"), obs["payload_hash"]),
+                 obs.get("lat"), obs.get("lon"), obs["payload_hash"],
+                 obs.get("accuracy_m"), to_timestamp(obs.get("ended_at")) if obs.get("ended_at") else None,
+                 Json(obs["detail"]) if obs.get("detail") else None),
             )
             inserted = cur.fetchone()
             if inserted is None:
@@ -159,8 +163,9 @@ class SensorRepository:
 
         cur.execute(
             """UPDATE sensor_batches SET status = 'confirmed',
-                      confirmed_at = clock_timestamp(), theme_links = %s
-               WHERE id = %s""", (json.dumps(selected), batch_id))
+                      confirmed_at = clock_timestamp(), theme_links = %s,
+                      parsed_payload = jsonb_set(parsed_payload, '{day_owner_user_id}', to_jsonb(%s::integer))
+               WHERE id = %s""", (json.dumps(selected), user_id, batch_id))
         touched: set[int] = set()
         for source_type, theme_id in sorted(selected.items()):
             for day in sorted(dated_by_source.get(source_type, ())):
@@ -278,6 +283,21 @@ class SensorRepository:
                    FROM sensor_batches b WHERE b.id = %s""", (batch_id,))
             row = cur.fetchone()
             return self._batch_dict(row) if row else None
+
+    def pending_between(self, source: str, start: date, end: date) -> list[dict[str, Any]]:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, observation_count, review_day
+                     FROM sensor_batches
+                    WHERE source = %s AND status = 'pending'
+                      AND review_day BETWEEN %s AND %s
+                    ORDER BY review_day, id""",
+                (source, start, end),
+            )
+            return [
+                {"id": row[0], "observation_count": row[1], "review_day": row[2]}
+                for row in cur.fetchall()
+            ]
 
     def list_batches(self, limit: int = 50) -> list[dict[str, Any]]:
         """List review metadata without loading every parsed reading."""

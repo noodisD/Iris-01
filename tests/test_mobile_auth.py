@@ -112,6 +112,22 @@ class MiddlewareTests(unittest.TestCase):
             _, called = _run_middleware(mw, scope)
             self.assertTrue(called)
 
+    def test_place_coordinates_are_not_available_on_the_phone_door(self):
+        mw = self._build_middleware()
+        with self._patched_settings():
+            for method, path in (("GET", "/api/places"), ("GET", "/api/places/suggestions"),
+                                 ("GET", "/api/places/1"), ("POST", "/api/sensors/import/google-timeline")):
+                scope = {"type": "http", "client": ("192.168.1.42", 12345),
+                         "method": method, "headers": [(b"authorization", b"Bearer secret-token")],
+                         "path": path}
+                sent, called = _run_middleware(mw, scope)
+                self.assertFalse(called, path)
+                self.assertEqual(sent[0]["status"], 404, path)
+            scope = {"type": "http", "client": ("127.0.0.1", 12345),
+                     "method": "GET", "headers": [], "path": "/api/places"}
+            _, called = _run_middleware(mw, scope)
+            self.assertTrue(called)
+
     def test_lan_request_with_wrong_bearer_is_401(self):
         mw = self._build_middleware()
         with self._patched_settings():
@@ -195,6 +211,11 @@ class TailnetDoorTests(unittest.TestCase):
         sent, called = self._run(self._login(self.OWNER) + self._login("guest@example.com"))
         self.assertFalse(called)
         self.assertEqual(sent[0]["status"], 403)
+
+    def test_named_places_stay_on_the_laptop_even_for_the_tailnet_owner(self):
+        sent, called = self._run(self._login(self.OWNER), path="/api/places/suggestions")
+        self.assertFalse(called)
+        self.assertEqual(sent[0]["status"], 404)
 
     def test_nobody_is_let_in_when_no_owner_is_configured(self):
         sent, called = self._run(self._login(self.OWNER), owners="")

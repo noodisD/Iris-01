@@ -36,6 +36,9 @@ def register(source_name: str) -> Callable[[type], type]:
 def describe_observation(obs: dict[str, Any]) -> str:
     """Format an observation into a factual snippet."""
     source_type = obs.get("source_type", "")
+    if source_type.startswith("timeline_"):
+        from .timeline import describe_timeline
+        return describe_timeline(obs) or "Timeline reading"
     if source_type.startswith("pixel_"):
         return PixelAdapter.describe_observation(obs)
     if source_type.startswith("health_connect_"):
@@ -59,6 +62,8 @@ def has_essential_measurement(obs: dict[str, Any]) -> bool:
     if source_type in ("pixel_steps", "health_connect_heart_rate",
                        "health_connect_sleep", "health_connect_spo2"):
         return numeric
+    if source_type in ("timeline_visit", "timeline_activity"):
+        return bool(obs.get("occurred_at"))
     return False
 
 
@@ -149,9 +154,15 @@ class PixelAdapter:
         if tier == "location":
             obs["lat"] = raw.get("lat")
             obs["lon"] = raw.get("lon")
+            accuracy = raw.get("accuracy_m")
+            if isinstance(accuracy, (int, float)) and not isinstance(accuracy, bool):
+                obs["accuracy_m"] = float(accuracy)
         elif tier == "app_usage":
             obs["value_text"] = raw.get("package")
             obs["value_num"] = raw.get("foreground_seconds")
+            category = raw.get("category")
+            if isinstance(category, str) and category.strip():
+                obs["detail"] = {"category": category.strip()}
         elif tier == "steps":
             obs["value_num"] = raw.get("count")
             if raw.get("count_kind") == "observed":
@@ -214,6 +225,14 @@ class HealthConnectAdapter:
         elif tier == "sleep":
             obs["value_num"] = raw.get("total_minutes")
             obs["value_text"] = raw.get("stage_summary")
+            start = raw.get("start_ts")
+            if start:
+                try:
+                    to_timestamp(start)
+                except (TypeError, ValueError):
+                    return None
+                obs["occurred_at"] = start
+                obs["ended_at"] = ts
         elif tier == "spo2":
             obs["value_num"] = raw.get("percent")
         return obs if has_essential_measurement(obs) else None
