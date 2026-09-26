@@ -32,6 +32,9 @@ internal object AppUsageReader {
         val categories = mutableMapOf<String, String>()
         var foreground: String? = null
         var began = fromMillis
+        // System UI "resumes" for the lock screen and always-on display while
+        // the screen is off; nothing then is app use, so nothing is opened.
+        var screenOn = true
         fun close(end: Long) {
             val pkg = foreground ?: return
             val start = began.coerceAtLeast(fromMillis)
@@ -44,14 +47,20 @@ internal object AppUsageReader {
             val timestamp = event.timeStamp
             if (timestamp > untilMillis) break
             when (event.eventType) {
+                UsageEvents.Event.SCREEN_INTERACTIVE -> screenOn = true
                 UsageEvents.Event.ACTIVITY_RESUMED -> {
                     if (foreground != null && timestamp >= fromMillis) close(timestamp)
-                    foreground = event.packageName
-                    began = timestamp.coerceAtLeast(fromMillis)
+                    if (screenOn && event.packageName !in NOT_APP_USE) {
+                        foreground = event.packageName
+                        began = timestamp.coerceAtLeast(fromMillis)
+                    } else {
+                        foreground = null
+                    }
                 }
                 UsageEvents.Event.ACTIVITY_PAUSED,
                 UsageEvents.Event.DEVICE_SHUTDOWN,
                 UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                    if (event.eventType != UsageEvents.Event.ACTIVITY_PAUSED) screenOn = false
                     if (foreground != null &&
                         (event.eventType != UsageEvents.Event.ACTIVITY_PAUSED ||
                             event.packageName == foreground)) {
@@ -64,6 +73,9 @@ internal object AppUsageReader {
         close(untilMillis)
         return readings
     }
+
+    /** The lock screen, shade and home screen: shown, but not an app in use. */
+    val NOT_APP_USE = setOf("com.android.systemui", "com.google.android.apps.nexuslauncher", "com.android.launcher3")
 
     private fun categoryOf(ctx: Context, packageName: String): String {
         val info = try {

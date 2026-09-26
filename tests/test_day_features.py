@@ -248,3 +248,17 @@ def test_app_time_sent_twice_is_counted_once_however_it_was_split():
     )
     assert features["screen_minutes"] == 35
     assert features["screen_by_category"] == {"social": 30, "other": 5}
+
+
+def test_the_lock_screen_and_home_screen_are_not_screen_time():
+    """System UI is reported as resumed while the screen is off, all night."""
+    t = datetime(2026, 1, 2, 0, 30, tzinfo=UTC)
+    features = compute_day(
+        day=DAY, zone=ZONE, places=[], fixes=[], visits=[], activities=[],
+        usage=[Usage("com.android.systemui", 8 * 3600, None, t),
+               Usage("com.google.android.apps.nexuslauncher", 600, None, t + timedelta(hours=9)),
+               Usage("com.example.chat", 1200, "social", t + timedelta(hours=10))],
+        sleep=[], steps=[], overrides=None,
+    )
+    assert features["screen_minutes"] == 20
+    assert features["screen_by_category"] == {"social": 20}

@@ -265,16 +265,28 @@ def compute_day(
     }
 
 
+#: Not app use: the lock screen, always-on display and notification shade
+#: (System UI), and the home screen. Android reports System UI as "resumed"
+#: while the screen is off, which counted whole nights as screen time.
+#: Digital Wellbeing leaves them out too.
+NOT_SCREEN_TIME = frozenset({
+    "com.android.systemui",
+    "com.google.android.apps.nexuslauncher",
+    "com.android.launcher3",
+})
+
+
 def _usage_per_package(usage: list[Usage]) -> list[tuple[str, int, str | None]]:
     """Seconds each app was in the foreground, overlapping intervals counted once.
 
     Intervals without a start cannot be matched, so they are added as they are.
+    System screens that are not app use are left out.
     """
     spans: dict[str, list[tuple[datetime, datetime]]] = {}
     loose: dict[str, int] = {}
     category: dict[str, str | None] = {}
     for item in usage:
-        if item.seconds <= 0:
+        if item.seconds <= 0 or item.package in NOT_SCREEN_TIME:
             continue
         category.setdefault(item.package, item.category)
         if item.start is None:
