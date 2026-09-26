@@ -1,0 +1,11 @@
+.group { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.item {
+  font: 500 var(--text-xs) var(--font-ui); color: var(--petal-2); background: transparent;
+  border: 1px solid var(--mist-2); cursor: pointer; transition: background 120ms ease, color 120ms ease;
+}
+.item:hover:not(:disabled) { color: var(--petal); background: var(--dusk-2); }
+.item:disabled { opacity: 0.5; cursor: not-allowed; }
+.pill { padding: 5px 12px; border-radius: var(--radius-pill); }
+.round { width: 30px; height: 30px; border-radius: 50%; padding: 0; font-variant-numeric: tabular-nums; }
+.select[data-state='on'] { background: var(--iris); border-color: var(--iris); color: var(--on-iris); }
+.confirm[data-state='on'] { background: var(--pollen-soft); border-color: var(--pollen); color: var(--pollen); }

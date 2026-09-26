@@ -1,0 +1,7 @@
+.wrap { overflow-x: auto; border: 1px solid var(--mist); border-radius: var(--radius-panel); }
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.table th { text-align: left; font-weight: 500; color: var(--petal-3); padding: 10px 14px; border-bottom: 1px solid var(--mist); white-space: nowrap; }
+.table td { padding: 9px 14px; border-bottom: 1px solid var(--line-soft); color: var(--petal); white-space: nowrap; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: var(--dusk); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }

@@ -1,0 +1,8 @@
+.overlay { position: fixed; inset: 0; background: rgba(6, 6, 14, 0.6); z-index: 40; }
+.content { position: fixed; z-index: 41; background: var(--deep); border: 1px solid var(--mist); padding: var(--space-4) var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); max-height: 85dvh; overflow: auto; }
+.bottom { left: 0; right: 0; bottom: 0; border-radius: var(--radius-panel) var(--radius-panel) 0 0; animation: rise 180ms ease; }
+.left { top: 0; bottom: 0; left: 0; width: min(320px, 86vw); border-radius: 0 var(--radius-panel) var(--radius-panel) 0; }
+.head { display: flex; align-items: center; justify-content: space-between; }
+.title { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.close { background: none; border: none; color: var(--petal-2); cursor: pointer; width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--radius-control); }
+@keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }

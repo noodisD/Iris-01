@@ -1,0 +1,4 @@
+.panel { background: var(--dusk); border: 1px solid var(--mist); border-radius: var(--radius-panel); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.confirmed { border-color: rgba(227, 194, 107, 0.45); }
+.quiet { opacity: 0.6; }
+@media (max-width: 767px) { .panel { padding: var(--space-4); } }

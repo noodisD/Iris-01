@@ -3,8 +3,11 @@
  * Pure presentational: they take data, draw SVG. No data fetching here.
  */
 
+import { Lens } from '@/ui/Lens';
+
+/** The iris lens at one of three sizes. */
 export function Orb({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
-  return <div className={`iris-orb ${size === 'lg' ? 'lg' : size === 'sm' ? 'sm' : ''}`} />;
+  return <Lens size={size === 'lg' ? 56 : size === 'sm' ? 16 : 26} />;
 }
 
 /** Color token resolver: maps 'sage'|'rose'|… to a CSS var, passes through hex. */

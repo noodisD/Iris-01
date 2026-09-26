@@ -26,12 +26,14 @@ export const useIrisStore = create<IrisState>()(
 /** Apply orb CSS variables based on current vibe + active screen. */
 export function applyOrbVibe(vibe: OrbVibe, screenFallback: Exclude<OrbVibe, 'auto'> = 'calm') {
   const effective: Exclude<OrbVibe, 'auto'> = vibe === 'auto' ? screenFallback : vibe;
+  // The lens: inner light, iris, outer ring, glow, breathing rate. All in the
+  // violet family so the one bold element stays one colour story.
   const palettes: Record<Exclude<OrbVibe, 'auto'>, [string, string, string, string, string]> = {
-    calm: ['#d8efd2', '#a9c8a3', '#6f8c6a', 'rgba(169,200,163,0.35)', '4s'],
-    low:  ['#f3d4d4', '#d48a8a', '#a06868', 'rgba(212,138,138,0.40)', '6.5s'],
-    high: ['#f4dcb8', '#d4a374', '#a07a55', 'rgba(212,163,116,0.45)', '2.4s'],
-    cool: ['#dbe0f0', '#9aa3d4', '#6f78a0', 'rgba(154,163,212,0.35)', '5.5s'],
-    dim:  ['#3a3a30', '#2a2a22', '#1a1a14', 'rgba(80,76,64,0.30)',    '7s'],
+    calm: ['#d6d0ff', '#8b7fd6', '#3d3570', 'rgba(139,127,214,0.35)', '4s'],
+    low:  ['#f0cfe0', '#b784b8', '#4f3050', 'rgba(183,132,184,0.35)', '6.5s'],
+    high: ['#f6e6b8', '#c9a2d8', '#5a3f6e', 'rgba(227,194,107,0.30)', '2.4s'],
+    cool: ['#d4dcff', '#7f93dc', '#2f3a6e', 'rgba(127,147,220,0.35)', '5.5s'],
+    dim:  ['#6a6788', '#3f3d5c', '#22213a', 'rgba(80,78,120,0.25)',   '7s'],
   };
   const [a, b, c, g, r] = palettes[effective];
   const root = document.documentElement;

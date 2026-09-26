@@ -1,0 +1,19 @@
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  font: 500 var(--text-sm) var(--font-ui); border-radius: var(--radius-control);
+  border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.md { min-height: 36px; padding: 0 var(--space-4); }
+.sm { min-height: 28px; padding: 0 var(--space-3); font-size: var(--text-xs); }
+.button:disabled { opacity: 0.5; cursor: not-allowed; }
+.primary { background: var(--iris); color: var(--on-iris); }
+.primary:hover:not(:disabled) { background: #9a8fe0; }
+.secondary { background: transparent; color: var(--petal); border-color: var(--mist-2); }
+.secondary:hover:not(:disabled) { background: var(--dusk-2); }
+.quiet { background: transparent; color: var(--petal-2); }
+.quiet:hover:not(:disabled) { background: var(--dusk-2); color: var(--petal); }
+.danger { background: transparent; color: var(--danger); border-color: rgba(224, 140, 140, 0.4); }
+.danger:hover:not(:disabled) { background: rgba(224, 140, 140, 0.1); }
+.icon { width: 36px; min-height: 36px; padding: 0; }
+.button svg { width: 16px; height: 16px; flex-shrink: 0; }

@@ -1,0 +1,18 @@
+.bar { display: none; }
+@media (max-width: 767px) {
+  .bar { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+         background: var(--deep); border-top: 1px solid var(--mist); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+}
+.tab { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; background: none; border: none;
+       color: var(--petal-3); font: 500 11px var(--font-ui); text-decoration: none; cursor: pointer; border-radius: var(--radius-control); }
+.tab:hover { text-decoration: none; color: var(--petal); }
+.active { color: var(--petal); }
+.active svg { color: var(--iris-text); }
+.menu { display: flex; flex-direction: column; gap: var(--space-4); }
+.group { display: flex; flex-direction: column; gap: 6px; }
+.groupLabel { margin: 0; font-size: var(--text-xs); font-weight: 500; color: var(--petal-3); }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.item { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border-radius: var(--radius-control);
+        background: var(--dusk); color: var(--petal-2); font-size: var(--text-xs); text-decoration: none; }
+.item:hover { text-decoration: none; color: var(--petal); }
+.item.active { background: var(--iris-soft); color: var(--petal); }

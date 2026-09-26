@@ -1,4 +1,4 @@
-/** The menu folds to a strip with an arrow, opens again, and remembers which. */
+/** The menu: four groups, folding to an icon rail that keeps every link, remembered. */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,13 +25,21 @@ function memoryStorage() {
 describe('Sidebar', () => {
   beforeEach(() => { vi.stubGlobal('localStorage', memoryStorage()); });
 
-  it('folds to the orb and an arrow, and opens again', () => {
+  it('groups the sections by what you are doing', () => {
+    show();
+    for (const group of ['Write', 'Track', 'Understand', 'Your data']) {
+      expect(screen.getByRole('heading', { name: group })).toBeInTheDocument();
+    }
+  });
+
+  it('folds to an icon rail that keeps every link, and opens again', () => {
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Fold the menu' }));
-    expect(screen.queryByRole('link', { name: 'Insights' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Understand' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Insights' })).toBeInTheDocument();
     expect(screen.getByTestId('orb')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open the menu' }));
-    expect(screen.getByRole('link', { name: 'Insights' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Understand' })).toBeInTheDocument();
   });
 
   it('remembers that it was folded', () => {

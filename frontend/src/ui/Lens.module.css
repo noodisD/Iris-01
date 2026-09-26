@@ -1,0 +1,5 @@
+.lens { flex-shrink: 0; filter: drop-shadow(0 0 8px var(--orb-glow)); }
+.fibres line { stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.6; stroke-linecap: round; }
+.pupil { fill: #0c0b18; transform-origin: 20px 20px; animation: pupil var(--orb-rate) ease-in-out infinite; }
+.glint { fill: rgba(255, 255, 255, 0.55); }
+@keyframes pupil { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.82); } }

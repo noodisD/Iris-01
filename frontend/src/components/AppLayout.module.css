@@ -1,0 +1,8 @@
+.shell { display: flex; height: 100dvh; background: var(--night); overflow: hidden; }
+.desktopNav { display: flex; height: 100%; }
+.main { flex: 1; min-width: 0; overflow: auto; position: relative; }
+@media (max-width: 767px) {
+  .desktopNav { display: none; }
+  /* Room for the bottom bar. */
+  .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+}

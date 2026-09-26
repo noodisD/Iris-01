@@ -1,5 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { PhoneNav } from './PhoneNav';
+import styles from './AppLayout.module.css';
 import { LoadingState } from './states';
 import { useOnboarding } from '@/hooks/useData';
 
@@ -15,11 +17,12 @@ export function AppLayout() {
   if (onboarding && onboarding.step !== 'done') return <Navigate to="/onboarding" replace />;
 
   return (
-    <div className="app-shell">
-      <Sidebar />
-      <main className="app-main">
+    <div className={styles.shell}>
+      <div className={styles.desktopNav}><Sidebar /></div>
+      <main className={styles.main}>
         <Outlet />
       </main>
+      <PhoneNav />
     </div>
   );
 }
