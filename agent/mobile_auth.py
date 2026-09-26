@@ -138,7 +138,7 @@ class MobileAuthMiddleware:
         if (scope["type"] == "http" and
                 (scope.get("iris_tailnet") or scope.get("iris_lan") or not local_client) and
                 (path == "/api/places" or path.startswith("/api/places/")
-                 or path == "/api/sensors/import/google-timeline")):
+                 or path in {"/api/sensors/import/google-timeline", "/api/sensors/confirm-range"})):
             await self._reject(send, 404, "not found")
             return
         if scope.get("iris_tailnet"):

@@ -2,6 +2,7 @@
 
 import json
 from datetime import date
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -104,6 +105,21 @@ def test_timeline_upload_requires_review_then_confirm_range_builds_days(test_use
         staged = response.json()["batches"]
         assert len(staged) == 1
         assert not any(day["day"] == "2042-04-03" for day in list_days(test_user["id"]))
+        from agent.config import settings
+        from agent.mobile_auth import hash_token
+        from scripts.serve_iris import lan_app
+
+        token = "a" * 64
+        with patch.object(settings, "LAN_BIND_ENABLED", True), patch.object(
+            settings, "MOBILE_BEARER_HASH", hash_token(token)
+        ):
+            phone = TestClient(lan_app, base_url="https://192.168.1.42",
+                               headers={"Authorization": f"Bearer {token}"})
+            assert not any(row["id"] in staged for row in phone.get("/api/sensors/batches").json())
+            assert phone.get(f"/api/sensors/batches/{staged[0]}").status_code == 404
+            assert phone.post(f"/api/sensors/batches/{staged[0]}/confirm",
+                              json={"links": {}, "observation_count": 2}).status_code == 404
+            assert phone.get("/api/days").status_code == 200
         assert client.get("/api/places/suggestions").json() == {"home": None, "office": None}
         response = client.post(
             "/api/sensors/confirm-range",

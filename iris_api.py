@@ -545,29 +545,40 @@ class SensorBatchConfirm(BaseModel):
     links: dict[str, int | None]
     observation_count: int = Field(ge=0)
 
-@app.get("/api/sensors/batches")
-def list_sensor_batches(user_id: int = Depends(get_current_user_id)):
-    """List staged sensor batches."""
-    from agent.sensors.repository import SensorRepository
-    return SensorRepository().list_batches()
+def _remote_sensor_review(request: Request) -> bool:
+    return bool(request.scope.get("iris_lan") or request.scope.get("iris_tailnet"))
 
-@app.get("/api/sensors/batches/{batch_id}")
-def get_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
-    from agent.sensors.repository import SensorRepository
-    batch = SensorRepository().get_batch(batch_id)
-    if not batch:
+
+def _reviewable_batch(request: Request, batch: dict | None) -> dict:
+    # Timeline coordinates arrive by laptop upload; the phone's own Pixel
+    # batches remain reviewable, but imported locations stay on the laptop.
+    if not batch or (batch["source"] == "google_timeline" and _remote_sensor_review(request)):
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
 
+
+@app.get("/api/sensors/batches")
+def list_sensor_batches(request: Request, user_id: int = Depends(get_current_user_id)):
+    """List staged sensor batches without exposing laptop Timeline imports remotely."""
+    from agent.sensors.repository import SensorRepository
+    batches = SensorRepository().list_batches()
+    if _remote_sensor_review(request):
+        return [batch for batch in batches if batch["source"] != "google_timeline"]
+    return batches
+
+@app.get("/api/sensors/batches/{batch_id}")
+def get_sensor_batch(batch_id: int, request: Request, user_id: int = Depends(get_current_user_id)):
+    from agent.sensors.repository import SensorRepository
+    return _reviewable_batch(request, SensorRepository().get_batch(batch_id))
+
 @app.post("/api/sensors/batches/{batch_id}/confirm")
-def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm,
+def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm, request: Request,
                          user_id: int = Depends(get_current_user_id)):
     from agent.sensors.service import SensorService
     from agent.sensors.repository import SensorBatchChanged, SensorRepository
 
     repo = SensorRepository()
-    if repo.get_batch(batch_id) is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
+    _reviewable_batch(request, repo.get_batch(batch_id))
     try:
         SensorService().commit_batch(
             batch_id, links=payload.links, user_id=user_id,
@@ -583,12 +594,11 @@ def confirm_sensor_batch(batch_id: int, payload: SensorBatchConfirm,
 
 
 @app.post("/api/sensors/batches/{batch_id}/reject")
-def reject_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+def reject_sensor_batch(batch_id: int, request: Request, user_id: int = Depends(get_current_user_id)):
     from agent.sensors.repository import SensorRepository
 
     repo = SensorRepository()
-    if repo.get_batch(batch_id) is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
+    _reviewable_batch(request, repo.get_batch(batch_id))
     try:
         repo.reject_batch(batch_id)
         from agent.days.recompute import recompute
@@ -599,12 +609,11 @@ def reject_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_i
 
 
 @app.delete("/api/sensors/batches/{batch_id}")
-def delete_sensor_batch(batch_id: int, user_id: int = Depends(get_current_user_id)):
+def delete_sensor_batch(batch_id: int, request: Request, user_id: int = Depends(get_current_user_id)):
     from agent.sensors.repository import SensorRepository
 
     repo = SensorRepository()
-    if repo.get_batch(batch_id) is None:
-        raise HTTPException(status_code=404, detail="Batch not found")
+    _reviewable_batch(request, repo.get_batch(batch_id))
     repo.delete_batch(batch_id)
     from agent.days.recompute import recompute
     recompute(user_id)

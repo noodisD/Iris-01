@@ -116,7 +116,8 @@ class MiddlewareTests(unittest.TestCase):
         mw = self._build_middleware()
         with self._patched_settings():
             for method, path in (("GET", "/api/places"), ("GET", "/api/places/suggestions"),
-                                 ("GET", "/api/places/1"), ("POST", "/api/sensors/import/google-timeline")):
+                                 ("GET", "/api/places/1"), ("POST", "/api/sensors/import/google-timeline"),
+                                 ("POST", "/api/sensors/confirm-range")):
                 scope = {"type": "http", "client": ("192.168.1.42", 12345),
                          "method": method, "headers": [(b"authorization", b"Bearer secret-token")],
                          "path": path}
