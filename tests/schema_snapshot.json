@@ -71,6 +71,38 @@
         "type": "integer"
       }
     },
+    "day_difference_verdicts": {
+      "note": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "outcome": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "split": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "updated_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "verdict": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      }
+    },
     "day_features": {
       "commute_minutes": {
         "default": "0",
@@ -2315,6 +2347,48 @@
         "type": "n"
       }
     },
+    "day_difference_verdicts": {
+      "day_difference_verdicts_outcome_check": {
+        "definition": "CHECK ((outcome = ANY (ARRAY['energy'::text, 'mood'::text, 'sleep_quality'::text, 'stress'::text, 'focus'::text])))",
+        "type": "c"
+      },
+      "day_difference_verdicts_outcome_not_null": {
+        "definition": "NOT NULL outcome",
+        "type": "n"
+      },
+      "day_difference_verdicts_pkey": {
+        "definition": "PRIMARY KEY (user_id, outcome, split)",
+        "type": "p"
+      },
+      "day_difference_verdicts_split_check": {
+        "definition": "CHECK ((split = ANY (ARRAY['office_home'::text, 'commute'::text, 'steps'::text, 'screen_time'::text, 'social_share'::text, 'sleep'::text])))",
+        "type": "c"
+      },
+      "day_difference_verdicts_split_not_null": {
+        "definition": "NOT NULL split",
+        "type": "n"
+      },
+      "day_difference_verdicts_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "day_difference_verdicts_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "day_difference_verdicts_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "day_difference_verdicts_verdict_check": {
+        "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
+        "type": "c"
+      },
+      "day_difference_verdicts_verdict_not_null": {
+        "definition": "NOT NULL verdict",
+        "type": "n"
+      }
+    },
     "day_features": {
       "day_features_commute_minutes_not_null": {
         "definition": "NOT NULL commute_minutes",
@@ -3871,6 +3945,9 @@
     "conversation_messages": {
       "conversation_messages_pkey": "CREATE UNIQUE INDEX conversation_messages_pkey ON public.conversation_messages USING btree (id)",
       "conversation_messages_user_session_created_idx": "CREATE INDEX conversation_messages_user_session_created_idx ON public.conversation_messages USING btree (user_id, session_id, created_at, id)"
+    },
+    "day_difference_verdicts": {
+      "day_difference_verdicts_pkey": "CREATE UNIQUE INDEX day_difference_verdicts_pkey ON public.day_difference_verdicts USING btree (user_id, outcome, split)"
     },
     "day_features": {
       "day_features_pkey": "CREATE UNIQUE INDEX day_features_pkey ON public.day_features USING btree (user_id, day)"
