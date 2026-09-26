@@ -1,0 +1,19 @@
+.error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+.head { display: flex; flex-direction: column; gap: var(--space-2); }
+.badges { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.span { color: var(--petal-3); font-size: var(--text-xs); }
+.claim { margin: 0; font-family: var(--font-read); font-weight: 450; font-size: var(--text-xl); line-height: 1.25; }
+.quotes { display: flex; flex-direction: column; gap: var(--space-3); }
+.quotesTitle { margin: 0; font-size: var(--text-sm); font-weight: 600; color: var(--petal-2); }
+.quote { margin: 0; padding-left: var(--space-4); border-left: 2px solid var(--iris); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.quote p { margin: 0; font-family: var(--font-read); font-style: italic; font-size: var(--text-md); line-height: 1.55; }
+.uncounted { font-size: var(--text-xs); color: var(--petal-3); }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; border-top: 1px solid var(--mist); padding-top: var(--space-3); }
+.explain { margin: 0; color: var(--petal-3); font-size: var(--text-xs); max-width: 40ch; }
+.actions { display: flex; gap: var(--space-2); }
+.run { margin: 0; color: var(--petal-2); line-height: 1.6; max-width: 72ch; }
+.read { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+.check { display: flex; gap: var(--space-2); align-items: center; color: var(--petal-2); font-size: var(--text-sm); }
+.sends { color: var(--petal-3); font-size: var(--text-xs); }
+.list { display: flex; flex-direction: column; gap: var(--space-4); max-width: 860px; }
+@media (max-width: 767px) { .read { align-items: flex-start; } }

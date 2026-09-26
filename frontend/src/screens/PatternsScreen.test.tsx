@@ -82,7 +82,7 @@ describe('the library', () => {
     const links = within(nav).getAllByRole('link');
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveTextContent('Committed more than could be taken back');
-    expect(links[0]).toHaveTextContent('2 worse · 1 better · rings true');
+    expect(links[0]).toHaveTextContent('2 worse, 1 betterRings true');
     expect(within(nav).queryByText('A quiet pattern')).toBeNull();
     expect(within(nav).getByText('1 more in the library, not yet found in your writing')).toBeInTheDocument();
     expect(screen.getByText('Pick a pattern.')).toBeInTheDocument();
@@ -95,11 +95,11 @@ describe('a pattern', () => {
   it('shows both sides, what else differed, and links each quote to its entry', async () => {
     show('/patterns/big-one');
     const worse = await screen.findByRole('region', { name: 'went worse' });
-    expect(within(worse).getByText('went worse · 2')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'went better' })).getByText('went better · 1')).toBeInTheDocument();
+    expect(within(worse).getByText('Went worse (2)')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'went better' })).getByText('Went better (1)')).toBeInTheDocument();
     const differed = screen.getByRole('region', { name: 'what else differed' });
     expect(within(differed).getByText('Carried on after a setback')).toBeInTheDocument();
-    expect(within(differed).getByText('2 worse · 0 better')).toBeInTheDocument();
+    expect(within(differed).getByText('2 worse, 0 better')).toBeInTheDocument();
     const card = screen.getByRole('article', { name: 'occasion: The seedlings died again' });
     expect(within(card).getByRole('link', { name: 'open entry' })).toHaveAttribute('href', '/journal?entry=31');
   });
@@ -107,8 +107,8 @@ describe('a pattern', () => {
   it('records whether an occasion belongs, and whether the pattern rings true', async () => {
     show('/patterns/big-one');
     const card = await screen.findByRole('article', { name: 'occasion: The tomatoes failed' });
-    fireEvent.click(within(card).getByRole('button', { name: 'not this' }));
-    fireEvent.click(screen.getByRole('button', { name: "doesn't ring true" }));
+    fireEvent.click(within(card).getByRole('radio', { name: 'Not this' }));
+    fireEvent.click(screen.getByRole('radio', { name: "Doesn't ring true" }));
     await waitFor(() => expect(server.occasionVerdicts).toEqual([{ patternId: 'big-one', occasionId: '2', verdict: 'no' }]));
     expect(server.patternVerdicts).toEqual([{ patternId: 'big-one', verdict: 'does_not' }]);
   });

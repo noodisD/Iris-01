@@ -11,9 +11,6 @@ import { describe, expect, it } from 'vitest';
 
 const NOT_YET_MIGRATED = new Set([
   'screens/DecisionsScreen.tsx',
-  'screens/IdeasScreen.tsx',
-  'screens/InsightsScreen.tsx',
-  'screens/PatternsScreen.tsx',
 ]);
 
 // Renderers that take colours as values, not CSS (WebGL): exempt on purpose.

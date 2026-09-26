@@ -6,3 +6,4 @@
   /* Room for the bottom bar. */
   .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
+.main:focus-visible { box-shadow: none; }

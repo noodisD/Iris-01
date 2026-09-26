@@ -19,7 +19,8 @@ export function AppLayout() {
   return (
     <div className={styles.shell}>
       <div className={styles.desktopNav}><Sidebar /></div>
-      <main className={styles.main}>
+      {/* Focusable, so a keyboard can scroll a page with nothing else to focus. */}
+      <main className={styles.main} tabIndex={0}>
         <Outlet />
       </main>
       <PhoneNav />

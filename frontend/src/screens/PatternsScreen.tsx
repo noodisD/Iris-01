@@ -1,9 +1,10 @@
-import React from 'react';
 import { Link, NavLink, useParams } from 'react-router-dom';
 import { useOccasionVerdict, usePattern, usePatterns, usePatternVerdict } from '@/hooks/usePatterns';
 import { LoadingState, ErrorState } from '@/components/states';
 import { formatEventDate } from '@/lib/dates';
 import type { Occasion, OccasionVerdictValue, PatternDetail, PatternSummary, PatternVerdictValue } from '@/types/api';
+import { Badge, ChoiceGroup, Panel } from '@/ui';
+import styles from './PatternsScreen.module.css';
 
 /**
  * Discovery: general patterns from a library, and the occasions in your own
@@ -17,37 +18,22 @@ import type { Occasion, OccasionVerdictValue, PatternDetail, PatternSummary, Pat
  * counts without deleting it.
  */
 
-const mono: React.CSSProperties = {
-  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase',
-};
-
 const PATTERN_VERDICTS: { value: PatternVerdictValue; label: string }[] = [
-  { value: 'rings_true', label: 'rings true' },
-  { value: 'does_not', label: "doesn't ring true" },
-  { value: 'unsure', label: 'unsure' },
+  { value: 'rings_true', label: 'Rings true' },
+  { value: 'does_not', label: "Doesn't ring true" },
+  { value: 'unsure', label: 'Unsure' },
 ];
 const OCCASION_VERDICTS: { value: OccasionVerdictValue; label: string }[] = [
-  { value: 'yes', label: 'this one' },
-  { value: 'no', label: 'not this' },
-  { value: 'unsure', label: 'unsure' },
+  { value: 'yes', label: 'This one' },
+  { value: 'no', label: 'Not this' },
+  { value: 'unsure', label: 'Unsure' },
 ];
-
-function Choice({ pressed, onClick, label, disabled }: { pressed: boolean; onClick: () => void; label: string; disabled?: boolean }) {
-  return (
-    <button aria-pressed={pressed} onClick={onClick} disabled={disabled}
-      style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
-               border: `1px solid ${pressed ? 'var(--sage)' : 'var(--line)'}`,
-               background: pressed ? 'var(--sage)' : 'transparent', color: pressed ? '#14140f' : 'var(--ink-3)' }}>
-      {label}
-    </button>
-  );
-}
 
 function counts(p: PatternSummary): string {
   if (p.occasions === 0) return 'none found';
   const parts = [`${p.tones.worse} worse`, `${p.tones.better} better`];
   if (p.tones.mixed) parts.push(`${p.tones.mixed} mixed`);
-  return parts.join(' · ');
+  return parts.join(', ');
 }
 
 export function PatternsScreen() {
@@ -63,45 +49,40 @@ export function PatternsScreen() {
   const unfound = data.patterns.length - sorted.length;
 
   return (
-    <div className="row" style={{ height: '100%' }}>
-      <nav aria-label="Patterns" style={{ width: 320, flexShrink: 0, borderRight: '1px dashed var(--line)', padding: '32px 20px', overflow: 'auto' }}>
-        <div className="kicker" style={{ marginBottom: 6 }}>patterns · a general library</div>
-        <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Patterns known in general, and how many times each turns up in your own writing.
-        </p>
-        <div className="col" style={{ gap: 2 }}>
+    // On a phone the list and a pattern take turns; side by side from 900px.
+    <div className={`${styles.split} ${id ? styles.showingDetail : ''}`}>
+      <nav aria-label="Patterns" className={styles.list}>
+        <h1 className={styles.listTitle}>Patterns</h1>
+        <p className={styles.listNote}>Patterns known in general, and how often each turns up in your writing.</p>
+        <ul className={styles.items}>
           {sorted.map(p => (
-            <NavLink key={p.id} to={`/patterns/${p.id}`}
-              style={({ isActive }) => ({
-                display: 'block', padding: '8px 10px', borderRadius: 6, textDecoration: 'none',
-                background: isActive ? 'rgba(169,200,163,0.08)' : 'transparent',
-                opacity: p.verdict?.verdict === 'does_not' ? 0.55 : 1,
-              })}>
-              <div style={{ fontSize: 13, color: 'var(--ink)' }}>{p.name}</div>
-              <div style={{ fontSize: 11, color: p.occasions ? 'var(--ink-3)' : 'var(--ink-4)', fontFamily: 'var(--mono)' }}>
-                {counts(p)}{p.verdict ? ` · ${PATTERN_VERDICTS.find(v => v.value === p.verdict!.verdict)?.label}` : ''}
-              </div>
-            </NavLink>
+            <li key={p.id}>
+              <NavLink to={`/patterns/${p.id}`}
+                className={({ isActive }) => `${styles.item} ${isActive ? styles.active : ''} ${p.verdict?.verdict === 'does_not' ? styles.dimmed : ''}`}>
+                <span className={styles.itemName}>{p.name}</span>
+                <span className={styles.itemMeta}>
+                  {counts(p)}
+                  {p.verdict && <Badge tone={p.verdict.verdict === 'rings_true' ? 'confirmed' : 'neutral'}>
+                    {PATTERN_VERDICTS.find(v => v.value === p.verdict!.verdict)?.label}
+                  </Badge>}
+                </span>
+              </NavLink>
+            </li>
           ))}
-        </div>
-        {unfound > 0 && (
-          <p style={{ margin: '18px 10px 0', fontSize: 11, color: 'var(--ink-4)', fontFamily: 'var(--mono)' }}>
-            {unfound} more in the library, not yet found in your writing
-          </p>
-        )}
+        </ul>
+        {unfound > 0 && <p className={styles.unfound}>{unfound} more in the library, not yet found in your writing</p>}
       </nav>
-      <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '32px 48px 40px' }}>
+      <div className={styles.detail}>
         {id ? <PatternView id={id} /> : (
-          <div className="col" style={{ gap: 10, maxWidth: 560 }}>
-            <div className="kicker">discovery</div>
-            <h1 className="serif" style={{ margin: 0, fontSize: 48, lineHeight: 1 }}>Pick a pattern.</h1>
-            <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-              Each one shows the occasions in your writing that fit it, split by how they went, and what else was true on each
-              side. You decide whether an occasion really belongs, and whether the pattern rings true at all.
+          <div className={styles.pick}>
+            <h2 className={styles.pickTitle}>Pick a pattern.</h2>
+            <p>
+              Each shows the occasions in your writing that fit it, split by how they went, and what else was true on
+              each side. You decide whether an occasion really belongs, and whether the pattern rings true at all.
             </p>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
@@ -120,52 +101,51 @@ function PatternView({ id }: { id: string }) {
   const labelledBy = [...new Set(data.occasions.map(o => o.labelledBy).filter(Boolean))];
 
   return (
-    <div className="col" style={{ gap: 18, maxWidth: 980 }}>
-      <div className="col" style={{ gap: 6 }}>
-        <div className="kicker">
-          {p.evidence ? `the idea: ${p.evidence}` : 'a pattern from the library'}
-          {p.source && <> · <a href={p.source} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>where it comes from</a></>}
-        </div>
-        <h1 className="serif" style={{ margin: 0, fontSize: 44, lineHeight: 1, letterSpacing: '-0.02em' }}>{p.name}</h1>
-        <p style={{ margin: 0, fontSize: 15, color: 'var(--ink-2)', maxWidth: 720, lineHeight: 1.55 }}>{p.statement}</p>
-        {p.basis && <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', maxWidth: 720 }}>{p.basis}</p>}
-      </div>
+    <article className={styles.pattern} aria-label={p.name}>
+      <Link to="/patterns" className={styles.back}>← All patterns</Link>
+      <header className={styles.patternHead}>
+        <p className={styles.provenance}>
+          {p.evidence ? `The idea: ${p.evidence}.` : 'A pattern from the library.'}
+          {p.source && <> <a href={p.source} target="_blank" rel="noreferrer">Where it comes from</a></>}
+        </p>
+        <h2 className={styles.patternName}>{p.name}</h2>
+        <p className={styles.statement}>{p.statement}</p>
+        {p.basis && <p className={styles.basis}>{p.basis}</p>}
+      </header>
 
-      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={mono}>does it ring true?</span>
-        {PATTERN_VERDICTS.map(v => (
-          <Choice key={v.value} label={v.label} pressed={current === v.value} disabled={verdict.isPending}
-                  onClick={() => verdict.mutate(v.value)} />
-        ))}
+      <div className={styles.verdict}>
+        <span className={styles.verdictLabel}>Does it ring true?</span>
+        <ChoiceGroup label="Does it ring true?" tone="confirm" options={PATTERN_VERDICTS} value={current}
+          disabled={verdict.isPending} onChange={value => value && verdict.mutate(value)} />
       </div>
 
       {data.occasions.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+        <p className={styles.none}>
           None found in the current reading of your archive. That can mean it is rare for you, or that the labelling
           missed it: labelling misses some occasions and includes some that do not belong.
         </p>
       ) : (
         <>
-          <div className="row" style={{ gap: 28, alignItems: 'flex-start' }}>
-            <Side title="went worse" occasions={side('worse')} patternId={p.id} />
-            <Side title="went better" occasions={side('better')} patternId={p.id} />
+          <div className={styles.sides}>
+            <Side title="Went worse" occasions={side('worse')} patternId={p.id} />
+            <Side title="Went better" occasions={side('better')} patternId={p.id} />
           </div>
-          {side('mixed').length > 0 && <Side title="mixed" occasions={side('mixed')} patternId={p.id} />}
+          {side('mixed').length > 0 && <Side title="Mixed" occasions={side('mixed')} patternId={p.id} />}
           <Distinctive data={data} />
           {rejected.length > 0 && (
-            <div style={{ opacity: 0.6 }}><Side title="you said: not this pattern" occasions={rejected} patternId={p.id} /></div>
+            <div className={styles.rejected}><Side title="You said: not this pattern" occasions={rejected} patternId={p.id} /></div>
           )}
-          {labelledBy.length > 0 && <div style={mono}>labelled by: {labelledBy.join(', ')}</div>}
+          {labelledBy.length > 0 && <p className={styles.labelled}>Labelled by {labelledBy.join(', ')}</p>}
         </>
       )}
-    </div>
+    </article>
   );
 }
 
 function Side({ title, occasions, patternId }: { title: string; occasions: Occasion[]; patternId: string }) {
   return (
-    <section aria-label={title} className="col" style={{ flex: 1, minWidth: 0, gap: 12 }}>
-      <div className="kicker">{title} · {occasions.length}</div>
+    <section aria-label={title.toLowerCase()} className={styles.side}>
+      <h3 className={styles.sideTitle}>{title} ({occasions.length})</h3>
       {occasions.map(o => <OccasionCard key={o.id} occasion={o} patternId={patternId} />)}
     </section>
   );
@@ -174,45 +154,39 @@ function Side({ title, occasions, patternId }: { title: string; occasions: Occas
 function OccasionCard({ occasion: o, patternId }: { occasion: Occasion; patternId: string }) {
   const verdict = useOccasionVerdict(patternId);
   return (
-    <article aria-label={`occasion: ${o.situation}`} className="col"
-             style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--line)', borderRadius: 8 }}>
-      <span style={{ ...mono, color: 'var(--ink-3)' }}>{o.occurredOn ? formatEventDate(o.occurredOn) : 'undated'}</span>
-      <div style={{ fontSize: 13, color: 'var(--ink)' }}>{o.situation}</div>
-      <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{o.response}</div>
-      {o.outcome && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>→ {o.outcome}</div>}
+    <Panel as="article" aria-label={`occasion: ${o.situation}`} tone={o.ownerVerdict === 'yes' ? 'confirmed' : undefined}>
+      <span className={styles.when}>{o.occurredOn ? formatEventDate(o.occurredOn) : 'undated'}</span>
+      <p className={styles.situation}>{o.situation}</p>
+      <p className={styles.response}>{o.response}</p>
+      {o.outcome && <p className={styles.outcome}>Then: {o.outcome}</p>}
       {o.citations.slice(0, 2).map((c, i) => (
-        <blockquote key={i} style={{ margin: 0, paddingLeft: 10, borderLeft: '2px solid var(--line)', fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
+        <blockquote key={i} className={styles.quote}>
           {c.text}{' '}
-          {c.sourceType === 'reflection' && (
-            <Link to={`/journal?entry=${c.entryId}`} style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--sage)' }}>open entry</Link>
-          )}
+          {c.sourceType === 'reflection' && <Link to={`/journal?entry=${c.entryId}`}>open entry</Link>}
         </blockquote>
       ))}
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {OCCASION_VERDICTS.map(v => (
-          <Choice key={v.value} label={v.label} pressed={o.ownerVerdict === v.value} disabled={verdict.isPending}
-                  onClick={() => verdict.mutate({ occasionId: o.id, verdict: o.ownerVerdict === v.value ? null : v.value })} />
-        ))}
-      </div>
-      {o.verdictNote && <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>{o.verdictNote}</div>}
-    </article>
+      <ChoiceGroup label="Is this an occasion of the pattern?" options={OCCASION_VERDICTS} value={o.ownerVerdict}
+        clearable disabled={verdict.isPending}
+        onChange={value => verdict.mutate({ occasionId: o.id, verdict: value })} />
+      {o.verdictNote && <p className={styles.noteText}>{o.verdictNote}</p>}
+    </Panel>
   );
 }
 
 function Distinctive({ data }: { data: PatternDetail }) {
   if (data.distinctive.length === 0) return null;
   return (
-    <section aria-label="what else differed" className="col" style={{ gap: 8 }}>
-      <div className="kicker">what else differed between the sides</div>
-      {data.distinctive.map(d => (
-        <div key={d.patternId} className="row" style={{ gap: 12, alignItems: 'baseline', fontSize: 13 }}>
-          <Link to={`/patterns/${d.patternId}`} style={{ color: 'var(--ink)', minWidth: 280 }}>{d.name}</Link>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-3)' }}>{d.worse} worse · {d.better} better</span>
-        </div>
-      ))}
-      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-        Differences of two or more occasions. A difference between two sets of occasions, not a cause and not advice.
-      </div>
+    <section aria-label="what else differed" className={styles.differed}>
+      <h3 className={styles.sideTitle}>What else differed between the sides</h3>
+      <ul>
+        {data.distinctive.map(d => (
+          <li key={d.patternId}>
+            <Link to={`/patterns/${d.patternId}`}>{d.name}</Link>
+            <span className={styles.counts}>{d.worse} worse, {d.better} better</span>
+          </li>
+        ))}
+      </ul>
+      <p className={styles.noteText}>Differences of two or more occasions. A difference between two sets of occasions, not a cause and not advice.</p>
     </section>
   );
 }

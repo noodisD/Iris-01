@@ -47,7 +47,7 @@ describe('Insights', () => {
     render(<MemoryRouter><InsightsScreen /></MemoryRouter>);
     const days = screen.getByRole('region', { name: 'Days compared' });
     expect(within(days).getByRole('article', { name: 'energy by office home' })).toBeInTheDocument();
-    expect(within(days).getByText('compared · 12 days / 9 days')).toBeInTheDocument();
+    expect(within(days).getByText('12 days and 9 days compared')).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('region', { name: 'Writing differences' })).getByRole('button', { name: 'Try again' }));
     expect(state.differences.refetch).toHaveBeenCalledOnce();
   });
@@ -57,7 +57,7 @@ describe('Insights', () => {
     show([diff('a', 'b')]);
     const writing = screen.getByRole('region', { name: 'Writing differences' });
     expect(within(writing).getByRole('article', { name: 'Pattern a and Pattern b' })).toBeInTheDocument();
-    expect(within(writing).getByRole('button', { name: 'rings true' })).toBeEnabled();
+    expect(within(writing).getByRole('radio', { name: 'Rings true' })).toBeEnabled();
     fireEvent.click(within(screen.getByRole('region', { name: 'Days compared' })).getByRole('button', { name: 'Try again' }));
     expect(state.days.refetch).toHaveBeenCalledOnce();
   });

@@ -1,0 +1,7 @@
+.section { display: flex; flex-direction: column; gap: var(--space-4); }
+.heading { margin: 0; font-size: var(--text-lg); font-weight: 600; }
+.note { margin: 2px 0 0; color: var(--petal-3); }
+.judged { margin: var(--space-3) 0 0; font-size: var(--text-sm); font-weight: 500; color: var(--petal-3); }
+.sentence { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); line-height: 1.5; color: var(--petal); max-width: 64ch; }
+.meta { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; color: var(--petal-3); font-size: var(--text-sm); }
+.error { margin: 0; color: var(--danger); font-size: var(--text-sm); }

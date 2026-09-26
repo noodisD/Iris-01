@@ -6,6 +6,8 @@ import {
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import { formatEventDate, DAY_LONG } from '@/lib/dates';
 import type { ConstructCandidate, DiscoveryRun } from '@/types/api';
+import { Badge, Button, Page, Panel } from '@/ui';
+import styles from './ConstructsScreen.module.css';
 
 function Candidate({ c }: { c: ConstructCandidate }) {
   const confirm = useConfirmConstruct();
@@ -14,74 +16,49 @@ function Candidate({ c }: { c: ConstructCandidate }) {
   const busy = confirm.isPending || reject.isPending;
 
   const span = c.spanStart && c.spanEnd
-    ? `${formatEventDate(c.spanStart, DAY_LONG)} – ${formatEventDate(c.spanEnd, DAY_LONG)}`
+    ? `${formatEventDate(c.spanStart, DAY_LONG)} to ${formatEventDate(c.spanEnd, DAY_LONG)}`
     : null;
 
   return (
-    <article style={{
-      padding: '24px 28px', background: 'var(--bg-2)',
-      border: '1px solid var(--line-soft)', borderRadius: 12,
-      display: 'flex', flexDirection: 'column', gap: 16,
-    }}>
+    <Panel as="article" aria-label={c.claim}>
       {(confirm.isError || reject.isError) && (
         // Without this the buttons simply became usable again, which reads as
         // a misclick rather than as a decision that did not reach the server.
-        <div role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>
-          That didn't save. The pattern is still waiting for your decision.
-        </div>
+        <p role="alert" className={styles.error}>That didn't save. The pattern is still waiting for your decision.</p>
       )}
 
-      <div className="col" style={{ gap: 6 }}>
-        <div className="kicker">
-          {c.claimKind === 'behaviour'
-            ? 'iris noticed · claims something happened'
-            : 'iris noticed · counts what you wrote about'}
+      <header className={styles.head}>
+        <div className={styles.badges}>
+          <Badge>{c.claimKind === 'behaviour' ? 'Claims something happened' : 'Counts what you wrote about'}</Badge>
+          {span && <span className={styles.span}>{span}</span>}
         </div>
-        <h3 className="serif" style={{ margin: 0, fontSize: 26, lineHeight: 1.1 }}>{c.claim}</h3>
-        {span && (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            {span}
-          </span>
-        )}
-      </div>
+        <h2 className={styles.claim}>{c.claim}</h2>
+      </header>
 
       {/* The quotes are the point. Confirming means reading the sentences the
-          claim rests on — not taking a model's word for the claim. */}
-      <div className="col" style={{ gap: 12 }}>
-        <div className="kicker">in your own words</div>
+          claim rests on, not taking a model's word for the claim. */}
+      <section aria-label="In your own words" className={styles.quotes}>
+        <h3 className={styles.quotesTitle}>In your own words</h3>
         {c.quotes.map((q, i) => (
-          <blockquote key={i} style={{ margin: 0, padding: '0 0 0 16px', borderLeft: '2px solid var(--sage-dim)' }}>
-            <div className="serif" style={{ fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: 'var(--ink)' }}>
-              "{q.text}"
-            </div>
-            {q.citable && q.entryId ? (
-              <button
-                onClick={() => nav(`/journal?entry=${q.entryId}`)}
-                style={{ marginTop: 5, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--sage)', letterSpacing: '0.08em', textTransform: 'uppercase' }}
-              >
-                read the entry ↗
-              </button>
-            ) : (
-              <div style={{ marginTop: 5, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                from a recording · undated, so it is never counted
-              </div>
-            )}
+          <blockquote key={i} className={styles.quote}>
+            <p>&ldquo;{q.text}&rdquo;</p>
+            {q.citable && q.entryId
+              ? <Button variant="quiet" size="sm" onClick={() => nav(`/journal?entry=${q.entryId}`)}>Read the entry</Button>
+              : <span className={styles.uncounted}>From a recording, undated, so it is never counted</span>}
           </blockquote>
         ))}
-      </div>
+      </section>
 
-      <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-        <button className="btn" disabled={busy} onClick={() => reject.mutate(c.id)}>
-          {reject.isPending ? 'Setting aside…' : 'Not me'}
-        </button>
-        <button className="btn primary" disabled={busy} onClick={() => confirm.mutate(c.id)}>
-          {confirm.isPending ? 'Measuring…' : 'Yes — count this in my writing'}
-        </button>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', marginTop: -8 }}>
-        Counts how often this comes up in what you wrote. Not how often you did it.
-      </div>
-    </article>
+      <footer className={styles.foot}>
+        <p className={styles.explain}>Counts how often this comes up in what you wrote. Not how often you did it.</p>
+        <div className={styles.actions}>
+          <Button disabled={busy} onClick={() => reject.mutate(c.id)}>{reject.isPending ? 'Setting aside…' : 'Not me'}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => confirm.mutate(c.id)}>
+            {confirm.isPending ? 'Counting…' : 'Count this in my writing'}
+          </Button>
+        </div>
+      </footer>
+    </Panel>
   );
 }
 
@@ -105,14 +82,13 @@ export function RunSummary({ run }: { run: DiscoveryRun }) {
   ].filter(Boolean) as string[];
 
   return (
-    <div role="status" style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-      <span className="kicker" style={{ marginRight: 8 }}>last read</span>
-      {plural(run.rawFindings, 'finding')}, {plural(run.staged, 'proposal')}.
+    <p role="status" className={styles.run}>
+      <strong>Last read:</strong> {plural(run.rawFindings, 'finding')}, {plural(run.staged, 'proposal')}.
       {run.status !== 'complete' && ` ${run.passesCompleted} of ${run.passesPlanned} passes finished.`}
       {run.dropsRecorded
         ? letGo.length > 0 && ` Let go: ${letGo.join(', ')}.`
         : ' This read was made before IRIS counted what it let go.'}
-    </div>
+    </p>
   );
 }
 
@@ -126,49 +102,32 @@ export function ConstructsScreen() {
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
 
   return (
-    <div className="col" style={{ padding: '32px 56px 48px', gap: 28 }}>
-      <header className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--line)', paddingBottom: 18 }}>
-        <div className="col" style={{ gap: 6 }}>
-          <div className="kicker">patterns · awaiting your word</div>
-          <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
-            {data.length} to read,<br />
-            <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>none counted yet.</span>
-          </h1>
-        </div>
-        <div className="col" style={{ gap: 8, alignItems: 'flex-end' }}>
-          <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 11, color: 'var(--ink-3)' }}>
-            <input type="checkbox" checked={includeStaged}
-                   onChange={(e) => setIncludeStaged(e.target.checked)} />
-            include voice recordings
+    <Page title="Noticed" width="standard"
+      description={`${data.length} ${data.length === 1 ? 'pattern' : 'patterns'} waiting for your word. Nothing here is counted until you say so.`}
+      actions={
+        <div className={styles.read}>
+          <label className={styles.check}>
+            <input type="checkbox" checked={includeStaged} onChange={(e) => setIncludeStaged(e.target.checked)} />
+            Include voice recordings
           </label>
-          <button className="btn primary" disabled={discover.isPending}
-                  onClick={() => discover.mutate(includeStaged)}>
+          <Button variant="primary" disabled={discover.isPending} onClick={() => discover.mutate(includeStaged)}>
             {discover.isPending ? 'Reading your archive…' : 'Read my archive'}
-          </button>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            sends your entries to the model
-          </span>
+          </Button>
+          <span className={styles.sends}>Sends your entries to the model.</span>
         </div>
-      </header>
-
+      }>
       {lastRun && <RunSummary run={lastRun} />}
 
-      {discover.isError && (
-        <div style={{ padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12, color: 'var(--ink-2)' }}>
-          The read did not finish. Nothing was changed.
-        </div>
-      )}
+      {discover.isError && <p role="alert" className={styles.error}>The read did not finish. Nothing was changed.</p>}
 
       {data.length === 0 ? (
         <EmptyState
           title="Nothing waiting."
-          body="Reading the archive is something you ask for. When Iris finds something that recurs in your writing, it waits here with the quotes it rests on — and counts for nothing until you say so."
+          body="Reading the archive is something you ask for. When Iris finds something that recurs in your writing, it waits here with the quotes it rests on, and counts for nothing until you say so."
         />
       ) : (
-        <div className="col" style={{ gap: 18, maxWidth: 860 }}>
-          {data.map((c) => <Candidate key={c.id} c={c} />)}
-        </div>
+        <div className={styles.list}>{data.map((c) => <Candidate key={c.id} c={c} />)}</div>
       )}
-    </div>
+    </Page>
   );
 }

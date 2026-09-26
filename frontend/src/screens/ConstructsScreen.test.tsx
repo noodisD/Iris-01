@@ -39,9 +39,9 @@ import type { DiscoveryRun } from '@/types/api';
 describe('confirming a construct', () => {
   it('counts writing, and says it does not count actions', () => {
     render(<MemoryRouter><ConstructsScreen /></MemoryRouter>);
-    expect(screen.getByRole('button', { name: 'Yes — count this in my writing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Count this in my writing' })).toBeInTheDocument();
     expect(screen.getByText(/Not how often you did it\./)).toBeInTheDocument();
-    expect(screen.getByText('iris noticed · counts what you wrote about')).toBeInTheDocument();
+    expect(screen.getByText('Counts what you wrote about')).toBeInTheDocument();
   });
 
   it('says an undated recording is never counted', () => {
