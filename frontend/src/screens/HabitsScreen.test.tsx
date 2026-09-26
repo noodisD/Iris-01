@@ -43,7 +43,7 @@ describe('adding a habit', () => {
 
     fireEvent.change(screen.getByLabelText('Habit name'), { target: { value: 'Tactics puzzles' } });
     fireEvent.change(screen.getByLabelText('Tag'), { target: { value: 'chess' } });
-    fireEvent.click(screen.getByRole('button', { name: '+ add habit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add habit' }));
 
     expect(await screen.findByText('Tactics puzzles')).toBeInTheDocument();
     expect(server.created).toEqual([{ name: 'Tactics puzzles', tag: 'chess' }]);
@@ -54,6 +54,6 @@ describe('adding a habit', () => {
   it('cannot add a habit with no name', async () => {
     show();
     await screen.findByText(/No habits yet/);
-    expect(screen.getByRole('button', { name: '+ add habit' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add habit' })).toBeDisabled();
   });
 });

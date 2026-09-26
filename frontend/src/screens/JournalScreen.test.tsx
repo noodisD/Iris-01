@@ -125,7 +125,8 @@ describe('the journal pages', () => {
     show();
     expect(await screen.findByRole('tab', { name: 'Write' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('An older note')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: 'Entries' }));
+    // Tabs switch on pointer-down, as a real click begins.
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Entries' }));
     expect(await screen.findByText('An older note')).toBeInTheDocument();
   });
 

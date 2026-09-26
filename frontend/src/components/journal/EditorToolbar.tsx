@@ -25,7 +25,6 @@ export function EditorToolbar({ onCommand }: { onCommand: (command: Command) => 
           aria-label={item.title}
           onMouseDown={event => event.preventDefault()}
           onClick={() => onCommand(item.command)}
-          style={{ minWidth: 34, padding: '4px 9px', fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--ink-2)' }}
         >
           {item.label}
         </button>

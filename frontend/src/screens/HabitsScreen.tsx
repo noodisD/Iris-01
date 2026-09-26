@@ -3,40 +3,38 @@ import { useCreateHabit, useHabits, useToggleHabit } from '@/hooks/useHabits';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
 import type { Habit } from '@/types/api';
+import { Button, ChoiceGroup, Page, Stat } from '@/ui';
+import styles from './HabitsScreen.module.css';
 
 function HabitRow({ h, onToggle }: { h: Habit; onToggle: (id: string, done: boolean) => void }) {
   const c = color(h.color);
   return (
-    <article style={{ display: 'grid', gridTemplateColumns: '260px 1fr 180px', gap: 24, padding: '20px 0', borderTop: '1px solid var(--line)', alignItems: 'center' }}>
-      <div className="col" style={{ gap: 8 }}>
-        <div className="row" style={{ alignItems: 'baseline', gap: 10 }}>
-          <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'}`}
-            style={{ width: 22, height: 22, borderRadius: '50%', border: `1.5px solid ${h.doneToday ? c : 'var(--line)'}`, background: h.doneToday ? c : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0, transition: 'all 0.15s ease' }}>
-            {h.doneToday && <span style={{ color: '#14140f', fontSize: 12 }}>✓</span>}
-          </button>
-          <span className="serif" style={{ fontSize: 24, color: 'var(--ink)' }}>{h.name}</span>
+    <article className={styles.row} aria-label={h.name}>
+      <div className={styles.what}>
+        <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'}`}
+          aria-pressed={h.doneToday} className={styles.tick}
+          style={{ borderColor: h.doneToday ? c : undefined, background: h.doneToday ? c : undefined }}>
+          {h.doneToday && <span aria-hidden>✓</span>}
+        </button>
+        <div className={styles.names}>
+          <span className={styles.name}>{h.name}</span>
+          {h.tag && <span className={styles.tag}>{h.tag}</span>}
+          {h.intent && <span className={styles.intent}>{h.intent}</span>}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.04em', paddingLeft: 32 }}>{h.tag}</div>
-        {h.intent && <div style={{ fontSize: 12, color: 'var(--ink-2)', fontStyle: 'italic', paddingLeft: 32 }}>↳ {h.intent}</div>}
       </div>
 
-      <div className="col" style={{ gap: 6 }}>
-        <div className="row" style={{ alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div className={styles.history} aria-label={`Last ${h.recentDays.length} days: ${h.recentDays.filter(Boolean).length} done`}>
+        <div className={styles.dots}>
           {h.recentDays.map((v, i) => (
-            <span key={i} style={{ width: 8, height: 8, borderRadius: '50%', background: v ? c : 'var(--line)', opacity: v ? Math.max(0.45, 1 - (h.recentDays.length - i) / 120) : 1 }} />
+            <span key={i} className={styles.day} style={v ? { background: c } : undefined} />
           ))}
         </div>
-        <div className="row" style={{ justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          <span>{h.recentDays.length} days ago</span><span>today</span>
-        </div>
+        <div className={styles.axis}><span>{h.recentDays.length} days ago</span><span>Today</span></div>
       </div>
 
-      <div className="col" style={{ alignItems: 'flex-end', gap: 2 }}>
-        <div className="numerals" style={{ fontSize: 56, color: h.streakDays === 0 ? 'var(--ink-3)' : c, lineHeight: 0.85 }}>{h.streakDays}</div>
-        <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-          <span className="kicker">day streak</span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)' }}>best {h.bestStreak}</span>
-        </div>
+      <div className={styles.streak}>
+        <span className={styles.streakNumber} style={{ color: h.streakDays === 0 ? undefined : c }}>{h.streakDays}</span>
+        <span className={styles.streakLabel}>day streak, best {h.bestStreak}</span>
       </div>
     </article>
   );
@@ -56,24 +54,22 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
   // server always sent empty: a causal claim with no data behind it, on a tick
   // list, in a product whose rule is that it does not claim causes.
   return (
-    <div style={{ padding: '20px 0' }}>
-      <div className="row" style={{ alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div className="kicker">your habits · sized by current streak</div>
-      </div>
-      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: W }}>
+    <figure className={styles.constellation}>
+      <figcaption className={styles.caption}>Your habits, sized by current streak. Tap one to tick it.</figcaption>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} className={styles.sky} role="img" aria-label="Habits as circles sized by streak">
         {habits.map(h => {
           const p = positions[h.id], c = color(h.color), done = h.doneToday;
           return (
             <g key={h.id} onClick={() => onToggle(h.id, !done)} style={{ cursor: 'pointer' }}>
               <circle cx={p.x} cy={p.y} r={p.r + 8} fill="none" stroke={c} strokeWidth="1" opacity={done ? 0.4 : 0.1} />
               <circle cx={p.x} cy={p.y} r={p.r} fill={done ? c : 'var(--bg-2)'} stroke={c} strokeWidth={done ? 0 : 1.5} opacity={done ? 0.92 : 1} />
-              <text x={p.x} y={p.y - 2} textAnchor="middle" fontFamily="var(--serif)" fontSize="15" fontStyle="italic" fill={done ? '#14140f' : 'var(--ink)'}>{h.name.split(' ')[0]}</text>
-              <text x={p.x} y={p.y + 14} textAnchor="middle" fontFamily="var(--mono)" fontSize="10" fill={done ? '#14140f' : 'var(--ink-3)'}>{h.streakDays}d</text>
+              <text x={p.x} y={p.y - 2} textAnchor="middle" fontFamily="var(--font-read)" fontSize="15" fontStyle="italic" fill={done ? 'var(--night)' : 'var(--ink)'}>{h.name.split(' ')[0]}</text>
+              <text x={p.x} y={p.y + 14} textAnchor="middle" fontFamily="var(--font-ui)" fontSize="10" fill={done ? 'var(--night)' : 'var(--ink-3)'}>{h.streakDays}d</text>
             </g>
           );
         })}
       </svg>
-    </div>
+    </figure>
   );
 }
 
@@ -92,16 +88,17 @@ function AddHabit() {
     });
   };
 
-  const field: React.CSSProperties = { background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', fontSize: 14 };
   return (
-    <form onSubmit={submit} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-      <input aria-label="Habit name" placeholder="A new habit" value={name} onChange={e => setName(e.target.value)} style={{ ...field, minWidth: 220 }} />
-      <input aria-label="Tag" placeholder="tag (optional)" value={tag} onChange={e => setTag(e.target.value)} style={{ ...field, width: 150 }} />
-      <button className="btn primary" type="submit" disabled={!name.trim() || create.isPending}>+ add habit</button>
-      {create.isError && <span role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>It wasn't saved. Try again.</span>}
+    <form onSubmit={submit} className={styles.add} aria-label="Add a habit">
+      <input aria-label="Habit name" placeholder="A new habit" value={name} onChange={e => setName(e.target.value)} className={styles.nameInput} />
+      <input aria-label="Tag" placeholder="Tag (optional)" value={tag} onChange={e => setTag(e.target.value)} className={styles.tagInput} />
+      <Button variant="primary" type="submit" disabled={!name.trim() || create.isPending}>Add habit</Button>
+      {create.isError && <span role="alert" className={styles.error}>It wasn't saved. Try again.</span>}
     </form>
   );
 }
+
+const VIEWS = [{ value: 'list', label: 'List' }, { value: 'constellation', label: 'Constellation' }] as const;
 
 export function HabitsScreen() {
   const { data, isLoading, isError, refetch } = useHabits();
@@ -113,64 +110,29 @@ export function HabitsScreen() {
 
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
-
   return (
-    <div className="col" style={{ padding: '32px 56px 48px', gap: 28 }}>
-      <header className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--line)', paddingBottom: 18 }}>
-        <div className="col" style={{ gap: 6 }}>
-          <div className="kicker">habits · daily practice</div>
-          <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
-            {data.doneCount}<span style={{ color: 'var(--ink-3)', fontStyle: 'italic' }}>/{data.totalCount}</span> today.
-          </h1>
-        </div>
-        <div className="row" style={{ gap: 24, alignItems: 'baseline' }}>
-          <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}>
-            <span className="numerals" style={{ fontSize: 28, color: 'var(--sage)' }}>{data.longestActiveStreak}</span>
-            <span className="kicker">longest active</span>
-          </div>
-          <div className="col" style={{ gap: 2, alignItems: 'flex-end' }}>
-            <span className="numerals" style={{ fontSize: 28, color: 'var(--ink)' }}>{Math.round(data.consistency30d * 100)}<span style={{ fontSize: 14, color: 'var(--ink-3)' }}>%</span></span>
-            <span className="kicker">30d consistency</span>
-          </div>
-          <div className="row" style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 999, padding: 2 }}>
-            {(['list', 'constellation'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} style={{ padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', background: view === v ? 'var(--sage)' : 'transparent', color: view === v ? '#14140f' : 'var(--ink-3)', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{v}</button>
-            ))}
-          </div>
-        </div>
-      </header>
+    <Page title="Habits" description={`${data.doneCount} of ${data.totalCount} done today.`}
+      actions={<ChoiceGroup label="View" options={[...VIEWS]} value={view} onChange={v => v && setView(v)} />}>
+      <div className={styles.stats}>
+        <Stat value={data.longestActiveStreak} label="Longest active streak, days" />
+        <Stat value={`${Math.round(data.consistency30d * 100)}%`} label="Done over the last 30 days" />
+      </div>
 
-      {data.suggestion && (
-        <div className="row" style={{ gap: 14, alignItems: 'flex-start', padding: '4px 0' }}>
-          <div className="iris-orb sm" style={{ marginTop: 6 }} />
-          <div className="serif ital" style={{ fontSize: 20, lineHeight: 1.4, color: 'var(--ink)', maxWidth: 760 }}>
-            "{data.suggestion.text}"
-          </div>
-        </div>
-      )}
+      {data.suggestion && <p className={styles.suggestion}>{data.suggestion.text}</p>}
 
       <AddHabit />
 
       {/* A tick that did not reach the server rolls back on screen, which on
           its own looks like a misclick. */}
-      {toggle.isError && (
-        <div role="alert" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-          That tick didn't save. Nothing is lost — try again.
-        </div>
-      )}
+      {toggle.isError && <p role="alert" className={styles.error}>That tick didn't save. Nothing is lost; try again.</p>}
 
       {data.habits.length === 0 ? (
-        <div className="serif ital" style={{ fontSize: 20, color: 'var(--ink-3)' }}>
-          No habits yet. Name one above and tick it off here each day.
-        </div>
+        <p className={styles.empty}>No habits yet. Name one above and tick it off here each day.</p>
       ) : view === 'list' ? (
-        <div>
-          {data.habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}
-          <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: 0 }} />
-        </div>
+        <div className={styles.list}>{data.habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}</div>
       ) : (
         <Constellation habits={data.habits} onToggle={onToggle} />
       )}
-    </div>
+    </Page>
   );
 }

@@ -1,0 +1,30 @@
+.stats { display: flex; gap: var(--space-7); flex-wrap: wrap; }
+.suggestion { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); line-height: 1.5; color: var(--petal-2); max-width: 64ch; }
+.add { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.nameInput { flex: 1 1 220px; min-width: 0; }
+.tagInput { flex: 0 1 160px; min-width: 0; }
+.error { color: var(--danger); font-size: var(--text-sm); margin: 0; }
+.empty { margin: 0; color: var(--petal-3); font-family: var(--font-read); font-size: var(--text-lg); }
+.list { display: flex; flex-direction: column; border-top: 1px solid var(--mist); }
+.row { display: grid; grid-template-columns: minmax(200px, 1.1fr) 2fr auto; gap: var(--space-5); align-items: center; padding: var(--space-5) 0; border-bottom: 1px solid var(--mist); }
+.what { display: flex; gap: var(--space-3); align-items: flex-start; min-width: 0; }
+.tick { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--mist-2); background: transparent; color: var(--night);
+  display: grid; place-items: center; cursor: pointer; padding: 0; flex-shrink: 0; margin-top: 3px; font-size: 13px; }
+.names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.name { font-family: var(--font-read); font-size: var(--text-xl); line-height: 1.25; color: var(--petal); }
+.tag { font-size: var(--text-xs); color: var(--petal-3); }
+.intent { font-size: var(--text-sm); color: var(--petal-2); }
+.history { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.day { width: 8px; height: 8px; border-radius: 50%; background: var(--mist); }
+.axis { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--petal-3); }
+.streak { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.streakNumber { font-family: var(--font-read); font-size: var(--text-3xl); line-height: 1; color: var(--petal-3); font-variant-numeric: lining-nums tabular-nums; }
+.streakLabel { font-size: var(--text-xs); color: var(--petal-3); white-space: nowrap; }
+.constellation { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.caption { color: var(--petal-3); font-size: var(--text-sm); }
+.sky { max-width: 760px; height: auto; }
+@media (max-width: 767px) {
+  .row { grid-template-columns: 1fr auto; gap: var(--space-3); }
+  .history { grid-column: 1 / -1; order: 3; }
+}

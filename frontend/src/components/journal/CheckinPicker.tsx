@@ -1,11 +1,11 @@
-import type { CSSProperties } from 'react';
+import styles from './CheckinPicker.module.css';
 
 export const CHECKIN_ROWS = [
-  { key: 'energy', label: 'energy' },
-  { key: 'mood', label: 'mood' },
-  { key: 'sleep_quality', label: 'sleep' },
-  { key: 'stress', label: 'stress' },
-  { key: 'focus', label: 'focus' },
+  { key: 'energy', label: 'energy', title: 'Energy' },
+  { key: 'mood', label: 'mood', title: 'Mood' },
+  { key: 'sleep_quality', label: 'sleep', title: 'Sleep' },
+  { key: 'stress', label: 'stress', title: 'Stress' },
+  { key: 'focus', label: 'focus', title: 'Focus' },
 ] as const;
 
 export type CheckinKey = (typeof CHECKIN_ROWS)[number]['key'];
@@ -15,21 +15,7 @@ export function emptyCheckin(): CheckinValues {
   return { energy: null, mood: null, sleep_quality: null, stress: null, focus: null };
 }
 
-function chip(selected: boolean): CSSProperties {
-  return {
-    width: 22,
-    height: 22,
-    borderRadius: '50%',
-    border: `1px solid ${selected ? 'var(--sage)' : 'var(--line)'}`,
-    background: selected ? 'var(--sage)' : 'transparent',
-    color: selected ? '#14140f' : 'var(--ink-3)',
-    fontFamily: 'var(--mono)',
-    fontSize: 10,
-    cursor: 'pointer',
-    padding: 0,
-  };
-}
-
+/** Five optional scores, 1-10. Picking the chosen number again clears it. */
 export function CheckinPicker({
   value,
   onChange,
@@ -38,22 +24,20 @@ export function CheckinPicker({
   onChange: (next: CheckinValues) => void;
 }) {
   return (
-    <div className="col" style={{ gap: 6 }}>
-      <span className="kicker">check-in · optional</span>
+    <fieldset className={styles.checkin}>
+      <legend className={styles.legend}>Check-in <span>optional, 1 to 10</span></legend>
       {CHECKIN_ROWS.map(row => (
-        <div key={row.key} className="row" style={{ gap: 8, alignItems: 'center' }}>
-          <span style={{ width: 52, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            {row.label}
-          </span>
-          <div className="row" style={{ gap: 3, alignItems: 'center' }}>
+        <div key={row.key} className={styles.row} role="group" aria-label={row.title}>
+          <span className={styles.label} aria-hidden>{row.title}</span>
+          <div className={styles.scale}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
               <button
                 key={n}
                 type="button"
+                className={styles.chip}
                 aria-label={`${row.label} ${n}`}
                 aria-pressed={value[row.key] === n}
                 onClick={() => onChange({ ...value, [row.key]: value[row.key] === n ? null : n })}
-                style={chip(value[row.key] === n)}
               >
                 {n}
               </button>
@@ -61,6 +45,6 @@ export function CheckinPicker({
           </div>
         </div>
       ))}
-    </div>
+    </fieldset>
   );
 }

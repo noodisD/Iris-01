@@ -123,6 +123,9 @@
   /* One visible focus for everything reachable by keyboard. */
   :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-control); }
 
+  /* Read by screen readers, not shown. */
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
   ::selection { background: rgba(139, 127, 214, 0.35); }
   ::placeholder { color: var(--petal-3); opacity: 1; }
 

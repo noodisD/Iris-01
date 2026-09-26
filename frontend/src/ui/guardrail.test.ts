@@ -10,27 +10,14 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const NOT_YET_MIGRATED = new Set([
-  'components/AudioRecorder.tsx',
-  'components/IdeaGraph.tsx',
-  'components/journal/CheckinPicker.tsx',
-  'components/journal/EditorToolbar.tsx',
-  'components/journal/MarkdownEditor.tsx',
-  'components/journal/MarkdownView.tsx',
-  'components/sensors/DayGrounding.tsx',
-  'screens/ChatScreen.tsx',
-  'screens/ConstructsScreen.tsx',
   'screens/DecisionsScreen.tsx',
-  'screens/HabitsScreen.tsx',
   'screens/IdeasScreen.tsx',
-  'screens/ImportScreen.tsx',
   'screens/InsightsScreen.tsx',
-  'screens/JournalScreen.tsx',
-  'screens/OnboardingScreen.tsx',
   'screens/PatternsScreen.tsx',
-  'screens/ReviewScreen.tsx',
-  'screens/SettingsScreen.tsx',
-  'screens/TodayScreen.tsx',
 ]);
+
+// Renderers that take colours as values, not CSS (WebGL): exempt on purpose.
+const RENDERERS = new Set(['components/IdeaGraph.tsx']);
 
 const SRC = join(__dirname, '..');
 const DIRS = ['screens', 'components'];
@@ -44,7 +31,8 @@ function files(dir: string): string[] {
 }
 
 const HEX = /#[0-9a-fA-F]{6}\b/;
-const FONT = /fontFamily/;
+// A font named directly; `fontFamily: 'var(--font-read)'` is a token and fine.
+const FONT = /fontFamily:\s*['"](?!var\()/;
 
 describe('design tokens guardrail', () => {
   const checked = DIRS.flatMap(dir => files(join(SRC, dir))).map(path => ({
@@ -53,7 +41,7 @@ describe('design tokens guardrail', () => {
 
   it('keeps colours and fonts out of migrated screens and components', () => {
     const offenders = checked
-      .filter(f => !NOT_YET_MIGRATED.has(f.name) && (HEX.test(f.text) || FONT.test(f.text)))
+      .filter(f => !NOT_YET_MIGRATED.has(f.name) && !RENDERERS.has(f.name) && (HEX.test(f.text) || FONT.test(f.text)))
       .map(f => f.name);
     expect(offenders).toEqual([]);
   });

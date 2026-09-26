@@ -1,8 +1,10 @@
+import { Link, useNavigate } from 'react-router-dom';
 import { useHabits } from '@/hooks/useHabits';
-import { usePatterns } from '@/hooks/usePatterns';
-import { useNavigate } from 'react-router-dom';
+import { usePatterns, usePatternVerdict } from '@/hooks/usePatterns';
 import { LoadingState, ErrorState } from '@/components/states';
-import type { PatternSummary } from '@/types/api';
+import { Badge, Button, ChoiceGroup, Lens, Page, Panel, Section } from '@/ui';
+import type { PatternSummary, PatternVerdictValue } from '@/types/api';
+import styles from './TodayScreen.module.css';
 
 /**
  * The pattern most worth a look: the one found on the most occasions that you
@@ -15,7 +17,17 @@ export function nextPattern(patterns: PatternSummary[] | undefined): PatternSumm
     .sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name))[0];
 }
 
-/** Today: a pattern waiting for your verdict, if there is one, and today's habits. */
+const VERDICTS: { value: PatternVerdictValue; label: string }[] = [
+  { value: 'rings_true', label: 'Rings true' },
+  { value: 'does_not', label: "Doesn't" },
+  { value: 'unsure', label: 'Unsure' },
+];
+
+function today(): string {
+  return new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+/** Today: a pattern waiting for your verdict, judged in place, and today's habits. */
 export function TodayScreen() {
   const habitsQuery = useHabits();
   const patternsQuery = usePatterns();
@@ -30,60 +42,68 @@ export function TodayScreen() {
   const featured = nextPattern(patternsQuery.data?.patterns);
 
   return (
-    <div className="col" style={{ padding: '24px 32px 40px', gap: 24 }}>
-      <header className="row" style={{ alignItems: 'flex-end', justifyContent: 'space-between', borderBottom: '1px solid var(--line)', paddingBottom: 16 }}>
-        <div className="col" style={{ gap: 4 }}>
-          <div className="kicker">today · at a glance</div>
-          <h1 className="serif" style={{ margin: 0, fontSize: 56, letterSpacing: '-0.025em', lineHeight: 1 }}>
-            Today's reading<span style={{ color: 'var(--sage)' }}>.</span>
-          </h1>
-        </div>
-        <button className="btn primary" onClick={() => nav('/chat')}>▷ Daily check-in</button>
-      </header>
-
-      {featured && (
-        <div className="row" style={{ gap: 18, alignItems: 'flex-start', padding: '8px 0 12px', borderBottom: '1px dashed var(--line)', cursor: 'pointer' }} onClick={() => nav(`/patterns/${featured.id}`)}>
-          <div className="iris-orb" style={{ marginTop: 6 }} />
-          <div className="col" style={{ flex: 1, gap: 4 }}>
-            <div className="kicker">pattern · {featured.occasions} occasions in your writing · does it ring true?</div>
-            <div className="serif" style={{ fontSize: 26, fontStyle: 'italic', lineHeight: 1.3, color: 'var(--ink)', maxWidth: 880 }}>
-              {featured.name}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', maxWidth: 880 }}>{featured.statement}</div>
-          </div>
-          <span className="btn" style={{ alignSelf: 'flex-start' }}>↗ open</span>
-        </div>
-      )}
-
+    <Page title="Today" lead={today()} width="standard"
+      actions={<>
+        <Button variant="primary" onClick={() => nav('/chat')}>Start a check-in</Button>
+        <Button onClick={() => nav('/journal')}>Write</Button>
+      </>}>
       {patternsQuery.isError && <Unavailable what="Patterns" retry={() => patternsQuery.refetch()} />}
+      {featured && <PatternToJudge pattern={featured} />}
+
       {habitsQuery.isError && <Unavailable what="Habits" retry={() => habitsQuery.refetch()} />}
+      {habits && (
+        <Section title="Habits today" actions={<Link to="/habits">All habits</Link>}>
+          {habits.habits.length === 0 ? (
+            <p className={styles.quiet}>No habits yet. <Link to="/habits">Add one</Link> to see it here each day.</p>
+          ) : (
+            <>
+              <p className={styles.quiet}>{habits.doneCount} of {habits.totalCount} done</p>
+              <ul className={styles.habits}>
+                {habits.habits.map(h => (
+                  <li key={h.id} className={h.doneToday ? styles.done : undefined}>
+                    <span className={styles.check} aria-hidden />
+                    {h.name}
+                    <span className="visually-hidden">{h.doneToday ? ' (done)' : ' (not done yet)'}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Section>
+      )}
+    </Page>
+  );
+}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-        {habits && (
-          <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line-soft)', borderRadius: 10, padding: '18px 20px' }}>
-            <div className="kicker" style={{ marginBottom: 10 }}>Habits · today</div>
-            <div className="numerals" style={{ fontSize: 56, color: 'var(--ink)' }}>{habits.doneCount}<span style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-3)', marginLeft: 6 }}>/{habits.totalCount}</span></div>
-            <div className="col" style={{ gap: 6, marginTop: 12 }}>
-              {habits.habits.slice(0, 4).map(h => (
-                <div key={h.id} className="row" style={{ alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: h.doneToday ? 'var(--sage)' : 'var(--line)' }} />
-                  <span style={{ fontSize: 12, color: h.doneToday ? 'var(--ink)' : 'var(--ink-3)' }}>{h.name}</span>
-                </div>
-              ))}
-            </div>
+function PatternToJudge({ pattern }: { pattern: PatternSummary }) {
+  const verdict = usePatternVerdict(pattern.id);
+  return (
+    <Section title="Does this ring true?"
+      description="The pattern found most often in your writing that you haven't judged yet.">
+      <Panel as="article" aria-label={pattern.name}>
+        <div className={styles.patternHead}>
+          <Lens size={28} />
+          <div className={styles.patternText}>
+            <h3 className={styles.patternName}>{pattern.name}</h3>
+            <p className={styles.statement}>{pattern.statement}</p>
           </div>
-        )}
-      </div>
-
-    </div>
+        </div>
+        <div className={styles.patternFoot}>
+          <Badge>{pattern.occasions} occasions in your writing</Badge>
+          <Link to={`/patterns/${pattern.id}`}>See the occasions</Link>
+        </div>
+        <ChoiceGroup label="Does this pattern ring true?" tone="confirm" options={VERDICTS} value={null}
+          disabled={verdict.isPending} onChange={value => value && verdict.mutate(value)} />
+      </Panel>
+    </Section>
   );
 }
 
 function Unavailable({ what, retry }: { what: string; retry: () => void }) {
   return (
-    <div className="row" role="alert" style={{ gap: 12, alignItems: 'baseline', color: 'var(--ink-3)', fontSize: 13 }}>
-      <span>{what} didn't load. Nothing is lost — this is only the view.</span>
-      <button className="btn" onClick={retry}>retry</button>
+    <div role="alert" className={styles.unavailable}>
+      <span>{what} didn't load. Nothing is lost; this is only the view.</span>
+      <Button size="sm" onClick={retry}>Retry</Button>
     </div>
   );
 }

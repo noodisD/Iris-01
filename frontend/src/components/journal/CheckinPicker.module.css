@@ -1,0 +1,14 @@
+.checkin { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--petal); }
+.legend span { font-weight: 400; color: var(--petal-3); margin-left: var(--space-2); }
+.row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: var(--space-3); }
+.label { font-size: var(--text-sm); color: var(--petal-2); }
+.scale { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--mist-2); background: transparent; color: var(--petal-3);
+  font: 500 var(--text-xs) var(--font-ui); font-variant-numeric: tabular-nums; cursor: pointer; padding: 0; }
+.chip:hover { color: var(--petal); background: var(--dusk-2); }
+.chip[aria-pressed='true'] { background: var(--iris); border-color: var(--iris); color: var(--on-iris); }
+@media (max-width: 480px) {
+  .row { grid-template-columns: 1fr; gap: 4px; }
+  .chip { width: 26px; height: 26px; }
+}

@@ -18,7 +18,7 @@ const highlight = HighlightStyle.define([
   { tag: tags.emphasis, fontStyle: 'italic' },
   { tag: tags.strikethrough, textDecoration: 'line-through' },
   { tag: tags.quote, fontStyle: 'italic' },
-  { tag: tags.monospace, fontFamily: 'var(--mono)' },
+  { tag: tags.monospace, fontFamily: 'var(--font-ui)' },
 ]);
 
 function apply(view: EditorView, command: Command): boolean {
@@ -74,11 +74,13 @@ export function MarkdownEditor({
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
           placeholder(JOURNAL_PLACEHOLDER),
+          // The editable area is named for screen readers, like the fallback textarea.
+          EditorView.contentAttributes.of({ 'aria-label': 'journal entry', 'aria-multiline': 'true' }),
           EditorView.theme({
             '&': { height: '100%', background: 'transparent', color: 'var(--ink)' },
             '.cm-scroller': {
               overflow: 'auto',
-              fontFamily: 'var(--serif)',
+              fontFamily: 'var(--font-read)',
               fontSize: '20px',
               lineHeight: '1.55',
             },
@@ -86,7 +88,7 @@ export function MarkdownEditor({
             '&.cm-focused': { outline: 'none' },
             '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--sage)' },
             '.cm-gutters': { display: 'none' },
-            '.cm-placeholder': { color: 'var(--ink-4)', fontStyle: 'italic' },
+            '.cm-placeholder': { color: 'var(--petal-3)', fontStyle: 'italic' },
           }),
           EditorView.updateListener.of(update => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());

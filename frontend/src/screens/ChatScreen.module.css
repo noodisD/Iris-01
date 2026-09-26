@@ -1,0 +1,28 @@
+.chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.header { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); flex-wrap: wrap;
+  padding: var(--space-5) var(--page-pad) var(--space-4); border-bottom: 1px solid var(--mist); }
+.title { margin: 0; font-family: var(--font-read); font-weight: 450; font-size: var(--text-2xl); line-height: 1.1; }
+.sub { margin: 2px 0 0; color: var(--petal-3); }
+.privacy { margin: 0; color: var(--petal-3); font-size: var(--text-xs); }
+.scroll { flex: 1; overflow: auto; padding: var(--space-6) var(--page-pad) var(--space-5); }
+.thread { display: flex; flex-direction: column; gap: var(--space-5); max-width: var(--measure-reading); margin: 0 auto; }
+.iris { display: flex; gap: var(--space-3); align-items: flex-start; animation: fadeUp 240ms ease; }
+.iris > svg { margin-top: 5px; }
+.irisText { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); line-height: 1.55; color: var(--petal); max-width: 60ch; white-space: pre-wrap; }
+.caret { opacity: 0.5; }
+.mine { display: flex; justify-content: flex-end; animation: fadeUp 240ms ease; }
+.mineText { margin: 0; background: var(--dusk); border: 1px solid var(--mist); color: var(--petal); padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px; max-width: min(460px, 85%); line-height: 1.55; white-space: pre-wrap; }
+.typing { display: inline-flex; gap: 4px; align-items: center; height: 30px; }
+.typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--iris); animation: blink 1.2s ease-in-out infinite; }
+.typing i:nth-child(2) { animation-delay: 0.2s; }
+.typing i:nth-child(3) { animation-delay: 0.4s; }
+.composerWrap { border-top: 1px solid var(--mist); padding: var(--space-3) var(--page-pad) var(--space-4); background: var(--night); }
+.composerInner { max-width: var(--measure-reading); margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
+.failure { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+.composer { display: flex; align-items: flex-end; gap: var(--space-3); background: var(--dusk); border: 1px solid var(--mist-2);
+  border-radius: var(--radius-panel); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); }
+.composer:focus-within { border-color: var(--iris); }
+.input { flex: 1; background: transparent !important; border: none !important; padding: 8px 0 !important; resize: none; min-height: 24px; line-height: 1.5; }
+.input:focus-visible { box-shadow: none; }
+.meta { margin: 0; color: var(--petal-3); font-size: var(--text-xs); text-align: right; }

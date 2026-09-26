@@ -10,7 +10,7 @@ function inline(text: string, keyPrefix: string): React.ReactNode[] {
     if (start > last) nodes.push(text.slice(last, start));
     const token = match[0];
     const key = `${keyPrefix}-${index++}`;
-    if (token.startsWith('`')) nodes.push(<code key={key} style={{ fontFamily: 'var(--mono)' }}>{token.slice(1, -1)}</code>);
+    if (token.startsWith('`')) nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
     else if (token.startsWith('**')) nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     else if (token.startsWith('~~')) nodes.push(<s key={key}>{token.slice(2, -2)}</s>);
     else if (token.startsWith('*') || token.startsWith('_')) nodes.push(<em key={key}>{token.slice(1, -1)}</em>);

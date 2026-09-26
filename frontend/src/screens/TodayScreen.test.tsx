@@ -2,7 +2,7 @@
  * Today offers the pattern most worth a verdict, as a question, and a failed
  * load says so instead of showing an empty page.
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { PatternSummary } from '@/types/api';
@@ -10,9 +10,13 @@ import type { PatternSummary } from '@/types/api';
 const state = vi.hoisted(() => ({
   patterns: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
   habits: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
+  verdict: vi.fn(),
 }));
 
-vi.mock('@/hooks/usePatterns', () => ({ usePatterns: () => state.patterns }));
+vi.mock('@/hooks/usePatterns', () => ({
+  usePatterns: () => state.patterns,
+  usePatternVerdict: () => ({ mutate: state.verdict, isPending: false }),
+}));
 vi.mock('@/hooks/useHabits', () => ({ useHabits: () => state.habits }));
 
 import { TodayScreen, nextPattern } from './TodayScreen';
@@ -37,8 +41,10 @@ describe('Today', () => {
     ] } };
     state.habits = { ...state.habits, data: noHabits, isError: false };
     show();
-    expect(screen.getByText('Pattern c')).toBeInTheDocument();
-    expect(screen.getByText(/6 occasions in your writing · does it ring true\?/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pattern c' })).toBeInTheDocument();
+    expect(screen.getByText('6 occasions in your writing')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
+    expect(state.verdict).toHaveBeenCalledWith('rings_true');
   });
 
   it('shows nothing when every found pattern has a verdict', () => {
