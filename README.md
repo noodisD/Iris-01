@@ -31,9 +31,9 @@ One Python process and one PostgreSQL database. That's the whole system.
 - **Single local user.** No accounts or login. The web UI binds only to
   `127.0.0.1`; never expose that unauthenticated listener publicly. An
   explicitly configured private-LAN TLS socket admits the paired Android app
-  to `/api/` with its bearer, except laptop-only pairing routes. The native
-  phone UI requires fingerprint or the device screen lock on opening and
-  after five minutes in the background (ADR-0019).
+  to `/api/` with its bearer, except laptop-only pairing, named-place and
+  Timeline-import routes. The native phone UI requires fingerprint or the device
+  screen lock on opening and after five minutes in the background (ADR-0019).
 - **One datastore.** pgvector is a PostgreSQL extension, so 1536-dimension
   embeddings live in ordinary rows next to everything else and a similarity
   search is a normal SQL query with a `WHERE user_id = …` on it.
