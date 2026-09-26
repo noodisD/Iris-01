@@ -6,6 +6,8 @@ import { forgetFact, updateAnalysisPreferences, resetAnalysisPreferences, getMob
 import { LoadingState, ErrorState } from '@/components/states';
 import { QrCode } from '@/components/QrCode';
 import { qk } from '@/lib/queryClient';
+import { Button, ChoiceGroup, Page, Section, Tabs, TabPanel } from '@/ui';
+import styles from './SettingsScreen.module.css';
 
 /** Engine names as a person would describe what each one watches for. */
 const ENGINE_LABELS: Record<string, string> = {
@@ -24,29 +26,14 @@ const TABS = [
   { id: 'notes', label: 'Notes' },
   { id: 'data', label: 'Your data' },
 ] as const;
-
-const small: React.CSSProperties = { margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-3)' };
-
-/** One topic: a title, a sentence on what it is for, then its controls. */
-function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section aria-label={title} className="col" style={{ gap: 14, padding: '20px 22px', border: '1px solid var(--line-soft)',
-                                                         borderRadius: 10, background: 'var(--bg-1)' }}>
-      <div className="col" style={{ gap: 4 }}>
-        <h2 className="serif" style={{ margin: 0, fontSize: 22, fontWeight: 400, color: 'var(--ink)' }}>{title}</h2>
-        {hint && <p style={small}>{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
+type TabId = typeof TABS[number]['id'];
 
 /** A labelled line in a list of facts about a connection. */
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 12, fontSize: 13, alignItems: 'baseline' }}>
-      <span className="kicker">{label}</span>
-      <span style={{ color: 'var(--ink-2)' }}>{children}</span>
+    <div className={styles.fact}>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
     </div>
   );
 }
@@ -149,216 +136,186 @@ export function SettingsScreen() {
   };
 
   const phoneStatus = !mobile
-    ? { tone: 'var(--ink-3)', text: connectionError ? 'Could not check the phone connection' : 'Checking the phone connection…' }
+    ? { tone: 'unknown', text: connectionError ? 'Could not check the phone connection' : 'Checking the phone connection…' }
     : mobile.listener !== 'listening'
-      ? { tone: 'var(--amber)', text: 'The phone listener is not running' }
+      ? { tone: 'warn', text: 'The phone listener is not running' }
       : mobile.paired
-        ? { tone: 'var(--sage)', text: mobile.last_seen_at ? 'Phone paired and in touch' : 'Phone paired, not heard from yet' }
-        : { tone: 'var(--ink-2)', text: 'No phone paired' };
+        ? { tone: mobile.last_seen_at ? 'ok' : 'unknown', text: mobile.last_seen_at ? 'Phone paired and in touch' : 'Phone paired, not heard from yet' }
+        : { tone: 'unknown', text: 'No phone paired' };
 
   return (
-    <div className="col" style={{ padding: '32px 56px 56px', gap: 24, maxWidth: 920 }}>
-      <header className="col" style={{ gap: 6 }}>
-        <div className="kicker">settings</div>
-        <h1 className="serif" style={{ margin: 0, fontSize: 44, lineHeight: 1, letterSpacing: '-0.02em' }}>
-          The shape of you, <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>so far.</span>
-        </h1>
-      </header>
-
-      <nav role="tablist" aria-label="Settings" className="row" style={{ gap: 4, borderBottom: '1px solid var(--line)' }}>
-        {TABS.map(t => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setParams({ tab: t.id })}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', marginBottom: -1,
-                     fontFamily: 'var(--sans)', fontSize: 13, color: tab === t.id ? 'var(--ink)' : 'var(--ink-3)',
-                     borderBottom: `2px solid ${tab === t.id ? 'var(--sage)' : 'transparent'}` }}>
-            {t.label}{t.id === 'notes' ? ` · ${facts.length}` : ''}
-          </button>
-        ))}
-      </nav>
-
-      {tab === 'conversation' && (analysis ? (
-        <Section title="What IRIS may bring up"
-          hint="These decide which observations reach a conversation at all. They are not about tone: a finding held back here is one IRIS does not consider well enough evidenced to raise.">
-          <div className="col" style={{ gap: 8 }}>
-            <span className="kicker" id="min-confidence-label">minimum confidence</span>
-            <div className="row" role="group" aria-labelledby="min-confidence-label" style={{ gap: 6, maxWidth: 420 }}>
-              {(['low', 'medium', 'high'] as const).map((level) => (
-                <button key={level} className="btn ghost" aria-pressed={analysis.minConfidence === level}
-                  onClick={() => setGate({ minConfidence: level })}
-                  style={{
-                    flex: 1, fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase',
-                    padding: '7px 0', borderRadius: 6,
-                    border: `1px solid ${analysis.minConfidence === level ? 'var(--sage)' : 'var(--line-soft)'}`,
-                    background: analysis.minConfidence === level ? 'rgba(169,200,163,0.10)' : 'transparent',
-                    color: analysis.minConfidence === level ? 'var(--sage)' : 'var(--ink-3)',
-                  }}>
-                  {level}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="col" style={{ gap: 8, maxWidth: 420 }}>
-            <label className="kicker" htmlFor="max-items">most observations at once · {maxItems ?? analysis.maxItems}</label>
-            {/* Local while dragging; saved once when released. It PATCHed
-                on every tick, and each save changes what chat is told. */}
-            <input id="max-items" type="range" min={1} max={10} value={maxItems ?? analysis.maxItems}
-              onChange={(e) => setMaxItems(Number(e.target.value))}
-              onPointerUp={commitMaxItems} onKeyUp={commitMaxItems} onBlur={commitMaxItems}
-              style={{ width: '100%', accentColor: 'var(--sage)' }} />
-          </div>
-
-          <div className="col" style={{ gap: 8 }}>
-            <span className="kicker">what it looks for</span>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '4px 20px' }}>
-              {analysis.availableEngines.map((engine) => {
-                const on = (analysis.enabledEngines ?? analysis.availableEngines).includes(engine);
-                return (
-                  <label key={engine} className="row" style={{ gap: 9, alignItems: 'center', cursor: 'pointer', padding: '4px 0' }}>
-                    <input type="checkbox" checked={on} onChange={() => toggleEngine(engine)} style={{ accentColor: 'var(--sage)' }} />
-                    <span style={{ fontSize: 13, color: on ? 'var(--ink)' : 'var(--ink-4)' }}>{ENGINE_LABELS[engine] ?? engine}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          <button className="btn ghost" onClick={async () => { await resetAnalysisPreferences(); afterGateChange(); }}
-            style={{ alignSelf: 'flex-start', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.08em',
-                     textTransform: 'uppercase', color: 'var(--ink-3)' }}>
-            restore defaults
-          </button>
-        </Section>
-      ) : <LoadingState label="Loading…" />)}
-
-      {tab === 'phone' && (
-        <Section title="Phone"
-          hint="The IRIS phone app sends permitted readings here automatically. They wait in Sensors for review; nothing becomes evidence until you link it.">
-          <div role="status" className="row" style={{ gap: 10, alignItems: 'center' }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: phoneStatus.tone }} />
-            <span style={{ fontSize: 15, color: 'var(--ink)' }}>{phoneStatus.text}</span>
-          </div>
-
-          {(mobileError || connectionError) && <div role="alert" style={{ color: 'var(--rose)', fontSize: 12.5 }}>
-            {mobileError || (connectionError instanceof Error ? connectionError.message : String(connectionError))}
-          </div>}
-
-          {mobile && (
-            <div className="col" style={{ gap: 8 }}>
-              {mobile.lan_url && <Fact label="laptop address"><code style={{ userSelect: 'all' }}>{mobile.lan_url}</code></Fact>}
-              {mobile.paired && <Fact label="last contact">{when(mobile.last_seen_at)}</Fact>}
-              {mobile.paired && <Fact label="last delivery">{when(mobile.last_intake_at)}</Fact>}
-              {mobile.pending_batches > 0 && (
-                <Fact label="waiting"><Link to="/sensors">{mobile.pending_batches} sensor batches to review</Link></Fact>
-              )}
-            </div>
-          )}
-
-          {mobile?.listener === 'failed' && (
-            <p style={{ ...small, color: 'var(--amber)' }}>
-              The phone listener could not start: {mobile.listener_error}. Check that LAN_BIND_HOST in .env is this
-              laptop&apos;s home Wi-Fi or Tailscale address, then restart scripts/serve_iris.py.
-            </p>
-          )}
-          {mobile?.listener === 'not_started' && (
-            <p style={{ ...small, color: 'var(--amber)' }}>
-              LAN_BIND_HOST is set, but IRIS was started without the phone listener. Start it with <code>uv run python scripts/serve_iris.py</code>.
-            </p>
-          )}
-          {mobile?.listener === 'not_configured' && (
-            <p style={{ ...small, color: 'var(--amber)' }}>
-              No phone listener is configured. Set LAN_BIND_HOST to this laptop&apos;s home Wi-Fi or Tailscale address,
-              then start IRIS with <code>uv run python scripts/serve_iris.py</code>.
-            </p>
-          )}
-          {mobile?.paired && !mobile.last_seen_at && (
-            <p style={small}>No phone request has reached IRIS since pairing. Check that the phone can reach the laptop
-              address above, and that the laptop firewall allows TCP 8765.</p>
-          )}
-          {mobile?.last_rejection && (
-            <p style={{ ...small, color: 'var(--amber)' }}>
-              Last refused phone request: {mobile.last_rejection.status} {mobile.last_rejection.detail} at {when(mobile.last_rejection.at)}
-            </p>
-          )}
-
-          {mobile?.listener === 'listening' && mobile.lan_url && mobile.public_key_sha256 && (
-            <>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                {mobile.paired && !newToken && (
-                  <button className="btn" type="button" onClick={() => setShowAddress(v => !v)}>
-                    {showAddress ? 'Hide address QR' : 'Show address QR'}
-                  </button>
-                )}
-                <button className="btn" type="button" disabled={mobileBusy} onClick={generatePairing}>
-                  {mobileBusy ? 'Saving…' : mobile.paired ? 'Pair a new phone' : 'Pair a phone'}
-                </button>
-                {mobile.paired && (
-                  <button className="btn ghost" type="button" disabled={mobileBusy} onClick={revokePairing}
-                    style={{ color: 'var(--rose)' }}>Disconnect phone</button>
-                )}
+    <Page title="Settings">
+      <Tabs<TabId> label="Settings" value={tab} onChange={next => setParams({ tab: next })}
+        tabs={TABS.map(t => ({ value: t.id, label: t.id === 'notes' ? `${t.label} (${facts.length})` : t.label }))}>
+        <TabPanel value="conversation">
+          {analysis ? (
+            <Section title="What IRIS may bring up"
+              description="These decide which observations reach a conversation at all. They are not about tone: a finding held back here is one IRIS does not consider well enough evidenced to raise.">
+              <div className={styles.control}>
+                <span className={styles.label}>Minimum confidence</span>
+                <ChoiceGroup label="Minimum confidence" value={analysis.minConfidence}
+                  options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]}
+                  onChange={level => { if (level) void setGate({ minConfidence: level }); }} />
               </div>
-              {newToken && (
-                <div role="status" className="col" style={{ gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
-                  <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256, newToken)} label="IRIS pairing QR code" />
-                  <span>In the IRIS phone app tap Scan pairing QR. Shown only until you leave this page.</span>
-                  <details><summary style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Pairing token, to type in by hand</summary>
-                    <code style={{ display: 'block', userSelect: 'all', wordBreak: 'break-all', marginTop: 6 }}>{newToken}</code>
-                  </details>
-                </div>
-              )}
-              {showAddress && mobile.paired && !newToken && (
-                <div className="col" style={{ gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
-                  <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256)} label="IRIS address QR code" />
-                  <span>If this laptop&apos;s address changed, scan this from the phone; the pairing is kept.</span>
-                </div>
-              )}
-              <details style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>
-                <summary style={{ cursor: 'pointer' }}>Technical details</summary>
-                <div className="col" style={{ gap: 6, marginTop: 8 }}>
-                  <Fact label="server key sha-256">
-                    <code style={{ userSelect: 'all', wordBreak: 'break-all' }}>{mobile.public_key_sha256}</code>
-                  </Fact>
-                </div>
-              </details>
-            </>
-          )}
-        </Section>
-      )}
 
-      {tab === 'notes' && (
-        <Section title="What IRIS knows about you"
-          hint="Stable notes inferred from your own words. Remove any of them with × and it is gone; a confirmed pattern asks first.">
-          {facts.length === 0 ? <p style={small}>Nothing yet.</p> : (
-            <div className="col">
-              {facts.map((k, i) => (
-                <div key={k.id} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 50px 28px', gap: 12, padding: '12px 0',
-                                         alignItems: 'baseline', borderTop: i === 0 ? 'none' : '1px solid var(--line-soft)' }}>
-                  <span className="serif" style={{ fontSize: 17, lineHeight: 1.4, color: 'var(--ink)', fontStyle: 'italic' }}>&ldquo;{k.fact}&rdquo;</span>
-                  <span className="tag" style={{ justifySelf: 'start', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)' }}>{k.source}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', textAlign: 'right' }}>{k.ageDays}d</span>
-                  {k.editable ? (
-                    <button className="btn ghost" style={{ fontSize: 13, color: 'var(--rose)', padding: 0 }}
-                      aria-label={k.source === 'confirmed' ? 'stop counting' : 'forget'}
-                      title={k.source === 'confirmed' ? 'Stop counting this confirmed pattern' : 'Forget this pattern; it can be found again'}
-                      onClick={() => forget(k.id, k.source)}>×</button>
-                  ) : <span />}
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-      )}
+              <div className={styles.control}>
+                <label className={styles.label} htmlFor="max-items">
+                  Most observations at once: <span className={styles.value}>{maxItems ?? analysis.maxItems}</span>
+                </label>
+                {/* Local while dragging; saved once when released. It PATCHed
+                    on every tick, and each save changes what chat is told. */}
+                <input id="max-items" type="range" min={1} max={10} value={maxItems ?? analysis.maxItems}
+                  onChange={(e) => setMaxItems(Number(e.target.value))}
+                  onPointerUp={commitMaxItems} onKeyUp={commitMaxItems} onBlur={commitMaxItems}
+                  className={styles.range} />
+              </div>
 
-      {tab === 'data' && (
-        <Section title="Your data">
-          <div className="col" style={{ gap: 10 }}>
-            <Fact label="stored">On this laptop, in your own PostgreSQL. Nothing is kept anywhere else.</Fact>
-            <Fact label="sent to OpenAI">What you write, to be turned into embeddings and replies. Reads over your writing, such as Read my reflections, run only when you start them.</Fact>
-            <Fact label="reachable from">This laptop, your paired phone, and your own devices signed in to your Tailscale account.</Fact>
-            <Fact label="removable">Every note IRIS keeps about you is listed under Notes and can be removed there.</Fact>
-          </div>
-        </Section>
-      )}
-    </div>
+              <fieldset className={styles.engines}>
+                <legend className={styles.label}>What it looks for</legend>
+                {analysis.availableEngines.map((engine) => {
+                  const on = (analysis.enabledEngines ?? analysis.availableEngines).includes(engine);
+                  return (
+                    <label key={engine} className={styles.check}>
+                      <input type="checkbox" checked={on} onChange={() => toggleEngine(engine)} />
+                      <span>{ENGINE_LABELS[engine] ?? engine}</span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+
+              <div>
+                <Button variant="quiet" size="sm" onClick={async () => { await resetAnalysisPreferences(); afterGateChange(); }}>
+                  Restore defaults
+                </Button>
+              </div>
+            </Section>
+          ) : <LoadingState label="Loading…" />}
+        </TabPanel>
+
+        <TabPanel value="phone">
+          <Section title="Phone"
+            description="The IRIS phone app sends permitted readings here automatically. They wait in Sensors for review; nothing becomes evidence until you link it.">
+            <p role="status" className={styles.status}>
+              <span className={`${styles.light} ${styles[phoneStatus.tone]}`} aria-hidden="true" />
+              {phoneStatus.text}
+            </p>
+
+            {(mobileError || connectionError) && <p role="alert" className={styles.error}>
+              {mobileError || (connectionError instanceof Error ? connectionError.message : String(connectionError))}
+            </p>}
+
+            {mobile && (
+              <dl className={styles.facts}>
+                {mobile.lan_url && <Fact label="Laptop address"><code className={styles.code}>{mobile.lan_url}</code></Fact>}
+                {mobile.paired && <Fact label="Last contact">{when(mobile.last_seen_at)}</Fact>}
+                {mobile.paired && <Fact label="Last delivery">{when(mobile.last_intake_at)}</Fact>}
+                {mobile.pending_batches > 0 && (
+                  <Fact label="Waiting"><Link to="/sensors?view=review">{mobile.pending_batches} sensor {mobile.pending_batches === 1 ? 'batch' : 'batches'} to review</Link></Fact>
+                )}
+              </dl>
+            )}
+
+            {mobile?.listener === 'failed' && (
+              <p className={styles.warn}>
+                The phone listener could not start: {mobile.listener_error}. Check that LAN_BIND_HOST in .env is this
+                laptop&apos;s home Wi-Fi or Tailscale address, then restart scripts/serve_iris.py.
+              </p>
+            )}
+            {mobile?.listener === 'not_started' && (
+              <p className={styles.warn}>
+                LAN_BIND_HOST is set, but IRIS was started without the phone listener. Start it with <code>uv run python scripts/serve_iris.py</code>.
+              </p>
+            )}
+            {mobile?.listener === 'not_configured' && (
+              <p className={styles.warn}>
+                No phone listener is configured. Set LAN_BIND_HOST to this laptop&apos;s home Wi-Fi or Tailscale address,
+                then start IRIS with <code>uv run python scripts/serve_iris.py</code>.
+              </p>
+            )}
+            {mobile?.paired && !mobile.last_seen_at && (
+              <p className={styles.muted}>No phone request has reached IRIS since pairing. Check that the phone can reach the laptop
+                address above, and that the laptop firewall allows TCP 8765.</p>
+            )}
+            {mobile?.last_rejection && (
+              <p className={styles.warn}>
+                Last refused phone request: {mobile.last_rejection.status} {mobile.last_rejection.detail} at {when(mobile.last_rejection.at)}
+              </p>
+            )}
+
+            {mobile?.listener === 'listening' && mobile.lan_url && mobile.public_key_sha256 && (
+              <>
+                <div className={styles.actions}>
+                  <Button variant={mobile.paired ? 'secondary' : 'primary'} disabled={mobileBusy} onClick={generatePairing}>
+                    {mobileBusy ? 'Saving…' : mobile.paired ? 'Pair a new phone' : 'Pair a phone'}
+                  </Button>
+                  {mobile.paired && !newToken && (
+                    <Button onClick={() => setShowAddress(v => !v)}>{showAddress ? 'Hide address QR' : 'Show address QR'}</Button>
+                  )}
+                  {mobile.paired && (
+                    <Button variant="danger" disabled={mobileBusy} onClick={revokePairing}>Disconnect phone</Button>
+                  )}
+                </div>
+                {newToken && (
+                  <div role="status" className={styles.qr}>
+                    <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256, newToken)} label="IRIS pairing QR code" />
+                    <p className={styles.muted}>In the IRIS phone app tap Scan pairing QR. Shown only until you leave this page.</p>
+                    <details className={styles.details}><summary>Pairing token, to type in by hand</summary>
+                      <code className={styles.code}>{newToken}</code>
+                    </details>
+                  </div>
+                )}
+                {showAddress && mobile.paired && !newToken && (
+                  <div className={styles.qr}>
+                    <QrCode value={phonePairingCode(mobile.lan_url, mobile.public_key_sha256)} label="IRIS address QR code" />
+                    <p className={styles.muted}>If this laptop&apos;s address changed, scan this from the phone; the pairing is kept.</p>
+                  </div>
+                )}
+                <details className={styles.details}>
+                  <summary>Technical details</summary>
+                  <dl className={styles.facts}>
+                    <Fact label="Server key SHA-256"><code className={styles.code}>{mobile.public_key_sha256}</code></Fact>
+                  </dl>
+                </details>
+              </>
+            )}
+          </Section>
+        </TabPanel>
+
+        <TabPanel value="notes">
+          <Section title="What IRIS knows about you"
+            description="Stable notes inferred from your own words. Remove any of them and it is gone; a confirmed pattern asks first.">
+            {facts.length === 0 ? <p className={styles.muted}>Nothing yet.</p> : (
+              <ul className={styles.notes}>
+                {facts.map(k => (
+                  <li key={k.id} className={styles.note}>
+                    <p className={styles.noteText}>{k.fact}</p>
+                    <span className={styles.noteMeta}>{k.source === 'confirmed' ? 'Confirmed by you' : k.source}, {k.ageDays} days old</span>
+                    {k.editable && (
+                      <Button variant="quiet" size="sm" className={styles.remove}
+                        aria-label={k.source === 'confirmed' ? 'stop counting' : 'forget'}
+                        title={k.source === 'confirmed' ? 'Stop counting this confirmed pattern' : 'Forget this pattern; it can be found again'}
+                        onClick={() => forget(k.id, k.source)}>
+                        {k.source === 'confirmed' ? 'Stop counting' : 'Forget'}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        </TabPanel>
+
+        <TabPanel value="data">
+          <Section title="Your data">
+            <dl className={styles.facts}>
+              <Fact label="Stored">On this laptop, in your own PostgreSQL. Nothing is kept anywhere else.</Fact>
+              <Fact label="Sent to OpenAI">What you write, to be turned into embeddings and replies. Reads over your writing, such as Read my reflections, run only when you start them.</Fact>
+              <Fact label="Reachable from">This laptop, your paired phone, and your own devices signed in to your Tailscale account.</Fact>
+              <Fact label="Removable">Every note IRIS keeps about you is listed under Notes and can be removed there.</Fact>
+            </dl>
+          </Section>
+        </TabPanel>
+      </Tabs>
+    </Page>
   );
 }

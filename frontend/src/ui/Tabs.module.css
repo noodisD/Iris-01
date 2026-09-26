@@ -8,3 +8,4 @@
 .trigger[data-state='active'] { color: var(--petal); border-bottom-color: var(--iris); }
 .panel { min-width: 0; }
 .panel:focus-visible { box-shadow: none; }
+@media (max-width: 479px) { .trigger { padding: 10px var(--space-2); } }

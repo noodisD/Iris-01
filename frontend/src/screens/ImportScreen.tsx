@@ -5,19 +5,21 @@ import * as importApi from '@/api/importing';
 import {
   isBusy, useImportActions, useImportAdapters, useImportBatch, useImportBatches, useImportEntries,
 } from '@/hooks/useImport';
-import { LoadingState, ErrorState, EmptyState } from '@/components/states';
+import { LoadingState, ErrorState } from '@/components/states';
 import { AudioRecorder } from '@/components/AudioRecorder';
 import type { ImportBatch, ImportEntry } from '@/types/api';
+import { Badge, Button, Page, Section } from '@/ui';
+import styles from './ImportScreen.module.css';
 
 const TEXT_ACCEPT = '.zip,.md,.markdown,.txt,.json,.csv';
 const AUDIO_ACCEPT = '.m4a,.mp3,.wav,.webm,.ogg,.flac,.aac,.mp4';
 
-const badgeColour: Record<string, string> = {
-  staged: 'var(--ink-3)',
-  excluded: 'var(--ink-4)',
-  duplicate: 'var(--amber)',
-  imported: 'var(--sage)',
-  failed: 'var(--rose)',
+const badgeTone: Record<string, 'neutral' | 'confirmed' | 'worse' | 'action'> = {
+  staged: 'neutral',
+  excluded: 'neutral',
+  duplicate: 'action',
+  imported: 'confirmed',
+  failed: 'worse',
 };
 
 function DropZone({
@@ -38,20 +40,16 @@ function DropZone({
         setOver(false);
         if (e.dataTransfer.files?.length) onFiles(e.dataTransfer.files);
       }}
-      onClick={() => !busy && input.current?.click()}
-      style={{
-        border: `1px dashed ${over ? 'var(--sage)' : 'var(--line)'}`,
-        background: over ? 'rgba(169,200,163,0.06)' : 'var(--bg-2)',
-        borderRadius: 10, padding: '28px 22px', cursor: busy ? 'wait' : 'pointer',
-        opacity: busy ? 0.6 : 1, transition: 'border-color 0.15s, background 0.15s',
-      }}
+      className={[styles.drop, over ? styles.over : '', busy ? styles.busy : ''].filter(Boolean).join(' ')}
     >
-      <div className="kicker" style={{ marginBottom: 8 }}>{label}</div>
-      <div className="serif ital" style={{ fontSize: 16, color: 'var(--ink-2)', lineHeight: 1.4 }}>
-        {hint}
+      <h2 className={styles.dropTitle}>{label}</h2>
+      <p className={styles.dropHint}>{hint}</p>
+      <div>
+        <Button disabled={busy} onClick={() => input.current?.click()}>Choose files</Button>
+        <span className={styles.dropOr}>or drop them here</span>
       </div>
       <input
-        ref={input} type="file" accept={accept} multiple hidden
+        ref={input} type="file" accept={accept} multiple hidden aria-label={label}
         onChange={(e) => { if (e.target.files?.length) onFiles(e.target.files); e.target.value = ''; }}
       />
     </div>
@@ -60,14 +58,9 @@ function DropZone({
 
 function ProgressBar({ fraction, label }: { fraction: number; label: string }) {
   return (
-    <div className="col" style={{ gap: 6 }}>
-      <div className="kicker">{label}</div>
-      <div style={{ height: 3, background: 'var(--line-soft)', borderRadius: 2 }}>
-        <div style={{
-          width: `${Math.round(fraction * 100)}%`, height: '100%',
-          background: 'var(--sage)', borderRadius: 2, transition: 'width 0.2s',
-        }} />
-      </div>
+    <div className={styles.progress}>
+      <span className={styles.progressLabel}>{label}</span>
+      <progress className={styles.bar} value={Math.round(fraction * 100)} max={100} aria-label={label} />
     </div>
   );
 }
@@ -86,73 +79,46 @@ function EntryRow({
   // offers that. It used to offer "exclude", which is the opposite of what
   // someone looking at a failure wants.
   const retryable = entry.status === 'failed';
-  // Red for "you must fix this", amber for "we guessed, check it".
-  const dateColour = undated ? 'var(--rose)'
-    : entry.dateConfidence === 'probable' ? 'var(--amber)' : 'var(--line-soft)';
+  // Marked for "you must fix this", and for "we guessed, check it".
+  const dateState = undated ? styles.dateMissing : entry.dateConfidence === 'probable' ? styles.dateGuess : '';
 
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '140px 1fr 90px 28px', gap: 14,
-      alignItems: 'center', padding: '9px 0', borderTop: '1px solid var(--line-soft)',
-      opacity: excluded ? 0.4 : 1,
-    }}>
+    <li className={`${styles.entry} ${excluded ? styles.excluded : ''}`}>
       <input
-        type="date"
+        type="date" aria-label={`Date of ${entry.sourceName}`}
         value={entry.occurredOn ?? ''}
         onChange={(e) => e.target.value && onDate(entry.id, e.target.value)}
-        style={{
-          background: 'var(--bg-2)', color: 'var(--ink)', fontFamily: 'var(--mono)',
-          fontSize: 11, padding: '5px 7px', borderRadius: 5,
-          border: `1px solid ${dateColour}`,
-        }}
+        className={`${styles.date} ${dateState}`}
       />
-      <div className="col" style={{ gap: 2, minWidth: 0 }}>
-        <span style={{
-          fontSize: 13, color: 'var(--ink-2)', overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
+      <div className={styles.entryText}>
+        <span className={styles.excerpt}>
           {entry.excerpt || (entry.hasAudio ? 'Waiting for the transcript…' : '(empty)')}
         </span>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--ink-4)' }}>
+        <span className={styles.source}>
           {entry.sourceName}
-          {entry.hasAudio && ' · recording'}
+          {entry.hasAudio && ', a recording'}
         </span>
         {entry.dateSource === 'mtime' && (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--amber)' }}>
-            dated by when its file was last saved · a guess
-          </span>
+          <span className={styles.guess}>Dated by when its file was last saved, which is a guess</span>
         )}
         {undated && entry.fileModifiedOn && !excluded && (
-          <button className="btn ghost" onClick={() => onFileDate(entry.id)}
-                  style={{ alignSelf: 'flex-start', fontSize: 10.5, padding: 0, color: 'var(--amber)' }}>
-            file last saved {entry.fileModifiedOn}. Use that?
-          </button>
+          <Button variant="quiet" size="sm" className={styles.inlineAction} onClick={() => onFileDate(entry.id)}>
+            File last saved {entry.fileModifiedOn}. Use that?
+          </Button>
         )}
-        {entry.warnings.map((w, i) => (
-          <span key={i} style={{ fontSize: 10.5, color: 'var(--amber)', fontStyle: 'italic' }}>
-            {w}
-          </span>
-        ))}
-        {entry.error && (
-          <span style={{ fontSize: 10.5, color: 'var(--rose)' }}>{entry.error}</span>
-        )}
+        {entry.warnings.map((w, i) => <span key={i} className={styles.guess}>{w}</span>)}
+        {entry.error && <span className={styles.failed}>{entry.error}</span>}
       </div>
-      <span style={{
-        fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '0.08em',
-        textTransform: 'uppercase', color: badgeColour[entry.status] ?? 'var(--ink-3)',
-      }}>
-        {entry.status}
-      </span>
-      <button
-        className="btn ghost"
+      <Badge tone={badgeTone[entry.status] ?? 'neutral'}>{entry.status}</Badge>
+      <Button
+        variant="quiet" size="sm"
         aria-label={retryable ? 'try this entry again'
                     : excluded ? 'include this entry' : 'exclude this entry'}
         onClick={() => onToggle(entry)}
-        style={{ fontSize: 13, color: excluded || retryable ? 'var(--sage)' : 'var(--ink-4)' }}
       >
-        {excluded || retryable ? '+' : '×'}
-      </button>
-    </div>
+        {retryable ? 'Retry' : excluded ? 'Include' : 'Exclude'}
+      </Button>
+    </li>
   );
 }
 
@@ -176,122 +142,88 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
     .map((e) => e.id);
 
   return (
-    <section className="col" style={{ gap: 16 }}>
+    <section className={styles.review} aria-label="Review the import">
       {batch.status === 'failed' && (
-        <div role="alert" className="col" style={{ gap: 6, padding: '12px 16px',
-             border: '1px solid var(--line)', borderRadius: 8 }}>
-          <span style={{ fontSize: 13, color: 'var(--ink)' }}>
-            {counts.imported} of {counts.total} entries were imported; {counts.failed} failed.
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+        <div role="alert" className={styles.notice}>
+          <strong>{counts.imported} of {counts.total} entries were imported; {counts.failed} failed.</strong>
+          <span className={styles.muted}>
             The ones that landed are safe and are not here. Put the rest right below and
             import again, or discard what is left.
           </span>
-          {batch.error && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-4)' }}>
-              {batch.error}
-            </span>
-          )}
+          {batch.error && <span className={styles.muted}>{batch.error}</span>}
         </div>
       )}
 
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div className="col" style={{ gap: 4 }}>
-          <div className="kicker">read as</div>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <select
-              value={batch.adapter ?? ''}
-              onChange={(e) => actions.reparse.mutate(e.target.value)}
-              disabled={actions.reparse.isPending}
-              style={{
-                background: 'var(--bg-2)', color: 'var(--ink)', border: '1px solid var(--line)',
-                borderRadius: 6, padding: '6px 9px', fontSize: 12.5,
-              }}
-            >
-              {(adapters ?? []).map((a) => (
-                <option key={a.name} value={a.name}>{a.label}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-              {actions.reparse.isPending ? 're-reading…' : 'change if this looks wrong'}
-            </span>
-          </div>
-        </div>
-        <button className="btn ghost" onClick={() => actions.discard.mutate(false, { onSuccess: onDone })}
-                style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-          discard this import
-        </button>
+      <div className={styles.reviewHead}>
+        <label className={styles.readAs}>
+          <span className={styles.label}>Read as</span>
+          <select
+            value={batch.adapter ?? ''}
+            onChange={(e) => actions.reparse.mutate(e.target.value)}
+            disabled={actions.reparse.isPending}
+          >
+            {(adapters ?? []).map((a) => (
+              <option key={a.name} value={a.name}>{a.label}</option>
+            ))}
+          </select>
+          <span className={styles.muted}>{actions.reparse.isPending ? 'Re-reading…' : 'Change this if the entries look wrong.'}</span>
+        </label>
+        <Button variant="danger" size="sm" onClick={() => actions.discard.mutate(false, { onSuccess: onDone })}>
+          Discard this import
+        </Button>
       </div>
 
-      <div className="row" style={{ gap: 20, flexWrap: 'wrap', fontFamily: 'var(--mono)', fontSize: 11 }}>
-        <span style={{ color: 'var(--ink-2)' }}>{counts.total} entries</span>
-        {counts.needsDate > 0 && (
-          <span style={{ color: 'var(--rose)' }}>{counts.needsDate} need a date</span>
-        )}
-        {counts.duplicate > 0 && (
-          <span style={{ color: 'var(--amber)' }}>{counts.duplicate} already imported</span>
-        )}
-        {counts.excluded > 0 && <span style={{ color: 'var(--ink-4)' }}>{counts.excluded} excluded</span>}
-        {counts.earliest && (
-          <span style={{ color: 'var(--ink-3)' }}>{counts.earliest} → {counts.latest}</span>
-        )}
-      </div>
+      <ul className={styles.counts}>
+        <li>{counts.total} entries</li>
+        {counts.needsDate > 0 && <li className={styles.failed}>{counts.needsDate} need a date</li>}
+        {counts.duplicate > 0 && <li>{counts.duplicate} already imported</li>}
+        {counts.excluded > 0 && <li>{counts.excluded} excluded</li>}
+        {counts.earliest && <li>From {counts.earliest} to {counts.latest}</li>}
+      </ul>
 
       {fileDatable.length > 0 && (
-        <div className="row" style={{
-          gap: 10, alignItems: 'center', padding: '11px 14px',
-          border: '1px solid var(--amber)', borderRadius: 8,
-        }}>
-          <span style={{ fontSize: 12.5, color: 'var(--ink-2)', flex: 1 }}>
+        <div className={`${styles.notice} ${styles.row}`}>
+          <span className={styles.noticeText}>
             {fileDatable.length} undated {fileDatable.length === 1 ? 'entry' : 'entries'} can
             be dated by when {fileDatable.length === 1 ? 'its file was' : 'their files were'} last
             saved. That is a guess (a note is often edited after the day it describes),
-            so those dates stay amber for you to check.
+            so those dates stay marked for you to check.
           </span>
-          <button className="btn" disabled={actions.bulk.isPending}
+          <Button disabled={actions.bulk.isPending}
                   onClick={() => actions.bulk.mutate({ ids: fileDatable, op: 'use_file_date' })}>
-            use file dates
-          </button>
+            Use file dates
+          </Button>
         </div>
       )}
       {undatedIds.length > 0 && (
-        <div className="row" style={{
-          gap: 10, alignItems: 'center', padding: '11px 14px',
-          border: '1px solid var(--rose)', borderRadius: 8, background: 'rgba(212,138,138,0.06)',
-        }}>
-          <span style={{ fontSize: 12.5, color: 'var(--ink-2)', flex: 1 }}>
+        <div className={`${styles.notice} ${styles.urgent} ${styles.row}`}>
+          <span className={styles.noticeText}>
             {undatedIds.length} {undatedIds.length === 1 ? 'entry has' : 'entries have'} no date
-            IRIS could read. It will not guess one — an entry filed on the wrong
+            IRIS could read. It will not guess one: an entry filed on the wrong
             day is counted in the wrong week for good.
           </span>
-          <input type="date" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)}
-                 style={{
-                   background: 'var(--bg-2)', color: 'var(--ink)', fontFamily: 'var(--mono)',
-                   fontSize: 11, padding: '5px 7px', borderRadius: 5, border: '1px solid var(--line)',
-                 }} />
-          <button className="btn" disabled={!bulkDate}
-                  onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'set_date', occurredOn: bulkDate })}
-                  style={{ fontSize: 11 }}>
-            set all
-          </button>
+          <input type="date" aria-label="Date for all undated entries" value={bulkDate}
+                 onChange={(e) => setBulkDate(e.target.value)} />
+          <Button disabled={!bulkDate}
+                  onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'set_date', occurredOn: bulkDate })}>
+            Set all
+          </Button>
           {/* The third answer, which the screen never offered: the day is
               not recoverable, and saying so is not the same as guessing. The
               service has accepted it since the undated work landed; without
               this button an archive of undated recordings could only be
               excluded or abandoned. */}
-          <button className="btn" style={{ fontSize: 11 }}
-                  onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'accept_unknown_date' })}>
-            accept as undated
-          </button>
-          <button className="btn ghost" style={{ fontSize: 11 }}
-                  onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'exclude' })}>
-            exclude all
-          </button>
+          <Button onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'accept_unknown_date' })}>
+            Accept as undated
+          </Button>
+          <Button variant="quiet" onClick={() => actions.bulk.mutate({ ids: undatedIds, op: 'exclude' })}>
+            Exclude all
+          </Button>
         </div>
       )}
 
       {isLoading ? <LoadingState label="Iris is reading your entries…" /> : (
-        <div className="col" style={{ maxHeight: 460, overflowY: 'auto' }}>
+        <ul className={styles.entries} aria-label="Entries found">
           {(entries ?? []).map((e) => (
             <EntryRow
               key={e.id} entry={e}
@@ -304,27 +236,20 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
               })}
             />
           ))}
-        </div>
+        </ul>
       )}
 
-      <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-        <button
-          className="btn primary"
+      <div className={styles.row}>
+        <Button
+          variant="primary"
           disabled={blocked || actions.commit.isPending || counts.staged === 0}
           onClick={() => actions.commit.mutate()}
-          style={{ opacity: blocked || counts.staged === 0 ? 0.45 : 1 }}
         >
-          {actions.commit.isPending ? 'importing…' : `Import ${counts.staged} entries`}
-        </button>
-        {counts.needsDate > 0 && (
-          <span style={{ fontSize: 11.5, color: 'var(--rose)', fontStyle: 'italic' }}>
-            Set or exclude the undated entries first.
-          </span>
-        )}
+          {actions.commit.isPending ? 'Importing…' : `Import ${counts.staged} entries`}
+        </Button>
+        {counts.needsDate > 0 && <span className={styles.failed}>Set or exclude the undated entries first.</span>}
         {counts.needsDate === 0 && waiting && (
-          <span style={{ fontSize: 11.5, color: 'var(--ink-3)', fontStyle: 'italic' }}>
-            {counts.awaitingTranscript} recording(s) still being transcribed…
-          </span>
+          <span className={styles.muted}>{counts.awaitingTranscript} recording(s) still being transcribed…</span>
         )}
       </div>
     </section>
@@ -334,19 +259,17 @@ export function Review({ batch, onDone }: { batch: ImportBatch; onDone: () => vo
 function Finished({ batch, onDone }: { batch: ImportBatch; onDone: () => void }) {
   const actions = useImportActions(batch.id);
   return (
-    <section className="col" style={{ gap: 12 }}>
-      <div className="serif" style={{ fontSize: 22, color: 'var(--ink)' }}>
-        {batch.committedCount} entries added to your journal.
-      </div>
-      <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: 0, lineHeight: 1.5, maxWidth: 560 }}>
+    <section className={styles.finished} aria-label="Import finished">
+      <h2 className={styles.finishedTitle}>{batch.committedCount} entries added to your journal.</h2>
+      <p className={styles.muted}>
         Iris is still reading them. Embedding and pattern-finding happen in the
-        background, so themes may take a few minutes to appear — and a large
+        background, so themes may take a few minutes to appear, and a large
         import can reorganise the ones you already have.
       </p>
-      <div className="row" style={{ gap: 10 }}>
-        <button className="btn" onClick={onDone}>Import something else</button>
-        <button
-          className="btn ghost" style={{ fontSize: 11, color: 'var(--rose)' }}
+      <div className={styles.row}>
+        <Button onClick={onDone}>Import something else</Button>
+        <Button
+          variant="danger"
           disabled={actions.discard.isPending}
           onClick={() => {
             // Undo exists because the dates are the point: if an export was read
@@ -357,8 +280,8 @@ function Finished({ batch, onDone }: { batch: ImportBatch; onDone: () => void })
             }
           }}
         >
-          undo this import
-        </button>
+          Undo this import
+        </Button>
       </div>
     </section>
   );
@@ -423,15 +346,8 @@ export function ImportScreen() {
   if (isError) return <ErrorState onRetry={() => refetch()} />;
 
   return (
-    <div className="col" style={{ padding: '32px 56px 48px', gap: 26 }}>
-      <header className="col" style={{ gap: 6, borderBottom: '1px solid var(--line)', paddingBottom: 18 }}>
-        <div className="kicker">import · what you have already written</div>
-        <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
-          Everything before<br />
-          <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>this.</span>
-        </h1>
-      </header>
-
+    <Page title="Import"
+      description="Bring in what you have already written or recorded. Nothing is saved until you have checked what IRIS found, and every entry keeps the day you wrote it.">
       {error && <ErrorState message={error} onRetry={() => setError(undefined)} />}
       {progress && <ProgressBar fraction={progress.fraction} label={progress.label} />}
 
@@ -459,16 +375,16 @@ export function ImportScreen() {
 
       {!batch && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+          <div className={styles.drops}>
             <DropZone
-              label="written journals" accept={TEXT_ACCEPT} busy={!!progress}
-              hint="An export from Notion, Obsidian, Day One — a zip, a folder of notes, or one long file. Iris will show you what it found before anything is saved."
+              label="Written journals" accept={TEXT_ACCEPT} busy={!!progress}
+              hint="An export from Notion, Obsidian or Day One: a zip, a folder of notes, or one long file."
               onFiles={(f) => send(f, 'text')}
             />
-            <div className="col" style={{ gap: 12 }}>
+            <div className={styles.voice}>
               <DropZone
-                label="voice journals" accept={AUDIO_ACCEPT} busy={!!progress}
-                hint="Recordings from your phone. They are sent to OpenAI to be transcribed; the audio itself is kept here so you can listen back."
+                label="Voice journals" accept={AUDIO_ACCEPT} busy={!!progress}
+                hint="Recordings from your phone. They are sent to OpenAI to be transcribed; the audio stays here so you can listen back."
                 onFiles={(f) => send(f, 'audio')}
               />
               <AudioRecorder disabled={!!progress} onSave={saveRecording} />
@@ -476,36 +392,26 @@ export function ImportScreen() {
           </div>
 
           {(batches ?? []).length === 0 ? (
-            <EmptyState
-              title="Nothing imported yet"
-              body="Whatever you have written elsewhere can come in here, dated when you wrote it."
-            />
+            <p className={styles.muted}>Nothing imported yet. Whatever you have written elsewhere can come in here, dated when you wrote it.</p>
           ) : (
-            <section className="col" style={{ gap: 2 }}>
-              <div className="kicker" style={{ marginBottom: 8 }}>previous imports</div>
-              {(batches ?? []).map((b) => (
-                <button
-                  key={b.id} className="row" onClick={() => setActiveId(b.id)}
-                  style={{
-                    justifyContent: 'space-between', alignItems: 'baseline', gap: 16,
-                    padding: '11px 0', borderTop: '1px solid var(--line-soft)',
-                    background: 'none', border: 'none', borderTopStyle: 'solid',
-                    cursor: 'pointer', textAlign: 'left', width: '100%',
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>
-                    {b.originalFilename ?? 'recording'}
-                  </span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)' }}>
-                    {b.status === 'committed' ? `${b.committedCount} imported` : b.status}
-                    {' · '}{new Date(b.createdAt).toLocaleDateString()}
-                  </span>
-                </button>
-              ))}
-            </section>
+            <Section title="Previous imports">
+              <ul className={styles.previous}>
+                {(batches ?? []).map((b) => (
+                  <li key={b.id}>
+                    <button type="button" className={styles.previousItem} onClick={() => setActiveId(b.id)}>
+                      <span className={styles.previousName}>{b.originalFilename ?? 'Recording'}</span>
+                      <span className={styles.muted}>
+                        {b.status === 'committed' ? `${b.committedCount} imported` : b.status},{' '}
+                        {new Date(b.createdAt).toLocaleDateString()}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Section>
           )}
         </>
       )}
-    </div>
+    </Page>
   );
 }

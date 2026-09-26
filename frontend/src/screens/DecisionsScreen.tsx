@@ -5,6 +5,8 @@ import { formatEventDate } from '@/lib/dates';
 import type {
   Decision, DecisionCreate, Feeling, FollowedPlan, LastDays, Pressure, Reversible, Stake, WouldRepeat,
 } from '@/types/api';
+import { Button, Page } from '@/ui';
+import styles from './DecisionsScreen.module.css';
 
 /**
  * A decision journal, filled in at the moment a decision is made — any kind:
@@ -65,13 +67,6 @@ const EMPTY = {
   energy: null as number | null, feeling: null as Feeling | null, plan: '',
 };
 
-const mono: React.CSSProperties = {
-  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-4)', letterSpacing: '0.1em', textTransform: 'uppercase',
-};
-const field: React.CSSProperties = {
-  background: 'transparent', border: 'none', borderBottom: '1px solid var(--line)', outline: 'none',
-  color: 'var(--ink)', fontFamily: 'var(--serif)', fontSize: 18, padding: '4px 0',
-};
 
 function toNumber(text: string): number | undefined {
   return text.trim() === '' ? undefined : Number(text);
@@ -81,24 +76,18 @@ function labelOf<T>(options: Option<T>[], value: T | null): string | null {
   return value === null ? null : options.find(o => o.value === value)?.label ?? null;
 }
 
-function Row({ n, prompt, children }: { n: number; prompt: string; children: React.ReactNode }) {
+function Row({ prompt, children }: { prompt: string; children: React.ReactNode }) {
   return (
-    <div className="col" style={{ gap: 8, padding: '14px 0', borderBottom: '1px solid var(--line)' }}>
-      <div className="row" style={{ alignItems: 'baseline', gap: 12 }}>
-        <span style={{ ...mono, minWidth: 16 }}>0{n}</span>
-        <span className="serif ital" style={{ fontSize: 18, color: 'var(--ink-3)' }}>{prompt}</span>
-      </div>
-      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', paddingLeft: 28 }}>{children}</div>
+    <div className={styles.question}>
+      <p className={styles.prompt}>{prompt}</p>
+      <div className={styles.answers}>{children}</div>
     </div>
   );
 }
 
 function Choice({ pressed, onClick, label }: { pressed: boolean; onClick: () => void; label: string }) {
   return (
-    <button aria-pressed={pressed} onClick={onClick}
-      style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
-               border: `1px solid ${pressed ? 'var(--sage)' : 'var(--line)'}`,
-               background: pressed ? 'var(--sage)' : 'transparent', color: pressed ? '#14140f' : 'var(--ink-3)' }}>
+    <button type="button" aria-pressed={pressed} onClick={onClick} className={styles.choice}>
       {label}
     </button>
   );
@@ -154,91 +143,72 @@ export function DecisionsScreen() {
   const closed = data.decisions.filter(d => d.closedAt !== null);
 
   return (
-    <div className="row" style={{ height: '100%' }}>
-      <div className="col" style={{ flex: 1, padding: '32px 56px 40px', minWidth: 0, overflow: 'auto' }}>
-        <div className="col" style={{ gap: 6, marginBottom: 28 }}>
-          <div className="kicker">decisions · before you decide</div>
-          <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 0.95, letterSpacing: '-0.025em' }}>
-            A few facts,<br /><span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>while they're true.</span>
-          </h1>
-          <p style={{ margin: '8px 0 0', maxWidth: 560, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            Any decision: a job, a move, a purchase, a conversation, a plan. The small ones too — without them there is
-            nothing to compare the big ones against. Only the first line is needed.
-          </p>
-        </div>
-
-        <div className="col" style={{ maxWidth: 720 }}>
-          <Row n={1} prompt="What are you deciding?">
-            <input aria-label="What" value={draft.what} onChange={e => set('what', e.target.value)}
-                   style={{ ...field, flex: 1, minWidth: 280 }} />
+    <Page title="Decisions" width="wide"
+      description="Record a decision while the facts are fresh: a job, a move, a purchase, a conversation, a plan. The small ones too, so the big ones have something to compare against. Only the first line is needed.">
+    <div className={styles.split}>
+      <section aria-label="Record a decision" className={styles.form}>
+        <div className={styles.questions}>
+          <Row prompt="What are you deciding?">
+            <input aria-label="What" value={draft.what} onChange={e => set('what', e.target.value)} className={styles.wide} />
           </Row>
-          <Row n={2} prompt="What's at stake if it goes wrong?">
+          <Row prompt="What's at stake if it goes wrong?">
             <OneOf options={STAKES} value={draft.stake} onChange={v => set('stake', v)} />
-            <span style={{ ...mono, width: '100%', marginTop: 6 }}>can you undo it?</span>
+            <span className={styles.subPrompt}>Can you undo it?</span>
             <OneOf options={REVERSIBLE} value={draft.reversible} onChange={v => set('reversible', v)} />
           </Row>
-          <Row n={3} prompt="How sure are you it works out?">
+          <Row prompt="How sure are you it works out?">
             <input aria-label="How sure (%)" type="number" min={0} max={100} step={5} value={draft.confidence}
-                   onChange={e => set('confidence', e.target.value)} style={{ ...field, width: 70 }} />
-            <span style={mono}>%</span>
+                   onChange={e => set('confidence', e.target.value)} className={styles.number} />
+            <span className={styles.unit}>%</span>
           </Row>
-          <Row n={4} prompt="What did the last few days hold?">
+          <Row prompt="What did the last few days hold?">
             <OneOf options={LAST_DAYS} value={draft.lastDays} onChange={v => set('lastDays', v)} />
           </Row>
-          <Row n={5} prompt="Is anything pushing you to decide now?">
+          <Row prompt="Is anything pushing you to decide now?">
             {PRESSURES.map(o => (
               <Choice key={o.value} label={o.label} pressed={draft.pressures.includes(o.value)}
                       onClick={() => togglePressure(o.value)} />
             ))}
-            <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>any, or none</span>
+            <span className={styles.unit}>Any, or none</span>
           </Row>
-          <Row n={6} prompt="How are you?">
+          <Row prompt="How are you?">
             <input aria-label="Hours slept" type="number" min={0} max={24} step="0.5" value={draft.sleepHours}
-                   onChange={e => set('sleepHours', e.target.value)} style={{ ...field, width: 60 }} />
-            <span style={{ ...mono, marginRight: 8 }}>hours slept</span>
-            <div className="row" style={{ gap: 4, alignItems: 'center' }}>
+                   onChange={e => set('sleepHours', e.target.value)} className={styles.number} />
+            <span className={styles.unit}>hours slept</span>
+            <div className={styles.scale} role="group" aria-label="Energy">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
                 <button key={n} aria-label={`energy ${n}`} aria-pressed={n === draft.energy}
-                        onClick={() => set('energy', n === draft.energy ? null : n)}
-                        style={{ width: 22, height: 22, borderRadius: '50%', padding: 0, cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10,
-                                 border: `1px solid ${n === draft.energy ? 'var(--sage)' : 'var(--line)'}`,
-                                 background: n === draft.energy ? 'var(--sage)' : 'transparent',
-                                 color: n === draft.energy ? '#14140f' : 'var(--ink-3)' }}>{n}</button>
+                        type="button" className={styles.chip}
+                        onClick={() => set('energy', n === draft.energy ? null : n)}>{n}</button>
               ))}
             </div>
-            <span style={{ ...mono, width: '100%', marginTop: 6 }}>feeling</span>
+            <span className={styles.subPrompt}>Feeling</span>
             <OneOf options={FEELINGS} value={draft.feeling} onChange={v => set('feeling', v)} />
           </Row>
-          <Row n={7} prompt="What would make you stop or change course?">
-            <input aria-label="Plan" value={draft.plan} onChange={e => set('plan', e.target.value)}
-                   style={{ ...field, flex: 1, minWidth: 280 }} />
+          <Row prompt="What would make you stop or change course?">
+            <input aria-label="Plan" value={draft.plan} onChange={e => set('plan', e.target.value)} className={styles.wide} />
           </Row>
         </div>
 
-        <div className="row" style={{ gap: 12, marginTop: 18, maxWidth: 720, justifyContent: 'flex-end' }}>
-          <button className="btn primary" onClick={save} disabled={!canSave}>
-            {create.isPending ? 'Saving…' : 'Record decision'}
-          </button>
+        <div className={styles.submit}>
+          <Button variant="primary" onClick={save} disabled={!canSave}>{create.isPending ? 'Saving…' : 'Record decision'}</Button>
         </div>
-        {saveError && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>Not saved: {saveError}</div>}
-      </div>
+        {saveError && <p role="alert" className={styles.error}>Not saved: {saveError}</p>}
+      </section>
 
-      <aside style={{ width: 380, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '32px 28px', overflow: 'auto' }}>
-        <div className="kicker" style={{ marginBottom: 14 }}>waiting to hear how it went · {open.length}</div>
-        {open.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>Nothing open.</div>}
-        <div className="col" style={{ gap: 18 }}>
-          {open.map(d => <OpenDecision key={d.id} decision={d} />)}
-        </div>
+      <aside aria-label="Your decisions" className={styles.aside}>
+        <h2 className={styles.asideTitle}>Waiting to hear how it went ({open.length})</h2>
+        {open.length === 0 && <p className={styles.muted}>Nothing open.</p>}
+        <div className={styles.list}>{open.map(d => <OpenDecision key={d.id} decision={d} />)}</div>
         {closed.length > 0 && (
           <>
-            <div className="kicker" style={{ margin: '28px 0 14px' }}>closed · {closed.length}</div>
-            <div className="col" style={{ gap: 14 }}>
-              {closed.map(d => <ClosedDecision key={d.id} decision={d} />)}
-            </div>
+            <h2 className={styles.asideTitle}>Closed ({closed.length})</h2>
+            <div className={styles.list}>{closed.map(d => <ClosedDecision key={d.id} decision={d} />)}</div>
           </>
         )}
       </aside>
     </div>
+    </Page>
   );
 }
 
@@ -255,7 +225,7 @@ function Facts({ d }: { d: Decision }) {
     d.energy !== null ? `energy ${d.energy}` : null,
     labelOf(FEELINGS, d.feeling),
   ].filter(Boolean);
-  return facts.length ? <div style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--mono)', lineHeight: 1.5 }}>{facts.join(' · ')}</div> : null;
+  return facts.length ? <p className={styles.facts}>{facts.join('; ')}</p> : null;
 }
 
 function OpenDecision({ decision: d }: { decision: Decision }) {
@@ -275,24 +245,24 @@ function OpenDecision({ decision: d }: { decision: Decision }) {
   };
 
   return (
-    <article className="col" style={{ gap: 6 }} aria-label={`open decision: ${d.what}`}>
-      <span style={{ ...mono, color: 'var(--ink-3)' }}>{formatEventDate(d.decidedOn)}</span>
-      <div style={{ fontSize: 13, color: 'var(--ink)' }}>{d.what}</div>
+    <article className={styles.decision} aria-label={`open decision: ${d.what}`}>
+      <span className={styles.when}>{formatEventDate(d.decidedOn)}</span>
+      <p className={styles.what}>{d.what}</p>
       <Facts d={d} />
-      {d.plan && <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>would stop if: {d.plan}</div>}
-      <textarea aria-label={`How did it go: ${d.what}`} placeholder="how did it go?" rows={2} value={outcome}
-                onChange={e => setOutcome(e.target.value)} style={{ ...field, fontSize: 14, resize: 'none' }} />
+      {d.plan && <p className={styles.muted}>Would stop if: {d.plan}</p>}
+      <textarea aria-label={`How did it go: ${d.what}`} placeholder="How did it go?" rows={2} value={outcome}
+                onChange={e => setOutcome(e.target.value)} className={styles.outcome} />
       {d.plan && (
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <div className={styles.answers}>
           <OneOf options={FOLLOWED} value={followed} onChange={setFollowed} />
         </div>
       )}
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className={styles.answers}>
         <OneOf options={REPEAT} value={repeat} onChange={setRepeat} />
-        <button className="btn" onClick={save} disabled={outcome.trim() === '' || record.isPending}
-                style={{ marginLeft: 'auto' }}>{record.isPending ? 'Saving…' : 'Close'}</button>
+        <Button size="sm" onClick={save} disabled={outcome.trim() === '' || record.isPending} className={styles.close}>
+          {record.isPending ? 'Saving…' : 'Close'}</Button>
       </div>
-      {error && <div role="alert" style={{ fontSize: 11, color: 'var(--rose)', fontFamily: 'var(--mono)' }}>Not saved: {error}</div>}
+      {error && <p role="alert" className={styles.error}>Not saved: {error}</p>}
     </article>
   );
 }
@@ -300,11 +270,11 @@ function OpenDecision({ decision: d }: { decision: Decision }) {
 function ClosedDecision({ decision: d }: { decision: Decision }) {
   const verdicts = [labelOf(FOLLOWED, d.followedPlan), labelOf(REPEAT, d.wouldRepeat)].filter(Boolean);
   return (
-    <article className="col" style={{ gap: 4 }}>
-      <span style={{ ...mono, color: 'var(--ink-3)' }}>{formatEventDate(d.decidedOn)}{verdicts.length ? ` · ${verdicts.join(' · ')}` : ''}</span>
-      <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{d.what}</div>
+    <article className={styles.decision} aria-label={`closed decision: ${d.what}`}>
+      <span className={styles.when}>{formatEventDate(d.decidedOn)}{verdicts.length ? `, ${verdicts.join(', ')}` : ''}</span>
+      <p className={styles.what}>{d.what}</p>
       <Facts d={d} />
-      <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{d.outcome}</div>
+      <p className={styles.muted}>{d.outcome}</p>
     </article>
   );
 }

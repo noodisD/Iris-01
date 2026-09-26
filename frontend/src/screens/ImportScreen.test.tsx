@@ -66,7 +66,7 @@ describe('an entry whose day cannot be recovered', () => {
     state.entries = [undatedEntry()];
     render(<Review batch={batch(1)} onDone={() => {}} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'accept as undated' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept as undated' }));
 
     expect(state.bulk).toEqual([{ ids: ['31'], op: 'accept_unknown_date' }]);
   });
@@ -75,7 +75,7 @@ describe('an entry whose day cannot be recovered', () => {
     state.entries = [undatedEntry({ dateUnknownAccepted: true })];
     render(<Review batch={batch(0)} onDone={() => {}} />);
 
-    expect(screen.queryByRole('button', { name: 'accept as undated' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Accept as undated' })).toBeNull();
   });
 });
 

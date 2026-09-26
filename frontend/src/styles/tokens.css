@@ -119,6 +119,8 @@
 
   a { color: var(--iris-text); text-decoration: none; }
   a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  /* A link inside running text is underlined, so it is not told apart by colour alone. */
+  :where(p, li, dd, td) a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(161, 151, 230, 0.5); }
 
   /* One visible focus for everything reachable by keyboard. */
   :focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-control); }

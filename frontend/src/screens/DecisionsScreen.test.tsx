@@ -79,7 +79,7 @@ describe('recording a decision', () => {
       feeling: 'frustrated', plan: 'the long run in week three goes badly',
     });
     const open = await screen.findByRole('article', { name: /open decision: Signed up for a marathon/ });
-    expect(within(open).getByText(/at stake: more than I can afford to lose · undo: not at all/)).toBeInTheDocument();
+    expect(within(open).getByText(/at stake: more than I can afford to lose; undo: not at all/)).toBeInTheDocument();
     expect(screen.getByLabelText('What')).toHaveValue('');
   });
 
@@ -123,7 +123,7 @@ describe('closing a decision', () => {
     await waitFor(() => expect(server.outcomes).toEqual([
       { id: '7', outcome: 'Late, but calm', followedPlan: 'yes', wouldRepeat: 'yes' }]));
     expect(await screen.findByText('Late, but calm')).toBeInTheDocument();
-    expect(screen.getByText(/closed · 1/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Closed (1)' })).toBeInTheDocument();
     expect(screen.getByText('Nothing open.')).toBeInTheDocument();
   });
 });

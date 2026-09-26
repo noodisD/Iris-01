@@ -1,4 +1,6 @@
 import React from 'react';
+import { Button } from '@/ui';
+import styles from './AudioRecorder.module.css';
 
 /**
  * Recording a voice journal in the browser.
@@ -155,44 +157,32 @@ export function AudioRecorder({
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
   return (
-    <div className="col" style={{ gap: 10 }}>
-      {error && (
-        <span style={{ fontSize: 11.5, color: 'var(--rose)', fontStyle: 'italic' }}>{error}</span>
-      )}
+    <div className={styles.recorder}>
+      {error && <p role="alert" className={styles.error}>{error}</p>}
 
       {phase === 'idle' && (
-        <button className="btn" onClick={start} disabled={disabled}>Record an entry</button>
+        <Button onClick={start} disabled={disabled} className={styles.start}>Record an entry</Button>
       )}
 
-      {phase === 'requesting' && (
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Waiting for the microphone…</span>
-      )}
+      {phase === 'requesting' && <p className={styles.muted}>Waiting for the microphone…</p>}
 
       {phase === 'recording' && (
-        <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-          <span className="dot rose" style={{ animation: 'breathe 1.6s ease-in-out infinite' }} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--ink)' }}>{clock}</span>
-          <div style={{ flex: 1, height: 2, background: 'var(--line-soft)', borderRadius: 1 }}>
-            <div style={{
-              width: `${Math.round(level * 100)}%`, height: '100%',
-              background: 'var(--sage)', borderRadius: 1, transition: 'width 0.08s',
-            }} />
-          </div>
-          <button className="btn" onClick={() => recorder.current?.stop()}>Stop</button>
+        <div className={styles.row}>
+          <span className={styles.live} aria-hidden="true" />
+          <span className={styles.clock} aria-label="Recording time">{clock}</span>
+          <meter className={styles.level} min={0} max={1} value={level} aria-label="Input level" />
+          <Button onClick={() => recorder.current?.stop()}>Stop</Button>
         </div>
       )}
 
       {(phase === 'review' || phase === 'saving') && clip && (
-        <div className="col" style={{ gap: 8 }}>
-          <audio src={clip.url} controls style={{ width: '100%' }} />
-          <div className="row" style={{ gap: 8 }}>
-            <button className="btn primary" onClick={save} disabled={phase === 'saving'}>
-              {phase === 'saving' ? 'saving…' : 'Save and transcribe'}
-            </button>
-            <button className="btn ghost" onClick={discard} disabled={phase === 'saving'}
-                    style={{ color: 'var(--ink-4)' }}>
-              discard
-            </button>
+        <div className={styles.review}>
+          <audio src={clip.url} controls className={styles.audio} />
+          <div className={styles.row}>
+            <Button variant="primary" onClick={save} disabled={phase === 'saving'}>
+              {phase === 'saving' ? 'Saving…' : 'Save and transcribe'}
+            </Button>
+            <Button variant="quiet" onClick={discard} disabled={phase === 'saving'}>Discard</Button>
           </div>
         </div>
       )}

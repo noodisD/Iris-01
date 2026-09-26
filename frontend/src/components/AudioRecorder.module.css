@@ -1,0 +1,10 @@
+.recorder { display: flex; flex-direction: column; gap: var(--space-3); }
+.start { align-self: flex-start; }
+.row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.live { width: 8px; height: 8px; border-radius: 50%; background: var(--worse); animation: breathe 1.6s ease-in-out infinite; }
+.clock { font-variant-numeric: tabular-nums; color: var(--petal); }
+.level { flex: 1 1 120px; height: 6px; }
+.review { display: flex; flex-direction: column; gap: var(--space-2); }
+.audio { width: 100%; }
+.error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+.muted { margin: 0; color: var(--petal-3); font-size: var(--text-sm); }

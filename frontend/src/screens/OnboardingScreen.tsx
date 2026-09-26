@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { completeOnboarding } from '@/api/onboarding';
 import { qk } from '@/lib/queryClient';
+import { Button, Lens } from '@/ui';
+import styles from './OnboardingScreen.module.css';
 
 /**
  * First run. Deliberately short: it records that onboarding happened so the
@@ -31,22 +33,20 @@ export function OnboardingScreen() {
   };
 
   return (
-    <div className="col" style={{ alignItems: 'center', justifyContent: 'center', minHeight: '100%', gap: 24, padding: 56, textAlign: 'center' }}>
-      <div className="iris-orb lg" />
-      <h1 className="serif" style={{ margin: 0, fontSize: 56, lineHeight: 1, letterSpacing: '-0.02em' }}>
-        Hi. I'm <span style={{ fontStyle: 'italic', color: 'var(--sage)' }}>Iris</span>.
-      </h1>
-      <p style={{ maxWidth: 460, fontSize: 16, color: 'var(--ink-2)', lineHeight: 1.55, fontFamily: 'var(--serif)' }}>
-        Three things before we start. I run on this machine and everything I store stays in
-        your own database — though what you write is sent to OpenAI to be turned into
-        embeddings and replies. I need about a week of entries before I notice anything worth
-        saying. And everything I come to believe about you is visible, and removable, in
-        Settings.
-      </p>
-      <button className="btn primary" onClick={start} disabled={busy}>
-        {busy ? 'One moment…' : "Yes — let's start →"}
-      </button>
-      {error && <p role="alert" style={{ color: 'var(--rose)', fontSize: 13, fontFamily: 'var(--mono)' }}>Couldn't start: {error}</p>}
+    <div className={styles.page}>
+      <Lens size={72} />
+      <h1 className={styles.title}>Hi, I&apos;m Iris.</h1>
+      <div className={styles.body}>
+        <p>Three things before we start.</p>
+        <ul>
+          <li>I run on this machine, and everything I store stays in your own database. What you write is sent to
+            OpenAI to be turned into embeddings and replies.</li>
+          <li>I need about a week of entries before I notice anything worth saying.</li>
+          <li>Everything I come to believe about you is visible, and removable, in Settings.</li>
+        </ul>
+      </div>
+      <Button variant="primary" onClick={start} disabled={busy}>{busy ? 'One moment…' : 'Start'}</Button>
+      {error && <p role="alert" className={styles.error}>Couldn&apos;t start: {error}</p>}
     </div>
   );
 }

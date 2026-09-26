@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useSensorBatches, useSensorBatch, useSensorActions } from '@/hooks/useSensors';
 import { useKnowledge } from '@/hooks/useData';
-import { DayGrounding } from '@/components/sensors/DayGrounding';
+import { AppCategories, DaysTable, Location } from '@/components/sensors/DayGrounding';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import type { SensorBatch, SensorObservation } from '@/api/sensors';
 import { HttpError } from '@/api/client';
+import { Badge, Button, Field, Page, Panel, Tabs, TabPanel } from '@/ui';
+import styles from './SensorsScreen.module.css';
 
 const PAGE_SIZE = 100;
 const unitBySource: Record<string, string> = {
@@ -19,57 +21,74 @@ const unitBySource: Record<string, string> = {
 const sourceLabel = (source: string) =>
   source === 'pixel' ? 'Pixel' : source === 'health_connect' ? 'Health Connect' : source === 'google_timeline' ? 'Timeline' : source;
 
+const batchDay = (batch: SensorBatch) => batch.review_day ?? new Date(batch.received_at).toLocaleDateString();
+
+type View = 'days' | 'review' | 'location' | 'apps';
+const VIEWS: View[] = ['days', 'review', 'location', 'apps'];
+
 export function SensorsScreen() {
   const { data: batches, isLoading, error, refetch } = useSensorBatches();
-  const [selectedId, setSelectedId] = useState<number>();
+  const [params, setParams] = useSearchParams();
+  const view = VIEWS.find(v => v === params.get('view')) ?? 'days';
+  const pending = (batches ?? []).filter(b => b.status === 'pending').length;
 
   return (
-    <div className="col" style={{ height: '100%', overflow: 'hidden' }}>
-      <header className="col" style={{ padding: '28px 40px 22px', gap: 12, borderBottom: '1px solid var(--line)' }}>
-        <div className="kicker">sensors · review before linking</div>
-        <h1 className="serif" style={{ margin: 0, fontSize: 38 }}>Your measurements</h1>
-        <p style={{ margin: 0, maxWidth: 580, fontSize: 13, lineHeight: 1.5, color: 'var(--ink-2)' }}>
-          Readings arrive as one batch per source per day. Review a day&apos;s batch before linking
-          any measurements to a theme. <Link to="/settings">Pair the phone in Settings</Link>.
-        </p>
-      </header>
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <nav aria-label="Sensor batches" style={{ width: 280, borderRight: '1px solid var(--line-soft)', overflowY: 'auto', flexShrink: 0 }}>
-          <div className="kicker" style={{ padding: '20px 22px 12px' }}>staged batches</div>
+    <Page title="Sensors" width="wide"
+      description={<>What the phone and Google Timeline measured. New readings wait here for your review before IRIS
+        uses them. <Link to="/settings">Pair the phone in Settings</Link>.</>}>
+      <Tabs label="Sensors" value={view} onChange={next => setParams(next === 'days' ? {} : { view: next })}
+        tabs={[
+          { value: 'days', label: 'Days' },
+          { value: 'review', label: pending ? `To review (${pending})` : 'To review' },
+          { value: 'location', label: 'Location' },
+          { value: 'apps', label: 'Apps' },
+        ]}>
+        <TabPanel value="days"><DaysTable /></TabPanel>
+        <TabPanel value="review">
           {isLoading ? <LoadingState label="Loading sensor batches…" /> : error ? (
             <ErrorState message={error instanceof Error ? error.message : String(error)} onRetry={() => refetch()} />
           ) : !batches?.length ? (
-            <EmptyState title="No sensor data" body="Pair the Android app and start live collection; new readings will appear here." />
-          ) : batches.map((batch) => (
-            <button
-              key={batch.id} type="button" aria-pressed={batch.id === selectedId}
-              onClick={() => setSelectedId(batch.id)}
-              style={{
-                display: 'block', width: '100%', padding: '12px 22px', textAlign: 'left',
-                cursor: 'pointer', border: 'none', borderBottom: '1px solid var(--line-soft)',
-                background: batch.id === selectedId ? 'var(--bg-2)' : 'transparent',
-              }}
-            >
-              <span style={{ display: 'block', fontSize: 14, color: 'var(--ink)' }}>
-                {sourceLabel(batch.source)} · {batch.review_day ?? new Date(batch.received_at).toLocaleDateString()}
-              </span>
-              <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
-                {batch.status} · {batch.observation_count} readings
-                {batch.last_delivery_at && ` · last delivery ${new Date(batch.last_delivery_at).toLocaleTimeString()}`}
-              </span>
-            </button>
+            <EmptyState title="Nothing to review" body="Pair the Android app and start collecting; new readings appear here." />
+          ) : <Review batches={batches} />}
+        </TabPanel>
+        <TabPanel value="location"><Location onBatchesChanged={() => { void refetch(); }} /></TabPanel>
+        <TabPanel value="apps"><AppCategories /></TabPanel>
+      </Tabs>
+    </Page>
+  );
+}
+
+function Review({ batches }: { batches: SensorBatch[] }) {
+  const [selectedId, setSelectedId] = useState<number>();
+  return (
+    <div className={`${styles.split} ${selectedId != null ? styles.showing : ''}`}>
+      <nav aria-label="Sensor batches" className={styles.list}>
+        <ul className={styles.items}>
+          {batches.map(batch => (
+            <li key={batch.id}>
+              <button type="button" aria-pressed={batch.id === selectedId} onClick={() => setSelectedId(batch.id)}
+                className={styles.item}>
+                <span className={styles.itemName}>{sourceLabel(batch.source)}, {batchDay(batch)}</span>
+                <span className={styles.itemMeta}>
+                  <Badge tone={batch.status === 'pending' ? 'action' : batch.status === 'confirmed' ? 'confirmed' : 'neutral'}>
+                    {batch.status}
+                  </Badge>
+                  {batch.observation_count} readings
+                </span>
+              </button>
+            </li>
           ))}
-        </nav>
-        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {selectedId != null ? (
-            <BatchDetail
-              key={selectedId} batchId={selectedId} onDeleted={() => setSelectedId(undefined)}
-              batches={batches ?? []}
-            />
-          ) : (
-            <DayGrounding onBatchesChanged={() => { void refetch(); }} />
-          )}
-        </main>
+        </ul>
+      </nav>
+      <div className={styles.detail}>
+        {selectedId != null ? (
+          <>
+            <Button variant="quiet" size="sm" className={styles.back} onClick={() => setSelectedId(undefined)}>
+              ← All batches
+            </Button>
+            <BatchDetail key={selectedId} batchId={selectedId} onDeleted={() => setSelectedId(undefined)} batches={batches} />
+          </>
+        ) : <p className={styles.pick}>Pick a batch to see its readings and confirm or reject it.</p>}
       </div>
     </div>
   );
@@ -122,126 +141,103 @@ function BatchReview({ batch, onDeleted, suggestedLinks, refetchBatch }: {
   };
 
   return (
-    <section className="col" style={{ padding: '32px 40px 48px', gap: 26, maxWidth: 840 }}>
-      <div className="col" style={{ gap: 6 }}>
-        <h2 className="serif" style={{ fontSize: 28, margin: 0 }}>Review {sourceLabel(batch.source)} readings</h2>
-        <div style={{ color: 'var(--ink-3)', fontSize: 12 }}>
-          Received {new Date(batch.received_at).toLocaleString()} · {batch.observation_count} readings · {batch.dropped_count} dropped
-        </div>
-      </div>
+    <section className={styles.batch} aria-label={`${sourceLabel(batch.source)} readings`}>
+      <header className={styles.batchHead}>
+        <h2 className={styles.batchTitle}>{sourceLabel(batch.source)}, {batchDay(batch)}</h2>
+        <p className={styles.meta}>
+          Received {new Date(batch.received_at).toLocaleString()}. {batch.observation_count} readings
+          {batch.dropped_count > 0 && `, ${batch.dropped_count} dropped`}.
+        </p>
+      </header>
       {batch.status === 'pending' && !Object.keys(batch.theme_links ?? {}).length &&
         Object.keys(links).length > 0 && (
-          <div role="note" style={{ color: 'var(--ink-2)', fontSize: 12 }}>
-            Links prefilled from your last confirmed {sourceLabel(batch.source)} batch.
-          </div>
+          <p role="note" className={styles.meta}>Links prefilled from your last confirmed {sourceLabel(batch.source)} batch.</p>
         )}
-
       {batch.status !== 'pending' && (
-        <div role="status" style={{ padding: 14, background: 'var(--bg-2)', borderRadius: 8, color: 'var(--ink-2)' }}>
-          This batch is <strong>{batch.status}</strong>.
-        </div>
+        <p role="status" className={styles.note}>This batch is <strong>{batch.status}</strong>.</p>
       )}
       {batch.dropped_count > 0 && (
-        <div role="note" style={{ padding: '11px 14px', border: '1px solid var(--amber)', borderRadius: 8, fontSize: 12 }}>
-          {batch.dropped_count} readings were dropped while parsing this batch.
-        </div>
+        <p role="note" className={styles.warn}>{batch.dropped_count} readings were dropped while parsing this batch.</p>
       )}
       {undatedCount > 0 && (
-        <div role="note" style={{ padding: '11px 14px', border: '1px solid var(--amber)', borderRadius: 8, fontSize: 12 }}>
+        <p role="note" className={styles.warn}>
           {undatedCount} {undatedCount === 1 ? 'reading has' : 'readings have'} no readable date. Check these before linking.
-        </div>
+        </p>
       )}
       {batch.clock_skew_seconds != null && Math.abs(batch.clock_skew_seconds) >= 120 && (
-        <div role="note" style={{ padding: '11px 14px', border: '1px solid var(--amber)', borderRadius: 8, fontSize: 12 }}>
-          Device clock skew detected: {batch.clock_skew_seconds > 0 ? '+' : ''}{batch.clock_skew_seconds} seconds. Check reading times against your device.
-        </div>
+        <p role="note" className={styles.warn}>
+          The phone&apos;s clock was off by {batch.clock_skew_seconds > 0 ? '+' : ''}{batch.clock_skew_seconds} seconds.
+          Check reading times against the phone.
+        </p>
       )}
+      {themesLoading && <p role="status" className={styles.meta}>Loading existing themes…</p>}
+      {themesError && (
+        <p role="alert" className={styles.error}>
+          Could not load themes: {themesError instanceof Error ? themesError.message : String(themesError)}{' '}
+          <Button variant="quiet" size="sm" onClick={() => refetchThemes()}>Try again</Button>
+        </p>
+      )}
+      {groups.length === 0 && <EmptyState title="No readable measurements" body="This batch has no observations to link." />}
+      {groups.map(([sourceType, readings]) => {
+        const selectedTheme = batch.status === 'pending' ? links[sourceType] : batch.theme_links?.[sourceType];
+        const validTheme = selectedTheme != null && themeIds.has(selectedTheme);
+        const visible = visibleCounts[sourceType] ?? PAGE_SIZE;
+        return (
+          <Panel as="section" key={sourceType} className={styles.group} aria-label={sourceType}>
+            <h3 className={styles.groupTitle}>{sourceType} <span className={styles.meta}>({readings.length} readings)</span></h3>
+            <ul className={styles.readings}>
+              {readings.slice(0, visible).map((reading, readingIndex) => {
+                const date = new Date(reading.occurred_at ?? '');
+                const readableDate = !!reading.occurred_at && Number.isFinite(date.getTime());
+                const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(reading.occurred_at ?? '');
+                const unit = unitBySource[sourceType];
+                const numeric = reading.value_num == null ? null :
+                  `${reading.value_num}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`;
+                const location = reading.lat != null || reading.lon != null ?
+                  `latitude ${reading.lat ?? 'unknown'}, longitude ${reading.lon ?? 'unknown'}` : null;
+                const values = [numeric, reading.value_text || null, location,
+                  reading.origin_package ? `Health Connect writer: ${reading.origin_package}` : null].filter(Boolean);
+                return (
+                  <li key={`${reading.payload_hash}-${readingIndex}`} className={styles.reading}>
+                    <span>{values.length ? values.join('; ') : 'No value recorded'}</span>
+                    <time dateTime={reading.occurred_at && readableDate ? reading.occurred_at : undefined}
+                      className={readableDate ? styles.time : styles.undated}>
+                      {readableDate ? (calendarDay ? reading.occurred_at : date.toLocaleString()) : 'No readable date'}
+                    </time>
+                  </li>
+                );
+              })}
+            </ul>
+            {visible < readings.length && (
+              <Button variant="quiet" size="sm" className={styles.more} onClick={() => setVisibleCounts((previous) => ({
+                ...previous, [sourceType]: (previous[sourceType] ?? PAGE_SIZE) + PAGE_SIZE,
+              }))}>
+                Show more {sourceType} readings ({readings.length - visible} remaining)
+              </Button>
+            )}
+            <Field label={`Link ${sourceType} to a theme`}
+              hint={!themesLoading && !themesError && knowledge?.length === 0 ? 'No themes yet. These readings can still be kept unlinked.' : undefined}>
+              <select value={validTheme ? selectedTheme : ''}
+                onChange={(e) => setLinks((previous) => ({ ...previous, [sourceType]: e.target.value ? Number(e.target.value) : null }))}
+                disabled={batch.status !== 'pending' || busy || themesLoading || !!themesError}>
+                <option value="">Don&apos;t link: keep as a raw reading, not evidence</option>
+                {(knowledge ?? []).map((theme) => <option key={theme.id} value={theme.id}>{theme.fact}</option>)}
+              </select>
+            </Field>
+          </Panel>
+        );
+      })}
 
-      <div className="col" style={{ gap: 16 }}>
-        <div className="kicker">observations by source</div>
-        {themesLoading && <div role="status" style={{ fontSize: 12, color: 'var(--ink-3)' }}>Loading existing themes…</div>}
-        {themesError && (
-          <div role="alert" style={{ fontSize: 12, color: 'var(--rose)' }}>
-            Could not load themes: {themesError instanceof Error ? themesError.message : String(themesError)}
-            {' '}<button className="btn ghost" onClick={() => refetchThemes()}>Try again</button>
-          </div>
-        )}
-        {groups.length === 0 && <EmptyState title="No readable measurements" body="This batch has no observations to link." />}
-        {groups.map(([sourceType, readings], index) => {
-          const selectedTheme = batch.status === 'pending' ? links[sourceType] : batch.theme_links?.[sourceType];
-          const validTheme = selectedTheme != null && themeIds.has(selectedTheme);
-          return (
-            <section key={sourceType} className="col" style={{ gap: 14, border: '1px solid var(--line-soft)', padding: '16px 20px', borderRadius: 8 }}>
-              <div style={{ fontSize: 14, color: 'var(--ink)' }}>
-                <strong>{sourceType}</strong> <span style={{ color: 'var(--ink-3)' }}>({readings.length} readings)</span>
-              </div>
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                {readings.slice(0, visibleCounts[sourceType] ?? PAGE_SIZE).map((reading, readingIndex) => {
-                  const date = new Date(reading.occurred_at ?? '');
-                  const readableDate = !!reading.occurred_at && Number.isFinite(date.getTime());
-                  const calendarDay = /^\d{4}-\d{2}-\d{2}$/.test(reading.occurred_at ?? '');
-                  const unit = unitBySource[sourceType];
-                  const numeric = reading.value_num == null ? null :
-                    `${reading.value_num}${unit === '%' ? '%' : unit ? ` ${unit}` : ''}`;
-                  const location = reading.lat != null || reading.lon != null ?
-                    `latitude ${reading.lat ?? 'unknown'}, longitude ${reading.lon ?? 'unknown'}` : null;
-                  const values = [numeric, reading.value_text || null, location,
-                    reading.origin_package ? `Health Connect writer: ${reading.origin_package}` : null].filter(Boolean);
-                  return (
-                    <li key={`${reading.payload_hash}-${readingIndex}`} className="row" style={{
-                      justifyContent: 'space-between', gap: 16, padding: '9px 0',
-                      borderTop: '1px solid var(--line-soft)', fontSize: 13, flexWrap: 'wrap',
-                    }}>
-                      <span style={{ color: 'var(--ink)' }}>{values.length ? values.join(' · ') : 'No value recorded'}</span>
-                      <time dateTime={reading.occurred_at && readableDate ? reading.occurred_at : undefined} style={{ color: readableDate ? 'var(--ink-3)' : 'var(--amber)', fontSize: 12 }}>
-                        {readableDate ? (calendarDay ? reading.occurred_at : date.toLocaleString()) : 'No readable date'}
-                      </time>
-                    </li>
-                  );
-                })}
-              </ul>
-              {(visibleCounts[sourceType] ?? PAGE_SIZE) < readings.length && (
-                <button className="btn ghost" type="button" onClick={() => setVisibleCounts((previous) => ({
-                  ...previous, [sourceType]: (previous[sourceType] ?? PAGE_SIZE) + PAGE_SIZE,
-                }))} style={{ alignSelf: 'flex-start', fontSize: 12 }}>
-                  Show more {sourceType} readings ({readings.length - (visibleCounts[sourceType] ?? PAGE_SIZE)} remaining)
-                </button>
-              )}
-              <div className="col" style={{ gap: 6 }}>
-                <label htmlFor={`sensor-link-${batch.id}-${index}`} style={{ fontSize: 12, color: 'var(--ink-2)' }}>
-                  Link {sourceType} to an existing theme
-                </label>
-                <select
-                  id={`sensor-link-${batch.id}-${index}`}
-                  value={validTheme ? selectedTheme : ''}
-                  onChange={(e) => setLinks((previous) => ({ ...previous, [sourceType]: e.target.value ? Number(e.target.value) : null }))}
-                  disabled={batch.status !== 'pending' || busy || themesLoading || !!themesError}
-                  style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--line-soft)', background: 'var(--bg-1)', color: 'var(--ink)', fontSize: 13 }}
-                >
-                  <option value="">Do not link — keep raw reading, not evidence</option>
-                  {(knowledge ?? []).map((theme) => <option key={theme.id} value={theme.id}>{theme.fact}</option>)}
-                </select>
-                {!themesLoading && !themesError && knowledge?.length === 0 && (
-                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>No themes yet. These readings can still be kept unlinked.</span>
-                )}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-
-      {stale && <div role="alert" style={{ color: 'var(--amber)', fontSize: 12 }}>
-        New readings arrived while you were reviewing. Check them, then confirm again.
-      </div>}
+      {stale && <p role="alert" className={styles.warn}>New readings arrived while you were reviewing. Check them, then confirm again.</p>}
       {actionError && (
-        <div role="alert" style={{ padding: '11px 14px', border: '1px solid var(--rose)', borderRadius: 8, color: 'var(--rose)', fontSize: 12 }}>
-          Request failed: {actionError instanceof Error ? actionError.message : String(actionError)}
-        </div>
+        <p role="alert" className={styles.error}>
+          Not saved: {actionError instanceof Error ? actionError.message : String(actionError)}
+        </p>
       )}
-      <div className="row" style={{ gap: 12, flexWrap: 'wrap', paddingTop: 16, borderTop: '1px solid var(--line-soft)' }}>
+      <div className={styles.actions}>
         {batch.status === 'pending' && (
           <>
-            <button className="btn primary" disabled={busy || themesLoading || !!themesError} onClick={() => {
+            <Button variant="primary" disabled={busy || themesLoading || !!themesError} onClick={() => {
               clearActionErrors();
               confirm.mutate({
                 links: Object.fromEntries(groups.map(([sourceType]) => [sourceType,
@@ -257,19 +253,19 @@ function BatchReview({ batch, onDeleted, suggestedLinks, refetchBatch }: {
                 onSuccess: () => setStale(false),
               });
             }}>
-              {confirm.isPending ? 'Confirming…' : 'Confirm & link selected themes'}
-            </button>
-            <button className="btn" disabled={busy} onClick={() => { clearActionErrors(); reject.mutate(); }}>
-              {reject.isPending ? 'Rejecting…' : 'Reject data'}
-            </button>
+              {confirm.isPending ? 'Confirming…' : 'Confirm readings'}
+            </Button>
+            <Button disabled={busy} onClick={() => { clearActionErrors(); reject.mutate(); }}>
+              {reject.isPending ? 'Rejecting…' : 'Reject readings'}
+            </Button>
           </>
         )}
-        <button className="btn ghost" disabled={busy} onClick={() => {
+        <Button variant="danger" disabled={busy} className={styles.delete} onClick={() => {
           clearActionErrors();
           discard.mutate(undefined, { onSuccess: onDeleted });
-        }} style={{ marginLeft: 'auto', color: 'var(--rose)' }}>
+        }}>
           {discard.isPending ? 'Deleting…' : 'Delete batch'}
-        </button>
+        </Button>
       </div>
     </section>
   );

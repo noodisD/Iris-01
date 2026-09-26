@@ -1,17 +1,10 @@
 /**
  * Colours and fonts live in tokens (src/styles/tokens.css), not in screens.
  * A screen that writes a hex colour or a font family drifts from the system.
- *
- * NOT_YET_MIGRATED lists the files still carrying old inline values. It may
- * only shrink: move a file onto the kit, then take it off the list.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-
-const NOT_YET_MIGRATED = new Set([
-  'screens/DecisionsScreen.tsx',
-]);
 
 // Renderers that take colours as values, not CSS (WebGL): exempt on purpose.
 const RENDERERS = new Set(['components/IdeaGraph.tsx']);
@@ -36,17 +29,10 @@ describe('design tokens guardrail', () => {
     name: relative(SRC, path), text: readFileSync(path, 'utf8'),
   }));
 
-  it('keeps colours and fonts out of migrated screens and components', () => {
+  it('keeps colours and fonts out of screens and components', () => {
     const offenders = checked
-      .filter(f => !NOT_YET_MIGRATED.has(f.name) && !RENDERERS.has(f.name) && (HEX.test(f.text) || FONT.test(f.text)))
+      .filter(f => !RENDERERS.has(f.name) && (HEX.test(f.text) || FONT.test(f.text)))
       .map(f => f.name);
     expect(offenders).toEqual([]);
-  });
-
-  it('lists only files that still need migrating', () => {
-    const clean = checked
-      .filter(f => NOT_YET_MIGRATED.has(f.name) && !HEX.test(f.text) && !FONT.test(f.text))
-      .map(f => f.name);
-    expect(clean, 'these are migrated: remove them from NOT_YET_MIGRATED').toEqual([]);
   });
 });

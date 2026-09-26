@@ -38,7 +38,7 @@ describe('Settings', () => {
     show();
     expect(screen.getByRole('tab', { name: 'Conversation' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('region', { name: 'What IRIS may bring up' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Notes · 2' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Notes (2)' })).toBeInTheDocument();
     expect(screen.queryByText(/Prefers mornings/)).toBeNull();
   });
 
