@@ -1,8 +1,12 @@
 """Timeline export parsing. Coordinates are invented near 0,0."""
 
+import json
+from datetime import UTC, date, datetime
+
 import pytest
 
-from agent.sensors.timeline import parse_latlng, parse_timeline
+from agent.sensors.adapters import to_timestamp
+from agent.sensors.timeline import parse_latlng, parse_timeline, stage_export
 
 
 def test_a_degree_pair_parses_and_a_bare_pair_does_not():
@@ -72,3 +76,67 @@ def test_a_malformed_location_never_becomes_a_home_visit():
     }]})
     assert parsed["observations"] == []
     assert parsed["dropped_count"] == 1
+
+
+@pytest.mark.parametrize(("label", "expected"), [
+    ("INFERRED_HOME", "HOME"),
+    ("INFERRED_WORK", "WORK"),
+    ("TYPE_HOME", "HOME"),
+    ("TYPE_WORK", "WORK"),
+    ("TYPE_OTHER", "OTHER"),
+    ("OTHER", "OTHER"),
+])
+def test_visit_semantics_preserve_home_and_work_for_inferred_labels(label, expected):
+    parsed = parse_timeline({"semanticSegments": [{
+        "startTime": "2026-01-02T08:00:00+02:00",
+        "visit": {"topCandidate": {"semanticType": label}},
+    }]})
+    observation = parsed["observations"][0]
+    assert observation["value_text"] == expected
+    assert observation["detail"]["semantic_type"] == expected
+
+
+def test_staged_timeline_days_follow_export_offsets_and_reimports_are_stable():
+    from agent.sensors.repository import SensorRepository
+
+    export = {"semanticSegments": [
+        {
+            "startTime": "2081-01-01T23:30:00+02:00",
+            "visit": {"semanticType": "INFERRED_WORK"},
+        },
+        {
+            "startTime": "2081-01-02T00:20:00+02:00",
+            "visit": {"semanticType": "INFERRED_HOME"},
+        },
+        {
+            "startTime": "2081-01-02T01:10:00+02:00",
+            "activity": {"type": "WALKING"},
+        },
+        {"startTime": "bad timestamp", "visit": {"semanticType": "HOME"}},
+    ]}
+    ids: list[int] = []
+    repo = SensorRepository()
+    try:
+        raw = json.dumps(export).encode()
+        first = stage_export(raw)
+        ids = first["batches"]
+        assert stage_export(raw) == first
+        assert first["observations"] == 3
+        assert first["dropped"] == 1
+        assert len(ids) == 2
+        days = {
+            repo.get_batch(batch_id)["review_day"]:
+            repo.get_batch(batch_id)["parsed_payload"]["observations"]
+            for batch_id in ids
+        }
+        assert set(days) == {date(2081, 1, 1), date(2081, 1, 2)}
+        assert [obs["value_text"] for obs in days[date(2081, 1, 1)]] == ["WORK"]
+        assert [obs["value_text"] for obs in days[date(2081, 1, 2)]] == ["HOME", "WALKING"]
+        midnight_visit = days[date(2081, 1, 2)][0]
+        assert midnight_visit["occurred_at"] == "2081-01-02T00:20:00+02:00"
+        assert to_timestamp(midnight_visit["occurred_at"]) == datetime(
+            2081, 1, 1, 22, 20, tzinfo=UTC,
+        )
+    finally:
+        for batch_id in ids:
+            repo.delete_batch(batch_id)

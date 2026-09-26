@@ -232,6 +232,27 @@ coordinates yourself, then inspect the Days table. Location coverage below
 are eligible for comparisons. App categories can be overridden per package.
 Named place coordinates and suggestions are available only on the laptop, not
 through the phone or tailnet door. No day measurement becomes journal text.
+Days use the laptop's local time zone and a 06:00–24:00 window; sleep counts on
+the wake day. Repeated cumulative step readings use the largest daily total,
+and overlapping sleep reports are not added twice.
+
+After upgrading an existing installation, rebuild older UTC-based day rows
+once after migrations apply:
+`uv run python -c 'from agent.database import db; from agent.days.recompute import recompute; recompute(db.local_user_id())'`.
+
+### Compare measured days
+
+Insights → Days compared compares the five check-in scores with confirmed phone
+and Timeline day measurements: office/home days, or days above and below your
+own median commute, full-day steps, screen time, social/video/game share or
+sleep. Ties at the median are excluded; location-based comparisons require at
+least 50% coverage. Each side needs at least five days, a check-in mean gap of
+at least one point and a two-sided 2,000-shuffle permutation p-value ≤ 0.01.
+Each sentence shows both day counts. These are differences, **not causes**.
+Choose “rings true”, “doesn’t ring true” or “unsure” for each. Only currently
+qualifying comparisons marked “rings true” can enter chat when you ask; a
+saved verdict remains even if a comparison temporarily disappears. No journal
+prose or coordinates enter a comparison.
 
 ### What IRIS is allowed to say
 

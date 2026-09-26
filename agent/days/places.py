@@ -5,6 +5,8 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any
 
+from psycopg2.errors import UniqueViolation
+
 from agent.database import db
 
 KINDS = ("home", "office", "other")
@@ -24,15 +26,18 @@ def list_places(user_id: int) -> list[dict[str, Any]]:
 def create_place(user_id: int, *, name: str, kind: str, lat: float, lon: float,
                  radius_m: int = 150, source: str = "owner") -> dict[str, Any]:
     _check(name, kind, lat, lon, radius_m, source)
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO places (user_id, name, kind, lat, lon, radius_m, source)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)
-               RETURNING id, name, kind, lat, lon, radius_m, source""",
-            (user_id, name.strip(), kind, lat, lon, radius_m, source),
-        )
-        row = cur.fetchone()
-        conn.commit()
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO places (user_id, name, kind, lat, lon, radius_m, source)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id, name, kind, lat, lon, radius_m, source""",
+                (user_id, name.strip(), kind, lat, lon, radius_m, source),
+            )
+            row = cur.fetchone()
+            conn.commit()
+    except UniqueViolation as exc:
+        raise ValueError("a place with this name already exists") from exc
     return _place(row)
 
 
@@ -47,15 +52,18 @@ def update_place(user_id: int, place_id: int, **fields: Any) -> dict[str, Any] |
     merged = {**current, **changes}
     _check(merged["name"], merged["kind"], merged["lat"], merged["lon"], merged["radius_m"], merged["source"])
     assignments = ", ".join(f"{key} = %s" for key in changes)
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            f"""UPDATE places SET {assignments}
-                 WHERE id = %s AND user_id = %s
-                 RETURNING id, name, kind, lat, lon, radius_m, source""",
-            (*changes.values(), place_id, user_id),
-        )
-        row = cur.fetchone()
-        conn.commit()
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""UPDATE places SET {assignments}
+                     WHERE id = %s AND user_id = %s
+                     RETURNING id, name, kind, lat, lon, radius_m, source""",
+                (*changes.values(), place_id, user_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+    except UniqueViolation as exc:
+        raise ValueError("a place with this name already exists") from exc
     return _place(row) if row else None
 
 

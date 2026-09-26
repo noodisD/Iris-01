@@ -38,7 +38,7 @@ def parse_latlng(value: object) -> tuple[float, float] | None:
 def semantic_type(value: object) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    token = value.strip().upper().removeprefix("TYPE_")
+    token = value.strip().upper().removeprefix("TYPE_").removeprefix("INFERRED_")
     if token in {"HOME", "WORK"}:
         return token
     return "OTHER"
@@ -191,9 +191,11 @@ def describe_timeline(obs: dict[str, Any]) -> str | None:
 
 
 def day_of(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
     try:
-        return to_timestamp(value) if value else None
-    except (TypeError, ValueError):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
         return None
 
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from psycopg2.extras import Json
@@ -71,13 +73,34 @@ def list_days(user_id: int) -> list[dict]:
         return [_day(row) for row in cur.fetchall()]
 
 
+def _host_zone() -> ZoneInfo:
+    """Resolve the host's IANA name, not its current fixed-offset tzinfo."""
+    candidates = [os.environ.get("TZ", "").lstrip(":")]
+    localtime = Path("/etc/localtime").resolve()
+    marker = "/zoneinfo/"
+    if marker in str(localtime):
+        candidates.append(str(localtime).split(marker, 1)[1])
+    try:
+        candidates.append(Path("/etc/timezone").read_text(encoding="utf-8").strip())
+    except OSError:
+        pass
+    for name in candidates:
+        try:
+            return ZoneInfo(name)
+        except (KeyError, ValueError):
+            continue
+    return ZoneInfo("UTC")
+
+
 def _zone(user_id: int) -> ZoneInfo:
     settings = db.get_app_settings(user_id) or {}
-    name = settings.get("timezone") or "UTC"
-    try:
-        return ZoneInfo(name)
-    except Exception:
-        return ZoneInfo("UTC")
+    name = settings.get("timezone")
+    if name and name != "UTC":
+        try:
+            return ZoneInfo(name)
+        except (KeyError, ValueError):
+            pass
+    return _host_zone()
 
 
 def _confirmed(user_id: int) -> list[dict]:
