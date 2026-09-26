@@ -60,7 +60,7 @@ function payloadCheckin(value: CheckinValues): JournalCheckin | undefined {
 export function JournalScreen() {
   const { data, isPending, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useJournal();
   const qc = useQueryClient();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [text, setText] = React.useState('');
   const [selection, setSelection] = React.useState({ start: 0, end: 0 });
   const [checkin, setCheckin] = React.useState<CheckinValues>(emptyCheckin);
@@ -69,6 +69,10 @@ export function JournalScreen() {
   const fallbackRef = React.useRef<HTMLTextAreaElement>(null);
 
   const target = params.get('entry');
+  // Writing and reading are separate pages: the history beside the editor
+  // took the room writing needs. A link to one entry opens the history.
+  const view: 'write' | 'entries' = target || params.get('view') === 'entries' ? 'entries' : 'write';
+  const show = (next: 'write' | 'entries') => setParams(next === 'entries' ? { view: 'entries' } : {});
   const entries = React.useMemo(() => data?.pages.flatMap(p => p.entries) ?? [], [data]);
   const found = !target || entries.some(e => e.id === target);
   const canSave = text.trim().length > 0 || Object.values(checkin).some(value => value != null);
@@ -155,8 +159,21 @@ export function JournalScreen() {
   );
 
   return (
-    <div className="row" style={{ height: '100%', minHeight: 0 }}>
-      <div className="col" style={{ flex: 1, padding: '28px 48px 24px', minWidth: 0, minHeight: 0 }}>
+    <div className="col" style={{ height: '100%', minHeight: 0 }}>
+      <nav role="tablist" aria-label="Journal" className="row"
+        style={{ gap: 4, padding: '14px 48px 0', borderBottom: '1px solid var(--line-soft)' }}>
+        {(['write', 'entries'] as const).map(id => (
+          <button key={id} role="tab" aria-selected={view === id} onClick={() => show(id)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px 14px', marginBottom: -1,
+                     fontFamily: 'var(--sans)', fontSize: 13, color: view === id ? 'var(--ink)' : 'var(--ink-3)',
+                     borderBottom: `2px solid ${view === id ? 'var(--sage)' : 'transparent'}` }}>
+            {id === 'write' ? 'Write' : 'Entries'}
+          </button>
+        ))}
+      </nav>
+      {view === 'write' ? (
+      <div className="col" style={{ flex: 1, minHeight: 0, width: '100%', maxWidth: 920, margin: '0 auto' }}>
+      <div className="col" style={{ flex: 1, padding: '24px 48px 24px', minWidth: 0, minHeight: 0 }}>
         <div className="row" style={{ alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
           <div className="col" style={{ gap: 6 }}>
             <div className="kicker">today</div>
@@ -193,7 +210,10 @@ export function JournalScreen() {
         )}
       </div>
 
-      <aside style={{ width: 380, flexShrink: 0, borderLeft: '1px dashed var(--line)', padding: '32px 28px', overflow: 'auto' }}>
+      </div>
+      ) : (
+      <section aria-label="Your entries" style={{ flex: 1, overflow: 'auto', padding: '28px 48px 48px' }}>
+        <div style={{ maxWidth: 760, margin: '0 auto' }}>
         <div className="kicker" style={{ marginBottom: 8 }}>your entries · newest first</div>
         <h3 className="serif" style={{ margin: '0 0 22px', fontSize: 24, lineHeight: 1 }}>
           {entries.length} shown{hasNextPage ? '' : ', all of them'}
@@ -231,7 +251,7 @@ export function JournalScreen() {
                 )}
                 {entry.format === 'markdown'
                   ? <MarkdownView text={body} />
-                  : <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{body}</div>}
+                  : <div style={{ fontSize: 14.5, color: 'var(--ink-2)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{body}</div>}
                 {entry.audioUrl && (
                   <audio controls preload="none" src={entry.audioUrl} aria-label="the recording this was transcribed from"
                          style={{ width: 320, height: 28, marginTop: 2 }} />
@@ -271,7 +291,9 @@ export function JournalScreen() {
             </div>
           </>
         )}
-      </aside>
+        </div>
+      </section>
+      )}
     </div>
   );
 }

@@ -33,9 +33,9 @@ vi.mock('@/components/journal/MarkdownEditor', () => ({
 
 import { JournalScreen } from './JournalScreen';
 
-function show() {
+function show(path = '/journal') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><MemoryRouter><JournalScreen /></MemoryRouter></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><JournalScreen /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => { sent.calls = []; entries.list = []; });
@@ -81,7 +81,7 @@ describe('an entry with no day', () => {
       id: '7', userId: '1', lines: ['from a recording'], tags: [],
       occurredOn: null, importedAt: '2026-09-19T10:00:00Z', createdAt: null,
     } as unknown as JournalEntry];
-    show();
+    show('/journal?view=entries');
 
     expect(await screen.findByText('undated')).toBeInTheDocument();
   });
@@ -94,7 +94,7 @@ describe('an entry that came from a recording', () => {
       occurredOn: '2024-03-02', importedAt: '2026-09-19T10:00:00Z',
       createdAt: '2024-03-02', audioUrl: '/api/audio/9',
     } as unknown as JournalEntry];
-    show();
+    show('/journal?view=entries');
 
     const player = await screen.findByLabelText('the recording this was transcribed from');
     expect(player).toHaveAttribute('src', '/api/audio/9');
@@ -108,10 +108,36 @@ describe('a markdown entry', () => {
       text: '# Soup\n\n**Basil** and salt.', format: 'markdown', tags: [],
       occurredOn: '2026-01-02', createdAt: '2026-01-02',
     } as unknown as JournalEntry];
-    show();
+    show('/journal?view=entries');
 
     expect(await screen.findByRole('heading', { name: 'Soup' })).toBeInTheDocument();
     expect(screen.getByText('Basil')).toBeInTheDocument();
     expect(screen.queryByText('**Basil**')).not.toBeInTheDocument();
+  });
+});
+
+describe('the journal pages', () => {
+  it('opens on writing alone, with the history on its own tab', async () => {
+    entries.list = [{
+      id: '9', userId: '1', lines: ['An older note'], tags: [],
+      occurredOn: '2026-09-01', importedAt: null, createdAt: null,
+    } as unknown as JournalEntry];
+    show();
+    expect(await screen.findByRole('tab', { name: 'Write' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('An older note')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Entries' }));
+    expect(await screen.findByText('An older note')).toBeInTheDocument();
+  });
+
+  it('opens the history when a link names one entry', async () => {
+    entries.list = [{
+      id: '9', userId: '1', lines: ['An older note'], tags: [],
+      occurredOn: '2026-09-01', importedAt: null, createdAt: null,
+    } as unknown as JournalEntry];
+    // The page scrolls to the named entry; the test environment has no scrolling.
+    Element.prototype.scrollIntoView = vi.fn();
+    show('/journal?entry=9');
+    expect(await screen.findByRole('tab', { name: 'Entries' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('An older note')).toBeInTheDocument();
   });
 });
