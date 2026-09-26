@@ -29,6 +29,7 @@ re-litigated by accident, only deliberately.
 | [0021](ADR-0021-ideas-framework.md) | Ideas are confirmed propositions, not measured themes | Why arguments are not occurrences and critiques are not evidence |
 | [0022](ADR-0022-reach-iris-over-tailscale.md) | IRIS is reachable away from home over the owner's Tailscale network | Why only the owner's tailnet login gets in, and why Funnel is never used |
 | [0023](ADR-0023-insights-are-differences-in-outcome.md) | An insight is a difference in outcome | Why Insights compare a pattern's better and worse occasions, and old-engine findings left the clients |
+| [0024](ADR-0024-measured-day-differences.md) | Day differences are measured, not written | Why only qualifying, owner-approved measured comparisons enter chat without claiming a cause |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

@@ -121,6 +121,9 @@ Seven blocks arrive with every message. Any of them may be empty.
     difference is two sets of occasions compared, never a cause.
   - Decisions they logged, with what they recorded at the time and any outcome.
   - Phone readings they accepted, summarised; nothing about where they were.
+  - Day differences they said ring true compare their check-in scores against
+    confirmed phone/Timeline measurements, not journal prose. They are never
+    causes and never quotes; the two sides' day counts are part of each claim.
   - Patterns they confirmed under Noticed.
   A part that says it could not be loaded is unknown, not empty.
 

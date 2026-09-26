@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
-import { useDifferences, useDifferenceVerdict } from '@/hooks/usePatterns';
+import { useDayDifferences, useDayDifferenceVerdict, useDifferences, useDifferenceVerdict } from '@/hooks/usePatterns';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
-import type { Difference, PatternVerdictValue } from '@/types/api';
+import type { DayDifference, Difference, PatternVerdictValue } from '@/types/api';
 
 /**
  * Insights: differences in outcome.
@@ -20,7 +20,7 @@ const VERDICTS: { value: PatternVerdictValue; label: string }[] = [
 ];
 
 /** "3 of 4 times it went worse", read as a sentence about the other pattern. */
-export function sentence(d: Difference): { lead: string; worse: string; better: string } {
+function sentence(d: Difference): { lead: string; worse: string; better: string } {
   return {
     lead: `When ${d.patternName.toLowerCase()} came up,`,
     worse: `${d.otherName.toLowerCase()} was there ${d.worse} of ${d.worseTotal} times it went worse`,
@@ -29,12 +29,6 @@ export function sentence(d: Difference): { lead: string; worse: string; better: 
 }
 
 export function InsightsScreen() {
-  const { data, isPending, isError, refetch } = useDifferences();
-  if (isPending) return <LoadingState label="Iris is comparing the occasions…" />;
-  if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
-  const open = data.differences.filter(d => !d.verdict);
-  const judged = data.differences.filter(d => d.verdict);
-
   return (
     <div className="col" style={{ padding: '24px 32px 40px', gap: 20, maxWidth: 980 }}>
       <header className="col" style={{ gap: 6, borderBottom: '1px solid var(--line)', paddingBottom: 16 }}>
@@ -47,18 +41,82 @@ export function InsightsScreen() {
           the other. A difference, not a cause: say whether it rings true.
         </p>
       </header>
+      <PatternDifferencesSection />
+      <DayDifferencesSection />
+    </div>
+  );
+}
 
-      {data.differences.length === 0 ? (
-        <EmptyState title="No differences yet."
-          body="An insight needs a pattern with occasions that went both better and worse, and another pattern that sits on one side by two or more." />
-      ) : (
+function PatternDifferencesSection() {
+  const { data, isPending, isError, refetch } = useDifferences();
+  const open = data?.differences.filter(d => !d.verdict) ?? [];
+  const judged = data?.differences.filter(d => d.verdict) ?? [];
+
+  return (
+    <section aria-label="Writing differences" className="col" style={{ gap: 20 }}>
+      {isPending ? <LoadingState label="Iris is comparing the occasions…" />
+        : isError || !data ? <ErrorState onRetry={() => refetch()} />
+        : data.differences.length === 0 ? (
+          <EmptyState title="No differences yet."
+            body="An insight needs a pattern with occasions that went both better and worse, and another pattern that sits on one side by two or more." />
+        ) : (
         <>
           {open.map(d => <InsightCard key={`${d.patternId}/${d.otherId}`} d={d} />)}
           {judged.length > 0 && <div className="kicker" style={{ marginTop: 8 }}>judged · {judged.length}</div>}
           {judged.map(d => <InsightCard key={`${d.patternId}/${d.otherId}`} d={d} />)}
         </>
       )}
-    </div>
+    </section>
+  );
+}
+
+function DayDifferencesSection() {
+  const { data, isPending, isError, refetch } = useDayDifferences();
+  const open = data?.differences.filter(d => !d.verdict) ?? [];
+  const judged = data?.differences.filter(d => d.verdict) ?? [];
+  return (
+    <section aria-label="Days compared" className="col" style={{ gap: 16, paddingBottom: 24, borderBottom: '1px solid var(--line)' }}>
+      <div className="col" style={{ gap: 6 }}>
+        <div className="kicker">insights · measured days</div>
+        <h2 className="serif" style={{ margin: 0, fontSize: 32, color: 'var(--ink)' }}>Days compared<span style={{ color: 'var(--sage)' }}>.</span></h2>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)' }}>
+          measured by the phone and Timeline · differences, never causes
+        </p>
+      </div>
+      {isPending ? <LoadingState label="Comparing measured days…" />
+        : isError || !data ? <ErrorState onRetry={() => refetch()} />
+        : data.differences.length === 0
+          ? <EmptyState title="No days to compare yet."
+              body="A comparison needs enough measured days on both sides of a difference." />
+          : <>
+              {open.map(d => <DayDifferenceCard key={`${d.outcome}/${d.split}`} d={d} />)}
+              {judged.length > 0 && <div className="kicker" style={{ marginTop: 8 }}>judged · {judged.length}</div>}
+              {judged.map(d => <DayDifferenceCard key={`${d.outcome}/${d.split}`} d={d} />)}
+            </>}
+    </section>
+  );
+}
+
+function DayDifferenceCard({ d }: { d: DayDifference }) {
+  const verdict = useDayDifferenceVerdict();
+  const current = d.verdict?.verdict ?? null;
+  return (
+    <article aria-label={`${d.outcome.replace('_', ' ')} by ${d.split.replace('_', ' ')}`} className="col"
+      style={{ gap: 10, padding: '16px 18px', border: '1px solid var(--line)', borderRadius: 10,
+               opacity: current === 'does_not' ? 0.55 : 1 }}>
+      <div className="serif" style={{ fontSize: 21, lineHeight: 1.35, color: 'var(--ink)' }}>
+        {d.sentence}
+      </div>
+      <div className="row" style={{ gap: 14, color: 'var(--ink-3)', fontSize: 12, flexWrap: 'wrap' }}>
+        <span>compared · {d.leftCount} days / {d.rightCount} days</span>
+        <span>p = {d.pValue.toPrecision(2)}</span>
+      </div>
+      <VerdictButtons current={current} pending={verdict.isPending}
+        onChoose={value => verdict.mutate({ outcome: d.outcome, split: d.split, verdict: value })} />
+      {verdict.isError && <span role="alert" style={{ color: 'var(--ink-3)', fontSize: 12 }}>
+        Verdict not saved. Please try again.
+      </span>}
+    </article>
   );
 }
 
@@ -80,18 +138,29 @@ function InsightCard({ d }: { d: Difference }) {
           <span style={{ color: 'var(--ink-4)' }}>you said {d.patternName.toLowerCase()} doesn't ring true</span>
         )}
       </div>
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        {VERDICTS.map(v => (
-          <button key={v.value} aria-pressed={current === v.value} disabled={verdict.isPending}
-            onClick={() => verdict.mutate({ patternId: d.patternId, otherId: d.otherId, verdict: v.value })}
-            style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
-                     border: `1px solid ${current === v.value ? 'var(--sage)' : 'var(--line)'}`,
-                     background: current === v.value ? 'var(--sage)' : 'transparent',
-                     color: current === v.value ? '#14140f' : 'var(--ink-3)' }}>
-            {v.label}
-          </button>
-        ))}
-      </div>
+      <VerdictButtons current={current} pending={verdict.isPending}
+        onChoose={value => verdict.mutate({ patternId: d.patternId, otherId: d.otherId, verdict: value })} />
     </article>
+  );
+}
+
+function VerdictButtons({ current, pending, onChoose }: {
+  current: PatternVerdictValue | null;
+  pending: boolean;
+  onChoose: (value: PatternVerdictValue) => void;
+}) {
+  return (
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+      {VERDICTS.map(v => (
+        <button key={v.value} aria-pressed={current === v.value} disabled={pending}
+          onClick={() => onChoose(v.value)}
+          style={{ fontFamily: 'var(--mono)', fontSize: 11, padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
+                   border: `1px solid ${current === v.value ? 'var(--sage)' : 'var(--line)'}`,
+                   background: current === v.value ? 'var(--sage)' : 'transparent',
+                   color: current === v.value ? '#14140f' : 'var(--ink-3)' }}>
+          {v.label}
+        </button>
+      ))}
+    </div>
   );
 }

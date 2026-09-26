@@ -122,6 +122,23 @@ data class Difference(
 @Serializable
 data class DifferencesResponse(val differences: List<Difference>)
 
+/** Measured phone/Timeline day groups, compared without implying a cause. */
+@Serializable
+data class DayDifference(
+    val outcome: String,
+    val split: String,
+    val sentence: String,
+    val leftCount: Int,
+    val rightCount: Int,
+    val leftMean: Double,
+    val rightMean: Double,
+    val pValue: Double,
+    val verdict: PatternVerdict? = null,
+)
+
+@Serializable
+data class DayDifferencesResponse(val differences: List<DayDifference>)
+
 /** The difference as one sentence, both sides counted. */
 fun differenceSentence(d: Difference): String =
     "When ${d.patternName.lowercase()} came up, ${d.otherName.lowercase()} was there " +

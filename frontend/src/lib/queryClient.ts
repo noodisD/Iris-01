@@ -38,4 +38,5 @@ export const qk = {
   pattern: (id: string) => ['patterns', id] as const,
   // Under 'patterns', so a verdict that refreshes the patterns refreshes these too.
   differences: ['patterns', '~differences'] as const,
+  dayDifferences: ['day-differences'] as const,
 };

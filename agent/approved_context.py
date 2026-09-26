@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import date, timedelta
 
-from . import decisions, discovery
+from . import day_differences, decisions, discovery
 from .database import db
 from .ideas.service import IdeaService
 from .library import load as load_library
@@ -142,6 +142,17 @@ def _sensors(user_id: int) -> list[str]:
         lines.append(part)
     return lines
 
+def _days(user_id: int) -> list[str]:
+    """Only today's qualifying differences the owner said ring true."""
+    rows = [row for row in day_differences.for_user(user_id)
+            if (row["verdict"] or {}).get("verdict") == "rings_true"][:MAX_INSIGHTS]
+    lines = ["## Day differences they said ring true (measured by the phone and Timeline; never causes)"]
+    if not rows:
+        lines.append("None yet.")
+    for row in rows:
+        lines.append(f"- {row['sentence']}")
+    return lines
+
 
 def _noticed(user_id: int) -> list[str]:
     confirmed = [t for t in db.get_themes(user_id) if t.get("origin") == "observed"]
@@ -155,7 +166,7 @@ def _noticed(user_id: int) -> list[str]:
 
 PARTS: list[tuple[str, Callable[[int], list[str]]]] = [
     ("ideas", _ideas), ("insights", _insights), ("patterns", _patterns),
-    ("decisions", _decisions), ("sensors", _sensors), ("noticed", _noticed),
+    ("decisions", _decisions), ("sensors", _sensors), ("days", _days), ("noticed", _noticed),
 ]
 
 

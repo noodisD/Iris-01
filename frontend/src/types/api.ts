@@ -223,6 +223,19 @@ export interface Difference {
   patternVerdict: PatternVerdict | null;
 }
 
+/** A comparison of outcome ratings on two groups of measured days, not a cause. */
+export interface DayDifference {
+  outcome: 'energy' | 'mood' | 'sleep_quality' | 'stress' | 'focus';
+  split: 'office_home' | 'commute' | 'steps' | 'screen_time' | 'social_share' | 'sleep';
+  sentence: string;
+  leftCount: number;
+  rightCount: number;
+  leftMean: number;
+  rightMean: number;
+  pValue: number;
+  verdict: PatternVerdict | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Decisions — a decision journal, filled in when a decision is made
 // ─────────────────────────────────────────────────────────────────────────────

@@ -96,6 +96,7 @@ files = [
     "agent/ideas/models.py",
     "agent/ideas/reader.py",
     "agent/ideas/service.py",
+    "agent/day_differences.py",
 ]
 
 [tool.ruff]

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import * as patternsApi from '@/api/patterns';
-import type { OccasionVerdictValue, PatternVerdictValue } from '@/types/api';
+import * as dayDifferencesApi from '@/api/dayDifferences';
+import type { DayDifference, OccasionVerdictValue, PatternVerdictValue } from '@/types/api';
 
 export function usePatterns() {
   return useQuery({ queryKey: qk.patterns, queryFn: patternsApi.getPatterns });
@@ -41,4 +42,25 @@ export function useDifferences() {
 export function useDifferenceVerdict() {
   return useRefreshing(({ patternId, otherId, verdict }: { patternId: string; otherId: string; verdict: PatternVerdictValue }) =>
     patternsApi.setDifferenceVerdict(patternId, otherId, verdict));
+}
+
+/** Measured-day comparisons load independently from writing-derived Insights. */
+export function useDayDifferences() {
+  return useQuery({ queryKey: qk.dayDifferences, queryFn: dayDifferencesApi.getDayDifferences });
+}
+
+export function useDayDifferenceVerdict() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ outcome, split, verdict }: {
+      outcome: DayDifference['outcome']; split: DayDifference['split']; verdict: PatternVerdictValue;
+    }) => dayDifferencesApi.setDayDifferenceVerdict(outcome, split, verdict),
+    onSuccess: (_result, { outcome, split, verdict }) => {
+      qc.setQueryData<{ differences: DayDifference[] }>(qk.dayDifferences, old => old && ({
+        differences: old.differences.map(d => d.outcome === outcome && d.split === split
+          ? { ...d, verdict: { verdict, note: d.verdict?.verdict === verdict ? d.verdict.note : null } }
+          : d),
+      }));
+    },
+  });
 }

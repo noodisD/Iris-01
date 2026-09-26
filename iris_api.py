@@ -663,7 +663,7 @@ async def import_google_timeline(file: UploadFile, user_id: int = Depends(get_cu
         raise HTTPException(status_code=413, detail="timeline export is too large")
     from agent.sensors.timeline import stage_export
     try:
-        return stage_export(raw)
+        return await run_in_threadpool(stage_export, raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1518,6 +1518,25 @@ def put_occasion_verdict(pattern_id: str, occasion_id: int, body: OccasionVerdic
 def list_differences(user_id: int = Depends(get_current_user_id)):
     """Insights: differences in outcome between a pattern's better and worse occasions."""
     return {"differences": discovery.differences(user_id, list(_library().values()))}
+
+@app.get("/api/day-differences")
+def list_day_differences(user_id: int = Depends(get_current_user_id)):
+    """Confirmed measurements alongside self-reports, never a cause."""
+    from agent.day_differences import for_user
+    body = {"differences": for_user(user_id)}
+    _no_coordinates(body)
+    return body
+
+
+@app.put("/api/day-differences/{outcome}/{split}/verdict")
+def put_day_difference_verdict(outcome: str, split: str, body: PatternVerdict,
+                               user_id: int = Depends(get_current_user_id)):
+    from agent.day_differences import set_verdict
+    try:
+        set_verdict(user_id, outcome, split, body.verdict, body.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="No such day comparison.") from exc
+    return {"ok": True}
 
 
 @app.put("/api/differences/{pattern_id}/{other_pattern_id}/verdict")
