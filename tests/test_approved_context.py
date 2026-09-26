@@ -93,3 +93,32 @@ def test_a_part_that_fails_says_so_instead_of_looking_empty(test_user, monkeypat
     monkeypatch.setattr(approved, "PARTS", [("decisions", broken)])
     block = approved.approved_context(test_user["id"])
     assert "## decisions: could not be loaded just now (not the same as none)." in block
+
+
+def test_their_check_ins_reach_chat_as_their_own_numbers(test_user):
+    from agent.trackers.reflections import ReflectionService
+    ReflectionService(test_user["id"]).create_reflection(
+        content="Planted beans before lunch.", reflection_date=date.today(), energy_level=6,
+        metrics={"mood": {"value": 7, "scale": 10, "source": "checkin"},
+                 "stress": {"value": 3, "scale": 10, "source": "checkin"},
+                 "sleep_quality": {"value": 9, "scale": 5, "source": "import"}})
+    block = approved.approved_context(test_user["id"])
+    checkins = block.split("## Their check-ins")[1].split("## ")[0]
+    assert f"- {date.today().isoformat()}: energy 6, mood 7, stress 3" in checkins
+    assert "sleep quality" not in checkins  # an imported value on another scale is not theirs
+
+    from agent.core import PersonalAICompanion
+    recent = PersonalAICompanion(user_id=test_user["id"])._get_reflections_context()
+    assert "energy 6/10, mood 7/10, stress 3/10" in recent
+
+
+def test_measured_days_reach_chat_without_coordinates(test_user):
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO day_features (user_id, day, day_kind, commute_minutes, commute_mode,
+                         steps, steps_full_day, screen_minutes, screen_by_category, sleep_minutes, location_coverage)
+                       VALUES (%s, %s, 'office', 40, 'walking', 8000, true, 120, '{}'::jsonb, 420, 0.9)""",
+                    (test_user["id"], date.today()))
+        conn.commit()
+    days = approved.approved_context(test_user["id"]).split("## Their measured days")[1].split("## ")[0]
+    assert "office day, commute 40 min by walking, 8000 steps, screen 120 min, slept 420 min" in days
+    assert "lat" not in days

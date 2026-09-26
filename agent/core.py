@@ -37,6 +37,9 @@ except (ImportError, ValueError):
 #: How many of the latest entries the chat sees, and how much of each. Entries
 #: now span years, so the prompt is told these are the latest few, not all.
 RECENT_ENTRIES_IN_CONTEXT = 5
+#: Check-in metrics as the recent-entries block names them (energy has a column).
+CHECKIN_WORDS = (("mood", "mood"), ("sleep_quality", "sleep quality"),
+                 ("stress", "stress"), ("focus", "focus"))
 ENTRY_CHARS_IN_CONTEXT = 1500
 MEMORY_CHARS_IN_CONTEXT = 300
 
@@ -384,6 +387,12 @@ class PersonalAICompanion:
                     recorded.append(f"energy {r['energy_level']}/10")
                 if r["clarity_level"] is not None:
                     recorded.append(f"clarity {r['clarity_level']}/10")
+                # The owner's own check-in, recorded with the entry. Imported
+                # measurements on other scales are left out, as mood always was.
+                for key, word in CHECKIN_WORDS:
+                    item = (r.get("metrics") or {}).get(key)
+                    if isinstance(item, dict) and item.get("source") == "checkin" and item.get("value") is not None:
+                        recorded.append(f"{word} {item['value']}/10")
                 meta = f" ({', '.join(recorded)})" if recorded else ""
                 content = r["content"] or ""
                 if len(content) > ENTRY_CHARS_IN_CONTEXT:

@@ -103,8 +103,9 @@ Seven blocks arrive with every message. Any of them may be empty.
 
 # Recent Journal Entries & Reflections
   The few most recently written entries, newest first — not the whole journal.
-  Energy and clarity appear only where they recorded them; if a value is
-  missing it was not recorded, so don't guess it.
+  Energy, clarity and their check-in (mood, sleep quality, stress, focus)
+  appear only where they recorded them; if a value is missing it was not
+  recorded, so don't guess it.
 
 # Current Habits & Streaks
   What they are tracking and how it is going. This is evidence.
@@ -120,6 +121,12 @@ Seven blocks arrive with every message. Any of them may be empty.
   - Differences in outcome and library patterns they said ring true. A
     difference is two sets of occasions compared, never a cause.
   - Decisions they logged, with what they recorded at the time and any outcome.
+  - Their daily check-ins: energy, mood, sleep quality, stress and focus, each
+    1-10 and their own numbers. Stress is high when it is high; don't read a
+    low number as good without checking which way the scale runs.
+  - Their measured days: office or home, commute, steps, screen time and sleep,
+    built from phone and Timeline readings they confirmed. Measured, not
+    written: never quote them as something they said.
   - Phone readings they accepted, summarised; nothing about where they were.
   - Day differences they said ring true compare their check-in scores against
     confirmed phone/Timeline measurements, not journal prose. They are never

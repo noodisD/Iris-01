@@ -21,6 +21,7 @@ from datetime import date, timedelta
 
 from . import day_differences, decisions, discovery
 from .database import db
+from .days.recompute import list_days
 from .ideas.service import IdeaService
 from .library import load as load_library
 
@@ -154,6 +155,49 @@ def _days(user_id: int) -> list[str]:
     return lines
 
 
+CHECKIN_DAYS = 14
+
+
+def _checkins(user_id: int) -> list[str]:
+    """Their own daily check-ins, one line a day: numbers they gave, nothing inferred."""
+    since = date.today() - timedelta(days=CHECKIN_DAYS)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT reflection_date, energy_level, metrics FROM reflections
+                WHERE user_id = %s AND reflection_date >= %s
+                  AND (energy_level IS NOT NULL OR metrics IS NOT NULL)
+                ORDER BY reflection_date, id""", (user_id, since))
+        scores = day_differences.scores_from_rows(cur.fetchall())
+    lines = [f"## Their check-ins (last {CHECKIN_DAYS} days; 1-10, their own numbers)"]
+    if not scores:
+        lines.append("None recorded in this period.")
+    for day in sorted(scores, reverse=True):
+        values = ", ".join(f"{name.replace('_', ' ')} {value:g}" for name, value in scores[day].items())
+        lines.append(f"- {day}: {values}")
+    return lines
+
+
+def _measured_days(user_id: int) -> list[str]:
+    """Day summaries built from phone and Timeline readings they confirmed. No coordinates."""
+    since = (date.today() - timedelta(days=CHECKIN_DAYS)).isoformat()
+    rows = [row for row in list_days(user_id) if row["day"] >= since]
+    lines = [f"## Their measured days (last {CHECKIN_DAYS} days, from readings they confirmed)"]
+    if not rows:
+        lines.append("None measured in this period.")
+    for row in rows:
+        facts = [f"{row['dayKind']} day" if row["dayKind"] != "unknown" else "place unknown"]
+        if row["commuteMinutes"]:
+            facts.append(f"commute {row['commuteMinutes']} min" + (f" by {row['commuteMode']}" if row["commuteMode"] else ""))
+        if row["steps"] is not None:
+            facts.append(f"{row['steps']} steps" + ("" if row["stepsFullDay"] else " (partial day)"))
+        if row["screenMinutes"]:
+            facts.append(f"screen {row['screenMinutes']} min")
+        if row["sleepMinutes"]:
+            facts.append(f"slept {row['sleepMinutes']} min")
+        lines.append(f"- {row['day']}: " + ", ".join(facts))
+    return lines
+
+
 def _noticed(user_id: int) -> list[str]:
     confirmed = [t for t in db.get_themes(user_id) if t.get("origin") == "observed"]
     lines = ["## Patterns they confirmed under Noticed"]
@@ -166,7 +210,8 @@ def _noticed(user_id: int) -> list[str]:
 
 PARTS: list[tuple[str, Callable[[int], list[str]]]] = [
     ("ideas", _ideas), ("insights", _insights), ("patterns", _patterns),
-    ("decisions", _decisions), ("sensors", _sensors), ("days", _days), ("noticed", _noticed),
+    ("decisions", _decisions), ("checkins", _checkins), ("measured days", _measured_days),
+    ("sensors", _sensors), ("days", _days), ("noticed", _noticed),
 ]
 
 
