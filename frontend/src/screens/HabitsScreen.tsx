@@ -62,9 +62,9 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
           return (
             <g key={h.id} onClick={() => onToggle(h.id, !done)} style={{ cursor: 'pointer' }}>
               <circle cx={p.x} cy={p.y} r={p.r + 8} fill="none" stroke={c} strokeWidth="1" opacity={done ? 0.4 : 0.1} />
-              <circle cx={p.x} cy={p.y} r={p.r} fill={done ? c : 'var(--bg-2)'} stroke={c} strokeWidth={done ? 0 : 1.5} opacity={done ? 0.92 : 1} />
-              <text x={p.x} y={p.y - 2} textAnchor="middle" fontFamily="var(--font-read)" fontSize="15" fontStyle="italic" fill={done ? 'var(--night)' : 'var(--ink)'}>{h.name.split(' ')[0]}</text>
-              <text x={p.x} y={p.y + 14} textAnchor="middle" fontFamily="var(--font-ui)" fontSize="10" fill={done ? 'var(--night)' : 'var(--ink-3)'}>{h.streakDays}d</text>
+              <circle cx={p.x} cy={p.y} r={p.r} fill={done ? c : 'var(--dusk)'} stroke={c} strokeWidth={done ? 0 : 1.5} opacity={done ? 0.92 : 1} />
+              <text x={p.x} y={p.y - 2} textAnchor="middle" fontFamily="var(--font-read)" fontSize="15" fontStyle="italic" fill={done ? 'var(--night)' : 'var(--petal)'}>{h.name.split(' ')[0]}</text>
+              <text x={p.x} y={p.y + 14} textAnchor="middle" fontFamily="var(--font-ui)" fontSize="10" fill={done ? 'var(--night)' : 'var(--petal-3)'}>{h.streakDays}d</text>
             </g>
           );
         })}

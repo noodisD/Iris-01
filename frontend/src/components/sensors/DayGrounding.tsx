@@ -108,7 +108,6 @@ export function Location({ onBatchesChanged }: { onBatchesChanged: () => void })
             { key: 'name', header: 'Name', cell: p => p.name },
             { key: 'kind', header: 'Kind', cell: p => p.kind },
             { key: 'radius', header: 'Radius', numeric: true, cell: p => `${p.radiusM} m` },
-            { key: 'from', header: 'Added from', cell: p => (p.source === 'timeline' ? 'Timeline' : 'you') },
             {
               key: 'actions', header: <span className="visually-hidden">Actions</span>, cell: p => (
                 <span className={styles.rowActions}>

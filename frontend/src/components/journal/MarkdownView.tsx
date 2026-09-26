@@ -47,7 +47,7 @@ export function MarkdownView({ text }: { text: string }) {
       const level = heading[1].length;
       const Tag = (`h${level}` as 'h1' | 'h2' | 'h3');
       blocks.push(
-        <Tag key={i} className="serif" style={{ margin: 0, fontSize: headingSize(level), lineHeight: 1.2 }}>
+        <Tag key={i} style={{ margin: 0, fontFamily: 'var(--font-read)', fontWeight: 500, fontSize: headingSize(level), lineHeight: 1.2 }}>
           {inline(heading[2], `h${i}`)}
         </Tag>,
       );
@@ -61,7 +61,7 @@ export function MarkdownView({ text }: { text: string }) {
         i += 1;
       }
       blocks.push(
-        <blockquote key={`q${i}`} style={{ margin: 0, paddingLeft: 12, borderLeft: '1px solid var(--sage-dim)', color: 'var(--ink-2)', fontStyle: 'italic' }}>
+        <blockquote key={`q${i}`} style={{ margin: 0, paddingLeft: 12, borderLeft: '1px solid var(--mist-2)', color: 'var(--petal-2)', fontStyle: 'italic' }}>
           {quoted.map((row, rowIndex) => <div key={rowIndex}>{inline(row, `q${i}-${rowIndex}`)}</div>)}
         </blockquote>,
       );
@@ -98,5 +98,5 @@ export function MarkdownView({ text }: { text: string }) {
     }
     blocks.push(<p key={`p${i}`} style={{ margin: 0 }}>{inline(paragraph.join(' '), `p${i}`)}</p>);
   }
-  return <div className="col" style={{ gap: 8 }}>{blocks}</div>;
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{blocks}</div>;
 }

@@ -28,8 +28,8 @@ export const LINK_COLOR: Record<IdeaLink['kind'], string> = {
 export const LINK_LABEL: Record<IdeaLink['kind'], string> = {
   same_meaning: 'same meaning', supports: 'supports', contradicts: 'contradicts', refines: 'refines', depends_on: 'depends on',
 };
-const PROPOSED = '#5c574a';
-const AREA_EDGE = '#3a3a2c';
+const PROPOSED = '#7a7799';
+const AREA_EDGE = '#34334d';
 
 interface Props {
   ideas: IdeaSummary[];
@@ -116,8 +116,8 @@ function tooltip(n: Drawn): string {
   const box = document.createElement('div');
   box.textContent = n.kind === 'area' ? n.label : n.proposed ? `${n.label} (proposed)` : n.label;
   Object.assign(box.style, {
-    maxWidth: '360px', padding: '8px 10px', borderRadius: '8px', background: 'rgba(20,20,15,0.92)',
-    border: '1px solid #2a2a1f', color: '#e9e3d3', font: '13px/1.4 Geist, system-ui, sans-serif',
+    maxWidth: '360px', padding: '8px 10px', borderRadius: '8px', background: 'rgba(27,26,46,0.94)',
+    border: '1px solid #3a3957', color: '#e8e6f2', font: "13px/1.4 'Schibsted Grotesk', system-ui, sans-serif",
   });
   return box.outerHTML;
 }
@@ -154,12 +154,12 @@ export function IdeaGraph(props: Props) {
       .nodeVal(node => (node as unknown as Drawn).size)
       .nodeColor(node => {
         const n = node as unknown as Drawn;
-        return !lit.current || lit.current.has(n.id) ? n.color : '#24231c';
+        return !lit.current || lit.current.has(n.id) ? n.color : '#26253b';
       })
       .linkColor(link => {
         const l = link as unknown as Line & { source: { id: string }; target: { id: string } };
         const on = !lit.current || (lit.current.has(l.source.id) && lit.current.has(l.target.id));
-        return on ? l.color : '#1c1b15';
+        return on ? l.color : '#1f1e33';
       })
       .linkWidth(link => (link as unknown as Line).width)
       .linkDirectionalParticles(link => {
@@ -210,21 +210,20 @@ export function IdeaGraph(props: Props) {
 
   const kinds = Object.keys(LINK_COLOR) as IdeaLink['kind'][];
   return (
-    <div className="col" style={{ gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div ref={holder} role="img" aria-label="Ideas graph"
-        style={{ height, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line-soft)', background: '#000000' }} />
-      <div className="row" style={{ gap: 16, flexWrap: 'wrap', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)',
-                                    letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        style={{ height, borderRadius: 'var(--radius-panel)', overflow: 'hidden', border: '1px solid var(--mist)', background: '#000000' }} />
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 'var(--text-xs)', color: 'var(--petal-3)' }}>
         {kinds.map(kind => (
-          <span key={kind} className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <span key={kind} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ width: 14, height: 2, background: LINK_COLOR[kind] }} />{LINK_LABEL[kind]}
           </span>
         ))}
-        <span className="row" style={{ gap: 6, alignItems: 'center' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: DOMAIN_COLOR.life }} />life
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: DOMAIN_COLOR.life }} />Life
         </span>
-        <span>grey · proposed, waiting in review</span>
-        <span>drag to turn · scroll to zoom · hover to read</span>
+        <span>Grey: proposed, waiting in Review</span>
+        <span>Drag to turn, scroll to zoom, hover to read</span>
       </div>
     </div>
   );

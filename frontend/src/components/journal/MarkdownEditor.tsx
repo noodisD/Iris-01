@@ -77,16 +77,16 @@ export function MarkdownEditor({
           // The editable area is named for screen readers, like the fallback textarea.
           EditorView.contentAttributes.of({ 'aria-label': 'journal entry', 'aria-multiline': 'true' }),
           EditorView.theme({
-            '&': { height: '100%', background: 'transparent', color: 'var(--ink)' },
+            '&': { height: '100%', background: 'transparent', color: 'var(--petal)' },
             '.cm-scroller': {
               overflow: 'auto',
               fontFamily: 'var(--font-read)',
               fontSize: '20px',
               lineHeight: '1.55',
             },
-            '.cm-content': { padding: '8px 0 32px', caretColor: 'var(--sage)', minHeight: '100%' },
+            '.cm-content': { padding: '8px 0 32px', caretColor: 'var(--iris)', minHeight: '100%' },
             '&.cm-focused': { outline: 'none' },
-            '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--sage)' },
+            '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--iris)' },
             '.cm-gutters': { display: 'none' },
             '.cm-placeholder': { color: 'var(--petal-3)', fontStyle: 'italic' },
           }),

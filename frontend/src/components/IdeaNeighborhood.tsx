@@ -22,19 +22,19 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
   )))].sort((a, b) => Number(a) - Number(b));
 
   if (neighbourIds.length === 0) {
-    return <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)' }}>No accepted connections yet.</p>;
+    return <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--petal-3)' }}>No accepted connections yet.</p>;
   }
 
   return (
-    <div className="col" style={{ gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <svg viewBox="0 0 640 420" width="100%" role="group" aria-label="Accepted connections">
         <defs>
           <marker id="idea-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto-start-reverse">
-            <path d="M0,0 L7,3 L0,6 Z" fill="var(--ink-3)" />
+            <path d="M0,0 L7,3 L0,6 Z" fill="var(--petal-3)" />
           </marker>
         </defs>
-        <circle cx={320} cy={210} r={10} fill="var(--sage)" />
-        <text x={320} y={236} textAnchor="middle" fontSize={11} fill="var(--ink)">
+        <circle cx={320} cy={210} r={10} fill="var(--pollen)" />
+        <text x={320} y={236} textAnchor="middle" fontSize={11} fill="var(--petal)">
           {cut(idea.statement)}
         </text>
         {neighbourIds.map((id, index) => {
@@ -54,16 +54,16 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
             <g key={id}>
               <line
                 x1={320 + 14 * ux} y1={210 + 14 * uy} x2={x - 11 * ux} y2={y - 11 * uy}
-                stroke="var(--ink-3)"
+                stroke="var(--petal-3)"
                 markerEnd={markerEnd}
                 markerStart={markerStart}
               />
-              <text x={(320 + x) / 2} y={(210 + y) / 2} fontSize={10} fill="var(--ink-2)">
-                {pair.map(link => KIND_LABEL[link.kind]).join(' · ')}
+              <text x={(320 + x) / 2} y={(210 + y) / 2} fontSize={10} fill="var(--petal-2)">
+                {pair.map(link => KIND_LABEL[link.kind]).join(', ')}
               </text>
               <Link to={`/ideas/${id}`} aria-label={statement}>
-                <circle cx={x} cy={y} r={7} fill="var(--ink-3)" />
-                <text x={x} y={y + 22} textAnchor="middle" fontSize={10} fill="var(--ink-2)">
+                <circle cx={x} cy={y} r={7} fill="var(--petal-3)" />
+                <text x={x} y={y + 22} textAnchor="middle" fontSize={10} fill="var(--petal-2)">
                   {cut(statement)}
                 </text>
               </Link>
@@ -71,7 +71,7 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
           );
         })}
       </svg>
-      <ul className="col" style={{ gap: 10, padding: 0, listStyle: 'none' }}>
+      <ul style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 0, margin: 0, listStyle: 'none' }}>
         {accepted.map(link => {
           const fromIsCurrent = link.fromIdeaId === idea.id;
           const neighbourId = fromIsCurrent ? link.toIdeaId : link.fromIdeaId;
@@ -79,7 +79,7 @@ export function IdeaNeighborhood({ idea, links }: { idea: IdeaSummary; links: Id
           const neighbour = <Link to={`/ideas/${neighbourId}`}>{neighbourStatement}</Link>;
           return (
             <li key={link.id}>
-              <p>{fromIsCurrent ? idea.statement : neighbour} <span className="kicker">{KIND_LABEL[link.kind]}</span> {fromIsCurrent ? neighbour : idea.statement}</p>
+              <p>{fromIsCurrent ? idea.statement : neighbour} <em style={{ color: 'var(--petal-3)' }}>{KIND_LABEL[link.kind]}</em> {fromIsCurrent ? neighbour : idea.statement}</p>
               <p>{link.rationale}</p>
             </li>
           );

@@ -1,0 +1,6 @@
+.state { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); padding: var(--space-7) 0; max-width: 56ch; }
+.label { margin: 0; color: var(--petal-2); font-family: var(--font-read); font-size: var(--text-lg); }
+.title { margin: 0; font-family: var(--font-read); font-weight: 450; font-size: var(--text-xl); color: var(--petal); }
+.body { margin: 0; color: var(--petal-3); line-height: 1.55; }
+.skeleton { background: linear-gradient(90deg, var(--dusk) 25%, var(--dusk-2) 50%, var(--dusk) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

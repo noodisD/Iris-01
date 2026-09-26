@@ -1,3 +1,4 @@
+import { Button } from '@/ui';
 import type { Command } from './markdownCommands';
 import { bold, bullet, checklist, heading, italic, quote } from './markdownCommands';
 
@@ -14,20 +15,19 @@ const COMMANDS: { label: string; title: string; command: Command }[] = [
 
 export function EditorToolbar({ onCommand }: { onCommand: (command: Command) => void }) {
   return (
-    <div className="row" role="toolbar" aria-label="formatting"
-      style={{ gap: 2, flexWrap: 'wrap', padding: '6px 8px', borderBottom: '1px solid var(--line-soft)' }}>
+    <div role="toolbar" aria-label="formatting"
+      style={{ display: 'flex', gap: 2, flexWrap: 'wrap', padding: '6px 8px', borderBottom: '1px solid var(--mist)' }}>
       {COMMANDS.map(item => (
-        <button
+        <Button
           key={item.title}
-          type="button"
-          className="btn ghost"
+          variant="quiet" size="sm"
           title={item.title}
           aria-label={item.title}
           onMouseDown={event => event.preventDefault()}
           onClick={() => onCommand(item.command)}
         >
           {item.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

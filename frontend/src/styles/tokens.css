@@ -8,7 +8,7 @@
    See docs/design.md for the principles and the component kit.
    =========================================================== */
 
-@layer reset, tokens, base, legacy, components;
+@layer reset, tokens, base, components;
 
 @layer tokens {
   :root {
@@ -60,29 +60,11 @@
     --measure-standard: 1040px;
     --focus-ring: 0 0 0 2px var(--night), 0 0 0 4px var(--iris);
 
-    /* Legacy names, kept so screens not yet migrated follow the palette.
-       New code uses the names above. */
-    --bg-0: var(--night);
-    --bg-1: var(--deep);
-    --bg-2: var(--dusk);
-    --bg-3: var(--dusk-2);
-    --line: var(--mist);
-    --line-soft: #222137;
-    --ink: var(--petal);
-    --ink-2: var(--petal-2);
-    --ink-3: var(--petal-3);
-    --ink-4: #827f9d;
-    --sage: var(--iris);
-    --sage-dim: #6a60b0;
-    --amber: #d9a877;
-    --rose: var(--worse);
-    --indigo: #9aa6e0;
-    --serif: var(--font-read);
-    --sans: var(--font-ui);
-    --mono: var(--font-ui);
-    --pad: 24px;
-    --pad-sm: 14px;
-    --radius: var(--radius-panel);
+    /* Categorical hues: for colours the owner picked (a habit's), never for meaning. */
+    --hue-green: #8fc4a8;
+    --hue-amber: #d9a877;
+    --hue-blue: #9aa6e0;
+    --hue-rose: #d98a8a;
 
     /* The lens: its colours follow the page (see applyOrbVibe). */
     --orb-hue-a: #d6d0ff;
@@ -152,77 +134,3 @@
     }
   }
 }
-
-/* Classes used by screens not yet moved onto the kit in src/ui. Restyled
-   to the new system; removed once nothing uses them. */
-@layer legacy {
-  .app-shell { display: flex; height: 100dvh; background: var(--night); overflow: hidden; }
-  .app-main { flex: 1; overflow: auto; position: relative; min-width: 0; }
-
-  .serif { font-family: var(--font-read); font-weight: 400; }
-  .mono { font-family: var(--font-ui); }
-  .ital { font-style: italic; }
-  /* Small quiet labels, sentence case: no tracked uppercase. */
-  .eyebrow, .kicker { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--petal-3); letter-spacing: 0; text-transform: none; }
-  .numerals { font-family: var(--font-read); font-variant-numeric: lining-nums tabular-nums; line-height: 0.95; }
-  .hairline { border: 0; border-top: 1px solid var(--mist); margin: 0; }
-  .dotline { border: 0; border-top: 1px solid var(--line-soft); margin: 0; }
-
-  .journal-pane { background: var(--dusk); border: 1px solid var(--mist); border-radius: var(--radius-panel); overflow: hidden; }
-  .journal-pane:focus-within { border-color: var(--iris); }
-  .journal-pane textarea::placeholder { color: var(--petal-3); font-style: italic; }
-
-  .card { background: var(--dusk); border: 1px solid var(--mist); border-radius: var(--radius-panel); position: relative; }
-  .card.flush { background: transparent; border: none; }
-  .card .head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 18px 10px; border-bottom: 1px solid var(--mist); }
-  .card .body { padding: 16px 18px 18px; }
-
-  .btn {
-    font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 500;
-    padding: 7px 14px; min-height: 36px; border-radius: var(--radius-control);
-    background: transparent; border: 1px solid var(--mist-2); color: var(--petal);
-    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  }
-  .btn:hover { background: var(--dusk-2); }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn.primary { background: var(--iris); color: var(--on-iris); border-color: var(--iris); }
-  .btn.primary:hover { background: #9a8fe0; }
-  .btn.ghost { border-color: transparent; }
-
-  .sensor-file { color: var(--petal-2); font: inherit; }
-  .sensor-file::file-selector-button {
-    font: 500 var(--text-sm) var(--font-ui); padding: 7px 14px; margin-right: 10px;
-    border-radius: var(--radius-control); background: transparent; border: 1px solid var(--mist-2);
-    color: var(--petal); cursor: pointer;
-  }
-
-  .tag {
-    display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs);
-    color: var(--petal-2); padding: 2px 8px; border: 1px solid var(--mist); border-radius: var(--radius-pill);
-  }
-  .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--petal-3); display: inline-block; }
-  .dot.sage { background: var(--better); } .dot.amber { background: var(--amber); }
-  .dot.rose { background: var(--worse); } .dot.indigo { background: var(--indigo); }
-  .bignum { font-family: var(--font-read); font-size: 72px; line-height: 0.9; font-variant-numeric: lining-nums; }
-  .bignum .suffix { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--petal-3); vertical-align: super; margin-left: 6px; }
-
-  .row { display: flex; }
-  .col { display: flex; flex-direction: column; }
-  .gap-4 { gap: 4px; } .gap-8 { gap: 8px; } .gap-12 { gap: 12px; }
-  .gap-16 { gap: 16px; } .gap-24 { gap: 24px; } .gap-32 { gap: 32px; }
-  /* The lens in CSS, for places not yet using <Lens>: an iris with a pupil. */
-  .iris-orb {
-    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
-    background: radial-gradient(circle, #0c0b18 0 20%, var(--orb-hue-a) 23%, var(--orb-hue-b) 55%, var(--orb-hue-c) 100%);
-    box-shadow: 0 0 12px var(--orb-glow);
-    animation: breathe var(--orb-rate) ease-in-out infinite;
-  }
-  .iris-orb.lg { width: 56px; height: 56px; box-shadow: 0 0 28px var(--orb-glow); }
-  .iris-orb.sm { width: 14px; height: 14px; }
-  .dotgrid { background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px); background-size: 14px 14px; }
-}
-
-@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-@keyframes blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
-@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

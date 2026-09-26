@@ -26,3 +26,5 @@
 .input { flex: 1; background: transparent !important; border: none !important; padding: 8px 0 !important; resize: none; min-height: 24px; line-height: 1.5; }
 .input:focus-visible { box-shadow: none; }
 .meta { margin: 0; color: var(--petal-3); font-size: var(--text-xs); text-align: right; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
