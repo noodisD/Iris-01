@@ -218,6 +218,7 @@ def _usage(items: list[dict], day: date, zone: ZoneInfo) -> list[Usage]:
             row["value_text"] or "",
             int(row["value_num"] or 0),
             detail.get("category"),
+            row["occurred_at"],
         ))
     return found
 

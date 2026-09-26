@@ -60,6 +60,10 @@ class Usage:
     package: str
     seconds: int
     category: str | None = None
+    #: When the interval began. With it, intervals of one app that overlap are
+    #: counted once: a history import resends time already delivered, split
+    #: at different points.
+    start: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -209,12 +213,10 @@ def compute_day(
         day_kind = "other"
     category_seconds: dict[str, int] = {}
     screen_seconds = 0
-    for item in usage:
-        if item.seconds <= 0:
-            continue
-        screen_seconds += item.seconds
-        label = category_for(item.package, (overrides or {}).get(item.package), item.category)
-        category_seconds[label] = category_seconds.get(label, 0) + item.seconds
+    for package, seconds, category in _usage_per_package(usage):
+        screen_seconds += seconds
+        label = category_for(package, (overrides or {}).get(package), category)
+        category_seconds[label] = category_seconds.get(label, 0) + seconds
     by_category = {label: seconds // 60 for label, seconds in category_seconds.items()}
     # A Health Connect duration can be asleep time rather than time in bed.
     # Weight each covered interval by its reported asleep fraction; for an
@@ -261,3 +263,36 @@ def compute_day(
         "sleep_minutes": sleep_us // minute_us if saw_sleep else None,
         "location_coverage": round(coverage, 4),
     }
+
+
+def _usage_per_package(usage: list[Usage]) -> list[tuple[str, int, str | None]]:
+    """Seconds each app was in the foreground, overlapping intervals counted once.
+
+    Intervals without a start cannot be matched, so they are added as they are.
+    """
+    spans: dict[str, list[tuple[datetime, datetime]]] = {}
+    loose: dict[str, int] = {}
+    category: dict[str, str | None] = {}
+    for item in usage:
+        if item.seconds <= 0:
+            continue
+        category.setdefault(item.package, item.category)
+        if item.start is None:
+            loose[item.package] = loose.get(item.package, 0) + item.seconds
+        else:
+            spans.setdefault(item.package, []).append(
+                (item.start, item.start + timedelta(seconds=item.seconds)))
+    totals = dict(loose)
+    for package, intervals in spans.items():
+        intervals.sort()
+        merged = 0.0
+        begin, end = intervals[0]
+        for start, stop in intervals[1:]:
+            if start <= end:
+                end = max(end, stop)
+            else:
+                merged += (end - begin).total_seconds()
+                begin, end = start, stop
+        merged += (end - begin).total_seconds()
+        totals[package] = totals.get(package, 0) + int(merged)
+    return [(package, seconds, category.get(package)) for package, seconds in totals.items()]

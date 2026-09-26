@@ -228,3 +228,23 @@ def test_category_priority_is_override_then_phone_then_other():
         sleep=[], steps=[], overrides={"com.example.chat": "social"},
     )
     assert features["screen_by_category"] == {"social": 2, "other": 1}
+
+
+def test_app_time_sent_twice_is_counted_once_however_it_was_split():
+    """A history import resends time already delivered, cut at different points."""
+    t = datetime(2026, 1, 2, 9, 0, tzinfo=UTC)
+    usage = [
+        # Delivered live, split at a sync boundary: 09:00-09:10 and 09:10-09:30.
+        Usage("com.example.chat", 600, "social", t),
+        Usage("com.example.chat", 1200, "social", t + timedelta(minutes=10)),
+        # The same session again from the history import, in one piece.
+        Usage("com.example.chat", 1800, "social", t),
+        # Another app, separately.
+        Usage("com.example.maps", 300, None, t + timedelta(hours=1)),
+    ]
+    features = compute_day(
+        day=DAY, zone=ZONE, places=[], fixes=[], visits=[], activities=[],
+        usage=usage, sleep=[], steps=[], overrides=None,
+    )
+    assert features["screen_minutes"] == 35
+    assert features["screen_by_category"] == {"social": 30, "other": 5}

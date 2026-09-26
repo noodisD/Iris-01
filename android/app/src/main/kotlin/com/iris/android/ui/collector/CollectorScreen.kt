@@ -263,6 +263,22 @@ fun CollectorScreen(onBack: () -> Unit) {
                 runtimePermissions.launch(permissions.toTypedArray())
             }) { Text("Grant phone permissions") }
             Text("App usage: ${if (usageGranted) "allowed" else "grant Usage access in Android Settings"}")
+            if (usageGranted && SensorCollectorService.running) {
+                // Android keeps a detailed log for about ten days. Sending it
+                // fills days when collection was off; time already delivered
+                // is counted once on the laptop.
+                TextButton(onClick = {
+                    scope.launch {
+                        message = try {
+                            val sent = withContext(Dispatchers.IO) { com.iris.android.AppUsageHistory.send(context) }
+                            if (sent == 0) "No app history found on this phone"
+                            else "Sending $sent app-usage intervals from the last ${com.iris.android.AppUsageHistory.DAYS} days. Confirm them in IRIS Sensors."
+                        } catch (error: Exception) {
+                            error.message ?: "Could not read app history"
+                        }
+                    }
+                }) { Text("Import app history (about ${com.iris.android.AppUsageHistory.DAYS} days)") }
+            }
             TextButton(onClick = {
                 context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS))
             }) { Text("Open Usage access") }

@@ -266,6 +266,20 @@ internal class CollectorStore private constructor(ctx: Context) :
         })
     }
 
+    /**
+     * A one-time app-usage history payload. It carries no cursor, location or
+     * steps, so acknowledging it moves nothing the live collector relies on;
+     * the laptop counts time it already has only once.
+     */
+    @Synchronized
+    fun enqueueHistory(json: String) {
+        writableDatabase.insertOrThrow("outbox", null, ContentValues().apply {
+            put("kind", "pixel")
+            put("json", json)
+            put("steps_json", "[]")
+        })
+    }
+
     @Synchronized
     fun enqueueHealth(chunks: List<HealthChunk>, advance: HealthAdvance) {
         require(chunks.isNotEmpty())
