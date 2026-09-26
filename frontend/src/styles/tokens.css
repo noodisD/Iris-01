@@ -146,6 +146,19 @@ a:focus-visible { outline: 1px solid var(--sage); outline-offset: 2px; border-ra
 }
 .btn.ghost { border: none; padding: 6px 8px; }
 
+/* The laptop-only Timeline picker keeps the native file chooser but uses
+   the same quiet button treatment as the rest of Sensors. */
+.sensor-file { color: var(--ink-2); font: inherit; }
+.sensor-file::file-selector-button {
+  font: 12px var(--sans);
+  padding: 7px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
 /* Pill / tag */
 .tag {
   display: inline-flex; align-items: center; gap: 6px;

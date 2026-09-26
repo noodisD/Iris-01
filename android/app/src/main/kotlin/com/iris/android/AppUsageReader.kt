@@ -4,6 +4,8 @@ import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.os.Process
 import java.time.Instant
 
@@ -27,6 +29,7 @@ internal object AppUsageReader {
             ?: error("Android usage event history is unavailable")
         val event = UsageEvents.Event()
         val readings = mutableListOf<SensorPayloadBuilder.AppUsageReading>()
+        val categories = mutableMapOf<String, String>()
         var foreground: String? = null
         var began = fromMillis
         fun close(end: Long) {
@@ -34,7 +37,7 @@ internal object AppUsageReader {
             val start = began.coerceAtLeast(fromMillis)
             val seconds = ((end - start).coerceAtLeast(0) / 1_000).toInt()
             if (seconds > 0) readings.add(SensorPayloadBuilder.AppUsageReading(
-                Instant.ofEpochMilli(start), pkg, seconds))
+                Instant.ofEpochMilli(start), pkg, seconds, categories.getOrPut(pkg) { categoryOf(ctx, pkg) }))
         }
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
@@ -60,5 +63,24 @@ internal object AppUsageReader {
         }
         close(untilMillis)
         return readings
+    }
+
+    private fun categoryOf(ctx: Context, packageName: String): String {
+        val info = try {
+            ctx.packageManager.getApplicationInfo(packageName, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return "other"
+        }
+        return when (info.category) {
+            ApplicationInfo.CATEGORY_GAME -> "game"
+            ApplicationInfo.CATEGORY_AUDIO -> "audio"
+            ApplicationInfo.CATEGORY_VIDEO -> "video"
+            ApplicationInfo.CATEGORY_IMAGE -> "image"
+            ApplicationInfo.CATEGORY_SOCIAL -> "social"
+            ApplicationInfo.CATEGORY_NEWS -> "news"
+            ApplicationInfo.CATEGORY_MAPS -> "maps"
+            ApplicationInfo.CATEGORY_PRODUCTIVITY -> "productivity"
+            else -> "other"
+        }
     }
 }

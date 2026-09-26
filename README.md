@@ -170,6 +170,15 @@ Import for transcript and date review before it becomes a journal entry.
 Recordings are transcribed and the audio is kept, so you can listen back and
 so a better model can re-read them later.
 
+### Write a day
+
+Journal on web and Android uses one Markdown writing pane with headings, bold,
+italics, lists, checkboxes and quotes, plus a five-part check-in (energy, mood,
+sleep quality, stress and focus). A check-in without words is saved but not
+embedded. Older plain-text entries stay plain; formatted entries are shown as
+Markdown while analysis and quotes use their readable words.
+
+
 ### Collect live phone readings
 
 Set `LAN_BIND_HOST` to the laptop's private Wi-Fi IPv4 address in `.env`, then
@@ -213,6 +222,16 @@ reading per source, theme and UTC day; unlinked data stays inert. If readings
 arrive after opening a batch, confirmation asks for another review. Deleting a
 confirmed batch retracts its evidence and restores an older approved daily
 reading if present. Disconnect from laptop Settings to revoke the phone token.
+
+On the laptop, Sensors also accepts the JSON export from Google Maps Timeline
+(Maps → profile → Settings → Location & privacy → Timeline → Export). The upload
+stages dated visits and trips; confirm a single batch or a date range before
+they count. Name home and office from confirmed HOME/WORK suggestions or enter
+coordinates yourself, then inspect the Days table. Location coverage below
+50% leaves the day kind unknown; only step counts known to cover a full day
+are eligible for comparisons. App categories can be overridden per package.
+Named place coordinates and suggestions are available only on the laptop, not
+through the phone or tailnet door. No day measurement becomes journal text.
 
 ### What IRIS is allowed to say
 

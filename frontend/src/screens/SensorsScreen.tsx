@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSensorBatches, useSensorBatch, useSensorActions } from '@/hooks/useSensors';
 import { useKnowledge } from '@/hooks/useData';
+import { DayGrounding } from '@/components/sensors/DayGrounding';
 import { LoadingState, ErrorState, EmptyState } from '@/components/states';
 import type { SensorBatch, SensorObservation } from '@/api/sensors';
 import { HttpError } from '@/api/client';
@@ -16,7 +17,7 @@ const unitBySource: Record<string, string> = {
 };
 
 const sourceLabel = (source: string) =>
-  source === 'pixel' ? 'Pixel' : source === 'health_connect' ? 'Health Connect' : source;
+  source === 'pixel' ? 'Pixel' : source === 'health_connect' ? 'Health Connect' : source === 'google_timeline' ? 'Timeline' : source;
 
 export function SensorsScreen() {
   const { data: batches, isLoading, error, refetch } = useSensorBatches();
@@ -66,9 +67,7 @@ export function SensorsScreen() {
               batches={batches ?? []}
             />
           ) : (
-            <div style={{ padding: '80px 40px', color: 'var(--ink-3)', textAlign: 'center' }}>
-              Select a batch to review its measurements, or wait for the phone's next sync.
-            </div>
+            <DayGrounding onBatchesChanged={() => { void refetch(); }} />
           )}
         </main>
       </div>

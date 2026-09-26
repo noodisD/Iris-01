@@ -41,6 +41,7 @@ class SensorPayloadBuilder(
     data class AppUsageReading(
         val ts: Instant, val packageName: String,
         val foregroundSeconds: Int,
+        val category: String? = null,
     )
 
     data class StepsReading(val date: LocalDate, val count: Int, val observed: Boolean = false)
@@ -67,6 +68,7 @@ class SensorPayloadBuilder(
                     "ts" to r.ts.toString(),
                     "package" to r.packageName,
                     "foreground_seconds" to r.foregroundSeconds,
+                    "category" to r.category,
                 )
             },
             "steps" to steps.map { r ->

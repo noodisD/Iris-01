@@ -8,15 +8,18 @@ Accepted — 2026-09-22
 into staged `sensor_batches`. Health Connect supplies permitted records from
 any writer, including the Fitbit app when it becomes available. The opt-in
 foreground service sends measurements through the bearer-gated, pinned-HTTPS
-mobile intake. No export-file upload or unused pull-transport abstraction
-remains. Byte-identical retry batches keep one review identity.
+mobile intake. Byte-identical retry batches keep one review identity. A later
+addition stages Google Maps Timeline JSON through a separate laptop-only upload;
+it uses the same confirmation seam, without a pull-transport abstraction.
 
 `SensorService.commit_batch` validates selected links to existing active
 themes, stores the readings, and admits dated evidence in one transaction.
 The newest approved measurement per theme, source and UTC day occupies the
 daily cap; deleting it restores an older approved measurement. Unlinked
-readings remain inert. Existing engines read the factual snippets and low
-weights via `theme_occurrences`; sensors do not create themes.
+readings do not become theme evidence. Confirmed readings also build a
+coordinate-free day cache for owner-reviewed comparisons (ADR-0024); existing
+theme engines read the factual snippets and low weights via
+`theme_occurrences`. Sensors do not create themes.
 
 ## Context
 The owner carries a Pixel 10a and may add a Fitbit later. Pixel location, app

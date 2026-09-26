@@ -186,6 +186,7 @@ object HealthConnectReader {
                     }
                 val fields = mutableMapOf<String, Any>(
                     "ts" to record.endTime.toString(),
+                    "start_ts" to record.startTime.toString(),
                     "total_minutes" to minutes(Duration.between(record.startTime, record.endTime).minus(awake)),
                     "origin_package" to originPackage,
                     "record_key" to recordKey("sleep", record),
