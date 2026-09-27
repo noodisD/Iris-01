@@ -89,7 +89,7 @@ class TalkLogicTest {
     @Test
     fun aShortSoundIsAMisfireNotATurn() {
         val detector = VoiceDetector()
-        val events = feed(detector, List(50) { silence() } + List(8) { voice() } + List(50) { silence() })
+        val events = feed(detector, List(50) { silence() } + List(15) { voice() } + List(50) { silence() })
         assertEquals(listOf(VoiceDetector.Event.Start, VoiceDetector.Event.Misfire), events)
     }
 
@@ -109,6 +109,22 @@ class TalkLogicTest {
         assertEquals(VoiceDetector.Event.Start, feed(relaxed, quietVoice).firstOrNull())
         assertNull(feed(strict, quietVoice).firstOrNull())
         assertEquals(VoiceDetector.Event.Start, feed(strict, List(30) { voice() }).firstOrNull())
+    }
+
+    @Test
+    fun aNoisierRoomThanExpectedIsNotTakenForSpeech() {
+        // A room at about -40 dB from the first moment, louder than the -60 dB
+        // the detector used to assume: it used to fire a turn at once.
+        val room = List(300) { ShortArray(VoiceDetector.FRAME) { i -> (if (i % 2 == 0) 330 else -330).toShort() } }
+        assertNull(feed(VoiceDetector(), room).firstOrNull())
+    }
+
+    @Test
+    fun theSilenceAfterSpeechIsTrimmedBeforeSending() {
+        val events = feed(VoiceDetector(), List(50) { silence() } + List(60) { voice() } + List(50) { silence() })
+        val end = events[1] as VoiceDetector.Event.End
+        // Pre-speech pad (at most 15 frames) + speech + at most 10 frames of quiet.
+        assertTrue(end.samples.size <= (15 + 60 + 10) * VoiceDetector.FRAME)
     }
 
     @Test

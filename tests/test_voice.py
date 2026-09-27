@@ -79,6 +79,19 @@ def test_a_turn_too_long_or_of_an_unknown_kind_is_refused(client, heard):
     assert calls == [], "nothing was sent"
 
 
+@pytest.mark.parametrize("invented", ["시청해주셔서 감사합니다.", "Thanks for watching!", "...", "谢谢观看"])
+def test_what_a_transcriber_invents_from_silence_is_heard_as_nothing(client, heard, invented, monkeypatch):
+    monkeypatch.setattr("agent.voice.transcribe_file", lambda *a, **k: invented)
+    r = client.post("/api/voice/transcribe", files={"audio": ("turn.wav", b"RIFF-fake", "audio/wav")})
+    assert r.status_code == 200
+    assert r.json() == {"text": ""}
+
+
+def test_ordinary_english_with_a_borrowed_word_is_kept():
+    assert voice.heard_speech("I had a coffee at the café and read about Kraków.")
+    assert voice.heard_speech("Thanks for watching the kids yesterday.")
+
+
 # --- the turn -------------------------------------------------------------
 
 def test_a_spoken_turn_is_an_ordinary_turn_with_one_instruction_more(client, mock_llm):

@@ -171,6 +171,9 @@ object TalkSession {
         val noise = if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(recorder.audioSessionId)?.apply { enabled = true } else null
         val detector = VoiceDetector()
         val frame = ShortArray(VoiceDetector.FRAME)
+        // Frames left in which to stay strict after IRIS stops: the last echo
+        // of its voice in the room is not the owner starting a turn.
+        var afterSpeaking = 0
         try {
             recorder.startRecording()
             dispatch(TalkEvent.Ready)
@@ -183,7 +186,8 @@ object TalkSession {
                 }
                 if (paused) { detector.reset(); continue }
                 val phase = _state.value.phase
-                detector.strict = phase == TalkPhase.Speaking
+                if (phase == TalkPhase.Speaking) afterSpeaking = 50 else if (afterSpeaking > 0) afterSpeaking--
+                detector.strict = phase == TalkPhase.Speaking || afterSpeaking > 0
                 val event = detector.feed(frame)
                 if (phase == TalkPhase.Hearing) _level.value = detector.level
                 when (event) {

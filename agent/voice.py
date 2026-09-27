@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -62,6 +63,31 @@ _REPLY_TOKENS = 300
 _UNMEASURED_CONTEXT_CHARS = 5 * 300 + 20 * 400 + 2000
 
 
+#: What speech-to-text models are known to invent from silence or noise.
+_STOCK_PHRASES = {
+    "thank you for watching", "thanks for watching", "thank you for watching this video",
+    "please subscribe", "subtitles by the amara.org community", "like and subscribe",
+}
+
+
+def heard_speech(text: str) -> bool:
+    """Whether a transcript is plausibly what the owner said.
+
+    Given near-silence, a transcriber invents text, often a short stock phrase
+    in another script (Korean "thank you for watching" is the classic), and
+    the language hint does not stop it. IRIS then answered in that language.
+    The owner speaks English (ADR-0025), so a transcript that is mostly not
+    Latin letters, or is a known stock phrase, is treated as heard nothing.
+    """
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return False
+    latin = sum(1 for c in letters if unicodedata.name(c, "").startswith("LATIN"))
+    if latin / len(letters) < 0.6:
+        return False
+    return text.strip().strip(".!?,").lower() not in _STOCK_PHRASES
+
+
 class VoiceError(ValueError):
     """An utterance or a sentence IRIS cannot take. The message says why."""
 
@@ -88,8 +114,12 @@ def transcribe_utterance(audio: bytes, mime: str) -> str:
         text = transcribe_file(path, settings.TRANSCRIPTION_MODEL, language="en")
     finally:
         path.unlink(missing_ok=True)
+    text = text.strip()
+    if not heard_speech(text):
+        logger.info("Dropped a transcript of %d bytes that was not English speech", len(audio))
+        return ""
     logger.info("Transcribed an utterance of %d bytes", len(audio))
-    return text.strip()
+    return text
 
 
 def open_speech(text: str) -> Iterator[bytes]:

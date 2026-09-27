@@ -151,7 +151,9 @@ class VoiceDetector(
     private val startFrames: Int = 6,          // 120 ms of speech to begin
     private val strictStartFrames: Int = 15,   // 300 ms while IRIS speaks
     private val endFrames: Int = 45,           // 900 ms of quiet ends the turn
-    private val minSpeechFrames: Int = 20,     // under 400 ms is a cough, not a turn
+    private val minSpeechFrames: Int = 25,     // under 500 ms is a cough, not a turn
+    private val calibrationFrames: Int = 25,   // 500 ms to learn the room before listening
+    private val tailFrames: Int = 10,          // 200 ms of the quiet kept after speech
     private val padFrames: Int = 15,           // 300 ms kept from before the start
     private val maxFrames: Int = 50 * 60,      // one minute at most per turn
 ) {
@@ -169,6 +171,7 @@ class VoiceDetector(
         private set
 
     private var floor = -60.0
+    private var calibrated = 0
     private var run = 0
     private var quiet = 0
     private var speechCount = 0
@@ -183,6 +186,17 @@ class VoiceDetector(
 
     fun feed(frame: ShortArray): Event? {
         val db = decibels(frame)
+        // The room first. The floor used to start at -60 dB and rise slowly,
+        // so in a room louder than that the first moments read as speech and
+        // a turn of nothing but room noise was sent, which the transcriber
+        // turned into invented words.
+        if (calibrated < calibrationFrames) {
+            floor = if (calibrated == 0) db else floor * 0.8 + db * 0.2
+            floor = floor.coerceIn(-75.0, -30.0)
+            calibrated++
+            level = 0f
+            return null
+        }
         level = ((db - floor) / 30.0).coerceIn(0.0, 1.0).toFloat()
         val loud = db > floor + (if (strict) strictMarginDb else marginDb) && db > -50.0
         if (!speaking) {
@@ -205,7 +219,9 @@ class VoiceDetector(
         if (loud) { speechCount++; quiet = 0 } else quiet++
         if (quiet >= endFrames || turn.size >= maxFrames) {
             val enough = speechCount >= minSpeechFrames
-            val samples = if (enough) join(turn) else null
+            // Long silence at the end is where transcribers invent words.
+            val kept = if (quiet > tailFrames) turn.dropLast(quiet - tailFrames) else turn
+            val samples = if (enough) join(kept) else null
             reset()
             return if (samples != null) Event.End(samples) else Event.Misfire
         }
