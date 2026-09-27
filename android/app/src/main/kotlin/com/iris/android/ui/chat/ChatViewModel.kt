@@ -9,6 +9,8 @@ import com.iris.android.api.Conversation
 import com.iris.android.api.IrisLink
 import com.iris.android.api.User
 import com.iris.android.api.json
+import com.iris.android.talk.TalkSession
+import com.iris.android.talk.TalkUpdate
 import com.iris.android.ui.Loadable
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
@@ -35,6 +37,39 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
     private val _failure = MutableStateFlow<String?>(null)
     val failure: StateFlow<String?> = _failure
     private var draftInitialized = _draft.value.isNotEmpty()
+
+    init {
+        // A spoken turn (ADR-0025) is shown as it happens, like a typed one.
+        viewModelScope.launch { TalkSession.updates.collect(::onSpoken) }
+    }
+
+    private fun onSpoken(update: TalkUpdate) {
+        val current = (_conversation.value as? Loadable.Ready)?.value ?: return
+        if (update.conversationId != current.id) return
+        val replyId = "m_talk_reply_${update.turn}"
+        when (update) {
+            is TalkUpdate.Heard -> {
+                val now = Instant.now().toString()
+                _failure.value = null
+                _messages.value += listOf(
+                    ChatMessage("m_talk_${update.turn}", current.id, "user", update.text, now),
+                    ChatMessage(replyId, current.id, "iris", "", now, streaming = true),
+                )
+            }
+            is TalkUpdate.Fragment -> _messages.value = _messages.value.map { message ->
+                if (message.id == replyId) message.copy(text = message.text + update.text) else message
+            }
+            is TalkUpdate.Done -> _messages.value = _messages.value.map { message ->
+                if (message.id == replyId) message.copy(id = update.messageId ?: replyId, streaming = false) else message
+            }
+            is TalkUpdate.Failed -> {
+                _messages.value = _messages.value.filterNot { it.id == replyId }
+                viewModelScope.launch {
+                    try { fetchMessages(current.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
+                }
+            }
+        }
+    }
     private var visitOpen = false
     private var generation = 0
 
@@ -60,6 +95,18 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
     }
 
     fun startSession() {
+        // A conversation still being spoken is rejoined, not replaced: the
+        // screen may have been left while IRIS kept listening.
+        TalkSession.conversation?.let { spoken ->
+            ++generation
+            _pending.value = false
+            _failure.value = null
+            _conversation.value = Loadable.Ready(spoken)
+            viewModelScope.launch {
+                try { fetchMessages(spoken.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
+            }
+            return
+        }
         val gen = ++generation
         _pending.value = false
         _failure.value = null

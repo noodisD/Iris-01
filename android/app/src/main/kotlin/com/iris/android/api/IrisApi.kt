@@ -95,6 +95,17 @@ class IrisApi(
         }
     }.flowOn(Dispatchers.IO)
 
+    /** A JSON POST whose answer is bytes, not JSON: IRIS's speech (ADR-0025). */
+    suspend fun postForBytes(path: String, body: String, accept: String): ByteArray = withContext(Dispatchers.IO) {
+        val request = request("$root/api$path", accept).post(body.toRequestBody(JSON)).build()
+        withResponse(request) { response ->
+            if (!response.isSuccessful) {
+                throw apiError(response.code, response.body?.string(), "IRIS could not speak that.", root)
+            }
+            response.body?.bytes() ?: throw IrisApiException(response.code, "empty", "IRIS could not speak that.")
+        }
+    }
+
     suspend fun <T> upload(
         path: String,
         parts: List<UploadPart>,

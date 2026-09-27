@@ -61,6 +61,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.iris.android.R
 import com.iris.android.api.ChatMessage
+import com.iris.android.talk.TalkPhase
+import com.iris.android.talk.TalkService
+import com.iris.android.talk.TalkSession
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.iris.android.ui.Loadable
 import com.iris.android.ui.components.ErrorState
 import com.iris.android.ui.components.IrisOrb
@@ -90,6 +96,15 @@ fun ChatScreen(draft: String? = null) {
     val typed by model.draft.collectAsState()
     val pending by model.pending.collectAsState()
     val failure by model.failure.collectAsState()
+    val talk by TalkSession.state.collectAsState()
+    var asking by remember { mutableStateOf(false) }
+    val talking = talk.phase != TalkPhase.Off
+    val startTalking = {
+        asking = false
+        (conversation as? Loadable.Ready)?.value?.let { TalkService.start(context, it) }
+        Unit
+    }
+    if (asking) TalkIntro(onStart = startTalking, onCancel = { asking = false })
     val colors = LocalIrisColors.current
     val listState = rememberLazyListState()
     val lastLength = messages.lastOrNull()?.text?.length ?: 0
@@ -139,6 +154,14 @@ fun ChatScreen(draft: String? = null) {
             if (conversation is Loadable.Ready) {
                 Column(Modifier.fillMaxWidth().background(colors.bg0).border(BorderStroke(1.dp, colors.lineSoft))
                     .padding(horizontal = 20.dp, vertical = 14.dp)) {
+                    if (talking) {
+                        TalkPanel(onEnd = {
+                            if (TalkSession.running) TalkService.end(context) else TalkSession.end(context)
+                        }, onRetry = {
+                            TalkSession.end(context)
+                            startTalking()
+                        })
+                    } else {
                     if (failure != null) {
                         Text(failure.orEmpty(), color = colors.rose, style = IrisType.mono.copy(fontSize = 12.sp),
                             modifier = Modifier.padding(bottom = 12.dp))
@@ -154,6 +177,10 @@ fun ChatScreen(draft: String? = null) {
                                 disabledContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent,
                             ))
+                        IconButton(onClick = { asking = true }, enabled = !pending,
+                            modifier = Modifier.padding(bottom = 6.dp)) {
+                            Icon(painterResource(R.drawable.ic_mic), contentDescription = "Talk with IRIS", tint = colors.ink2)
+                        }
                         FilledIconButton(onClick = model::send, enabled = !pending && typed.isNotBlank(),
                             modifier = Modifier.padding(bottom = 6.dp)) {
                             Icon(painterResource(R.drawable.ic_send), contentDescription = "Send")
@@ -168,6 +195,7 @@ fun ChatScreen(draft: String? = null) {
                         Spacer(Modifier.width(8.dp))
                         Text("${sentToday(messages)} MESSAGES TODAY", color = colors.ink4,
                             style = IrisType.mono.copy(fontSize = 9.sp), maxLines = 1)
+                    }
                     }
                 }
             }

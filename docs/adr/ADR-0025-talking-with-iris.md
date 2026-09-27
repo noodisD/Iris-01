@@ -47,3 +47,13 @@ indistinguishable in the record from a typed one. An interrupted reply is
 still saved in full, because the reply is written before it is spoken; only
 its playback stops. Switching to a realtime model later would replace the
 client's loop, not the record.
+
+On the phone the same loop runs in `TalkSession`, held by a foreground service
+of type microphone (`TalkService`) so a conversation carries on with the screen
+locked; its notification offers End. Voice detection there is loudness against
+a noise floor that adapts to the room, on the phone's echo-cancelled voice-call
+input, rather than a model: no dependency, nothing downloaded, and testable as
+plain Kotlin. While IRIS speaks it asks for a clearly louder voice before
+treating it as the owner talking over IRIS, so IRIS's own voice leaking past
+echo cancellation does not interrupt it.
+
