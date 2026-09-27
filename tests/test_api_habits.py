@@ -28,7 +28,8 @@ def test_create_habit_returns_contract_shape(client, test_user):
     h = r.json()
     assert h["name"] == "Meditate"
     assert h["userId"] == str(test_user["id"])
-    assert h["color"] == "sage"
+    # A habit's colour follows from its id; one sent with the create is ignored.
+    assert h["color"] in ("sage", "amber", "indigo", "rose")
     for key in ("id", "name", "tag", "color", "streakDays", "bestStreak", "doneToday", "recentDays"):
         assert key in h, f"missing {key}"
     assert isinstance(h["recentDays"], list) and all(v in (0, 1) for v in h["recentDays"])

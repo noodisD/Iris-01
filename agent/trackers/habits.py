@@ -112,10 +112,9 @@ class HabitTracker:
         if not habit:
             return {"current_streak": 0, "longest_streak": 0, "total_completions": 0}
 
+        # No early return when there are none: the counters must still be written
+        # back, or undoing a habit's only tick leaves its old streak on show.
         completions = db.get_habit_completions(habit_id)
-
-        if not completions:
-            return {"current_streak": 0, "longest_streak": 0, "total_completions": 0}
 
         # Sort completions by date (newest first)
         sorted_completions = sorted(

@@ -19,7 +19,7 @@ export async function toggleHabit(req: HabitToggleRequest): Promise<Habit> {
 }
 
 /** Only the name is required; the server fills the tag and colour it is not given. */
-export type HabitCreate = Pick<Habit, 'name'> & Partial<Pick<Habit, 'tag' | 'intent' | 'color'>>;
+export type HabitCreate = Pick<Habit, 'name'> & Partial<Pick<Habit, 'tag' | 'intent'>>;
 
 export async function createHabit(input: HabitCreate): Promise<Habit> {
   return api.post('/habits', input);

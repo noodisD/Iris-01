@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
@@ -902,11 +902,14 @@ async def stream_conversation_reply(
     text = (request or {}).get("text", "")
 
     async def event_gen():
-        companion = PersonalAICompanion(user_id=user_id, session_id=conversation_id)
+        # Constructed inside the try: with no API key configured it raises, and
+        # after the stream has begun an uncaught error only drops the connection
+        # instead of sending the error event the client knows how to show.
         try:
+            companion = PersonalAICompanion(user_id=user_id, session_id=conversation_id)
             turn = await run_in_threadpool(companion.begin_turn, text)
         except Exception as e:
-            logger.error(f"Could not store the message that starts the turn: {e}")
+            logger.error(f"Could not start the turn: {e}")
             yield f"data: {json.dumps({'error': str(e), 'saved': False})}\n\n"
             return
         try:
@@ -927,11 +930,14 @@ async def stream_conversation_reply(
 # ============================================================================
 
 class AppHabitCreate(BaseModel):
-    """Habit create payload from the integrated frontend (Pick<Habit,'name'|'tag'|'intent'|'color'>)."""
+    """Habit create payload from the integrated frontend (Pick<Habit,'name'|'tag'|'intent'>).
+
+    No colour: habits have no colour column, so one sent here appeared once and
+    was gone on the next load. A habit's colour follows from its id.
+    """
     name: str
     tag: str | None = None
     intent: str | None = None
-    color: str | None = None
 
 
 class HabitToggle(BaseModel):
@@ -961,7 +967,7 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict
         "name": habit["name"],
         "tag": habit.get("category") or habit.get("frequency_type") or "daily",
         "intent": habit.get("description"),
-        "color": habit.get("color") or HABIT_COLORS[hid % len(HABIT_COLORS)],
+        "color": HABIT_COLORS[hid % len(HABIT_COLORS)],
         "streakDays": habit.get("current_streak") or 0,
         "bestStreak": habit.get("longest_streak") or 0,
         "doneToday": done_today,
@@ -985,10 +991,7 @@ def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_current_u
         description=habit.intent,
         category=habit.tag or "general",
     )
-    contract = _habit_to_contract(tracker.get_habit(habit_id), user_id)
-    if habit.color:
-        contract["color"] = habit.color
-    return contract
+    return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
 @app.get("/api/habits/today")
 def get_today_habits(user_id: int = Depends(get_current_user_id)):
@@ -1586,7 +1589,13 @@ _PREF_KEY_MAP = {
 }
 
 def _age_days(ts) -> int:
-    """Whole days between a timestamp (datetime or ISO string) and now."""
+    """Calendar days, on this machine's clock, from a timestamp (datetime or ISO
+    string) to today.
+
+    An aware timestamp is converted to local time first. Dropping its tzinfo
+    instead read a UTC time as local, so near midnight the count was off by one
+    for anyone not on UTC.
+    """
     if not ts:
         return 0
     try:
@@ -1594,8 +1603,8 @@ def _age_days(ts) -> int:
     except (ValueError, TypeError):
         return 0
     if dt.tzinfo is not None:
-        dt = dt.replace(tzinfo=None)
-    return max(0, (datetime.now() - dt).days)
+        dt = dt.astimezone()
+    return max(0, (date.today() - dt.date()).days)
 
 
 def _user_to_contract(user_id: int) -> dict:
@@ -1625,9 +1634,22 @@ def get_app_user(user_id: int = Depends(get_current_user_id)):
     return _user_to_contract(user_id)
 
 
+class PreferencesPatch(BaseModel):
+    """A Partial<UserPreferences>. Typed, so a bad value is a 422 naming the
+    field rather than a database error."""
+    model_config = ConfigDict(extra="ignore")
+    tone: str | None = Field(default=None, max_length=40)
+    density: str | None = Field(default=None, max_length=40)
+    dailyCheckinTime: str | None = Field(default=None, max_length=10)
+    weeklyReviewTime: str | None = Field(default=None, max_length=20)
+    maxNudgesPerDay: int | None = Field(default=None, ge=0, le=50)
+    threadsListenedFor: list[str] | None = None
+
+
 @app.patch("/api/user/preferences")
-def update_app_preferences(prefs: dict, user_id: int = Depends(get_current_user_id)):
+def update_app_preferences(body: PreferencesPatch, user_id: int = Depends(get_current_user_id)):
     """Merge a Partial<UserPreferences> into the app-settings store; return `User`."""
+    prefs = body.model_dump(exclude_unset=True)
     fields = {_PREF_KEY_MAP[k]: v for k, v in prefs.items() if k in _PREF_KEY_MAP}
     if fields:
         db.upsert_app_settings(user_id, **fields)
@@ -2082,8 +2104,9 @@ def complete_onboarding(user_id: int = Depends(get_current_user_id)):
 # ============================================================================
 
 class InsightSnooze(BaseModel):
-    """POST /insights/:id/snooze body."""
-    days: int = 30
+    """POST /insights/:id/snooze body. Bounded: a negative length snoozed into
+    the past, and a huge one overflowed timedelta into a 500."""
+    days: int = Field(default=30, ge=1, le=3650)
 
 
 @app.get("/api/insights")
@@ -2574,7 +2597,7 @@ if os.path.exists(os.path.join(FRONTEND_DIST, "index.html")):
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):
         """Return index.html for unknown non-API paths so React Router can route."""
-        if full_path.startswith(("api/", "assets/")) or full_path == "health":
+        if full_path.startswith(("api/", "assets/")) or full_path in ("api", "health"):
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(os.path.join(FRONTEND_DIST, "index.html"), headers=_SPA_HEADERS)
 

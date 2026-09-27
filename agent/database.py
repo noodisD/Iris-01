@@ -44,18 +44,19 @@ class Database:
         if self._pool is not None and not self._pool.closed:
             return
 
+        # Blocking handlers run in FastAPI's threadpool (40 workers by default),
+        # and a single ingest can hold one connection while its cache
+        # invalidations check out others — so a ceiling of 5 exhausted the pool
+        # under very little concurrency.
+        min_conn, max_conn = 1, 20
         logger.info(
             f"Creating PostgreSQL connection pool at "
-            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT} (min=1, max=5)..."
+            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT} (min={min_conn}, max={max_conn})..."
         )
         try:
             self._pool = psycopg2_pool.ThreadedConnectionPool(
-                minconn=1,
-                # Blocking handlers run in FastAPI's threadpool (40 workers by
-                # default), and a single ingest can hold one connection while
-                # its cache invalidations check out others — so a ceiling of 5
-                # exhausted the pool under very little concurrency.
-                maxconn=20,
+                minconn=min_conn,
+                maxconn=max_conn,
                 dbname=settings.POSTGRES_DB,
                 user=settings.POSTGRES_USER,
                 password=settings.POSTGRES_PASSWORD,
@@ -1597,7 +1598,10 @@ class Database:
 
         get_reflections pages by id, which is insertion order: after an import
         that is the order files were committed, so a 2024 entry can sit at the
-        top of "newest first". The cursor is (date, id) because dates repeat.
+        top of "newest first". The cursor is the whole sort key, (date, sequence,
+        id): within a day imported entries carry a sequence and app entries do
+        not, so a cursor of (date, id) alone skipped entries whose id order
+        differed from their sequence order.
 
         Undated entries sort after every dated one and are ordered among
         themselves by the sequence their source recorded. They need their own
@@ -1620,7 +1624,11 @@ class Database:
                    AND (%s::int IS NULL
                         OR (%s::date IS NOT NULL
                             AND (reflection_date IS NULL
-                                 OR (reflection_date, id) < (%s::date, %s::int)))
+                                 OR (reflection_date, COALESCE(entry_sequence, -1), id)
+                                    < (%s::date,
+                                       COALESCE((SELECT entry_sequence FROM reflections
+                                                  WHERE id = %s), -1),
+                                       %s::int)))
                         OR (%s::date IS NULL
                             AND reflection_date IS NULL
                             AND (COALESCE(entry_sequence, -1), id)
@@ -1628,11 +1636,11 @@ class Database:
                                               WHERE id = %s), -1), %s::int)))
                  ORDER BY (reflection_date IS NULL),
                           reflection_date DESC,
-                          entry_sequence DESC NULLS LAST,
+                          COALESCE(entry_sequence, -1) DESC,
                           id DESC
                  LIMIT %s;
                 """,
-                (user_id, before_id, before_date, before_date, before_id,
+                (user_id, before_id, before_date, before_date, before_id, before_id,
                  before_date, before_id, before_id, limit),
             )
             keys = ("id", "reflection_date", "content", "mood", "energy_level",

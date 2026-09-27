@@ -207,9 +207,21 @@ class ImportService:
         batch = self._require(batch_id)
         if batch["status"] not in ("needs_review", "failed"):
             raise ImportError_("This import has already been committed.")
+        if batch["kind"] == "audio":
+            raise ImportError_("A batch of recordings has no other format to read it as.")
+        # Staging again replaces every item row, and the imported ones are what
+        # link the batch to the entries it created: without them "undo this
+        # import" can no longer find those entries. A partly committed batch is
+        # finished by fixing and committing what is left, not by re-reading it.
+        if store.counts(batch_id).get("imported"):
+            raise ImportError_(
+                "Part of this import is already in your journal, so it cannot be read "
+                "again in another format. Undo the import first, then read it again."
+            )
+        if not store.claim_batch(batch_id, self.user_id, ("needs_review", "failed"), "parsing"):
+            raise ImportError_("This import is busy. Try again in a moment.")
         workspace = _batch_workspace(batch_id)
         bundle = Bundle(workspace / "extracted")
-        store.update_batch(batch_id, status="parsing")
         self._stage(batch_id, bundle, adapter)
         return self.get_batch(batch_id)
 
@@ -360,7 +372,11 @@ class ImportService:
                 "transcribed. They will be ready shortly."
             )
 
-        store.update_batch(batch_id, status="committing")
+        # Claimed, not just set: a second commit racing this one would list the
+        # same staged items, hit the unique index on each, and relabel entries
+        # this commit had just imported as duplicates.
+        if not store.claim_batch(batch_id, self.user_id, ("needs_review", "failed"), "committing"):
+            raise ImportError_("This import is already being committed.")
         reflections = ReflectionService(self.user_id)
         committed = failed = duplicates = 0
 
@@ -416,7 +432,9 @@ class ImportService:
         store.update_batch(
             batch_id,
             status="committed" if not failed else "failed",
-            committed_count=committed,
+            # Everything this batch has put in the journal, including what an
+            # earlier, partly failed commit landed; not only this round's.
+            committed_count=store.counts(batch_id).get("imported", 0),
             error=None if not failed else (
                 f"{failed} of {committed + failed} entries could not be imported."
             ),

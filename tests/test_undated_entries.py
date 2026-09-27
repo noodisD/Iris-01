@@ -442,6 +442,8 @@ def staged(test_user):
          "content_hash": f"{i:064d}", "entry_date": None}
         for i in (3, 1, 2)
     ])
+    # Where parsing leaves a batch; a commit is only taken from here.
+    store.update_batch(batch_id, status="needs_review")
     return batch_id
 
 

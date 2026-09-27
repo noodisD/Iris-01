@@ -67,6 +67,33 @@ def update_batch(batch_id: int, **fields: Any) -> None:
         conn.commit()
 
 
+# A claim older than this was left by a process that died mid-way (a restart
+# during a commit); it may be taken over rather than blocking the batch forever.
+STALE_CLAIM = "30 minutes"
+
+
+def claim_batch(batch_id: int, user_id: int, from_statuses: tuple[str, ...], to_status: str) -> bool:
+    """Move a batch to `to_status` only if it is still in one of `from_statuses`,
+    or still in `to_status` from a claim that went stale.
+
+    One statement, so two requests racing for the same batch (a double click,
+    or the web app and the phone together) cannot both win: the loser sees
+    False and must not touch the items.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE import_batches SET status = %s, updated_at = NOW()
+               WHERE id = %s AND user_id = %s
+                 AND (status = ANY(%s)
+                      OR (status = %s AND updated_at < NOW() - %s::interval))
+               RETURNING id;""",
+            (to_status, batch_id, user_id, list(from_statuses), to_status, STALE_CLAIM),
+        )
+        won = cur.fetchone() is not None
+        conn.commit()
+    return won
+
+
 _BATCH_COLUMNS = """id, user_id, kind, adapter, detected, original_filename,
                     stored_path, status, error, entry_count, committed_count,
                     created_at, updated_at"""

@@ -11,14 +11,10 @@
  */
 
 import { api } from './client';
-import type { User, UserPreferences, AnalysisPreferences, KnownFact } from '@/types/api';
+import type { User, AnalysisPreferences, KnownFact } from '@/types/api';
 
 export async function getUser(): Promise<User> {
   return api.get('/user');
-}
-
-export async function updatePreferences(prefs: Partial<UserPreferences>): Promise<User> {
-  return api.patch('/user/preferences', prefs);
 }
 
 export async function getKnownFacts(): Promise<KnownFact[]> {
