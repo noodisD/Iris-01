@@ -645,11 +645,20 @@ def _anchored_locked(cur: Any, user_id: int, idea_id: int) -> bool:
     return any(_valid_source(row[1], row[2], row[0]) for row in cur.fetchall())
 
 
-def decide_link(user_id: int, link_id: int, status: str) -> str:
+def decide_link(user_id: int, link_id: int, status: str,
+                kind: str | None = None, reverse: bool = False) -> tuple[str, int]:
+    """Accept or reject a link. Returns the outcome and the id of the link that
+    now stands.
+
+    Accepting with a different `kind`, or `reverse`d, is the owner correcting
+    the relation IRIS proposed. The proposal is kept as rejected, so it is not
+    proposed again, and the relation the owner named is stored as accepted,
+    carrying the proposal's rationale and run.
+    """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT from_idea_id, to_idea_id, status
+            SELECT from_idea_id, to_idea_id, status, kind, rationale, run_id
               FROM idea_links
              WHERE user_id = %s AND id = %s
              FOR UPDATE;
@@ -658,7 +667,7 @@ def decide_link(user_id: int, link_id: int, status: str) -> str:
         )
         row = cur.fetchone()
         if row is None:
-            return "missing"
+            return "missing", link_id
         current = row[2]
         if status == "accepted":
             if current != "candidate":
@@ -676,10 +685,33 @@ def decide_link(user_id: int, link_id: int, status: str) -> str:
                 idea = cur.fetchone()
                 if idea is None or idea[0] != "active" or not _anchored_locked(cur, user_id, idea_id):
                     conn.rollback()
-                    return "conflict"
+                    return "conflict", link_id
+            from_id, to_id = (int(row[1]), int(row[0])) if reverse else (int(row[0]), int(row[1]))
+            new_kind = kind or row[3]
+            if new_kind in SYMMETRIC_LINK_KINDS and from_id > to_id:
+                from_id, to_id = to_id, from_id
+            if (from_id, to_id, new_kind) != (int(row[0]), int(row[1]), row[3]):
+                cur.execute(
+                    "UPDATE idea_links SET status = 'rejected' WHERE user_id = %s AND id = %s;",
+                    (user_id, link_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO idea_links
+                        (user_id, from_idea_id, to_idea_id, kind, rationale, status, run_id, confirmed_at)
+                    VALUES (%s, %s, %s, %s, %s, 'accepted', %s, NOW())
+                    ON CONFLICT (user_id, from_idea_id, to_idea_id, kind)
+                    DO UPDATE SET status = 'accepted', confirmed_at = NOW()
+                    RETURNING id;
+                    """,
+                    (user_id, from_id, to_id, new_kind, row[4], row[5]),
+                )
+                new_id = int(cur.fetchone()[0])
+                conn.commit()
+                return "ok", new_id
         elif current == "rejected" or current not in ("candidate", "accepted"):
             conn.rollback()
-            return "conflict"
+            return "conflict", link_id
         cur.execute(
             """
             UPDATE idea_links
@@ -689,7 +721,7 @@ def decide_link(user_id: int, link_id: int, status: str) -> str:
             (status, status, user_id, link_id),
         )
         conn.commit()
-    return "ok"
+    return "ok", link_id
 
 
 def insert_critique(

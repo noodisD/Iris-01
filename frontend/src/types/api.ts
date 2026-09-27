@@ -535,7 +535,7 @@ export type CitationStance = 'endorsed' | 'questioned' | 'opposed';
 /** `life` is a principle the owner states as holding across areas, never one IRIS generalised. */
 export type IdeaDomain = 'philosophy' | 'economics' | 'markets' | 'politics' | 'ethics' | 'learning' | 'life' | 'other';
 /** `same_meaning`: one essential meaning in different words or fields. It has no direction. */
-export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on' | 'same_meaning';
+export type LinkKind = 'supports' | 'contradicts' | 'refines' | 'depends_on' | 'same_meaning' | 'applies';
 export type ReviewStatus = 'candidate' | 'accepted' | 'rejected';
 
 export interface IdeaDropped {

@@ -17,6 +17,7 @@ from .models import (
     IDEA_DOMAINS,
     IDEA_POSITIONS,
     IDEA_REFERENCE_BATCH_SIZE,
+    LINK_KINDS,
     content_hash,
     quote_hash,
     empty_dropped,
@@ -355,7 +356,7 @@ class IdeaService:
                     tally.bump("malformed", malformed)
                     outcome = store.stage_links(
                         self.user_id, run_id, None,
-                        [{"from_idea_id": pair.a, "to_idea_id": pair.b, "kind": "same_meaning",
+                        [{"from_idea_id": pair.a, "to_idea_id": pair.b, "kind": pair.kind,
                           "rationale": pair.rationale} for pair in pairs],
                     )
                     tally.proposed += outcome["created"]
@@ -417,16 +418,19 @@ class IdeaService:
             raise IdeaConflict
         return self._summary(idea_id)
 
-    def confirm_link(self, link_id: int) -> dict[str, str]:
-        outcome = store.decide_link(self.user_id, link_id, "accepted")
+    def confirm_link(self, link_id: int, kind: str | None = None, reverse: bool = False) -> dict[str, str]:
+        """Accept a proposed link, or accept it as the relation the owner names."""
+        if kind is not None and kind not in LINK_KINDS:
+            raise IdeaConflict
+        outcome, stands = store.decide_link(self.user_id, link_id, "accepted", kind, reverse)
         if outcome == "missing":
             raise IdeaNotFound
         if outcome != "ok":
             raise IdeaConflict
-        return {"id": str(link_id), "status": "accepted"}
+        return {"id": str(stands), "status": "accepted"}
 
     def reject_link(self, link_id: int) -> dict[str, str]:
-        outcome = store.decide_link(self.user_id, link_id, "rejected")
+        outcome, _ = store.decide_link(self.user_id, link_id, "rejected")
         if outcome == "missing":
             raise IdeaNotFound
         if outcome != "ok":

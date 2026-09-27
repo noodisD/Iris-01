@@ -1,7 +1,7 @@
 import { api } from './client';
 import type {
   ConfirmIdeaBody, IdeaCritique, IdeaDetail, IdeaDomain, IdeaPosition, IdeaRun, IdeaSummary,
-  IdeasFramework, IdeasReview, MeaningEstimate,
+  IdeasFramework, IdeasReview, LinkKind, MeaningEstimate,
 } from '@/types/api';
 
 export function getIdeasFramework(): Promise<IdeasFramework> {
@@ -53,8 +53,9 @@ export function discoverIdeaLinks(id: string): Promise<{ run: IdeaRun }> {
   return api.post(`/ideas/${id}/links/discover`);
 }
 
-export function confirmIdeaLink(id: string): Promise<{ id: string; status: 'accepted' }> {
-  return api.post(`/ideas/links/${id}/confirm`);
+/** Accept a proposed link, or, with `kind` or `reverse`, accept it as the relation the owner names. */
+export function confirmIdeaLink(id: string, as?: { kind: LinkKind; reverse: boolean }): Promise<{ id: string; status: 'accepted' }> {
+  return api.post(`/ideas/links/${id}/confirm`, as);
 }
 
 export function rejectIdeaLink(id: string): Promise<{ id: string; status: 'rejected' }> {

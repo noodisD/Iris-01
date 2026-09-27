@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-const { reject, confirmIdea, rejectLink, fixtures } = vi.hoisted(() => {
+const { reject, confirmIdea, rejectLink, confirmLink, fixtures } = vi.hoisted(() => {
   const review = {
     ideas: [{
       idea: {
@@ -87,6 +87,7 @@ const { reject, confirmIdea, rejectLink, fixtures } = vi.hoisted(() => {
     reject: vi.fn(),
     confirmIdea: vi.fn(),
     rejectLink: vi.fn(),
+    confirmLink: vi.fn(),
     fixtures: { review, framework, detail, linkedDetail },
   };
 });
@@ -106,7 +107,7 @@ vi.mock('@/hooks/useIdeas', () => ({
   useRejectIdeaCitations: () => ({ mutate: vi.fn(), isPending: false, error: null }),
   useUpdateIdea: () => ({ mutate: vi.fn(), isPending: false, error: null }),
   useDiscoverIdeaLinks: () => ({ mutate: vi.fn(), isPending: false, error: null }),
-  useConfirmIdeaLink: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useConfirmIdeaLink: () => ({ mutate: confirmLink, isPending: false, error: null }),
   useRejectIdeaLink: () => ({ mutate: rejectLink, isPending: false, error: null }),
   useCritiqueIdea: () => ({ mutate: vi.fn(), isPending: false, error: null }),
 }));
@@ -200,5 +201,33 @@ describe('Ideas screen', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(buttons[0]);
     expect(rejectLink).toHaveBeenCalledWith('5');
+  });
+});
+
+describe('a proposed link between two ideas', () => {
+  const proposal = {
+    id: '21', fromIdeaId: '7', toIdeaId: '10', kind: 'same_meaning', status: 'candidate',
+    rationale: 'Both rest on one principle.',
+    fromStatement: 'Price controls destroy the information prices carry about scarcity.',
+    toStatement: 'Rules should bind the people who write them.',
+  };
+
+  it('is accepted as proposed, or as the relation the owner names', () => {
+    fixtures.review.links = [proposal] as never;
+    try {
+      renderAt('/ideas?view=review');
+      const card = screen.getByRole('article', { name: /means the same as/ });
+      expect(within(card).queryByRole('button', { name: 'Swap the two ideas' })).toBeNull();
+
+      fireEvent.change(within(card).getByLabelText('Relation'), { target: { value: 'applies' } });
+      fireEvent.click(within(card).getByRole('button', { name: 'Swap the two ideas' }));
+      const ends = within(card).getAllByRole('link').map(a => a.textContent);
+      expect(ends).toEqual([proposal.toStatement, proposal.fromStatement]);
+
+      fireEvent.click(within(card).getByRole('button', { name: 'Accept with this relation' }));
+      expect(confirmLink).toHaveBeenCalledWith({ id: '21', as: { kind: 'applies', reverse: true } });
+    } finally {
+      fixtures.review.links = [];
+    }
   });
 });

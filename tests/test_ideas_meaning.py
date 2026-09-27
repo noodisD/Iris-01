@@ -102,15 +102,16 @@ def test_ideas_sharing_a_meaning_are_proposed_once_and_wait_for_the_owner(framew
     client, script, ids = framework
     garden, kitchen, life = ids[GARDEN], ids[KITCHEN], ids[LIFE]
     script.pairs = [
-        {"a": kitchen, "b": garden, "rationale": SHARED},     # stored lower id first
-        {"a": garden, "b": kitchen, "rationale": SHARED},     # the same pair again
-        {"a": life, "b": life, "rationale": SHARED},          # a self-pair is malformed
-        {"a": life, "b": 999999, "rationale": SHARED},        # an id not supplied is malformed
+        {"a": kitchen, "b": garden, "kind": "same_meaning", "rationale": SHARED},  # stored lower id first
+        {"a": garden, "b": kitchen, "kind": "same_meaning", "rationale": SHARED},  # the same pair again
+        {"a": life, "b": life, "kind": "same_meaning", "rationale": SHARED},       # a self-pair is malformed
+        {"a": life, "b": 999999, "kind": "same_meaning", "rationale": SHARED},     # an id not supplied is malformed
+        {"a": garden, "b": life, "kind": "related", "rationale": SHARED},          # a vague kind is malformed
     ]
     response = client.post("/api/ideas/meanings/discover")
     assert response.status_code == 200, response.text
     run = response.json()["run"]
-    assert run["kind"] == "meaning" and run["proposed"] == 1 and run["dropped"]["malformed"] == 2
+    assert run["kind"] == "meaning" and run["proposed"] == 1 and run["dropped"]["malformed"] == 3
 
     # Only accepted statements were sent, never the journal text behind them.
     sent = next(user for prompt, user in script.calls if prompt.startswith("You are finding"))
@@ -140,3 +141,56 @@ def test_with_fewer_than_two_ideas_nothing_is_sent(test_user, monkeypatch):
         assert calls == []
     finally:
         app.dependency_overrides.clear()
+
+
+APPLIES = "Cooking to one's own taste is the general principle of acting on one's own judgement, applied in the kitchen."
+
+
+def test_an_application_of_a_principle_is_not_proposed_as_the_same_meaning(framework):
+    """A specific rule and the general principle it applies are related, not one
+    meaning. They are proposed as `applies`, keeping which is which."""
+    client, script, ids = framework
+    kitchen, life = ids[KITCHEN], ids[LIFE]
+    script.pairs = [{"a": kitchen, "b": life, "kind": "applies", "rationale": APPLIES}]
+
+    assert client.post("/api/ideas/meanings/discover").json()["run"]["proposed"] == 1
+
+    link = next(item for item in client.get("/api/ideas/review").json()["links"] if item["kind"] == "applies")
+    assert (int(link["fromIdeaId"]), int(link["toIdeaId"])) == (kitchen, life), "the specific idea applies the general"
+    sent = next(prompt for prompt, _ in script.calls if prompt.startswith("You are finding"))
+    assert '"applies"' in sent
+    assert "is not the same meaning" in sent
+
+
+def test_the_owner_can_accept_a_link_as_the_relation_they_see(framework):
+    """IRIS proposed one meaning; the owner sees one idea applying the other.
+    Their relation is what stands, and IRIS's is kept as dismissed so it is not
+    proposed again."""
+    client, script, ids = framework
+    kitchen, life = ids[KITCHEN], ids[LIFE]
+    low, high = sorted((kitchen, life))
+    script.pairs = [{"a": kitchen, "b": life, "kind": "same_meaning", "rationale": SHARED}]
+    client.post("/api/ideas/meanings/discover")
+    proposal = next(item for item in client.get("/api/ideas/review").json()["links"] if item["kind"] == "same_meaning")
+    # Stored lower id first; the owner names which way round it goes.
+    reverse = (int(proposal["fromIdeaId"]), int(proposal["toIdeaId"])) != (kitchen, life)
+    assert (low, high) == (int(proposal["fromIdeaId"]), int(proposal["toIdeaId"]))
+
+    r = client.post(f"/api/ideas/links/{proposal['id']}/confirm", json={"kind": "applies", "reverse": reverse})
+
+    assert r.status_code == 200, r.text
+    accepted = client.get("/api/ideas/framework").json()["links"]
+    assert [(item["kind"], int(item["fromIdeaId"]), int(item["toIdeaId"])) for item in accepted] == [("applies", kitchen, life)]
+    assert r.json()["id"] == accepted[0]["id"]
+    again = client.post("/api/ideas/meanings/discover").json()["run"]
+    assert again["proposed"] == 0
+    assert again["dropped"]["already_decided"] == 1
+
+
+def test_an_unknown_relation_is_refused(framework):
+    client, script, ids = framework
+    script.pairs = [{"a": ids[KITCHEN], "b": ids[GARDEN], "kind": "same_meaning", "rationale": SHARED}]
+    client.post("/api/ideas/meanings/discover")
+    proposal = client.get("/api/ideas/review").json()["links"][0]
+    r = client.post(f"/api/ideas/links/{proposal['id']}/confirm", json={"kind": "resembles"})
+    assert r.status_code == 409

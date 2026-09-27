@@ -10,11 +10,12 @@ import {
   useRejectIdeaLink, useUpdateIdea,
 } from '@/hooks/useIdeas';
 import { formatEventDate, DAY_LONG } from '@/lib/dates';
+import { LINK_KINDS, LINK_LABEL, SYMMETRIC } from '@/lib/ideaLinks';
 import { Badge, Button, ChoiceGroup, Page, Panel } from '@/ui';
 import styles from './IdeasScreen.module.css';
 import type {
   IdeaCitation, IdeaCritique, IdeaDomain, IdeaLink, IdeaPosition, IdeaRun, IdeaSummary,
-  IdeasFramework, IdeasReview,
+  IdeasFramework, IdeasReview, LinkKind,
 } from '@/types/api';
 
 const POSITIONS: { value: IdeaPosition; label: string }[] = [
@@ -36,13 +37,6 @@ const STANCE_LABEL: Record<IdeaCitation['stance'], string> = {
   endorsed: 'You endorsed this then',
   questioned: 'You questioned this then',
   opposed: 'You opposed this then',
-};
-const LINK_LABEL: Record<IdeaLink['kind'], string> = {
-  supports: 'supports',
-  contradicts: 'contradicts',
-  refines: 'refines',
-  depends_on: 'depends on',
-  same_meaning: 'means the same as',
 };
 const DROP_LABEL: [keyof IdeaRun['dropped'], string][] = [
   ['invalid_quote', 'a quote was not in the entry'],
@@ -191,21 +185,41 @@ function LinkCard({ link }: { link: IdeaLink }) {
   const reject = useRejectIdeaLink();
   const busy = confirm.isPending || reject.isPending;
   const error = confirm.error ?? reject.error;
+  const proposal = link.status === 'candidate';
+  // IRIS proposes a relation; the owner may name a more exact one, and say
+  // which idea is which, before accepting.
+  const [kind, setKind] = React.useState<LinkKind>(link.kind);
+  const [reverse, setReverse] = React.useState(false);
+  const flipped = reverse && !SYMMETRIC.has(kind);
+  const from = flipped ? { id: link.toIdeaId, text: link.toStatement } : { id: link.fromIdeaId, text: link.fromStatement };
+  const to = flipped ? { id: link.fromIdeaId, text: link.fromStatement } : { id: link.toIdeaId, text: link.toStatement };
+  const changed = kind !== link.kind || flipped;
   return (
-    <Panel as="article">
-      <Badge>Iris's proposal</Badge>
-      <p className={styles.linkEnd}>{link.fromStatement}</p>
-      <Badge tone="action">{LINK_LABEL[link.kind]}</Badge>
-      <p className={styles.linkEnd}>{link.toStatement}</p>
+    <Panel as="article" aria-label={`${link.fromStatement} ${LINK_LABEL[link.kind]} ${link.toStatement}`}>
+      {proposal && <Badge>Iris's proposal</Badge>}
+      <Link to={`/ideas/${from.id}`} className={styles.linkEnd}>{from.text}</Link>
+      {proposal ? (
+        <div className={styles.relation}>
+          <select aria-label="Relation" value={kind} disabled={busy}
+            onChange={e => setKind(e.target.value as LinkKind)}>
+            {LINK_KINDS.map(k => <option key={k} value={k}>{LINK_LABEL[k]}</option>)}
+          </select>
+          {!SYMMETRIC.has(kind) && (
+            <Button size="sm" variant="quiet" disabled={busy} onClick={() => setReverse(r => !r)}>
+              Swap the two ideas
+            </Button>
+          )}
+        </div>
+      ) : <Badge tone="action">{LINK_LABEL[link.kind]}</Badge>}
+      <Link to={`/ideas/${to.id}`} className={styles.linkEnd}>{to.text}</Link>
       <p className={styles.muted}>{link.rationale}</p>
-      <div className={styles.row}>
-        <Link to={`/ideas/${link.fromIdeaId}`}>From</Link>
-        <Link to={`/ideas/${link.toIdeaId}`}>To</Link>
-      </div>
       {error && <div role="alert">{failureText(error)}</div>}
       <div className={styles.row}>
-        {link.status === 'candidate' && (
-          <Button variant="primary" disabled={busy} onClick={() => confirm.mutate(link.id)}>Accept</Button>
+        {proposal && (
+          <Button variant="primary" disabled={busy}
+            onClick={() => confirm.mutate({ id: link.id, as: changed ? { kind, reverse: flipped } : undefined })}>
+            {changed ? 'Accept with this relation' : 'Accept'}
+          </Button>
         )}
         <Button disabled={busy} onClick={() => {
           if (link.status !== 'accepted' || window.confirm(REMOVE_LINK)) reject.mutate(link.id);

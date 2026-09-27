@@ -2323,10 +2323,19 @@ def discover_idea_meanings(user_id: int = Depends(get_current_user_id)):
     return _analysis_result(IdeaService(user_id).discover_meanings())
 
 
+class LinkConfirm(BaseModel):
+    """Optional: the relation the owner names instead of the one proposed.
+    `reverse` swaps which idea is which, for a relation with a direction."""
+    kind: str | None = None
+    reverse: bool = False
+
+
 @app.post("/api/ideas/links/{link_id}/confirm")
-def confirm_idea_link(link_id: int, user_id: int = Depends(get_current_user_id)):
+def confirm_idea_link(link_id: int, body: LinkConfirm | None = None,
+                      user_id: int = Depends(get_current_user_id)):
+    body = body or LinkConfirm()
     try:
-        return IdeaService(user_id).confirm_link(link_id)
+        return IdeaService(user_id).confirm_link(link_id, body.kind, body.reverse)
     except IdeaNotFound:
         raise HTTPException(status_code=404, detail=LINK_NOT_FOUND)
     except IdeaConflict:

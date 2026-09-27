@@ -16,7 +16,7 @@ from tests.test_ideas_meaning import GARDEN, KITCHEN, SHARED, framework  # noqa:
 
 def test_accepted_ideas_and_their_accepted_links_are_in_the_block(framework):  # noqa: F811
     client, script, ids = framework
-    script.pairs = [{"a": ids[GARDEN], "b": ids[KITCHEN], "rationale": SHARED}]
+    script.pairs = [{"a": ids[GARDEN], "b": ids[KITCHEN], "kind": "same_meaning", "rationale": SHARED}]
     client.post("/api/ideas/meanings/discover")
     block_before = approved.approved_context(_user(client))
     assert GARDEN in block_before and "means the same as" not in block_before  # a proposal is not approved

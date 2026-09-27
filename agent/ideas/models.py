@@ -17,7 +17,9 @@ IDEA_POSITIONS = ("exploring", "endorsed", "opposed")
 CITATION_STANCES = ("endorsed", "questioned", "opposed")
 STANCE_ANSWERS = (*CITATION_STANCES, "not_stated")
 IDEA_DOMAINS = ("philosophy", "economics", "markets", "politics", "ethics", "learning", "life", "other")
-LINK_KINDS = ("supports", "contradicts", "refines", "depends_on", "same_meaning")
+LINK_KINDS = ("supports", "contradicts", "refines", "depends_on", "same_meaning", "applies")
+#: What the meaning pass may propose: one principle, or one applying the other.
+MEANING_KINDS = ("same_meaning", "applies")
 #: Kinds with no direction, stored once with the lower id first.
 SYMMETRIC_LINK_KINDS = ("contradicts", "same_meaning")
 REVIEW_STATUSES = ("candidate", "accepted", "rejected")

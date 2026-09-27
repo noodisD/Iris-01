@@ -1,13 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { IdeaLink, IdeaSummary } from '@/types/api';
-
-const KIND_LABEL: Record<IdeaLink['kind'], string> = {
-  supports: 'supports',
-  contradicts: 'contradicts',
-  refines: 'refines',
-  depends_on: 'depends on',
-  same_meaning: 'means the same as',
-};
+import { LINK_LABEL as KIND_LABEL } from '@/lib/ideaLinks';
 
 function cut(statement: string, n = 34): string {
   return statement.length > n ? `${statement.slice(0, n - 1)}…` : statement;

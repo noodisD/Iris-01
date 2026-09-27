@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ideasApi from '@/api/ideas';
 import { qk } from '@/lib/queryClient';
-import type { ConfirmIdeaBody, IdeaDomain, IdeaPosition } from '@/types/api';
+import type { ConfirmIdeaBody, IdeaDomain, IdeaPosition, LinkKind } from '@/types/api';
 
 const fresh = { staleTime: 0, refetchOnMount: 'always' as const, refetchOnWindowFocus: true };
 
@@ -77,7 +77,9 @@ export function useDiscoverIdeaLinks() {
 }
 
 export function useConfirmIdeaLink() {
-  return useIdeaMutation((id: string) => ideasApi.confirmIdeaLink(id));
+  return useIdeaMutation(({ id, as }: { id: string; as?: { kind: LinkKind; reverse: boolean } }) => (
+    ideasApi.confirmIdeaLink(id, as)
+  ));
 }
 
 export function useRejectIdeaLink() {

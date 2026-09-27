@@ -224,14 +224,24 @@ choose otherwise. Old writing never sets it.
 
 **Link** is a typed connection the owner confirmed, or a proposal waiting for
 that confirmation: `"supports"`, `"contradicts"`, `"refines"`, `"depends_on"`,
-or `"same_meaning"`. Iris may propose one. It is not a claim the journal stated
-the connection.
+`"same_meaning"` or `"applies"`. Iris may propose one. It is not a claim the
+journal stated the connection. The owner may accept a proposal as a different
+relation, or with the two ideas swapped; Iris's proposal is then kept as
+dismissed and the owner's relation stands.
 
-**Same meaning** links two ideas that express one essential meaning in different
-words or fields, judged by meaning, never by shared words or topic. It has no
-direction. Iris proposes these on request from the accepted statements alone,
-never the journal text, and shows the cost first; the owner accepts or dismisses
-each pair.
+**Same meaning** links two ideas that state one principle at the same level of
+generality, so accepting either commits the owner to the other, even in
+different words or fields. It is judged by meaning, never by shared words or
+topic, and has no direction.
+
+**Applies** links a specific idea to the more general principle it applies in
+one situation or field: "water the garden in the evening" applies "act when
+losses are smallest". Related ideas at different levels of generality are this,
+not the same meaning.
+
+Iris proposes same-meaning and applies pairs on request from the accepted
+statements alone, never the journal text, and shows the cost first; the owner
+accepts, corrects or dismisses each pair.
 
 **Tension** here is an accepted contradiction between two ideas the owner
 currently holds. It is not the psychological tension engine. Moving either

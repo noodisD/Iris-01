@@ -2821,7 +2821,7 @@
         "type": "n"
       },
       "idea_links_kind_check": {
-        "definition": "CHECK ((kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'refines'::text, 'depends_on'::text, 'same_meaning'::text])))",
+        "definition": "CHECK ((kind = ANY (ARRAY['supports'::text, 'contradicts'::text, 'refines'::text, 'depends_on'::text, 'same_meaning'::text, 'applies'::text])))",
         "type": "c"
       },
       "idea_links_kind_not_null": {

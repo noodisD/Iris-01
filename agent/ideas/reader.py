@@ -20,6 +20,7 @@ from .models import (
     CRITIQUE_TEXT_LIMIT,
     IDEA_DOMAINS,
     LINK_KINDS,
+    MEANING_KINDS,
     NAME_LIMIT,
     RATIONALE_LIMIT,
     STATEMENT_LIMIT,
@@ -84,7 +85,9 @@ IDEA_LINK_PROMPT = (
     "the propositions cannot both be accepted in the same scope and conditions, and "
     'different emphasis is not contradiction; "refines" means the from-idea qualifies '
     'the to-idea; "depends_on" means the from-idea\'s argument requires the to-idea '
-    "as a premise. Every link includes exactly one supplied endpoint as the subject. "
+    'as a premise; "applies" means the from-idea is a specific application of the '
+    "to-idea's more general principle, in one situation or field. Every link "
+    "includes exactly one supplied endpoint as the subject. "
     "No self-links. The rationale is one or two sentences, at most 1200 characters. "
     "Return JSON only: "
     '{"links":[{"fromIdeaId":1,"toIdeaId":2,"kind":"depends_on","rationale":"..."}]}.'
@@ -92,17 +95,22 @@ IDEA_LINK_PROMPT = (
 )
 
 IDEA_MEANING_PROMPT = (
-    "You are finding which of the owner's confirmed ideas express the same essential "
-    "meaning. Two ideas share a meaning when the same underlying principle is at work in "
-    "both, even if they use no words in common and come from different fields: for "
-    "example, a rule about markets and a rule about how to live that rest on one principle. "
-    "Judge the meaning, never the wording: shared words or a shared topic are not a shared "
-    "meaning, and neither is one idea supporting, refining, or contradicting the other. Do "
-    "not invent a principle the ideas do not both carry. These are proposals for the owner "
-    "to accept or dismiss. For each pair, the rationale names the shared principle in one "
-    "sentence, at most 1200 characters. Use only ids from the supplied list. Return JSON "
-    'only: {"pairs":[{"a":1,"b":2,"rationale":"..."}]}. If no two ideas share a meaning, '
-    'return {"pairs":[]}. An empty answer is a good answer.'
+    "You are finding pairs of the owner's confirmed ideas that rest on one underlying "
+    "principle, even if they use no words in common and come from different fields. Name "
+    "the relation precisely, with one of two kinds. \"same_meaning\": both state the same "
+    "principle, at the same level of generality, so accepting either commits the owner to "
+    "the other; for example, a rule about markets and a rule about how to live that say "
+    "one thing. \"applies\": one idea is a specific application or consequence of the "
+    "other's more general principle; a is the specific idea and b the general one. When "
+    "unsure between the two, it is \"applies\": the same principle at different levels of "
+    "generality is not the same meaning. Judge the meaning, never the wording: shared words "
+    "or a shared topic are no relation, and neither is one idea merely supporting, "
+    "refining, or contradicting the other; leave such pairs out. Do not invent a principle "
+    "the ideas do not both carry. These are proposals for the owner to accept or dismiss. "
+    "For each pair, the rationale names the principle and, for \"applies\", how a applies "
+    "it, in one or two sentences, at most 1200 characters. Use only ids from the supplied "
+    'list. Return JSON only: {"pairs":[{"a":1,"b":2,"kind":"applies","rationale":"..."}]}. '
+    'If no pair holds, return {"pairs":[]}. An empty answer is a good answer.'
 )
 
 IDEA_CRITIQUE_PROMPT = (
@@ -223,7 +231,15 @@ class LinkReply(_Strict):
 class MeaningPair(_Strict):
     a: int
     b: int
+    kind: str
     rationale: str
+
+    @field_validator("kind")
+    @classmethod
+    def _kind(cls, value: str) -> str:
+        if value not in MEANING_KINDS:
+            raise ValueError("kind")
+        return value
 
     @field_validator("rationale")
     @classmethod
@@ -456,8 +472,9 @@ def propose_same_meaning(
     intelligence: Any,
     batch: list[dict[str, Any]],
 ) -> tuple[list[MeaningPair], int]:
-    """Pairs of ideas in the batch that share a meaning, lower id first, and how
-    many individual proposals were malformed."""
+    """Pairs of ideas in the batch that rest on one principle, and how many
+    individual proposals were malformed. A same-meaning pair is lower id first;
+    an `applies` pair keeps its direction, a the specific idea and b the general."""
     payload = {"ideas": [{"id": row["id"], "statement": row["statement"]} for row in batch]}
     data = _ask(intelligence, IDEA_MEANING_PROMPT, payload)
     reply = _load(MeaningReply, data)
@@ -475,5 +492,8 @@ def propose_same_meaning(
             malformed += 1
             continue
         low, high = sorted((pair.a, pair.b))
-        good.setdefault((low, high), pair.model_copy(update={"a": low, "b": high}))
+        if pair.kind == "same_meaning":
+            pair = pair.model_copy(update={"a": low, "b": high})
+        # One relation per pair of ideas: the first answer given for it stands.
+        good.setdefault((low, high), pair)
     return list(good.values()), malformed

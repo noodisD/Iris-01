@@ -37,7 +37,8 @@ SENSOR_DAYS = 14
 STATEMENT_CHARS = 300
 
 _LINK_WORDS = {"supports": "supports", "contradicts": "contradicts", "refines": "refines",
-               "depends_on": "depends on", "same_meaning": "means the same as"}
+               "depends_on": "depends on", "same_meaning": "means the same as",
+               "applies": "is an application of"}
 
 
 def _cut(text: str, n: int = STATEMENT_CHARS) -> str:

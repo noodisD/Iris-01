@@ -4,6 +4,9 @@ import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
 import { Vector2 } from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { IdeaDomain, IdeaLink, IdeaSummary } from '@/types/api';
+import { LINK_LABEL } from '@/lib/ideaLinks';
+
+export { LINK_LABEL };
 
 /**
  * The ideas framework as a 3D graph, in the manner of Obsidian's 3D graph.
@@ -23,10 +26,7 @@ export const DOMAIN_COLOR: Record<IdeaDomain, string> = {
   ethics: '#a9c8a3', learning: '#8fc4c9', life: '#f0d68a', other: '#807969',
 };
 export const LINK_COLOR: Record<IdeaLink['kind'], string> = {
-  same_meaning: '#f0d68a', supports: '#a9c8a3', contradicts: '#d48a8a', refines: '#9aa3d4', depends_on: '#d4a374',
-};
-export const LINK_LABEL: Record<IdeaLink['kind'], string> = {
-  same_meaning: 'same meaning', supports: 'supports', contradicts: 'contradicts', refines: 'refines', depends_on: 'depends on',
+  same_meaning: '#f0d68a', applies: '#e39ad0', supports: '#a9c8a3', contradicts: '#d48a8a', refines: '#9aa3d4', depends_on: '#d4a374',
 };
 const PROPOSED = '#7a7799';
 const AREA_EDGE = '#34334d';
@@ -92,7 +92,7 @@ export function buildGraph({ ideas, links, proposedIdeas = [], proposedLinks = [
     const source = `i:${l.fromIdeaId}`, target = `i:${l.toIdeaId}`;
     if (!drawn.has(source) || !drawn.has(target)) return;
     const same = l.kind === 'same_meaning';
-    lines.push({ source, target, length: same ? 28 : 90, color: proposed ? PROPOSED : LINK_COLOR[l.kind],
+    lines.push({ source, target, length: same ? 28 : l.kind === 'applies' ? 50 : 90, color: proposed ? PROPOSED : LINK_COLOR[l.kind],
                  width: proposed ? 0 : same ? 1.4 : 0.8, kind: l.kind, proposed });
   };
   links.forEach(l => link(l, false));

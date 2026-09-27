@@ -27,3 +27,7 @@
 .discovery { max-width: var(--measure-standard); }
 .ask { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); background: var(--dusk); border: 1px solid var(--mist); border-radius: var(--radius-panel); }
 .detailLead { display: inline-flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+a.linkEnd { color: var(--petal); text-decoration: none; }
+a.linkEnd:hover { color: var(--iris-text); text-decoration: underline; text-underline-offset: 3px; }
+.relation { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.relation select { min-height: 32px; padding: 4px 10px; color: var(--iris-text); }
