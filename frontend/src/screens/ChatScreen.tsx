@@ -5,6 +5,9 @@ import { useUser } from '@/hooks/useData';
 import { ReplyFailed } from '@/api/chat';
 import { LoadingState, ErrorState } from '@/components/states';
 import type { ChatMessage } from '@/types/api';
+import { Mic } from 'lucide-react';
+import { TalkIntro, TalkMode } from '@/components/TalkMode';
+import { useTalk } from '@/hooks/useTalk';
 import { Button, Lens } from '@/ui';
 import styles from './ChatScreen.module.css';
 
@@ -54,6 +57,14 @@ export function ChatScreen() {
   }, [params, setParams]);
   const [failure, setFailure] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Talking (ADR-0025): the same turn as typing, heard and spoken. "asking"
+  // shows what it sends and costs; nothing is sent before Start talking.
+  const [talkStage, setTalkStage] = React.useState<'off' | 'asking' | 'on'>('off');
+  const talk = useTalk((text, onFragment) => send.mutateAsync({ text, voice: true, onFragment }));
+  const talkControls = React.useMemo(() => ({
+    ...talk, end: () => { talk.end(); setTalkStage('off'); },
+  }), [talk]);
 
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -109,6 +120,12 @@ export function ChatScreen() {
 
       <div className={styles.composerWrap}>
         <div className={styles.composerInner}>
+          {talkStage === 'asking' && (
+            <TalkIntro onCancel={() => setTalkStage('off')}
+              onStart={() => { setTalkStage('on'); void talk.start(); }} />
+          )}
+          {talkStage === 'on' && <TalkMode talk={talkControls} />}
+          {talkStage === 'off' && <>
           {failure && <p role="alert" className={styles.failure}>{failure}</p>}
           <div className={styles.composer}>
             <textarea value={draft} onChange={e => setDraft(e.target.value)} aria-label="Message to Iris"
@@ -117,9 +134,12 @@ export function ChatScreen() {
               // first for the same conversation.
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!send.isPending) submit(); } }}
               placeholder="Talk to Iris. Enter sends, Shift+Enter adds a line." rows={1} className={styles.input} />
+            <Button variant="quiet" icon={<Mic aria-hidden />} onClick={() => setTalkStage('asking')}
+              disabled={send.isPending}>Talk</Button>
             <Button variant="primary" onClick={() => submit()} disabled={send.isPending}>Send</Button>
           </div>
           <p className={styles.meta}>{sentToday(messages ?? [])} messages today</p>
+          </>}
         </div>
       </div>
     </div>

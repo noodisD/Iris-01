@@ -56,8 +56,11 @@ type StreamEvent = { text?: string; done?: boolean; messageId?: string; error?: 
 export async function* streamReply(
   conversationId: string,
   userText: string,
+  voice = false,
 ): AsyncGenerator<{ text: string; done?: boolean; messageId?: string }> {
-  for await (const ev of sse<StreamEvent>(`/conversations/${conversationId}/messages/stream`, { text: userText })) {
+  // `voice` marks a turn that will be heard, not read (ADR-0025).
+  const body = voice ? { text: userText, voice: true } : { text: userText };
+  for await (const ev of sse<StreamEvent>(`/conversations/${conversationId}/messages/stream`, body)) {
     // Default false: the draft is kept unless the server says the message was
     // stored. Defaulting the other way threw away what they wrote on the word
     // of a server that had not said it.

@@ -157,4 +157,18 @@ export async function* sse<T = unknown>(path: string, body: unknown): AsyncGener
   }
 }
 
+/**
+ * A raw POST for bodies request() does not send (form data) or answers it does
+ * not parse (audio), with the same URL base and the same error shape.
+ */
+export async function postRaw(path: string, init: RequestInit, fallback: string): Promise<Response> {
+  const res = await fetch(`${BASE}/api${path}`, { method: 'POST', credentials: 'include', ...init });
+  if (!res.ok) {
+    let payload: unknown = null;
+    try { payload = await res.json(); } catch { /* not JSON */ }
+    throw new HttpError(res.status, toApiError(res.status, payload, fallback));
+  }
+  return res;
+}
+
 export { HttpError };

@@ -3,3 +3,5 @@
 .pupil { fill: #0c0b18; transform-origin: 20px 20px; animation: pupil var(--orb-rate) ease-in-out infinite; }
 .glint { fill: rgba(255, 255, 255, 0.55); }
 @keyframes pupil { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.82); } }
+.live .pupil { animation: none; transform: scale(calc(1 - var(--level, 0) * 0.45)); transition: transform 90ms linear; }
+@media (prefers-reduced-motion: reduce) { .live .pupil { transform: none; transition: none; } }

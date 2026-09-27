@@ -35,13 +35,22 @@ export function useMessages(conversationId: string | undefined) {
  * error shown. Now the placeholder goes, the screen is reconciled with what the
  * server actually stored, and the error is returned for the screen to show.
  */
+/** A turn from Talk mode: heard, not typed, and read aloud as it arrives. */
+export interface SpokenTurn {
+  text: string;
+  voice?: boolean;
+  /** Each fragment of IRIS's reply as it is written, for speaking it. */
+  onFragment?: (fragment: string) => void;
+}
+
 export function useSendMessage(conversationId: string | undefined) {
   const qc = useQueryClient();
   const key = conversationId ? qk.messages(conversationId) : ['noop'];
 
   return useMutation({
-    mutationFn: async (text: string) => {
+    mutationFn: async (input: string | SpokenTurn) => {
       if (!conversationId) throw new Error('No active conversation');
+      const { text, voice = false, onFragment } = typeof input === 'string' ? { text: input } : input;
 
       const userMsg = chatApi.draftUserMessage(conversationId, text);
       const replyId = `m_stream_${Date.now()}`;
@@ -55,9 +64,10 @@ export function useSendMessage(conversationId: string | undefined) {
         let buffer = '';
         let finalId: string | undefined;
         let finished = false;
-        for await (const ev of chatApi.streamReply(conversationId, text)) {
+        for await (const ev of chatApi.streamReply(conversationId, text, voice)) {
           if (ev.done) { finalId = ev.messageId; finished = true; break; }
           buffer += ev.text;
+          onFragment?.(ev.text);
           qc.setQueryData<ChatMessage[]>(key, (old) =>
             (old ?? []).map(m => m.id === replyId ? { ...m, text: buffer } : m),
           );
