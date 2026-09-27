@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRIS, with and without history</title>
+<style>
+  :root { color-scheme: dark; --night:#12121f; --dusk:#1b1a2e; --dusk2:#232238; --mist:#2b2a42; --mist2:#3a3957;
+    --petal:#e8e6f2; --petal2:#b4b1c9; --petal3:#8c89a6; --iris:#8b7fd6; --gold:#e3c26b;
+    --read: Georgia, 'Times New Roman', serif; --ui: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--night); color: var(--petal); font: 16px/1.55 var(--ui); padding: 40px 20px 64px; }
+  main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  h1 { font: 500 34px/1.1 var(--read); margin: 0; }
+  p { margin: 0; color: var(--petal2); max-width: 70ch; }
+  .tally { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; color: var(--petal3); }
+  .tally b { color: var(--petal); font-size: 20px; font-weight: 600; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  textarea { width: 100%; min-height: 84px; resize: vertical; background: var(--dusk); color: var(--petal); border: 1px solid var(--mist2);
+    border-radius: 12px; padding: 12px 14px; font: 17px/1.5 var(--read); }
+  textarea:focus-visible, button:focus-visible { outline: 2px solid var(--iris); outline-offset: 2px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: 500 14px var(--ui); border-radius: 8px; padding: 9px 16px; cursor: pointer; border: 1px solid var(--mist2);
+    background: transparent; color: var(--petal); }
+  button:hover:not(:disabled) { background: var(--dusk2); }
+  button.primary { background: var(--iris); border-color: var(--iris); color: var(--night); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .chips button { font-size: 13px; padding: 6px 12px; border-radius: 999px; color: var(--petal2); }
+  .muted { color: var(--petal3); font-size: 14px; }
+  .answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .answer { background: var(--dusk); border: 1px solid var(--mist); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .answer h2 { margin: 0; font: 600 14px var(--ui); color: var(--petal3); }
+  .answer .text { font: 17px/1.6 var(--read); white-space: pre-wrap; }
+  .answer .who { font-weight: 600; color: var(--gold); }
+  .error { color: #e08c8c; }
+  #result:not([hidden]) { display: flex; flex-direction: column; gap: 16px; }
+  input[type=text] { flex: 1 1 260px; background: var(--dusk); color: var(--petal); border: 1px solid var(--mist2); border-radius: 8px; padding: 8px 12px; font: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header style="display:flex;flex-direction:column;gap:10px">
+    <h1>IRIS, with and without history</h1>
+    <p>One question goes to two copies of IRIS: one with your imported archive, one with only what you have given it directly. You see the answers unlabelled, pick the better one, and only then learn which was which.</p>
+    <div class="tally" id="tally" aria-live="polite"></div>
+  </header>
+
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <label for="q" class="muted">Your question</label>
+    <textarea id="q" placeholder="Ask what you would ask IRIS"></textarea>
+    <div class="row chips" aria-label="Questions to start with">
+      <button type="button">How have my last two weeks been?</button>
+      <button type="button">What should I watch for this week?</button>
+      <button type="button">What do my days say about my energy?</button>
+      <button type="button">What am I avoiding at the moment?</button>
+      <button type="button">What would you tell me to change first, and why?</button>
+    </div>
+    <div class="row">
+      <button type="button" class="primary" id="ask">Ask both</button>
+      <span class="muted" id="cost">Working out the cost…</span>
+    </div>
+    <p id="status" class="muted" aria-live="polite"></p>
+  </section>
+
+  <section id="result" hidden>
+    <div class="answers">
+      <article class="answer"><h2>Answer 1 <span class="who" id="who1"></span></h2><div class="text" id="a1"></div></article>
+      <article class="answer"><h2>Answer 2 <span class="who" id="who2"></span></h2><div class="text" id="a2"></div></article>
+    </div>
+    <div class="row" id="vote">
+      <button type="button" data-choice="1">Answer 1 is better</button>
+      <button type="button" data-choice="2">Answer 2 is better</button>
+      <button type="button" data-choice="tie">Equally good</button>
+      <button type="button" data-choice="both_poor">Both poor</button>
+      <input type="text" id="note" placeholder="Why, in a few words (optional)" aria-label="Why">
+    </div>
+  </section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  let current = null;
+
+  function showTally(t) {
+    const total = Object.values(t).reduce((a, b) => a + b, 0);
+    $('tally').innerHTML = total === 0 ? '<span>No questions judged yet.</span>' :
+      `<span><b>${t['with history']}</b>with history better</span><span><b>${t['without history']}</b>without history better</span>` +
+      `<span><b>${t.tie}</b>equally good</span><span><b>${t.both_poor}</b>both poor</span>`;
+  }
+  fetch('/api/tally').then(r => r.json()).then(showTally);
+  fetch('/api/estimate').then(r => r.json()).then(e => { $('cost').textContent = e.text + '.'; })
+    .catch(() => { $('cost').textContent = 'The test copies are not answering. Start them first.'; });
+
+  document.querySelectorAll('.chips button').forEach(b => b.addEventListener('click', () => { $('q').value = b.textContent; $('q').focus(); }));
+
+  $('ask').addEventListener('click', async () => {
+    const question = $('q').value.trim();
+    if (question.length < 3) { $('status').textContent = 'Write a question first.'; return; }
+    $('ask').disabled = true; $('result').hidden = true;
+    $('status').textContent = 'Asking both copies. This takes a little while…';
+    try {
+      const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.detail || 'The question did not go through.');
+      current = body.id;
+      $('a1').textContent = body.answers[0]; $('a2').textContent = body.answers[1];
+      $('who1').textContent = ''; $('who2').textContent = ''; $('note').value = '';
+      document.querySelectorAll('#vote button').forEach(b => { b.disabled = false; });
+      $('result').hidden = false; $('status').textContent = 'Which answer is better?';
+    } catch (err) {
+      $('status').innerHTML = `<span class="error">${err.message}</span>`;
+    } finally {
+      $('ask').disabled = false;
+    }
+  });
+
+  document.querySelectorAll('#vote button').forEach(b => b.addEventListener('click', async () => {
+    if (!current) return;
+    const r = await fetch('/api/vote', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: current, choice: b.dataset.choice, note: $('note').value }) });
+    const body = await r.json();
+    if (!r.ok) { $('status').innerHTML = `<span class="error">${body.detail}</span>`; return; }
+    current = null;
+    $('who1').textContent = `(${body.answer_1})`; $('who2').textContent = `(${body.answer_2})`;
+    document.querySelectorAll('#vote button').forEach(x => { x.disabled = true; });
+    $('status').textContent = 'Saved. Ask another question when you are ready.';
+    showTally(body.tally);
+  }));
+</script>
+</body>
+</html>
