@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Lens in one colour (themed launcher icon): the iris as a ring around the pupil. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillType="evenOdd" android:fillColor="#FFFFFFFF"
+        android:pathData="M28.00,54.00 a26.00,26.00 0 1,0 52.00,0 a26.00,26.00 0 1,0 -52.00,0 Z M44.42,54.00 a9.58,9.58 0 1,0 19.16,0 a9.58,9.58 0 1,0 -19.16,0 Z"/>
+</vector>

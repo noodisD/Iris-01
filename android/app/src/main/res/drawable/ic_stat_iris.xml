@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The Lens in one colour (status bar): the iris as a ring around the pupil. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF"
-        android:pathData="M12,4.5C7,4.5 2.73,7.61 1,12c1.73,4.39 6,7.5 11,7.5s9.27,-3.11 11,-7.5c-1.73,-4.39 -6,-7.5 -11,-7.5zM12,17c-2.76,0 -5,-2.24 -5,-5s2.24,-5 5,-5 5,2.24 5,5 -2.24,5 -5,5zM12,9c-1.66,0 -3,1.34 -3,3s1.34,3 3,3 3,-1.34 3,-3 -1.34,-3 -3,-3z"/>
+    <path android:fillType="evenOdd" android:fillColor="#FFFFFFFF"
+        android:pathData="M1.00,12.00 a11.00,11.00 0 1,0 22.00,0 a11.00,11.00 0 1,0 -22.00,0 Z M7.95,12.00 a4.05,4.05 0 1,0 8.11,0 a4.05,4.05 0 1,0 -8.11,0 Z"/>
 </vector>

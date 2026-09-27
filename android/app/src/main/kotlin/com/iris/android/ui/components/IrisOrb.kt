@@ -15,47 +15,62 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Palettes follow the web app's route-default orb states. */
+/**
+ * The lens's colours per screen, the same five palettes as the web app
+ * (frontend/src/hooks/useIrisState.ts, applyOrbVibe): inner light, iris,
+ * outer ring, glow, and how fast the pupil breathes.
+ */
 enum class OrbVibe(val hueA: Color, val hueB: Color, val hueC: Color, val glow: Color, val rateMs: Int) {
-    Calm(Color(0xFFD8EFD2), Color(0xFFA9C8A3), Color(0xFF6F8C6A), Color(0x59A9C8A3), 4000),
-    Low(Color(0xFFF3D4D4), Color(0xFFD48A8A), Color(0xFFA06868), Color(0x66D48A8A), 6500),
-    High(Color(0xFFF4DCB8), Color(0xFFD4A374), Color(0xFFA07A55), Color(0x73D4A374), 2400),
-    Cool(Color(0xFFDBE0F0), Color(0xFF9AA3D4), Color(0xFF6F78A0), Color(0x599AA3D4), 5500),
-    Dim(Color(0xFF3A3A30), Color(0xFF2A2A22), Color(0xFF1A1A14), Color(0x4D504C40), 7000),
+    Calm(Color(0xFFD6D0FF), Color(0xFF8B7FD6), Color(0xFF3D3570), Color(0x598B7FD6), 4000),
+    Low(Color(0xFFF0CFE0), Color(0xFFB784B8), Color(0xFF4F3050), Color(0x59B784B8), 6500),
+    High(Color(0xFFF6E6B8), Color(0xFFC9A2D8), Color(0xFF5A3F6E), Color(0x4DE3C26B), 2400),
+    Cool(Color(0xFFD4DCFF), Color(0xFF7F93DC), Color(0xFF2F3A6E), Color(0x597F93DC), 5500),
+    Dim(Color(0xFF6A6788), Color(0xFF3F3D5C), Color(0xFF22213A), Color(0x40504E78), 7000),
 }
 
 val LocalOrbVibe = staticCompositionLocalOf { OrbVibe.Calm }
 
+private val PUPIL = Color(0xFF0C0B18)
+private val FIBRE = Color(0x38FFFFFF)
+private val GLINT = Color(0x8CFFFFFF)
+
+/**
+ * The Lens, IRIS's mark, drawn as on the web (frontend/src/ui/Lens.tsx) and in
+ * the launcher icon: a violet iris with fine fibres, a dark pupil that breathes
+ * slowly, and a glint. Proportions are the web's 40-unit drawing.
+ */
 @Composable
 fun IrisOrb(size: Dp = 22.dp, modifier: Modifier = Modifier) {
     val vibe = LocalOrbVibe.current
-    val a = animateColorAsState(vibe.hueA, tween(800), label = "orb hue a").value
-    val b = animateColorAsState(vibe.hueB, tween(800), label = "orb hue b").value
-    val c = animateColorAsState(vibe.hueC, tween(800), label = "orb hue c").value
-    val glow = animateColorAsState(vibe.glow, tween(800), label = "orb glow").value
-    val breathe = rememberInfiniteTransition(label = "orb breathe")
-    val scale by breathe.animateFloat(1f, 1.06f, infiniteRepeatable(tween(vibe.rateMs / 2), RepeatMode.Reverse), label = "orb scale")
-    val alpha by breathe.animateFloat(0.9f, 1f, infiniteRepeatable(tween(vibe.rateMs / 2), RepeatMode.Reverse), label = "orb alpha")
+    val a = animateColorAsState(vibe.hueA, tween(800), label = "lens hue a").value
+    val b = animateColorAsState(vibe.hueB, tween(800), label = "lens hue b").value
+    val c = animateColorAsState(vibe.hueC, tween(800), label = "lens hue c").value
+    val glow = animateColorAsState(vibe.glow, tween(800), label = "lens glow").value
+    val breathe = rememberInfiniteTransition(label = "lens breathe")
+    val pupil by breathe.animateFloat(1f, 0.82f,
+        infiniteRepeatable(tween(vibe.rateMs / 2), RepeatMode.Reverse), label = "pupil")
     Canvas(modifier.size(size)) {
-        val radius = this.size.minDimension / 2f
-        scale(scale) {
-            drawCircle(
-                Brush.radialGradient(listOf(glow.copy(alpha = glow.alpha * alpha), Color.Transparent),
-                    center = center, radius = radius * 1.25f),
-                radius = radius * 1.25f,
-            )
-            drawCircle(
-                Brush.radialGradient(
-                    colorStops = arrayOf(0f to a, .55f to b, 1f to c),
-                    center = Offset(this.size.width * .35f, this.size.height * .3f),
-                    radius = radius * 1.8f,
-                ),
-                radius = radius, alpha = alpha,
-            )
+        val r = this.size.minDimension / 2f
+        val unit = r / 19f   // one unit of the web's 40-unit lens (iris radius 19)
+        // The glow, the web's drop-shadow.
+        drawCircle(Brush.radialGradient(listOf(glow, Color.Transparent), center = center, radius = r * 1.3f),
+            radius = r * 1.3f)
+        drawCircle(Brush.radialGradient(0f to a, 0.55f to b, 1f to c, center = center, radius = r), radius = r)
+        if (size >= 18.dp) {
+            // Fibres are hairlines; below this size they only muddy the iris.
+            for (i in 0 until 24) {
+                rotate(i * 15f) {
+                    drawLine(FIBRE, Offset(center.x, center.y - 11 * unit), Offset(center.x, center.y - 17 * unit),
+                        strokeWidth = (0.6f * unit).coerceAtLeast(0.8f), cap = StrokeCap.Round)
+                }
+            }
         }
+        drawCircle(PUPIL, radius = 7 * unit * pupil)
+        drawCircle(GLINT, radius = 1.6f * unit, center = Offset(center.x - 3 * unit, center.y - 3.5f * unit))
     }
 }
