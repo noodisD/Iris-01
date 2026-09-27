@@ -89,3 +89,5 @@ Then take screenshots at 390, 768 and 1440 px and run axe-core on each route. Th
 - a visible focus ring on everything you can reach by keyboard.
 
 Keyframes used inside a CSS Module must be defined in that module, because CSS Modules rename them.
+
+The ideas map's glow pass encodes colours for the screen a second time. A dark surface given to it plainly shows as a pale grey-violet. Pass surface colours through `forRenderer` (`components/IdeaGraph.tsx`). Area colours live in `lib/ideaAreas.ts`, so the map, its index and the area chips always agree.

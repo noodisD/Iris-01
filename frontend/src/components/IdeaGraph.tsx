@@ -4,9 +4,10 @@ import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
 import { Vector2 } from 'three';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import type { IdeaDomain, IdeaLink, IdeaSummary } from '@/types/api';
-import { LINK_LABEL } from '@/lib/ideaLinks';
+import { AREA_COLOR as DOMAIN_COLOR } from '@/lib/ideaAreas';
+import { LINK_COLOR, LINK_LABEL } from '@/lib/ideaLinks';
 
-export { LINK_LABEL };
+export { DOMAIN_COLOR, LINK_COLOR, LINK_LABEL };
 
 /**
  * The ideas framework as a 3D graph, in the manner of Obsidian's 3D graph.
@@ -21,15 +22,29 @@ export { LINK_LABEL };
  * to zoom, hover to read and light up neighbours, click to open.
  */
 
-export const DOMAIN_COLOR: Record<IdeaDomain, string> = {
-  philosophy: '#9aa3d4', economics: '#d4a374', markets: '#d48a8a', politics: '#c9a3d4',
-  ethics: '#a9c8a3', learning: '#8fc4c9', life: '#f0d68a', other: '#807969',
-};
-export const LINK_COLOR: Record<IdeaLink['kind'], string> = {
-  same_meaning: '#f0d68a', applies: '#e39ad0', supports: '#a9c8a3', contradicts: '#d48a8a', refines: '#9aa3d4', depends_on: '#d4a374',
-};
-const PROPOSED = '#7a7799';
+const PROPOSED = '#6e6b8a';
 const AREA_EDGE = '#34334d';
+/**
+ * The map's surface: Iris's --deep, the same as the index beside it. Decoded
+ * for the renderer (see forRenderer) it lands within a step of the token,
+ * where the darker page colour could not be matched in eight bits.
+ */
+const DEEP = '#161528';
+
+/**
+ * A colour as the renderer must be given it to show as `hex`. The glow pass
+ * encodes its output for the screen a second time, which showed the dark
+ * background as a pale grey-violet. Decoding first cancels that, so the map's
+ * surface and its dimmed nodes match the page. Lit nodes are left to glow.
+ */
+export function forRenderer(hex: string): string {
+  const channel = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    const linear = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    return Math.round(linear * 255).toString(16).padStart(2, '0');
+  };
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
 
 interface Props {
   ideas: IdeaSummary[];
@@ -39,6 +54,8 @@ interface Props {
   showAreas: boolean;
   areaLabel: (domain: IdeaDomain) => string;
   height?: number;
+  /** An idea to light up with its neighbours, as a hover does; set from outside the map. */
+  focusId?: string | null;
 }
 
 export interface Drawn {
@@ -144,9 +161,9 @@ export function IdeaGraph(props: Props) {
     const el = holder.current;
     if (!el) return;
     const g = new ForceGraph3D(el, { controlType: 'orbit' })
-      .backgroundColor('#000000')
+      .backgroundColor(forRenderer(DEEP))
       .showNavInfo(false)
-      .nodeRelSize(6)
+      .nodeRelSize(7)
       .nodeResolution(20)
       .nodeOpacity(0.92)
       .linkOpacity(0.45)
@@ -154,12 +171,13 @@ export function IdeaGraph(props: Props) {
       .nodeVal(node => (node as unknown as Drawn).size)
       .nodeColor(node => {
         const n = node as unknown as Drawn;
-        return !lit.current || lit.current.has(n.id) ? n.color : '#26253b';
+        // Lit nodes are given as they are: the glow pass lifts them, which is the glow.
+        return !lit.current || lit.current.has(n.id) ? n.color : forRenderer('#2b2a42');
       })
       .linkColor(link => {
         const l = link as unknown as Line & { source: { id: string }; target: { id: string } };
         const on = !lit.current || (lit.current.has(l.source.id) && lit.current.has(l.target.id));
-        return on ? l.color : '#1f1e33';
+        return on ? l.color : forRenderer('#2b2a42');
       })
       .linkWidth(link => (link as unknown as Line).width)
       .linkDirectionalParticles(link => {
@@ -168,7 +186,7 @@ export function IdeaGraph(props: Props) {
       })
       .linkDirectionalParticleWidth(1.6)
       .linkDirectionalParticleSpeed(0.004)
-      .linkDirectionalParticleColor(() => '#f0d68a')
+      .linkDirectionalParticleColor(() => '#e3c26b')
       .onNodeHover(node => {
         el.style.cursor = node ? 'pointer' : 'grab';
         lit.current = node ? neighbourhood(String(node.id), g.graphData().links) : null;
@@ -208,23 +226,14 @@ export function IdeaGraph(props: Props) {
     fitted.current = false;
   }, [shape, height]);
 
-  const kinds = Object.keys(LINK_COLOR) as IdeaLink['kind'][];
+  React.useEffect(() => {
+    const g = graph.current;
+    if (!g) return;
+    lit.current = props.focusId ? neighbourhood(`i:${props.focusId}`, g.graphData().links) : null;
+    g.nodeColor(g.nodeColor()).linkColor(g.linkColor());
+  }, [props.focusId]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div ref={holder} role="img" aria-label="Ideas graph"
-        style={{ height, borderRadius: 'var(--radius-panel)', overflow: 'hidden', border: '1px solid var(--mist)', background: '#000000' }} />
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 'var(--text-xs)', color: 'var(--petal-3)' }}>
-        {kinds.map(kind => (
-          <span key={kind} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <span style={{ width: 14, height: 2, background: LINK_COLOR[kind] }} />{LINK_LABEL[kind]}
-          </span>
-        ))}
-        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: DOMAIN_COLOR.life }} />Life
-        </span>
-        <span>Grey: proposed, waiting in Review</span>
-        <span>Drag to turn, scroll to zoom, hover to read</span>
-      </div>
-    </div>
+    <div ref={holder} role="img" aria-label="Ideas graph" style={{ height, overflow: 'hidden', background: DEEP }} />
   );
 }

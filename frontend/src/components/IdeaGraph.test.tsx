@@ -25,7 +25,7 @@ vi.mock('3d-force-graph', () => ({
   },
 }));
 
-import { IdeaGraph, buildGraph, neighbourhood } from './IdeaGraph';
+import { IdeaGraph, buildGraph, forRenderer, neighbourhood } from './IdeaGraph';
 
 function idea(id: string, domain: IdeaSummary['domain'] = 'ethics', citationCount = 1): IdeaSummary {
   return { id, statement: `Statement ${id}`, domain, status: 'active', position: 'endorsed', citationCount,
@@ -35,6 +35,14 @@ function link(id: string, from: string, to: string, kind: IdeaLink['kind'] = 'su
   return { id, fromIdeaId: from, toIdeaId: to, kind, rationale: '', status: 'accepted', fromStatement: '', toStatement: '' };
 }
 const label = (d: string) => d.toUpperCase();
+
+describe('colours for the renderer', () => {
+  it('are decoded once, so the glow pass shows them as given', () => {
+    expect(forRenderer('#000000')).toBe('#000000');
+    expect(forRenderer('#ffffff')).toBe('#ffffff');
+    expect(forRenderer('#161528')).toBe('#020205');
+  });
+});
 
 describe('buildGraph', () => {
   it('draws each idea and the accepted links, and area hubs only when asked', () => {

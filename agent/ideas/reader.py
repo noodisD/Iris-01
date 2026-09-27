@@ -88,7 +88,8 @@ IDEA_LINK_PROMPT = (
     'as a premise; "applies" means the from-idea is a specific application of the '
     "to-idea's more general principle, in one situation or field. Every link "
     "includes exactly one supplied endpoint as the subject. "
-    "No self-links. The rationale is one or two sentences, at most 1200 characters. "
+    "No self-links. The rationale is one or two sentences, at most 1200 characters, "
+    "and names ideas by what they say, never by id or number: the owner never sees ids. "
     "Return JSON only: "
     '{"links":[{"fromIdeaId":1,"toIdeaId":2,"kind":"depends_on","rationale":"..."}]}.'
     ' If no relation holds, return {"links":[]}. An empty answer is a good answer.'
@@ -108,7 +109,8 @@ IDEA_MEANING_PROMPT = (
     "refining, or contradicting the other; leave such pairs out. Do not invent a principle "
     "the ideas do not both carry. These are proposals for the owner to accept or dismiss. "
     "For each pair, the rationale names the principle and, for \"applies\", how a applies "
-    "it, in one or two sentences, at most 1200 characters. Use only ids from the supplied "
+    "it, in one or two sentences, at most 1200 characters. In the rationale, name ideas by "
+    "what they say, never by id or number: the owner never sees ids. Use only ids from the supplied "
     'list. Return JSON only: {"pairs":[{"a":1,"b":2,"kind":"applies","rationale":"..."}]}. '
     'If no pair holds, return {"pairs":[]}. An empty answer is a good answer.'
 )

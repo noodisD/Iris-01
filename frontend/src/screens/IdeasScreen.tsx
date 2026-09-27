@@ -10,8 +10,9 @@ import {
   useRejectIdeaLink, useUpdateIdea,
 } from '@/hooks/useIdeas';
 import { formatEventDate, DAY_LONG } from '@/lib/dates';
-import { LINK_KINDS, LINK_LABEL, SYMMETRIC } from '@/lib/ideaLinks';
-import { Badge, Button, ChoiceGroup, Page, Panel } from '@/ui';
+import { AREA_COLOR, AREAS, areaLabel } from '@/lib/ideaAreas';
+import { LINK_COLOR, LINK_KINDS, LINK_LABEL, SYMMETRIC } from '@/lib/ideaLinks';
+import { Badge, Button, Page, Panel, Section, Tabs, TabPanel } from '@/ui';
 import styles from './IdeasScreen.module.css';
 import type {
   IdeaCitation, IdeaCritique, IdeaDomain, IdeaLink, IdeaPosition, IdeaRun, IdeaSummary,
@@ -23,16 +24,7 @@ const POSITIONS: { value: IdeaPosition; label: string }[] = [
   { value: 'endorsed', label: 'I hold this' },
   { value: 'opposed', label: 'I reject this' },
 ];
-const DOMAINS: { value: IdeaDomain; label: string }[] = [
-  { value: 'philosophy', label: 'Philosophy' },
-  { value: 'economics', label: 'Economics' },
-  { value: 'markets', label: 'Markets' },
-  { value: 'politics', label: 'Politics' },
-  { value: 'ethics', label: 'Ethics' },
-  { value: 'learning', label: 'Learning' },
-  { value: 'life', label: 'Life' },
-  { value: 'other', label: 'Other' },
-];
+const DOMAINS = AREAS;
 const STANCE_LABEL: Record<IdeaCitation['stance'], string> = {
   endorsed: 'You endorsed this then',
   questioned: 'You questioned this then',
@@ -61,16 +53,24 @@ function failureText(error: unknown): string {
   return error instanceof Error ? error.message : 'That did not save.';
 }
 
+const RUN_NAME: Record<IdeaRun['kind'], string> = {
+  discovery: 'Reading your reflections',
+  links: 'Finding connections',
+  meaning: 'Finding related ideas',
+};
+
+/** The last thing IRIS was asked to do, and how it went, in words. */
 function RunSummary({ run }: { run: IdeaRun | null }) {
   if (!run) return null;
   const drops = DROP_LABEL.filter(([key]) => run.dropped[key] > 0)
-    .map(([key, text]) => `${run.dropped[key]} ${text}`);
+    .map(([key, text]) => `${run.dropped[key]} left out because ${text}`);
+  const outcome = run.status === 'running' ? 'still running'
+    : run.status === 'failed' ? 'did not finish'
+    : `${run.proposed === 0 ? 'nothing new' : `${run.proposed} proposed`}${run.status === 'partial' ? ', but part of it did not finish; what was found is here' : ''}`;
   return (
     <p role="status" className={styles.muted}>
-      {run.kind === 'meaning' ? 'same meaning' : run.kind} · {run.status}. {run.itemsRead} read, {run.passesCompleted} of {run.passesPlanned} passes, {run.proposed} proposed.
+      Last time: {RUN_NAME[run.kind]}, {formatEventDate(run.startedAt)}: {outcome}.
       {drops.length > 0 && ` ${drops.join('; ')}.`}
-      {run.status === 'partial' && ' Some of the read did not finish. Proposals already saved are still here.'}
-      {run.status === 'failed' && ' The read did not finish.'}
     </p>
   );
 }
@@ -101,9 +101,12 @@ function Selectors({
   );
 }
 
-function QuoteList({ citations }: { citations: IdeaCitation[] }) {
-  const dated = citations.filter(citation => citation.entryDate);
-  const undated = citations.filter(citation => !citation.entryDate);
+function QuoteList({ citations, fold }: { citations: IdeaCitation[]; fold?: number }) {
+  const [open, setOpen] = React.useState(false);
+  const hidden = fold && !open ? Math.max(0, citations.length - fold) : 0;
+  const visible = hidden ? citations.slice(0, fold) : citations;
+  const dated = visible.filter(citation => citation.entryDate);
+  const undated = visible.filter(citation => !citation.entryDate);
   const quote = (citation: IdeaCitation) => (
     <blockquote key={citation.id} className={styles.quote}>
       <p className={styles.quoteText}>&ldquo;{citation.text}&rdquo;</p>
@@ -122,6 +125,11 @@ function QuoteList({ citations }: { citations: IdeaCitation[] }) {
           <h3 className={styles.minorTitle}>Undated</h3>
           {undated.map(quote)}
         </section>
+      )}
+      {hidden > 0 && (
+        <div><Button variant="quiet" size="sm" onClick={() => setOpen(true)}>
+          Show {hidden} more {hidden === 1 ? 'quote' : 'quotes'}
+        </Button></div>
       )}
     </div>
   );
@@ -142,13 +150,12 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
 
   return (
     <Panel as="article">
+      <h3 className={styles.statement}>{card.idea.statement}</h3>
       <div className={styles.stack}>
-        <Badge>Iris's restatement of your writing</Badge>
-        <h3 className={styles.statement}>{card.idea.statement}</h3>
-      </div>
-      <div className={styles.stack}>
-        <h4 className={styles.minorTitle}>In your writing</h4>
-        <QuoteList citations={card.citations} />
+        <h4 className={styles.minorTitle}>
+          {card.citations.length === 1 ? 'In your writing' : `In your writing, ${card.citations.length} times`}
+        </h4>
+        <QuoteList citations={card.citations} fold={2} />
       </div>
       {isNew && ids.length === 0 && (
         <p className={styles.muted}>This proposal no longer has a valid quotation, so it cannot be added.</p>
@@ -196,7 +203,6 @@ function LinkCard({ link }: { link: IdeaLink }) {
   const changed = kind !== link.kind || flipped;
   return (
     <Panel as="article" aria-label={`${link.fromStatement} ${LINK_LABEL[link.kind]} ${link.toStatement}`}>
-      {proposal && <Badge>Iris's proposal</Badge>}
       <Link to={`/ideas/${from.id}`} className={styles.linkEnd}>{from.text}</Link>
       {proposal ? (
         <div className={styles.relation}>
@@ -229,254 +235,352 @@ function LinkCard({ link }: { link: IdeaLink }) {
   );
 }
 
-function Discovery() {
+/**
+ * Asking IRIS to look again. Both send something to the model, so each says
+ * what; they live beside the proposals they produce, not above the framework.
+ */
+function AskIris({ run }: { run: IdeaRun | null }) {
   const discover = useDiscoverIdeas();
   return (
-    <div className={styles.stack}>
-      <Button variant="primary" disabled={discover.isPending} onClick={() => discover.mutate(undefined)}>
-        {discover.isPending ? 'Reading…' : 'Read my reflections'}
-      </Button>
-      <p>Sends eligible reflections to the configured model</p>
-      {discover.error && <div role="alert">{failureText(discover.error)}</div>}
-      <SameMeaning />
-    </div>
+    <Section title="Ask IRIS to look again">
+      <div className={styles.asks}>
+        <div className={styles.ask}>
+          <div>
+            <Button disabled={discover.isPending} onClick={() => discover.mutate(undefined)}>
+              {discover.isPending ? 'Reading…' : 'Read my reflections'}
+            </Button>
+          </div>
+          <p className={styles.muted}>Looks through your journal for positions you state and proposes them here, with the quotes. Sends eligible entries to the model.</p>
+          {discover.error && <p role="alert" className={styles.error}>{failureText(discover.error)}</p>}
+        </div>
+        <RelatedIdeas />
+      </div>
+      <RunSummary run={run} />
+    </Section>
   );
 }
 
 /**
- * Finding ideas that share one meaning. Asking shows what would be sent and
- * what it would cost; nothing leaves until the owner presses Send.
+ * Finding ideas that mean the same or apply one another. Asking shows what
+ * would be sent and what it would cost; nothing leaves until the owner presses Send.
  */
-function SameMeaning() {
+function RelatedIdeas() {
   const [asking, setAsking] = React.useState(false);
   const estimate = useMeaningEstimate(asking);
   const find = useDiscoverMeanings();
-  if (!asking) {
-    return (
-      <div className={styles.row}>
-        <Button onClick={() => setAsking(true)} disabled={find.isPending}>
-          {find.isPending ? 'Finding…' : 'Find ideas with the same meaning'}
-        </Button>
-        {find.error && <span role="alert">{failureText(find.error)}</span>}
-      </div>
-    );
-  }
   const e = estimate.data;
   return (
-    <div role="dialog" aria-label="Find ideas with the same meaning" className={styles.ask}>
-      {estimate.isPending && <span>Counting…</span>}
-      {estimate.isError && <span role="alert">The estimate did not load.</span>}
-      {e && (e.calls === 0
-        ? <span>You need at least two accepted ideas to compare.</span>
-        : <span>
-            Sends your {e.ideas} accepted idea statements, and no journal text, to the model in {e.calls} call{e.calls > 1 ? 's' : ''}: {e.estimate}.
-            Pairs it finds wait in Review; nothing is linked until you accept it.
-          </span>)}
-      <div className={styles.row}>
-        <Button variant="primary" disabled={!e || e.calls === 0}
-          onClick={() => { setAsking(false); find.mutate(undefined); }}>Send</Button>
-        <Button onClick={() => setAsking(false)}>Cancel</Button>
+    <div className={styles.ask}>
+      <div>
+        <Button onClick={() => setAsking(true)} disabled={find.isPending || asking}>
+          {find.isPending ? 'Finding…' : 'Find related ideas'}
+        </Button>
       </div>
+      <p className={styles.muted}>Compares your accepted ideas for ones that mean the same, or where one applies another. Sends only the idea statements.</p>
+      {find.error && <p role="alert" className={styles.error}>{failureText(find.error)}</p>}
+      {asking && (
+        <div role="dialog" aria-label="Find related ideas" className={styles.confirmSend}>
+          {estimate.isPending && <p className={styles.muted}>Counting…</p>}
+          {estimate.isError && <p role="alert" className={styles.error}>The estimate did not load.</p>}
+          {e && (e.calls === 0
+            ? <p>You need at least two accepted ideas to compare.</p>
+            : <p>
+                Sends your {e.ideas} accepted idea statements, and no journal text, to the model in {e.calls} call{e.calls > 1 ? 's' : ''}: {e.estimate}.
+                Pairs it finds wait in Review; nothing is linked until you accept it.
+              </p>)}
+          <div className={styles.row}>
+            <Button variant="primary" disabled={!e || e.calls === 0}
+              onClick={() => { setAsking(false); find.mutate(undefined); }}>Send</Button>
+            <Button variant="quiet" onClick={() => setAsking(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-const LAYOUT_KEY = 'iris.ideas.layout';
+type View = 'map' | 'list' | 'review';
+const VIEW_KEY = 'iris.ideas.layout';
 
-function readLayout(): 'graph' | 'list' {
-  try { return window.localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'graph'; } catch { return 'graph'; }
+function rememberedView(): 'map' | 'list' {
+  try { return window.localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'map'; } catch { return 'map'; }
 }
 
-// three.js is large; only a visit to the graph loads it.
+// three.js is large; only a visit to the map loads it.
 const IdeaGraph = React.lazy(() => import('@/components/IdeaGraph').then(m => ({ default: m.IdeaGraph })));
 
-function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick} className={styles.toggle}>{children}</button>
-  );
-}
-
-/** Gives its child the height from where it starts to the bottom of the window. */
-function FullHeight({ children }: { children: (height: number) => React.ReactNode }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [height, setHeight] = React.useState(640);
+/** The height from where the map starts to the bottom of the window. */
+function useFillHeight(ref: React.RefObject<HTMLElement | null>) {
+  const [height, setHeight] = React.useState(600);
   React.useEffect(() => {
     const measure = () => {
       const top = ref.current?.getBoundingClientRect().top ?? 0;
-      setHeight(Math.max(480, Math.round(window.innerHeight - top - 64)));
+      const narrow = window.innerWidth < 900;
+      setHeight(narrow
+        ? Math.max(360, Math.round(window.innerHeight * 0.62))
+        : Math.max(460, Math.round(window.innerHeight - top - 40)));
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
-  return <div ref={ref}>{children(height)}</div>;
+  }, [ref]);
+  return height;
 }
 
-function FrameworkView({ data, waiting, review }: { data: IdeasFramework; waiting: number; review?: IdeasReview }) {
-  const [query, setQuery] = React.useState('');
-  const [domain, setDomain] = React.useState<IdeaDomain | ''>('');
-  const [layout, setLayoutState] = React.useState(readLayout);
-  // Off by default: ideas float and cluster by their links, as in Obsidian.
-  const [areas, setAreas] = React.useState(false);
-  const [proposals, setProposals] = React.useState(false);
-  const setLayout = (value: 'graph' | 'list') => {
-    setLayoutState(value);
-    try { window.localStorage.setItem(LAYOUT_KEY, value); } catch { /* not remembered */ }
-  };
-  const byId = new Map(data.ideas.map(idea => [idea.id, idea]));
-  const matches = (idea: IdeaSummary) => (
-    idea.statement.toLowerCase().includes(query.trim().toLowerCase())
-    && (domain === '' || idea.domain === domain)
-  );
-  const anchored = data.ideas.filter(idea => !idea.needsEvidence && matches(idea));
-  const needing = data.ideas.filter(idea => idea.needsEvidence);
-  const groups = DOMAINS.map(option => ({
-    ...option,
-    ideas: anchored.filter(idea => idea.domain === option.value),
-  })).filter(group => group.ideas.length > 0);
-  const tensions = data.links.filter(link => data.tensionIds.includes(link.id));
-  const foundations = data.foundationIds.map(id => byId.get(id)).filter((idea): idea is IdeaSummary => !!idea);
-  const unconnected = data.unconnectedIds.map(id => byId.get(id)).filter((idea): idea is IdeaSummary => !!idea && matches(idea));
+interface Filter { query: string; area: IdeaDomain | null }
 
-  if (data.ideas.length === 0 && !(layout === 'graph' && proposals)) {
-    return (
-      <EmptyState
-        title="No framework yet."
-        body={waiting
-          ? `${waiting} proposals are waiting in Review. Nothing is added until you accept the quotes.`
-          : 'Read your reflections to propose ideas. Nothing is added until you accept the quotes.'}
-        action={waiting
-          ? <Link to="/ideas?view=review">Review proposals</Link>
-          : <Link to="/journal">Journal</Link>}
-      />
-    );
-  }
+function matches(idea: IdeaSummary, filter: Filter): boolean {
+  return idea.statement.toLowerCase().includes(filter.query.trim().toLowerCase())
+    && (filter.area === null || idea.domain === filter.area);
+}
 
-  const controls = (
-    <div className={styles.controls}>
-      <Toggle on={layout === 'graph'} onClick={() => setLayout('graph')}>Graph</Toggle>
-      <Toggle on={layout === 'list'} onClick={() => setLayout('list')}>List</Toggle>
-      <span className={styles.gap} />
-      <input aria-label="Search statements" placeholder="Search" value={query}
-        onChange={event => setQuery(event.target.value)} />
-      <select aria-label="Filter domain" value={domain}
-        onChange={event => setDomain(event.target.value as IdeaDomain | '')}>
-        <option value="">All domains</option>
-        {DOMAINS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-      {layout === 'graph' && <>
-        <Toggle on={areas} onClick={() => setAreas(a => !a)}>Areas</Toggle>
-        <Toggle on={proposals} onClick={() => setProposals(p => !p)}>
-          Proposals{review ? ` (${review.ideas.length})` : ''}
-        </Toggle>
-      </>}
+/** Search, and the areas as chips: the map's colour key and its filter in one. */
+function Filters({ ideas, filter, onChange }: { ideas: IdeaSummary[]; filter: Filter; onChange: (f: Filter) => void }) {
+  const counts = new Map<IdeaDomain, number>();
+  ideas.forEach(idea => counts.set(idea.domain, (counts.get(idea.domain) ?? 0) + 1));
+  return (
+    <div className={styles.filters}>
+      <input type="search" aria-label="Search your ideas" placeholder="Search your ideas" value={filter.query}
+        className={styles.search} onChange={event => onChange({ ...filter, query: event.target.value })} />
+      <div className={styles.chips} role="group" aria-label="Areas">
+        {AREAS.filter(area => counts.has(area.value)).map(area => (
+          <button key={area.value} type="button" className={styles.chip}
+            aria-pressed={filter.area === area.value}
+            onClick={() => onChange({ ...filter, area: filter.area === area.value ? null : area.value })}>
+            <span className={styles.dot} style={{ background: AREA_COLOR[area.value] }} aria-hidden="true" />
+            {area.label}
+            <span className={styles.count}>{counts.get(area.value)}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
+}
 
-  if (layout === 'graph') {
-    const shown = new Set(data.ideas.filter(matches).map(idea => idea.id));
-    return (
-      <div className={styles.stack}>
-        {controls}
-        <FullHeight>{height => <React.Suspense fallback={<LoadingState label="Drawing your ideas…" />}><IdeaGraph height={height}
-          ideas={data.ideas.filter(idea => shown.has(idea.id))}
-          links={data.links}
-          proposedIdeas={proposals ? (review?.ideas ?? []).map(card => card.idea).filter(matches) : []}
-          proposedLinks={proposals ? review?.links ?? [] : []}
-          showAreas={areas}
-          areaLabel={value => labelOf(DOMAINS, value)}
-        /></React.Suspense>}</FullHeight>
-      </div>
-    );
-  }
+function connectionsOf(data: IdeasFramework): Map<string, number> {
+  const out = new Map<string, number>();
+  data.links.filter(link => link.status === 'accepted').forEach(link => {
+    out.set(link.fromIdeaId, (out.get(link.fromIdeaId) ?? 0) + 1);
+    out.set(link.toIdeaId, (out.get(link.toIdeaId) ?? 0) + 1);
+  });
+  return out;
+}
+
+function byArea(ideas: IdeaSummary[]) {
+  return AREAS.map(area => ({ ...area, ideas: ideas.filter(idea => idea.domain === area.value) }))
+    .filter(group => group.ideas.length > 0);
+}
+
+function MapView({ data, review, filter, onFilter }: {
+  data: IdeasFramework; review?: IdeasReview; filter: Filter; onFilter: (f: Filter) => void;
+}) {
+  const canvas = React.useRef<HTMLDivElement>(null);
+  const height = useFillHeight(canvas);
+  const [areas, setAreas] = React.useState(false);
+  const [proposals, setProposals] = React.useState(false);
+  const [focus, setFocus] = React.useState<string | null>(null);
+  const shown = data.ideas.filter(idea => matches(idea, filter));
+  const kinds = LINK_KINDS.filter(kind => data.links.some(link => link.kind === kind && link.status === 'accepted'));
+  const waiting = review?.ideas.filter(card => card.idea.status === 'candidate').length ?? 0;
 
   return (
+    <div className={styles.stack}>
+      <Filters ideas={data.ideas} filter={filter} onChange={onFilter} />
+      <div className={styles.map}>
+        <div className={styles.canvas} ref={canvas}>
+          <React.Suspense fallback={<LoadingState label="Drawing your ideas…" />}>
+            <IdeaGraph height={height} focusId={focus}
+              ideas={shown}
+              links={data.links}
+              proposedIdeas={proposals ? (review?.ideas ?? []).map(card => card.idea).filter(idea => matches(idea, filter)) : []}
+              proposedLinks={proposals ? review?.links ?? [] : []}
+              showAreas={areas}
+              areaLabel={areaLabel}
+            />
+          </React.Suspense>
+          <div className={styles.mapTools}>
+            <button type="button" className={styles.chip} aria-pressed={areas} onClick={() => setAreas(a => !a)}>
+              Group by area
+            </button>
+            {waiting > 0 && (
+              <button type="button" className={styles.chip} aria-pressed={proposals} onClick={() => setProposals(p => !p)}>
+                Show proposals ({waiting})
+              </button>
+            )}
+          </div>
+          <div className={styles.legend}>
+            {kinds.map(kind => (
+              <span key={kind} className={styles.legendItem}>
+                <span className={styles.legendLine} style={{ background: LINK_COLOR[kind] }} aria-hidden="true" />
+                {LINK_LABEL[kind]}
+              </span>
+            ))}
+            <span className={styles.legendHint}>Drag to turn, scroll to zoom, click an idea to open it</span>
+          </div>
+        </div>
+        <nav className={styles.index} aria-label="Ideas on the map" style={{ maxHeight: height }}>
+          {shown.length === 0 && <p className={styles.muted}>No idea matches.</p>}
+          {byArea(shown).map(group => (
+            <section key={group.value} className={styles.indexGroup}>
+              <h2 className={styles.indexArea}>
+                <span className={styles.dot} style={{ background: AREA_COLOR[group.value] }} aria-hidden="true" />
+                {group.label}
+              </h2>
+              <ul className={styles.indexList}>
+                {group.ideas.map(idea => (
+                  <li key={idea.id}>
+                    <Link to={`/ideas/${idea.id}`} className={styles.indexItem}
+                      onMouseEnter={() => setFocus(idea.id)} onMouseLeave={() => setFocus(null)}
+                      onFocus={() => setFocus(idea.id)} onBlur={() => setFocus(null)}>
+                      <span className={styles.clamp}>{idea.statement}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+}
+
+function ListView({ data, filter, onFilter }: { data: IdeasFramework; filter: Filter; onFilter: (f: Filter) => void }) {
+  const connections = connectionsOf(data);
+  const foundations = new Set(data.foundationIds);
+  const anchored = data.ideas.filter(idea => !idea.needsEvidence && matches(idea, filter));
+  const needing = data.ideas.filter(idea => idea.needsEvidence && matches(idea, filter));
+  const tensions = data.links.filter(link => data.tensionIds.includes(link.id));
+  const row = (idea: IdeaSummary) => (
+    <IdeaRow key={idea.id} idea={idea} connections={connections.get(idea.id) ?? 0} foundation={foundations.has(idea.id)} />
+  );
+  return (
     <div className={styles.listView}>
-      {controls}
+      <Filters ideas={data.ideas} filter={filter} onChange={onFilter} />
       {tensions.length > 0 && (
-        <section className={styles.stack}>
-          <h2 className={styles.sectionTitle}>Open tensions</h2>
+        <section className={styles.stack} aria-labelledby="tensions">
+          <h2 id="tensions" className={styles.sectionTitle}>Open tensions</h2>
+          <p className={styles.muted}>Two ideas you hold that cannot both be true in the same conditions.</p>
           {tensions.map(link => (
-            <Panel key={link.id} as="article">
+            <Panel key={link.id} as="article" className={styles.tension}>
               <Link to={`/ideas/${link.fromIdeaId}`} className={styles.linkEnd}>{link.fromStatement}</Link>
-              <Badge tone="worse">{LINK_LABEL[link.kind]}</Badge>
+              <span className={styles.relationWord}>{LINK_LABEL[link.kind]}</span>
               <Link to={`/ideas/${link.toIdeaId}`} className={styles.linkEnd}>{link.toStatement}</Link>
             </Panel>
           ))}
         </section>
       )}
-      {foundations.length > 0 && (
-        <section className={styles.stack}>
-          <h2 className={styles.sectionTitle}>Ideas other arguments depend on</h2>
-          {foundations.map(idea => <IdeaRow key={idea.id} idea={idea} />)}
-        </section>
-      )}
-      {unconnected.length > 0 && (
-        <section className={styles.stack}>
-          <h2 className={styles.sectionTitle}>Unconnected</h2>
-          {unconnected.map(idea => <IdeaRow key={idea.id} idea={idea} />)}
-        </section>
-      )}
-      {groups.map(group => (
-        <section key={group.value} className={styles.stack}>
-          <h2 className={styles.sectionTitle}>{group.label}</h2>
-          {group.ideas.map(idea => <IdeaRow key={idea.id} idea={idea} />)}
+      {anchored.length === 0 && needing.length === 0 && <p className={styles.muted}>No idea matches.</p>}
+      {byArea(anchored).map(group => (
+        <section key={group.value} className={styles.areaGroup} aria-labelledby={`area-${group.value}`}>
+          <h2 id={`area-${group.value}`} className={styles.areaTitle}>
+            <span className={styles.dot} style={{ background: AREA_COLOR[group.value] }} aria-hidden="true" />
+            {group.label}
+            <span className={styles.count}>{group.ideas.length}</span>
+          </h2>
+          <ul className={styles.rows}>{group.ideas.map(row)}</ul>
         </section>
       ))}
       {needing.length > 0 && (
-        <section className={styles.stack}>
-          <h2 className={styles.sectionTitle}>Needs source review</h2>
-          {needing.map(idea => <IdeaRow key={idea.id} idea={idea} />)}
+        <section className={styles.areaGroup} aria-labelledby="needing">
+          <h2 id="needing" className={styles.areaTitle}>Needs its quotes checked</h2>
+          <p className={styles.muted}>The entries these rest on have changed or gone. Open one to see what is left.</p>
+          <ul className={styles.rows}>{needing.map(row)}</ul>
         </section>
       )}
     </div>
   );
 }
 
-function IdeaRow({ idea }: { idea: IdeaSummary }) {
+function IdeaRow({ idea, connections, foundation }: { idea: IdeaSummary; connections: number; foundation: boolean }) {
+  const facts = [
+    labelOf(POSITIONS, idea.position),
+    `written ${idea.citationCount} ${idea.citationCount === 1 ? 'time' : 'times'}${idea.undatedCount ? `, ${idea.undatedCount} undated` : ''}`,
+    connections ? `${connections} ${connections === 1 ? 'connection' : 'connections'}` : null,
+  ].filter(Boolean).join(', ');
   return (
-    <Link to={`/ideas/${idea.id}`} className={styles.ideaRow}>
-      <span className={styles.ideaMeta}>
-        <Badge tone={idea.domain === 'life' ? 'confirmed' : 'neutral'}>{labelOf(DOMAINS, idea.domain)}</Badge>
-        {labelOf(POSITIONS, idea.position)}
-      </span>
-      <span className={styles.ideaStatement}>{idea.statement}</span>
-      <span className={styles.muted}>Written {idea.citationCount} {idea.citationCount === 1 ? 'time' : 'times'}{idea.undatedCount ? `, ${idea.undatedCount} undated` : ''}</span>
-    </Link>
+    <li>
+      <Link to={`/ideas/${idea.id}`} className={styles.ideaRow}>
+        <span className={styles.ideaStatement}>{idea.statement}</span>
+        <span className={styles.ideaMeta}>
+          {facts.charAt(0).toUpperCase() + facts.slice(1)}
+          {foundation && <Badge>Others depend on this</Badge>}
+        </span>
+      </Link>
+    </li>
   );
 }
 
 function ReviewView({ data }: { data: IdeasReview }) {
-  if (data.ideas.length === 0 && data.links.length === 0) {
-    return <EmptyState title="Nothing waiting." body="Accepted ideas stay in the framework. New proposals and new quotes wait here." />;
-  }
+  const links = data.links.filter(link => link.status === 'candidate');
+  const fresh = data.ideas.filter(card => card.idea.status === 'candidate');
+  const quotes = data.ideas.filter(card => card.idea.status !== 'candidate');
   return (
     <div className={styles.reviewList}>
-      {data.ideas.map(card => <ReviewCard key={card.idea.id} card={card} />)}
-      {data.links.map(link => <LinkCard key={link.id} link={link} />)}
+      {links.length + fresh.length + quotes.length === 0 && (
+        <p className={styles.empty}>Nothing is waiting. Ask IRIS to look again below, or keep writing.</p>
+      )}
+      {links.length > 0 && (
+        <Section title={`Connections to judge (${links.length})`}
+          description="How two of your accepted ideas relate. Change the relation if IRIS has it wrong.">
+          {links.map(link => <LinkCard key={link.id} link={link} />)}
+        </Section>
+      )}
+      {fresh.length > 0 && (
+        <Section title={`New ideas from your writing (${fresh.length})`}
+          description="IRIS's wording of a position you state, with the quotes it rests on.">
+          {fresh.map(card => <ReviewCard key={card.idea.id} card={card} />)}
+        </Section>
+      )}
+      {quotes.length > 0 && (
+        <Section title={`New quotes for ideas you hold (${quotes.length})`}>
+          {quotes.map(card => <ReviewCard key={card.idea.id} card={card} />)}
+        </Section>
+      )}
+      <AskIris run={data.lastRun} />
     </div>
   );
 }
 
 function IdeasIndex() {
   const [params, setParams] = useSearchParams();
-  const review = params.get('view') === 'review';
+  const asked = params.get('view');
+  const view: View = asked === 'review' || asked === 'list' || asked === 'map' ? asked : rememberedView();
+  const [filter, setFilter] = React.useState<Filter>({ query: '', area: null });
   const framework = useIdeasFramework();
   const queue = useIdeaReview();
-  const data = review ? queue : framework;
+  const waiting = (queue.data?.ideas.length ?? 0) + (queue.data?.links.filter(link => link.status === 'candidate').length ?? 0);
+  const show = (next: View) => {
+    if (next !== 'review') { try { window.localStorage.setItem(VIEW_KEY, next); } catch { /* not remembered */ } }
+    setParams(next === 'map' ? {} : { view: next });
+  };
+  const framed = (body: (data: IdeasFramework) => React.ReactNode) => (
+    framework.isLoading ? <LoadingState label="Loading your ideas…" />
+      : framework.isError || !framework.data ? <ErrorState onRetry={() => framework.refetch()} />
+      : framework.data.ideas.length === 0 ? (
+        <EmptyState title="No ideas yet."
+          body={waiting
+            ? `${waiting} proposals are waiting in Review. Nothing is added until you accept it.`
+            : 'Ask IRIS to read your reflections in Review. Nothing is added until you accept it.'} />
+      ) : body(framework.data)
+  );
   return (
-    <Page title={review ? 'Waiting on you' : 'Ideas'} width="wide"
-      description={review ? 'Proposals and new quotes. Nothing joins your framework until you accept it.' : 'Positions in your writing, and how they connect.'}
-      actions={<ChoiceGroup label="Ideas view" value={review ? 'review' : 'framework'}
-        options={[{ value: 'framework', label: 'Framework' }, { value: 'review', label: 'Review' }]}
-        onChange={value => setParams(value === 'review' ? { view: 'review' } : {})} />}>
-      <div className={styles.discovery}><Discovery /></div>
-      <RunSummary run={data.data?.lastRun ?? null} />
-      {data.isLoading && <LoadingState label="Loading your framework…" />}
-      {data.isError && <ErrorState onRetry={() => data.refetch()} />}
-      {data.data && (review
-        ? <ReviewView data={data.data as IdeasReview} />
-        : <FrameworkView data={data.data as IdeasFramework} waiting={queue.data?.ideas.length ?? 0} review={queue.data} />)}
+    <Page title="Ideas" width="wide"
+      description="The positions you hold, in your own words, and how they connect.">
+      <Tabs<View> label="Ideas" value={view} onChange={show}
+        tabs={[
+          { value: 'map', label: 'Map' },
+          { value: 'list', label: 'List' },
+          { value: 'review', label: waiting ? `Review (${waiting})` : 'Review' },
+        ]}>
+        <TabPanel value="map">{framed(data => <MapView data={data} review={queue.data} filter={filter} onFilter={setFilter} />)}</TabPanel>
+        <TabPanel value="list">{framed(data => <ListView data={data} filter={filter} onFilter={setFilter} />)}</TabPanel>
+        <TabPanel value="review">
+          {queue.isLoading ? <LoadingState label="Loading what is waiting…" />
+            : queue.isError || !queue.data ? <ErrorState onRetry={() => queue.refetch()} />
+            : <ReviewView data={queue.data} />}
+        </TabPanel>
+      </Tabs>
     </Page>
   );
 }
@@ -563,10 +667,13 @@ function IdeaDetail({ id }: { id: string }) {
 
   return (
     <Page width="standard" title={idea.statement}
-      lead={<span className={styles.detailLead}><Link to="/ideas">All ideas</Link>
-        <Badge tone={idea.domain === 'life' ? 'confirmed' : 'neutral'}>{labelOf(DOMAINS, idea.domain)}</Badge>
+      lead={<span className={styles.detailLead}><Link to="/ideas">← All ideas</Link>
+        <span className={styles.row}>
+          <span className={styles.dot} style={{ background: AREA_COLOR[idea.domain] }} aria-hidden="true" />
+          {labelOf(DOMAINS, idea.domain)}
+        </span>
         {labelOf(POSITIONS, idea.position)}</span>}>
-      <div className={styles.decide}>
+      <div className={`${styles.decide} ${styles.detailDecide}`}>
         <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
         <Button disabled={update.isPending} onClick={() => update.mutate({ id, body: { position, domain } })}>Save</Button>
       </div>

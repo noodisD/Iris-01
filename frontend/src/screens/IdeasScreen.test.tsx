@@ -136,26 +136,39 @@ describe('Ideas screen', () => {
     expect(view.getByRole('button', { name: 'Add to framework' })).toBeInTheDocument();
   });
 
-  it('shows what finding shared meanings would send and cost before anything is sent', () => {
-    renderAt('/ideas');
-    fireEvent.click(screen.getByRole('button', { name: 'Find ideas with the same meaning' }));
-    const dialog = screen.getByRole('dialog', { name: 'Find ideas with the same meaning' });
+  it('shows what finding related ideas would send and cost before anything is sent', () => {
+    renderAt('/ideas?view=review');
+    fireEvent.click(screen.getByRole('button', { name: 'Find related ideas' }));
+    const dialog = screen.getByRole('dialog', { name: 'Find related ideas' });
     expect(dialog).toHaveTextContent('Sends your 3 accepted idea statements, and no journal text');
     expect(dialog).toHaveTextContent('about $0.01');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens on the graph, and lists on request', async () => {
+  it('opens on the map, and lists on request', async () => {
     renderAt('/ideas');
     expect(await screen.findByRole('img', { name: 'Ideas graph' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    // The index beside the map names each idea, grouped by area.
+    const index = screen.getByRole('navigation', { name: 'Ideas on the map' });
+    expect(within(index).getByRole('heading', { name: 'Economics' })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'List' }));
     expect(screen.queryByRole('img', { name: 'Ideas graph' })).toBeNull();
+    expect(screen.getByRole('heading', { name: /Economics/ })).toBeInTheDocument();
+  });
+
+  it('filters by area from the chips', () => {
+    renderAt('/ideas?view=list');
+    fireEvent.click(screen.getByRole('button', { name: /Economics/ }));
+    expect(screen.getByRole('button', { name: /Economics/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.change(screen.getByLabelText('Search your ideas'), { target: { value: 'planner' } });
+    const rows = screen.getAllByRole('listitem').map(item => item.textContent);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/central planner/);
   });
 
   it('shows an endorsed pair as an open tension', () => {
-    renderAt('/ideas');
-    fireEvent.click(screen.getByRole('button', { name: 'List' }));
+    renderAt('/ideas?view=list');
     const section = screen.getByRole('heading', { name: 'Open tensions' }).closest('section')!;
     const view = within(section);
     expect(view.getByText('Price controls destroy the information prices carry about scarcity.')).toBeInTheDocument();

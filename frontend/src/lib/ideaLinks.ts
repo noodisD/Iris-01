@@ -15,3 +15,13 @@ export const SYMMETRIC: ReadonlySet<LinkKind> = new Set<LinkKind>(['same_meaning
 
 /** In the order offered when the owner names a relation. */
 export const LINK_KINDS = Object.keys(LINK_LABEL) as LinkKind[];
+
+/** A line's colour on the map, per relation. */
+export const LINK_COLOR: Record<LinkKind, string> = {
+  same_meaning: '#e3c26b',
+  applies: '#e39ad0',
+  supports: '#8fc4a8',
+  refines: '#9aa6e0',
+  depends_on: '#d9a877',
+  contradicts: '#d98a8a',
+};
