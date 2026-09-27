@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from .timeutils import utc_now
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .approved_context import approved_context
+from .voice import SPOKEN_STYLE
 from .database import db
 from .intelligence import Intelligence
 from .journal_entry import JournalEntry
@@ -151,11 +152,13 @@ class PersonalAICompanion:
         except Exception as e:
             logger.error(f"Error during shutdown cleanup: {e}")
 
-    def _begin_turn(self, user_message: str) -> tuple[list[dict], str]:
+    def _begin_turn(self, user_message: str, spoken: bool = False) -> tuple[list[dict], str]:
         """Record the owner's message and build what the model is given.
 
         Shared by `chat` and `chat_stream`, so the two ways of replying cannot
-        drift into two ways of deciding what IRIS knows.
+        drift into two ways of deciding what IRIS knows. A `spoken` turn is the
+        same turn with one instruction more: the reply will be heard, not read
+        (ADR-0025).
         """
         # 1. Add user message to memory
         self.memory.add_message("user", user_message)
@@ -172,6 +175,8 @@ class PersonalAICompanion:
 
 {aggregated_context}
 """
+        if spoken:
+            enhanced_prompt += f"\n{SPOKEN_STYLE}\n"
         # 4. Short-term conversation context
         return self.memory.get_context(max_messages=20), enhanced_prompt
 
@@ -190,7 +195,7 @@ class PersonalAICompanion:
         self.memory.add_message("assistant", response_text)
         return response_text
 
-    def begin_turn(self, user_message: str) -> tuple[list[dict], str]:
+    def begin_turn(self, user_message: str, spoken: bool = False) -> tuple[list[dict], str]:
         """Store the owner's message and build the model's input, or raise.
 
         Separate from the streaming half so a caller can tell the owner what
@@ -199,7 +204,7 @@ class PersonalAICompanion:
         its draft when the server says the message was stored — so a write that
         failed could take the only copy of what they typed with it.
         """
-        return self._begin_turn(user_message)
+        return self._begin_turn(user_message, spoken)
 
     def stream_reply(self, short_term_context: list[dict],
                      enhanced_prompt: str) -> Iterator[str]:

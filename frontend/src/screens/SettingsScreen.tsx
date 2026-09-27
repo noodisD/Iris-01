@@ -309,7 +309,7 @@ export function SettingsScreen() {
           <Section title="Your data">
             <dl className={styles.facts}>
               <Fact label="Stored">On this laptop, in your own PostgreSQL. Nothing is kept anywhere else.</Fact>
-              <Fact label="Sent to OpenAI">What you write, to be turned into embeddings and replies. Reads over your writing, such as Read my reflections, run only when you start them.</Fact>
+              <Fact label="Sent to OpenAI">What you write, to be turned into embeddings and replies. Reads over your writing, such as Read my reflections, run only when you start them. When you talk with IRIS, your speech is sent to be transcribed and IRIS's replies to be spoken; the audio is not kept.</Fact>
               <Fact label="Reachable from">This laptop, your paired phone, and your own devices signed in to your Tailscale account.</Fact>
               <Fact label="Removable">Every note IRIS keeps about you is listed under Notes and can be removed there.</Fact>
             </dl>

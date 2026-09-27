@@ -274,6 +274,12 @@ either client.
 
 ---
 
+**Talk mode** is chat spoken aloud (ADR-0025). IRIS listens until the owner
+stops, transcribes what they said, answers with the same context and model as
+typed chat, then speaks the reply a sentence at a time; talking over IRIS stops
+it. A spoken turn is saved as an ordinary chat message. The audio is never
+kept, and the cost of a turn is shown before anything is sent.
+
 ## Seams
 
 1. **Evidence** — each engine emits its own facts through `emit_evidence()`.

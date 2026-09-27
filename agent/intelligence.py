@@ -38,6 +38,13 @@ class Intelligence:
         "gpt-5.6-sol": (5.00, 30.00),
     }
 
+    #: Dollars per minute of audio heard or spoken, from the same page and date.
+    AUDIO_PRICE_PER_MINUTE = {
+        "gpt-4o-transcribe": 0.006,
+        "gpt-4o-mini-transcribe": 0.003,
+        "gpt-4o-mini-tts": 0.015,
+    }
+
     @classmethod
     def estimate(cls, model: str, tokens_in: int, tokens_out: int = 0) -> str:
         """What a run of this size would cost, said in words rather than hidden."""

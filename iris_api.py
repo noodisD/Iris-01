@@ -68,6 +68,7 @@ try:
     from agent.importing.service import ImportError_, ImportService
     from agent.work_queue import worker as queue_worker
     from agent import migrations
+    from agent import voice
 
     COMPANION_AVAILABLE = True
     logger.info("PersonalAICompanion and db imported successfully")
@@ -900,6 +901,9 @@ async def stream_conversation_reply(
     if db.get_chat_session(user_id, conversation_id) is None:
         raise HTTPException(status_code=404, detail="No such conversation.")
     text = (request or {}).get("text", "")
+    # A turn that will be heard, not read (ADR-0025): same storage and context,
+    # one instruction more.
+    spoken = bool((request or {}).get("voice"))
 
     async def event_gen():
         # Constructed inside the try: with no API key configured it raises, and
@@ -907,7 +911,7 @@ async def stream_conversation_reply(
         # instead of sending the error event the client knows how to show.
         try:
             companion = PersonalAICompanion(user_id=user_id, session_id=conversation_id)
-            turn = await run_in_threadpool(companion.begin_turn, text)
+            turn = await run_in_threadpool(companion.begin_turn, text, spoken)
         except Exception as e:
             logger.error(f"Could not start the turn: {e}")
             yield f"data: {json.dumps({'error': str(e), 'saved': False})}\n\n"
@@ -923,6 +927,51 @@ async def stream_conversation_reply(
         yield f"data: {json.dumps({'done': True, 'messageId': message_id})}\n\n"
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+# ============================================================================
+# TALKING WITH IRIS (ADR-0025): speech in and out around an ordinary chat turn
+# ============================================================================
+
+class SpeechRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=voice.MAX_SPEECH_CHARS)
+
+
+@app.get("/api/voice/estimate")
+def voice_estimate(user_id: int = Depends(get_current_user_id)):
+    """What one spoken turn would cost. Sends nothing."""
+    return voice.estimate(user_id)
+
+
+@app.post("/api/voice/transcribe")
+async def voice_transcribe(audio: UploadFile = File(...), user_id: int = Depends(get_current_user_id)):
+    """What the owner said, as text. The audio is not kept."""
+    data = await audio.read(voice.MAX_UTTERANCE_BYTES + 1)
+    try:
+        text = await run_in_threadpool(voice.transcribe_utterance, data, audio.content_type or "")
+    except voice.TooLong as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+    except voice.VoiceError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Transcription of a spoken turn failed: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="IRIS could not hear that. Try again.") from e
+    return {"text": text}
+
+
+@app.post("/api/voice/speech")
+async def voice_speech(body: SpeechRequest, user_id: int = Depends(get_current_user_id)):
+    """IRIS's words as speech (MP3), streamed as they are made."""
+    try:
+        chunks = await run_in_threadpool(voice.open_speech, body.text)
+    except voice.VoiceError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:  # no API key
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Speech could not be made: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="IRIS could not speak that.") from e
+    return StreamingResponse(iterate_in_threadpool(chunks), media_type="audio/mpeg")
 
 
 # ============================================================================

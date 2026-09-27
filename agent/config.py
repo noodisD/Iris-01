@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # lever for a very large backlog; whisper-1 is the one to switch to if
     # per-segment timestamps are ever wanted.
     TRANSCRIPTION_MODEL: str = Field(default="gpt-4o-transcribe")
+    # IRIS's voice when talking (ADR-0025). The model takes a tone instruction,
+    # which is how IRIS sounds calm rather than like an announcer.
+    TTS_MODEL: str = Field(default="gpt-4o-mini-tts")
+    TTS_VOICE: str = Field(default="sage")
 
     # PostgreSQL
     # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)

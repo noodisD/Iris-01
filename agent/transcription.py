@@ -165,11 +165,16 @@ def split(path: Path, workdir: Path, duration: float | None) -> list[Path]:
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-def transcribe_file(path: Path, model: str) -> str:
-    """One request to the provider. The only place this module talks out."""
+def transcribe_file(path: Path, model: str, language: str | None = None) -> str:
+    """One request to the provider. The only place this module talks out.
+
+    `language` is a hint for short speech (a spoken chat turn), where there is
+    too little audio to detect it reliably. Journals leave it unset.
+    """
+    extra = {"language": language} if language else {}
     with path.open("rb") as fh:
         return str(openai.audio.transcriptions.create(
-            model=model, file=fh, response_format="text"
+            model=model, file=fh, response_format="text", **extra
         )).strip()
 
 
