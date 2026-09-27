@@ -21,13 +21,15 @@ const VERDICTS: { value: PatternVerdictValue; label: string }[] = [
   { value: 'unsure', label: 'Unsure' },
 ];
 
-/** "3 of 4 times it went worse", read as a sentence about the other pattern. */
-function sentence(d: Difference): { lead: string; worse: string; better: string } {
-  return {
-    lead: `When ${d.patternName.toLowerCase()} came up,`,
-    worse: `${d.otherName.toLowerCase()} was there ${d.worse} of ${d.worseTotal} times it went worse`,
-    better: `and ${d.better} of ${d.betterTotal} times it went better.`,
-  };
+/**
+ * Both sides counted, with the patterns named as names: "When a signal arrived
+ * and was acted on, or was not came up" is what dropping a name into a clause
+ * produced.
+ */
+export function sentence(d: Difference): string {
+  const times = (n: number) => `${n} ${n === 1 ? 'time' : 'times'}`;
+  return `Of the ${times(d.worseTotal)} \u201c${d.patternName}\u201d went worse, \u201c${d.otherName}\u201d was there in `
+    + `${d.worse}; of the ${times(d.betterTotal)} it went better, in ${d.better}.`;
 }
 
 export function InsightsScreen() {
@@ -116,11 +118,11 @@ function DayDifferenceCard({ d }: { d: DayDifference }) {
 
 function InsightCard({ d }: { d: Difference }) {
   const verdict = useDifferenceVerdict();
-  const s = sentence(d);
+
   const current = d.verdict?.verdict ?? null;
   return (
     <Panel as="article" tone={tone(current)} aria-label={`${d.patternName} and ${d.otherName}`}>
-      <p className={styles.sentence}>{s.lead} {s.worse}, {s.better}</p>
+      <p className={styles.sentence}>{sentence(d)}</p>
       <div className={styles.meta}>
         <Link to={`/patterns/${d.patternId}`}>{d.patternName}</Link>
         <Link to={`/patterns/${d.otherId}`}>{d.otherName}</Link>

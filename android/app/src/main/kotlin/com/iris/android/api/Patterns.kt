@@ -140,9 +140,11 @@ data class DayDifference(
 data class DayDifferencesResponse(val differences: List<DayDifference>)
 
 /** The difference as one sentence, both sides counted. */
-fun differenceSentence(d: Difference): String =
-    "When ${d.patternName.lowercase()} came up, ${d.otherName.lowercase()} was there " +
-        "${d.worse} of ${d.worseTotal} times it went worse, and ${d.better} of ${d.betterTotal} times it went better."
+fun differenceSentence(d: Difference): String {
+    fun times(n: Int) = if (n == 1) "1 time" else "$n times"
+    return "Of the ${times(d.worseTotal)} \u201c${d.patternName}\u201d went worse, \u201c${d.otherName}\u201d was there in " +
+        "${d.worse}; of the ${times(d.betterTotal)} it went better, in ${d.better}."
+}
 
 /** Those still waiting for the owner's verdict first, each group in server order. */
 fun awaitingFirst(differences: List<Difference>): List<Difference> =

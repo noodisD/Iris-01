@@ -65,6 +65,10 @@ def _ideas(user_id: int) -> list[str]:
     return lines
 
 
+def _times(n: int) -> str:
+    return f"{n} time" if n == 1 else f"{n} times"
+
+
 def _insights(user_id: int) -> list[str]:
     rows = [d for d in discovery.differences(user_id, load_library())
             if (d["verdict"] or {}).get("verdict") == "rings_true"][:MAX_INSIGHTS]
@@ -72,8 +76,8 @@ def _insights(user_id: int) -> list[str]:
     if not rows:
         lines.append("None yet.")
     for d in rows:
-        lines.append(f"- When \"{d['patternName']}\" came up, \"{d['otherName']}\" was there {d['worse']} of "
-                     f"{d['worseTotal']} times it went worse and {d['better']} of {d['betterTotal']} times it went better.")
+        lines.append(f"- Of the {_times(d['worseTotal'])} \"{d['patternName']}\" went worse, \"{d['otherName']}\" was "
+                     f"there in {d['worse']}; of the {_times(d['betterTotal'])} it went better, in {d['better']}.")
     return lines
 
 

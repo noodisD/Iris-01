@@ -42,7 +42,7 @@ def test_only_insights_and_patterns_that_ring_true_are_in_the_block(test_user):
     discovery.set_pattern_verdict(test_user["id"], SETBACK, "does_not")
     discovery.set_pattern_verdict(test_user["id"], X, "rings_true")
     block = approved.approved_context(test_user["id"])
-    assert "was there 3 of 3 times it went worse and 0 of 1 times it went better" in block
+    assert "Of the 3 times" in block and "was there in 3; of the 1 time it went better, in 0." in block
     patterns = block.split("## Patterns they said ring true")[1].split("## ")[0]
     assert patterns.count("\n- ") == 1  # the one they rejected stays out
 

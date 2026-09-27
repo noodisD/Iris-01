@@ -226,7 +226,32 @@ def differences(user_id: int, library: list[Pattern]) -> list[dict[str, Any]]:
                 "verdict": verdicts.get((p.id, other)),
                 "patternVerdict": pattern_verdicts.get(p.id),
             })
-    return sorted(out, key=lambda d: (-abs(d["worse"] - d["better"]), d["patternName"], d["otherName"]))
+    return sorted(one_per_pair(out), key=lambda d: (-abs(d["worse"] - d["better"]), d["patternName"], d["otherName"]))
+
+
+def _contrast(d: dict[str, Any]) -> float:
+    """How far apart the two sides are, as shares of each side's occasions."""
+    return abs(d["worse"] / d["worseTotal"] - d["better"] / d["betterTotal"])
+
+
+def one_per_pair(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One difference for each pair of patterns.
+
+    Each pattern is compared with the others from its own side, so a pair that
+    differs both ways was listed twice: "when A came up, B was there" and "when
+    B came up, A was there", the same finding seen from each end. The direction
+    the owner has judged stands, so a verdict is never hidden; otherwise the
+    one whose sides are further apart.
+    """
+    best: dict[frozenset[str], dict[str, Any]] = {}
+    for d in rows:
+        key = frozenset((d["patternId"], d["otherId"]))
+        rank = (d["verdict"] is not None, _contrast(d), abs(d["worse"] - d["better"]), d["patternName"])
+        held = best.get(key)
+        if held is None or rank > (held["verdict"] is not None, _contrast(held),
+                                   abs(held["worse"] - held["better"]), held["patternName"]):
+            best[key] = d
+    return list(best.values())
 
 
 def set_difference_verdict(user_id: int, pattern_id: str, other_pattern_id: str,

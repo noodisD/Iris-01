@@ -54,8 +54,8 @@ class PatternsTest {
         worse = 5, worseTotal = 6, better = 1, betterTotal = 7, verdict = verdict?.let { PatternVerdict(it) })
 
     @Test fun readsADifferenceAsASentenceWithBothSidesCounted() {
-        assertEquals("When pattern a came up, pattern b was there 5 of 6 times it went worse, " +
-            "and 1 of 7 times it went better.", differenceSentence(d("a", "b")))
+        assertEquals("Of the 6 times \u201cPattern a\u201d went worse, \u201cPattern b\u201d was there in 5; " +
+            "of the 7 times it went better, in 1.", differenceSentence(d("a", "b")))
     }
 
     @Test fun putsTheOnesWaitingForAVerdictFirst() {

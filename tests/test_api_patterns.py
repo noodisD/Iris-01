@@ -225,3 +225,23 @@ def test_the_loader_loads_under_the_same_owner_the_app_shows(tmp_path, monkeypat
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM occasions WHERE user_id = %s", (app_user,))
             conn.commit()
+
+
+def _row(pid, other, worse, worse_total, better, better_total, verdict=None):
+    return {"patternId": pid, "patternName": f"Pattern {pid}", "otherId": other, "otherName": f"Pattern {other}",
+            "worse": worse, "worseTotal": worse_total, "better": better, "betterTotal": better_total,
+            "verdict": verdict}
+
+
+def test_a_pair_that_differs_both_ways_is_one_insight_not_two():
+    """Each pattern is compared from its own side, so A-with-B and B-with-A
+    were listed as two insights: the same finding seen from each end."""
+    rows = [_row("a", "b", 7, 13, 1, 4), _row("b", "a", 4, 4, 1, 2), _row("a", "c", 3, 4, 0, 2)]
+    kept = discovery.one_per_pair(rows)
+    assert sorted((d["patternId"], d["otherId"]) for d in kept) == [("a", "c"), ("b", "a")]
+
+
+def test_the_direction_the_owner_judged_is_the_one_kept():
+    judged = _row("a", "b", 7, 13, 1, 4, verdict={"verdict": "rings_true", "note": None})
+    kept = discovery.one_per_pair([_row("b", "a", 4, 4, 1, 2), judged])
+    assert kept == [judged]
