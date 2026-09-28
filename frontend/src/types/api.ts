@@ -632,7 +632,10 @@ export interface IdeasFramework {
 
 export interface IdeaReviewCard {
   idea: IdeaSummary;
+  /** Quotes waiting for a decision. */
   citations: IdeaCitation[];
+  /** Quotes already accepted for this idea, to judge the new ones against. */
+  onRecord: IdeaCitation[];
 }
 
 export interface IdeasReview {

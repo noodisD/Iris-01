@@ -16,6 +16,7 @@ const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, fixtures } = v
         text: 'When a government fixes prices, it destroys the signal that tells people what is scarce.',
         stance: 'endorsed', status: 'candidate',
       }],
+      onRecord: [],
     }, {
       idea: {
         id: '10', statement: 'Rules should bind the people who write them.',
@@ -27,6 +28,15 @@ const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, fixtures } = v
         id: '11', entryId: '13', entryDate: '2025-03-01',
         text: 'A rule that exempts its authors is not a rule at all.',
         stance: 'endorsed', status: 'candidate',
+      }],
+      onRecord: [{
+        id: '14', entryId: '15', entryDate: '2024-02-01',
+        text: 'Whoever writes the rule should live under it.',
+        stance: 'endorsed', status: 'accepted',
+      }, {
+        id: '16', entryId: '17', entryDate: '2024-11-01',
+        text: 'A lawmaker exempt from the law is a ruler.',
+        stance: 'questioned', status: 'accepted',
       }],
     }],
     links: [],
@@ -286,5 +296,17 @@ describe('a proposed link between two ideas', () => {
     renderAt('/ideas/8');
     expect(screen.getByRole('button', { name: /Type \[\[ to link another idea/ })).toBeInTheDocument();
     expect(screen.getByText("No other idea's notes link here yet.")).toBeInTheDocument();
+  });
+
+  it('marks new quotes apart from the ones already on record', () => {
+    renderAt('/ideas?view=review');
+    const card = screen.getByText('Rules should bind the people who write them.').closest('article')!;
+    const view = within(card);
+    expect(view.getByText('1 new passage')).toBeInTheDocument();
+    expect(view.getByText('New')).toBeInTheDocument();
+    const record = view.getByText(/Already on record: 2 quotes, from February 2024 to November 2024/);
+    expect(record.tagName).toBe('SUMMARY');
+    expect(record.closest('details')).not.toHaveAttribute('open');
+    expect(view.getByText(/Whoever writes the rule/)).toBeInTheDocument();
   });
 });

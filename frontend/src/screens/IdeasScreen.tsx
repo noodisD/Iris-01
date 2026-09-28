@@ -102,14 +102,14 @@ function Selectors({
   );
 }
 
-function QuoteList({ citations, fold }: { citations: IdeaCitation[]; fold?: number }) {
+function QuoteList({ citations, fold, fresh = false }: { citations: IdeaCitation[]; fold?: number; fresh?: boolean }) {
   const [open, setOpen] = React.useState(false);
   const hidden = fold && !open ? Math.max(0, citations.length - fold) : 0;
   const visible = hidden ? citations.slice(0, fold) : citations;
   const dated = visible.filter(citation => citation.entryDate);
   const undated = visible.filter(citation => !citation.entryDate);
   const quote = (citation: IdeaCitation) => (
-    <blockquote key={citation.id} className={styles.quote}>
+    <blockquote key={citation.id} className={fresh ? `${styles.quote} ${styles.quoteNew}` : styles.quote}>
       <p className={styles.quoteText}>&ldquo;{citation.text}&rdquo;</p>
       <div className={styles.quoteMeta}>
         <span>{STANCE_LABEL[citation.stance]}</span>
@@ -136,6 +136,29 @@ function QuoteList({ citations, fold }: { citations: IdeaCitation[]; fold?: numb
   );
 }
 
+function monthYear(value: string): string {
+  return formatEventDate(value, { month: 'long', year: 'numeric' });
+}
+
+/** The quotes an idea already has, folded, so new ones can be read against them. */
+function OnRecord({ citations }: { citations: IdeaCitation[] }) {
+  if (citations.length === 0) {
+    return <p className={styles.muted}>Nothing is on record for this idea yet. These would be its first quotes.</p>;
+  }
+  const dates = citations.map(citation => citation.entryDate).filter((date): date is string => !!date).sort();
+  const first = dates[0] ? monthYear(dates[0]) : null;
+  const last = dates.length ? monthYear(dates[dates.length - 1]) : null;
+  const span = !first ? '' : first === last ? `, from ${first}` : `, from ${first} to ${last}`;
+  return (
+    <details className={styles.onRecord}>
+      <summary>
+        Already on record: {citations.length === 1 ? '1 quote' : `${citations.length} quotes`}{span}
+      </summary>
+      <QuoteList citations={citations} />
+    </details>
+  );
+}
+
 function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
   const confirm = useConfirmIdea();
   const reject = useRejectIdea();
@@ -153,12 +176,25 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
     <Panel as="article">
       <h3 className={styles.statement}><EditableStatement idea={card.idea} /></h3>
       <p className={styles.muted}><Link to={`/ideas/${card.idea.id}`}>Open its page</Link> to write notes on it.</p>
-      <div className={styles.stack}>
-        <h4 className={styles.minorTitle}>
-          {card.citations.length === 1 ? 'In your writing' : `In your writing, ${card.citations.length} times`}
-        </h4>
-        <QuoteList citations={card.citations} fold={2} />
-      </div>
+      {isNew ? (
+        <div className={styles.stack}>
+          <h4 className={styles.minorTitle}>
+            {card.citations.length === 1 ? 'In your writing' : `In your writing, ${card.citations.length} times`}
+          </h4>
+          <QuoteList citations={card.citations} fold={2} />
+        </div>
+      ) : (
+        <>
+          <div className={styles.stack}>
+            <h4 className={`${styles.minorTitle} ${styles.row}`}>
+              <Badge tone="action">New</Badge>
+              {card.citations.length === 1 ? '1 new passage' : `${card.citations.length} new passages`}
+            </h4>
+            <QuoteList citations={card.citations} fold={2} fresh />
+          </div>
+          <OnRecord citations={card.onRecord ?? []} />
+        </>
+      )}
       {isNew && ids.length === 0 && (
         <p className={styles.muted}>This proposal no longer has a valid quotation, so it cannot be added.</p>
       )}

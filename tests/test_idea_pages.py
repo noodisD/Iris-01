@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 
 from agent.database import db
-from agent.ideas.models import rename_wikilinks, statement_key, wikilink_targets
+from agent.ideas.models import (
+    content_hash,
+    quote_hash,
+    rename_wikilinks,
+    statement_key,
+    wikilink_targets,
+)
+from agent.trackers.reflections import ReflectionService
 from iris_api import app, get_current_user_id
 
 GARDEN = "Water the garden in the evening."
@@ -92,3 +101,24 @@ def test_only_a_live_idea_can_be_edited_and_never_to_nothing(client, test_user):
     assert client.patch(f"/api/ideas/{garden}", json={"notes": "x" * 20001}).status_code == 422
     # Position is still only for an idea the owner has accepted.
     assert client.patch(f"/api/ideas/{garden}", json={"position": "endorsed"}).status_code == 409
+
+
+def test_a_review_card_shows_new_quotes_apart_from_those_on_record(client, test_user):
+    reflections = ReflectionService(test_user["id"])
+    old_text = "Evening is the best time to water; less is lost to the sun."
+    new_text = "Watering at dusk again: the soil stayed damp far longer."
+    old_entry = reflections.create_reflection(content=old_text, reflection_date=date(2025, 5, 1))
+    new_entry = reflections.create_reflection(content=new_text, reflection_date=date(2025, 7, 1))
+    garden = _idea(test_user["id"], GARDEN)
+    with db.connection() as conn, conn.cursor() as cur:
+        for entry, text, status in ((old_entry, old_text, "accepted"), (new_entry, new_text, "candidate")):
+            cur.execute(
+                """INSERT INTO idea_citations (idea_id, reflection_id, quote, quote_hash, source_hash, stance, status)
+                   VALUES (%s, %s, %s, %s, %s, 'endorsed', %s)""",
+                (garden, entry, text, quote_hash(text), content_hash(text), status),
+            )
+        conn.commit()
+
+    card = next(card for card in client.get("/api/ideas/review").json()["ideas"] if card["idea"]["id"] == garden)
+    assert [quote["text"] for quote in card["citations"]] == [new_text]
+    assert [quote["text"] for quote in card["onRecord"]] == [old_text]

@@ -529,9 +529,15 @@ class IdeaService:
         for idea in sorted(graph["ideas"], key=_idea_sort):
             pending = _visible_citations(graph["citations"], idea, pending_only=True)
             if idea["status"] == "candidate" or (idea["status"] == "active" and pending):
+                # What is already accepted, so new quotes can be judged against it.
+                on_record = [
+                    row for row in _visible_citations(graph["citations"], idea, pending_only=False)
+                    if row["status"] == "accepted"
+                ]
                 cards.append({
                     "idea": idea_summary(idea),
                     "citations": [idea_citation(row) for row in pending],
+                    "onRecord": [idea_citation(row) for row in on_record],
                 })
         anchored = {int(idea["id"]) for idea in graph["ideas"] if idea["anchored"]}
         links = [
