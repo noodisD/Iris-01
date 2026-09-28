@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -95,6 +100,11 @@ fun JournalScreen(entry: String? = null, onNavigate: (String) -> Unit, model: Jo
     val scrollState = rememberLazyListState()
     val loaded = (pages as? Loadable.Ready)?.value
     val foundIndex = loaded?.entries?.indexOfFirst { it.id == entry } ?: -1
+    // Writing and reading back are separate, as on the web: the history took
+    // most of the screen and made it hard to focus on writing. A link to one
+    // entry opens on the history.
+    var showEntries by rememberSaveable { mutableStateOf(entry != null) }
+    LaunchedEffect(entry) { if (entry != null) showEntries = true }
 
     LaunchedEffect(Unit) { model.refresh() }
     LaunchedEffect(Unit) {
@@ -106,19 +116,25 @@ fun JournalScreen(entry: String? = null, onNavigate: (String) -> Unit, model: Jo
         }
     }
     LaunchedEffect(entry, foundIndex) {
-        if (entry != null && foundIndex >= 0) scrollState.animateScrollToItem(foundIndex + 2)
+        if (entry != null && foundIndex >= 0) scrollState.animateScrollToItem(foundIndex + 1)
     }
     val title = buildAnnotatedString {
         append("Write it ")
         withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = colors.sage)) { append("down.") }
     }
     IrisScaffold(title = title, kicker = "today", snackbarHostState = snackbar) { padding ->
+        Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding())) {
+        TabRow(selectedTabIndex = if (showEntries) 1 else 0, containerColor = colors.bg0, contentColor = colors.ink) {
+            Tab(selected = !showEntries, onClick = { showEntries = false }, text = { Text("Write") })
+            Tab(selected = showEntries, onClick = { showEntries = true },
+                text = { Text(loaded?.let { "Entries (${it.entries.size}${if (it.nextCursor != null) "+" else ""})" } ?: "Entries") })
+        }
         RefreshableList(refreshing = refreshing, onRefresh = model::refresh) {
             LazyColumn(
                 state = scrollState,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 20.dp, end = 20.dp, top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
+                    start = 20.dp, end = 20.dp, top = 16.dp, bottom = padding.calculateBottomPadding() + 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 when (val result = pages) {
@@ -126,10 +142,10 @@ fun JournalScreen(entry: String? = null, onNavigate: (String) -> Unit, model: Jo
                     is Loadable.Failed -> item(key = "failed") { ErrorState(onRetry = model::refresh) }
                     is Loadable.Ready -> {
                         val data = result.value
-                        item(key = "composer") {
+                        if (!showEntries) item(key = "composer") {
                             JournalComposer(text, selection, checkin, saving, saveError, model)
                         }
-                        item(key = "voice") {
+                        if (!showEntries) item(key = "voice") {
                             IrisCard(Modifier.fillMaxWidth()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Kicker("voice journal · today")
@@ -142,17 +158,17 @@ fun JournalScreen(entry: String? = null, onNavigate: (String) -> Unit, model: Jo
                                 }
                             }
                         }
-                        item(key = "entries-heading") {
+                        if (showEntries) item(key = "entries-heading") {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Kicker("your entries · newest first")
                                 Text("${data.entries.size} shown${if (data.nextCursor == null) ", all of them" else ""}",
                                     fontFamily = Serif, fontSize = 24.sp, color = colors.ink)
                             }
                         }
-                        itemsIndexed(data.entries, key = { _, item -> item.id }) { _, item ->
+                        if (showEntries) itemsIndexed(data.entries, key = { _, item -> item.id }) { _, item ->
                             JournalEntryRow(item, highlighted = item.id == entry)
                         }
-                        item(key = "older") {
+                        if (showEntries) item(key = "older") {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                                 if (data.nextCursor != null) {
                                     OutlinedButton(onClick = if (pagingError) model::retryOlder else model::loadOlder,
@@ -163,12 +179,13 @@ fun JournalScreen(entry: String? = null, onNavigate: (String) -> Unit, model: Jo
                                     letterSpacing = 0.8.sp, color = colors.ink4)
                             }
                         }
-                        if (data.recurringPhrases.isNotEmpty()) item(key = "phrases") {
+                        if (showEntries && data.recurringPhrases.isNotEmpty()) item(key = "phrases") {
                             RecurringPhrases(data.recurringPhrases)
                         }
                     }
                 }
             }
+        }
         }
     }
 }
