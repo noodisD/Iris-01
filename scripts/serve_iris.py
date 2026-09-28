@@ -192,7 +192,7 @@ async def _start_lan(host: str) -> tuple[LanServer, asyncio.Task, socket.socket]
         cert_path, key_path, pin = prepare_certificate(host, directory)
         lan_socket = _socket(host, port)
         server = LanServer(uvicorn.Config(
-            lan_app, host=host, port=port, lifespan="off",
+            lan_app, host=host, port=port, lifespan="off", log_config=None,
             ssl_certfile=str(cert_path), ssl_keyfile=str(key_path), proxy_headers=False,
         ))
         task = asyncio.create_task(server.serve(sockets=[lan_socket]))
@@ -234,14 +234,18 @@ async def serve() -> None:
                 tailnet_socket = _socket("127.0.0.1", settings.TAILNET_PORT)
                 tailnet = LanServer(uvicorn.Config(
                     tailnet_app, host="127.0.0.1", port=settings.TAILNET_PORT,
-                    lifespan="off", proxy_headers=False,
+                    lifespan="off", proxy_headers=False, log_config=None,
                 ))
                 tailnet_task = asyncio.create_task(tailnet.serve(sockets=[tailnet_socket]))
                 await _started(tailnet, tailnet_task)
+                settings.TAILNET_LISTENER_ERROR = None
                 LOG.info("Tailnet door: 127.0.0.1:%d, for `tailscale serve` only.",
                          settings.TAILNET_PORT)
             except Exception as exc:
-                # Remote access is a convenience; the laptop keeps working without it.
+                settings.TAILNET_LISTENER_ERROR = (
+                    f"The tailnet door could not open on 127.0.0.1:{settings.TAILNET_PORT}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 LOG.warning("The tailnet door could not open on 127.0.0.1:%d (%s).",
                             settings.TAILNET_PORT, type(exc).__name__)
         if host:

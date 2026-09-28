@@ -1,0 +1,218 @@
+.frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--night);
+  border: 1px solid var(--mist);
+  border-radius: var(--radius-panel);
+}
+.frameHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--mist);
+}
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  color: var(--petal-3);
+  font-size: var(--text-xs);
+}
+.status p, .status span { margin: 0; }
+.headerTools { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.legendSlot { display: flex; align-items: center; }
+@container (max-width: 767px) { .legendSlot { display: none; } }
+
+.viewportHost {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+.viewportHost.grabbing { cursor: grabbing; }
+.svgLayer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cardLayer { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+.region { fill: none; stroke: var(--mist); stroke-width: 1; opacity: 0.6; }
+.boundary { fill: none; stroke: var(--mist-2); stroke-width: 1; stroke-dasharray: 6 6; }
+
+.edge { fill: none; stroke: var(--mist-2); stroke-width: 1.25; opacity: 0.7; }
+.edgeDashed { stroke-dasharray: 5 5; }
+.edgeError { stroke: var(--worse); }
+.edgeHot { stroke: var(--iris); stroke-width: 2; opacity: 1; }
+.edgeQuiet { opacity: 0.2; }
+.edgeDim { opacity: 0.35; }
+.edgeFaint { opacity: 0.25; }
+.hitPath { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+.arrow { fill: none; stroke: var(--mist-2); stroke-width: 1.2; }
+.causalRect { fill: var(--night); }
+.causalText { font-size: 12px; fill: var(--petal-3); }
+
+.componentCard {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--dusk);
+  border: 1px solid var(--mist);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-align: left;
+}
+.componentCard:hover { background: var(--dusk-2); border-color: var(--mist-2); }
+.moduleCard {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--dusk);
+  border: 1px solid var(--mist);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-align: left;
+}
+.moduleCard:hover { background: var(--dusk-2); border-color: var(--mist-2); }
+.moduleCard[data-selected='true'] { border-color: var(--iris); background: var(--dusk-2); }
+.moduleCard::before, .moduleCard::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--mist-2);
+}
+.moduleCard::before { left: -4px; }
+.moduleCard::after { right: -4px; }
+.chipCard {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--dusk);
+  border: 1px solid var(--mist);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-align: left;
+}
+.chipCard:hover { background: var(--dusk-2); border-color: var(--mist-2); }
+.faint { opacity: 0.25; }
+
+.cardTitle {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--petal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cardMeta, .cardId, .cardLine, .chipMeta {
+  font-size: var(--text-xs);
+  color: var(--petal-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lineLabel { color: var(--petal-3); }
+.cardId { color: var(--petal-3); }
+.chipTitle {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--petal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.textIris { color: var(--iris-text); }
+.textWorse { color: var(--worse); }
+
+.heading {
+  position: absolute;
+  transform: translateY(-100%);
+  line-height: 1.3;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--petal-2);
+  white-space: nowrap;
+}
+.headingNone {
+  position: absolute;
+  font-size: var(--text-xs);
+  color: var(--petal-3);
+  white-space: nowrap;
+}
+
+.minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 176px;
+  height: 112px;
+  background: var(--night);
+  border: 1px solid var(--mist);
+  border-radius: var(--radius-control);
+}
+.miniCard { fill: var(--mist-2); }
+.miniSelected { fill: var(--iris); }
+.miniViewport { fill: none; stroke: var(--iris); stroke-width: 1; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--petal-3);
+}
+.legendItem { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legendItem svg { display: block; flex-shrink: 0; }
+.legendSolid { stroke: var(--mist-2); stroke-width: 1.25; }
+.legendDashed { stroke: var(--mist-2); stroke-width: 1.25; stroke-dasharray: 4 4; }
+.legendLabel { fill: var(--mist-2); }
+.legendDot { fill: var(--iris); }
+.legendWorse { stroke: var(--worse); stroke-width: 1.25; }
+
+.emptyHost {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pulse { animation: irisPulse 700ms ease-out 1; }
+  .pulseBad { animation: irisPulse 700ms ease-out 1; }
+  .cardPulse { animation: cardPulse 700ms ease-out 1; }
+}
+.pulse { stroke: var(--iris); }
+.pulseBad { stroke: var(--worse); }
+@keyframes irisPulse {
+  from { stroke-width: 2.5; }
+  to { stroke-width: 1.25; }
+}
+@keyframes cardPulse {
+  from { box-shadow: 0 0 0 3px var(--iris); }
+  to { box-shadow: 0 0 0 0 transparent; }
+}

@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from . import observability as obs
 from .constants import (
     DECISION_IMPACT_WINDOW_DAYS,
     LEVERAGE_TIME_LAG_DAYS,
@@ -29,6 +30,7 @@ class NarrativeFormatter:
     """
 
     @staticmethod
+    @obs.traced("chat.narrative", "chat", result=lambda r: {"iris.narrative.rendered": len(r)})
     def format_all(insights: list[dict[str, Any]]) -> list[str]:
         """
         Renders a prioritized list of insights into narratives while

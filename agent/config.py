@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     TTS_MODEL: str = Field(default="gpt-4o-mini-tts")
     TTS_VOICE: str = Field(default="sage")
 
+    # Observability. The Observatory stores traces in this PostgreSQL and shows
+    # them live; OTLP export is optional and off unless an endpoint is set.
+    OBS_ENABLED: bool = Field(default=True)
+    OBS_RETENTION_DAYS: int = Field(default=14, ge=1, le=365)
+    OBS_OTLP_ENDPOINT: str = Field(default="")
+
     # PostgreSQL
     # When using docker-compose, POSTGRES_PORT should be 5433 (host port that maps to container's 5432)
     # When connecting directly to container, use 5432
@@ -82,6 +88,8 @@ class Settings(BaseSettings):
     LAN_PUBLIC_KEY_SHA256: str | None = Field(default=None, exclude=True)
     # Why the configured phone listener is not serving; set by scripts/serve_iris.py.
     LAN_LISTENER_ERROR: str | None = Field(default=None, exclude=True)
+    # Why the tailnet door is not serving; set by scripts/serve_iris.py.
+    TAILNET_LISTENER_ERROR: str | None = Field(default=None, exclude=True)
 
 
     # Configuration for .env loading

@@ -31,6 +31,7 @@ import logging
 import re
 from pathlib import Path
 
+from . import observability as obs
 from .database import db
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,7 @@ def current_version() -> str | None:
     return max(done) if done else None
 
 
+@obs.traced("system.migrations", "system", result=lambda r: {"iris.migrations.applied": list(r)})
 def upgrade() -> list[str]:
     """Apply every pending migration. Returns the versions applied."""
     on_disk = discover()

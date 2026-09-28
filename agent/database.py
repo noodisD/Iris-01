@@ -20,6 +20,9 @@ from psycopg2 import pool as psycopg2_pool
 from psycopg2.extras import Json
 
 from .config import settings
+from agent import observability as obs
+from agent.observability.db import TracedCursor
+from agent.observability.tracing import current_traceparent
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,8 @@ class Database:
                 password=settings.POSTGRES_PASSWORD,
                 host=settings.POSTGRES_HOST,
                 port=settings.POSTGRES_PORT,
+                cursor_factory=TracedCursor,
+                application_name="iris",
             )
             # Install pgvector on a raw pooled connection, NOT through
             # self.connection(): that helper calls register_vector(), which
@@ -90,18 +95,35 @@ class Database:
         """
         if self._pool is None or self._pool.closed:
             self._init_pool()
-        conn = self._pool.getconn()
+        attrs = {
+            "db.pool.in_use": len(getattr(self._pool, "_used", {}) or {}),
+            "db.pool.max": self._pool.maxconn,
+        }
         try:
-            register_vector(conn)
-            yield conn
-        except Exception:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+            conn = self._pool.getconn()
+        except (psycopg2_pool.PoolError, psycopg2.OperationalError) as exc:
+            with obs.span("db.connection", "db", attrs) as current:
+                obs.mark_error(current, exc)
             raise
-        finally:
-            self._pool.putconn(conn)
+        with obs.span("db.connection", "db", attrs) as current:
+            try:
+                register_vector(conn)
+                yield conn
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                try:
+                    current.set_attribute(
+                        "db.connection.returned_in_transaction",
+                        conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE,
+                    )
+                except Exception:
+                    pass
+                self._pool.putconn(conn)
 
     def get_connection(self):
         """Legacy API: returns a long-lived shared connection for CLI/test callers.
@@ -117,6 +139,8 @@ class Database:
                 password=settings.POSTGRES_PASSWORD,
                 host=settings.POSTGRES_HOST,
                 port=settings.POSTGRES_PORT,
+                cursor_factory=TracedCursor,
+                application_name="iris-legacy",
             )
             register_vector(self._legacy_conn)
         return self._legacy_conn
@@ -841,12 +865,15 @@ class Database:
         flight for the old version must not retire the row (migration 0013).
         """
         cur.execute(
-            """INSERT INTO processing_queue (user_id, source_type, source_id)
-               VALUES (%s, %s, %s)
+            """INSERT INTO processing_queue
+                   (user_id, source_type, source_id, origin_traceparent)
+               VALUES (%s, %s, %s, %s)
                ON CONFLICT (source_type, source_id) DO UPDATE
                   SET generation = processing_queue.generation + 1,
-                      attempts = 0, last_error = NULL;""",
-            (user_id, source_type, source_id))
+                      attempts = 0, last_error = NULL,
+                      origin_traceparent = EXCLUDED.origin_traceparent;""",
+            (user_id, source_type, source_id, current_traceparent()),
+        )
 
     @staticmethod
     def _recompute_theme_stats(cur, theme_id: int) -> None:

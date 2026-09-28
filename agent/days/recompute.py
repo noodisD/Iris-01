@@ -9,12 +9,14 @@ from zoneinfo import ZoneInfo
 
 from psycopg2.extras import Json
 
+from agent import observability as obs
 from agent.database import db
 
 from .features import Activity, Fix, Place, Sleep, Steps, Usage, Visit, compute_day
 from .places import list_categories, list_places
 
 
+@obs.traced("sensors.recompute_days", "sensors", args=("user_id",), result=lambda r: {"iris.sensors.days": len(r)})
 def recompute(user_id: int, days: list[date] | None = None) -> list[date]:
     """Rewrite day features for these days, or every day with a confirmed reading.
 

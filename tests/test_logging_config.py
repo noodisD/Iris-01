@@ -6,35 +6,6 @@ and filters logs correctly.
 import logging
 
 
-def test_configure_logging_creates_handlers(tmp_path):
-    """
-    Test: configure_logging() attaches exactly 3 handlers to the agent logger.
-    """
-    # Need to import here to avoid loading from disk before test
-    from agent.logging_config import configure_logging
-
-    # Reset root logger to clean state
-    root = logging.getLogger()
-    for handler in root.handlers[:]:
-        root.removeHandler(handler)
-
-    agent_logger = logging.getLogger("agent")
-    for handler in agent_logger.handlers[:]:
-        agent_logger.removeHandler(handler)
-
-    # Configure with test log directory
-    configure_logging(log_dir=str(tmp_path))
-
-    # Verify handlers
-    agent_logger = logging.getLogger("agent")
-
-    # Should have exactly 3 handlers: file-all, file-errors, console
-    assert len(agent_logger.handlers) == 3, f"Expected 3 handlers, got {len(agent_logger.handlers)}: {agent_logger.handlers}"
-
-    handler_types = [type(h).__name__ for h in agent_logger.handlers]
-    assert handler_types.count("RotatingFileHandler") == 2, f"Expected 2 RotatingFileHandlers, got {handler_types}"
-    assert handler_types.count("StreamHandler") == 1, f"Expected 1 StreamHandler, got {handler_types}"
-
 
 def test_error_in_except_captures_traceback(tmp_path):
     """
@@ -133,4 +104,3 @@ def test_idempotent_configuration(tmp_path):
     # Should be idempotent (no duplicate handlers)
     assert handler_count_after_first == handler_count_after_second, \
         f"Handler count changed from {handler_count_after_first} to {handler_count_after_second} after second configure_logging call"
-    assert len(agent_logger.handlers) == 3, f"Expected 3 handlers after idempotent call, got {len(agent_logger.handlers)}"

@@ -12,6 +12,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 # Main services
+from . import observability as obs
 from .timeutils import utc_now
 from .constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from .approved_context import approved_context
@@ -152,6 +153,7 @@ class PersonalAICompanion:
         except Exception as e:
             logger.error(f"Error during shutdown cleanup: {e}")
 
+    @obs.traced("chat.begin_turn", "chat", args=("spoken",))
     def _begin_turn(self, user_message: str, spoken: bool = False) -> tuple[list[dict], str]:
         """Record the owner's message and build what the model is given.
 
@@ -161,6 +163,10 @@ class PersonalAICompanion:
         (ADR-0025).
         """
         # 1. Add user message to memory
+        obs.set_attributes({
+            "iris.chat.session_id": self.session_id,
+            "iris.chat.user_message": user_message,
+        })
         self.memory.add_message("user", user_message)
 
         # 2. Retrieve all insights and apply meta-controls
@@ -180,6 +186,7 @@ class PersonalAICompanion:
         # 4. Short-term conversation context
         return self.memory.get_context(max_messages=20), enhanced_prompt
 
+    @obs.traced("chat.turn", "chat", entry=True)
     def chat(self, user_message: str) -> str:
         """
         Main chat handler. Takes a user message, enriches it with context,
@@ -214,16 +221,60 @@ class PersonalAICompanion:
         sentence is not something IRIS said, and saving it would feed it back
         as context on the next turn.
         """
+        from opentelemetry.trace import use_span
+
+        from .observability.io import instance_ids
+
         parts: list[str] = []
-        for fragment in self.intelligence.stream(
-            messages=short_term_context,
-            system_prompt=enhanced_prompt,
-            temperature=DEFAULT_TEMPERATURE,
-            max_tokens=DEFAULT_MAX_TOKENS,
-        ):
-            parts.append(fragment)
-            yield fragment
-        self.memory.add_message("assistant", "".join(parts))
+        reply = obs.start_detached("chat.stream_reply", "chat")
+        obs.capture_input(
+            {
+                "messages": short_term_context,
+                "enhanced_prompt": enhanced_prompt,
+                **instance_ids(self),
+            },
+            span=reply,
+        )
+        stream = None
+        try:
+            with use_span(reply, end_on_exit=False):
+                stream = self.intelligence.stream(
+                    messages=short_term_context,
+                    system_prompt=enhanced_prompt,
+                    temperature=DEFAULT_TEMPERATURE,
+                    max_tokens=DEFAULT_MAX_TOKENS,
+                )
+            while True:
+                with use_span(reply, end_on_exit=False):
+                    try:
+                        fragment = next(stream)
+                    except StopIteration:
+                        break
+                parts.append(fragment)
+                yield fragment
+            text = "".join(parts)
+            with use_span(reply, end_on_exit=False):
+                self.memory.add_message("assistant", text)
+                obs.capture_output(text, span=reply)
+        except GeneratorExit:
+            _stream_partial(reply, parts, cancelled=True)
+            raise
+        except Exception as exc:
+            with use_span(reply, end_on_exit=False):
+                obs.mark_error(reply, exc)
+                _stream_partial(reply, parts, cancelled=False)
+            raise
+        finally:
+            if stream is not None and hasattr(stream, "close"):
+                with use_span(reply, end_on_exit=False):
+                    stream.close()
+            try:
+                reply.end()
+            except Exception:
+                from .observability.hub import hub
+                hub.note_internal()
+
+
 
     def chat_stream(self, user_message: str) -> Iterator[str]:
         """Both halves of a streamed turn, for a caller that needs no
@@ -231,6 +282,7 @@ class PersonalAICompanion:
         short_term_context, enhanced_prompt = self.begin_turn(user_message)
         yield from self.stream_reply(short_term_context, enhanced_prompt)
 
+    @obs.traced("chat.context", "chat", result=lambda t: {"iris.chat.context_chars": len(t)})
     def _get_aggregated_context(self, user_message: str) -> str:
         """
         Orchestrates context retrieval through all meta-control layers.
@@ -289,6 +341,7 @@ class PersonalAICompanion:
             f"{header}\n{body}"
         )
 
+    @obs.traced("chat.earlier_conversations", "chat")
     def _earlier_conversations(self) -> str:
         """What was said before this open. It stays stored; it is not the transcript."""
         rows = db.get_earlier_chat_history(self.user_id, self.session_id)
@@ -358,6 +411,7 @@ class PersonalAICompanion:
 
         return "No patterns observed yet — there is not enough logged history."
 
+    @obs.traced("chat.habits_context", "chat")
     def _get_habits_context(self) -> str:
         """Retrieves habit data for context."""
         try:
@@ -373,6 +427,7 @@ class PersonalAICompanion:
             logger.error(f"Error fetching habits context: {e}")
             return "Could not retrieve habits context."
 
+    @obs.traced("chat.reflections_context", "chat")
     def _get_reflections_context(self) -> str:
         """Retrieves recent reflections for context."""
         try:
@@ -428,6 +483,7 @@ class PersonalAICompanion:
             "timestamp": utc_now().isoformat()
         }
 
+    @obs.traced("chat.retrieval", "chat", args=("n_results",))
     def _get_relevant_context(self, text: str, n_results: int = 5) -> str:
         logger.info("Retrieving relevant context using pgvector...")
         try:
@@ -536,3 +592,16 @@ class PersonalAICompanion:
         # Record IRIS's comment in memory so the conversation can continue
         self.memory.add_message("assistant", response_text)
         return response_text
+
+
+def _stream_partial(reply, parts: list[str], *, cancelled: bool) -> None:
+    obs.capture_output("".join(parts), span=reply)
+    if not reply.is_recording():
+        return
+    try:
+        reply.set_attribute("iris.io.output.partial", True)
+        if cancelled:
+            reply.set_attribute("iris.stream.cancelled", True)
+    except Exception:
+        from .observability.hub import hub
+        hub.note_internal()

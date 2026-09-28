@@ -25,6 +25,7 @@ from pathlib import Path
 
 import psycopg2
 
+from .. import observability as obs
 from ..config import settings
 from ..trackers.reflections import ReflectionService
 from . import store
@@ -96,6 +97,7 @@ class ImportService:
 
     # --- staging ----------------------------------------------------------
 
+    @obs.traced("import.create_batch", "import", args=("original_filename", "kind", "adapter"), result=lambda r: {"iris.import.result": r})
     def create_batch(self, upload: Path, original_filename: str,
                      kind: str = "text", adapter: str | None = None,
                      modified_at: float | None = None) -> dict:
@@ -197,6 +199,7 @@ class ImportService:
             "status": "excluded" if entry.likely_generated else "staged",
         }
 
+    @obs.traced("import.reparse", "import", args=("batch_id", "adapter"))
     def reparse(self, batch_id: int, adapter: str) -> dict:
         """Read the same upload again as a different format.
 
@@ -336,6 +339,7 @@ class ImportService:
 
     # --- committing -------------------------------------------------------
 
+    @obs.traced("import.commit", "import", args=("batch_id",), result=lambda r: {"iris.import.result": r})
     def commit(self, batch_id: int) -> dict:
         """Turn the staged entries into reflections.
 

@@ -29,6 +29,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from . import observability as obs
+from .observability.llm import LlmCall
 from .config import settings
 from .pipeline import _TRANSIENT_OPENAI_ERRORS
 
@@ -73,6 +75,7 @@ def _run(args: list[str], timeout: int = 900) -> subprocess.CompletedProcess:
     return subprocess.run(args, check=True, capture_output=True, timeout=timeout)
 
 
+@obs.traced("import.ffprobe", "import")
 def probe_duration(path: Path) -> float | None:
     if not shutil.which("ffprobe"):
         return None
@@ -86,6 +89,7 @@ def probe_duration(path: Path) -> float | None:
         return None
 
 
+@obs.traced("import.ffmpeg_normalise", "import")
 def normalise(src: Path, workdir: Path) -> Path:
     """A mono 16 kHz MP3 copy, which is what actually gets sent.
 
@@ -125,6 +129,7 @@ def _silences(path: Path) -> list[float]:
     return points
 
 
+@obs.traced("import.ffmpeg_split", "import", result=lambda r: {"iris.transcribe.pieces": len(r)})
 def split(path: Path, workdir: Path, duration: float | None) -> list[Path]:
     """Cut a long recording into transcribable pieces.
 
@@ -172,12 +177,31 @@ def transcribe_file(path: Path, model: str, language: str | None = None) -> str:
     too little audio to detect it reliably. Journals leave it unset.
     """
     extra = {"language": language} if language else {}
-    with path.open("rb") as fh:
-        return str(openai.audio.transcriptions.create(
-            model=model, file=fh, response_format="text", **extra
-        )).strip()
+    with LlmCall(
+        "transcription",
+        model,
+        attributes={
+            "iris.llm.input_bytes": path.stat().st_size,
+            "iris.llm.language": language or "auto",
+        },
+    ) as call:
+        with path.open("rb") as fh:
+            text = str(openai.audio.transcriptions.create(
+                model=model, file=fh, response_format="text", **extra
+            )).strip()
+        call.output(text)
+        return text
 
 
+@obs.traced(
+    "import.transcribe",
+    "import",
+    result=lambda t: {
+        "iris.transcribe.chunks": t.chunk_count,
+        "iris.transcribe.duration_s": t.duration_seconds,
+        "iris.transcribe.text_chars": len(t.text),
+    },
+)
 def transcribe(src: Path, model: str | None = None) -> Transcript:
     """Prepare, transcribe, and join. The original file is never modified."""
     model = model or settings.TRANSCRIPTION_MODEL

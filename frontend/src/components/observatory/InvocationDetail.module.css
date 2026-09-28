@@ -1,0 +1,5 @@
+.detail { container-type: inline-size; }
+.io { display: grid; grid-template-columns: 1fr; gap: var(--space-3); }
+@container (min-width: 640px) { .io { grid-template-columns: 1fr 1fr; } }
+.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.nest { margin-left: var(--space-3); }

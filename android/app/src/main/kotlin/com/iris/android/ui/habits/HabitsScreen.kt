@@ -169,7 +169,8 @@ class HabitsViewModel : ViewModel() {
                         doneCount = current.habits.count { if (it.id == server.id) server.doneToday else it.doneToday },
                     ))
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) {
+                catch (e: Exception) {
+                    com.iris.android.telemetry.Telemetry.error("HabitsScreen.toggle", e)
                     _habits.value = Loadable.Ready(previous)
                     _toggleError.value = true
                 } finally {
@@ -194,7 +195,7 @@ class HabitsViewModel : ViewModel() {
                 _created.value = true
                 fetch()
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { _createError.value = true }
+            catch (e: Exception) { com.iris.android.telemetry.Telemetry.error("HabitsScreen.create", e); _createError.value = true }
             finally { _creating.value = false }
         }
     }

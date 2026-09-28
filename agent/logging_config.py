@@ -56,8 +56,8 @@ def configure_logging(
 
     # Define format
     formatter = logging.Formatter(
-        "%(asctime)s %(levelname)-8s %(name)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        "%(asctime)s %(levelname)-8s %(name)s [%(trace_id)s] - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # Create filter
@@ -69,7 +69,7 @@ def configure_logging(
     # iris_api.py went to stderr's last-resort handler and never reached
     # logs/iris.log or logs/iris_errors.log — request-layer failures were
     # invisible in the files people actually read.
-    logger_names = ("agent", "iris_api")
+    logger_names = ("agent", "iris_api", "companion")
 
     # Idempotent per logger: configure only the ones not already wired, so
     # re-running for one logger cannot be skipped because the other is set up.
@@ -78,7 +78,11 @@ def configure_logging(
         if not lg.handlers
     ]
     if not loggers:
+        from agent.observability import logs as obs_logs
+        obs_logs.attach("", logging.WARNING)
         return
+
+    from agent.observability.logs import ObservatoryLogHandler, TraceContextFilter
 
     # 1. RotatingFileHandler for all logs (DEBUG+)
     all_log_path = log_dir / "iris.log"
@@ -90,6 +94,7 @@ def configure_logging(
     all_handler.setLevel(logging.DEBUG)
     all_handler.setFormatter(formatter)
     all_handler.addFilter(exc_filter)
+    all_handler.addFilter(TraceContextFilter())
     for lg in loggers:
         lg.addHandler(all_handler)
 
@@ -103,6 +108,7 @@ def configure_logging(
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
     error_handler.addFilter(exc_filter)
+    error_handler.addFilter(TraceContextFilter())
     for lg in loggers:
         lg.addHandler(error_handler)
 
@@ -111,8 +117,14 @@ def configure_logging(
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     console_handler.addFilter(exc_filter)
+    console_handler.addFilter(TraceContextFilter())
     for lg in loggers:
         lg.addHandler(console_handler)
+
+    observatory = ObservatoryLogHandler(logging.INFO)
+    observatory.addFilter(exc_filter)
+    for lg in loggers:
+        lg.addHandler(observatory)
 
     for lg in loggers:
         lg.setLevel(log_level)
@@ -121,6 +133,8 @@ def configure_logging(
     # Configure root logger to not spam with library logs
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.WARNING)
+    from agent.observability import logs as obs_logs
+    obs_logs.attach("", logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

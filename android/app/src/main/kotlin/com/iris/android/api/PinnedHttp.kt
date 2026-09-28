@@ -10,6 +10,8 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import okhttp3.OkHttpClient
+import com.iris.android.telemetry.Telemetry
+import com.iris.android.telemetry.TelemetryInterceptor
 
 internal object PinnedHttp {
     fun client(publicKeySha256: String, network: Network?): OkHttpClient {
@@ -35,7 +37,7 @@ internal object PinnedHttp {
         // OkHttp still checks the certificate's IP SAN via its default hostname verifier.
         val builder = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, trust)
             .connectTimeout(3, SECONDS).readTimeout(120, SECONDS)
-        if (network != null) builder.socketFactory(network.socketFactory)
+            .addInterceptor(TelemetryInterceptor(Telemetry.buffer))
         return builder.build()
     }
 }

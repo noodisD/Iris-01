@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from . import observability as obs
 from .comparison import ComparisonSpace
 from .confidence import ConfidenceEngine
 from .timeutils import to_utc, utc_now
@@ -119,6 +120,7 @@ class PersistenceEngine:
 
     # === Real-time Detection ===
 
+    @obs.traced("pipeline.match_theme", "pipeline", args=("source_type", "source_id"), result=lambda t: {"iris.pipeline.theme_id": t})
     def check_persistence(self, embedding: list, source_type: str,
                          source_id: int, content: str,
                          occurred_at: datetime | None) -> int | None:
@@ -185,6 +187,7 @@ class PersistenceEngine:
 
     # === Theme Discovery ===
 
+    @obs.traced("pipeline.discover_themes", "pipeline", result=lambda r: {"iris.pipeline.new_themes": len(r)})
     def discover_themes(self) -> list[dict]:
         """
         Clusters unassigned entries to find new themes.
@@ -394,6 +397,7 @@ class PersistenceEngine:
             "occurrence_count": len(members),
         }
 
+    @obs.traced("pipeline.theme_summary", "pipeline")
     def _generate_theme_summary(self, entries: list[dict]) -> str:
         """
         Generate a brief, neutral summary of what a theme is about.

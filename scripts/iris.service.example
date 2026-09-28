@@ -26,6 +26,7 @@ EnvironmentFile=%h/Iris-01/.env
 # Up to two minutes for the database container after a boot.
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do pg_isready -q -h localhost -p 5432 && exit 0; sleep 2; done; echo "PostgreSQL did not answer; is Docker running?" >&2; exit 1'
 ExecStart=%h/Iris-01/.venv/bin/python scripts/serve_iris.py
+ReadWritePaths=%h/Iris-01/data %h/Iris-01/logs
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=150

@@ -7,18 +7,18 @@ type Width = 'reading' | 'standard' | 'wide';
  * Every screen's frame: one left edge, one header, one set of widths.
  * `lead` is a line above the title only when it carries information (a date).
  */
-export function Page({ title, lead, description, actions, width = 'standard', children, bleed }: {
+export function Page({ title, lead, description, actions, width = 'standard', children, workspace = false }: {
   title: React.ReactNode;
   lead?: React.ReactNode;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   width?: Width;
-  /** Content that should span the full width below the header (graphs, split panes). */
-  bleed?: boolean;
+  /** Fill the app frame. Used by the Observatory system map. */
+  workspace?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${styles.page} ${styles[width]}`}>
+    <div className={`${styles.page} ${styles[width]}${workspace ? ` ${styles.workspace}` : ''}`}>
       <header className={styles.header}>
         <div className={styles.titles}>
           {lead && <p className={styles.lead}>{lead}</p>}
@@ -27,7 +27,7 @@ export function Page({ title, lead, description, actions, width = 'standard', ch
         </div>
         {actions && <div className={styles.actions}>{actions}</div>}
       </header>
-      <div className={bleed ? styles.bleed : styles.body}>{children}</div>
+      <div className={workspace ? styles.workspaceBody : styles.body}>{children}</div>
     </div>
   );
 }

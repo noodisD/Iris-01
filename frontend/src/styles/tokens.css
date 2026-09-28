@@ -36,6 +36,8 @@
     --pollen-soft: rgba(227, 194, 107, 0.12);
     --better: #8fc4a8;       /* data only */
     --worse: #d98a8a;        /* data only */
+    --caution: #d9a877;
+    --caution-soft: rgba(217, 168, 119, 0.14);
     --danger: #e08c8c;
 
     /* Type */

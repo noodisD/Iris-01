@@ -1,0 +1,2 @@
+.numbers { font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+.block { white-space: pre-wrap; }

@@ -1,5 +1,5 @@
 import {
-  Activity, Eye, Lightbulb, Mail, Menu, MessageCircle, Network, NotebookPen, Repeat, Scale, Settings, Sun, Upload, Waypoints,
+  Activity, Eye, Gauge, Lightbulb, Mail, Menu, MessageCircle, Network, NotebookPen, Repeat, Scale, Settings, Sun, Upload, Waypoints,
   type LucideIcon,
 } from 'lucide-react';
 import type { OrbVibe } from '@/hooks/useIrisState';
@@ -31,6 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { label: 'Your data', items: [
     { to: '/import', label: 'Import', icon: Upload, vibe: 'cool' },
     { to: '/sensors', label: 'Sensors', icon: Activity, vibe: 'dim' },
+    { to: '/observatory', label: 'Observatory', icon: Gauge, vibe: 'dim' },
     { to: '/settings', label: 'Settings', icon: Settings, vibe: 'dim' },
   ] },
 ];

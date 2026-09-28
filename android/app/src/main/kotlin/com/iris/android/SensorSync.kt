@@ -80,6 +80,12 @@ internal class SensorSync(private val ctx: Context, private val store: Collector
         return Report(sentPixel, sentHealth, problem, message)
     }
 
+    fun pushTelemetry(network: Network, json: String): Boolean {
+        val api = IrisApiClient(Settings.laptopBaseUrl(ctx), Settings.bearer(ctx),
+            Settings.publicKeySha256(ctx), network)
+        return api.pushTelemetry(json) == IrisResponse.Accepted
+    }
+
     private fun buildPixel(sessionStart: Long): Boolean {
         val now = System.currentTimeMillis()
         val cursor = minOf(store.usageCursor(sessionStart), now)

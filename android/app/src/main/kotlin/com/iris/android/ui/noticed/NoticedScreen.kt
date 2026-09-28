@@ -104,7 +104,7 @@ class NoticedViewModel : ViewModel() {
 
     private suspend fun fetchLastRun() {
         try { _lastRun.value = IrisLink.api().send("GET", "/constructs/last-run", null, DiscoveryRunResponse.serializer()).run }
-        catch (_: Exception) { /* The list is still available if last-run metadata fails. */ }
+        catch (e: Exception) { com.iris.android.telemetry.Telemetry.error("NoticedScreen.refresh", e) }
     }
 
     fun discover(includeStaged: Boolean) {
@@ -115,11 +115,12 @@ class NoticedViewModel : ViewModel() {
             try {
                 IrisLink.api().send("POST", "/constructs/discover", json.encodeToString(mapOf("includeStaged" to includeStaged)),
                     ConstructCandidatesResponse.serializer())
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                com.iris.android.telemetry.Telemetry.error("NoticedScreen.discover", e)
                 _discoveryFailed.value = true
             } finally {
                 _discovering.value = false
-                refresh() // A partial read can still write a run, including its drop counts.
+                refresh()
             }
         }
     }
@@ -133,7 +134,8 @@ class NoticedViewModel : ViewModel() {
                 if (action == "confirm") IrisLink.api().send("POST", "/constructs/${Uri.encode(id)}/confirm", "{}", ConstructConfirmResponse.serializer())
                 else IrisLink.api().send("POST", "/constructs/${Uri.encode(id)}/reject", "{}", ConstructRejectResponse.serializer())
                 fetchCandidates()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                com.iris.android.telemetry.Telemetry.error("NoticedScreen.decide", e)
                 _decisionErrors.value = _decisionErrors.value + id
             } finally {
                 _decision.value = _decision.value - id

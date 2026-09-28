@@ -34,6 +34,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from . import observability as obs
 from .comparison import ComparisonSpace
 from .constants import OBSERVATION_MIN_ENTRIES_CITED
 from .database import db
@@ -240,6 +241,7 @@ def _iso(value) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 
 
+@obs.traced("insights.discover_constructs", "insights", result=lambda r: {"iris.constructs.staged": len(r)})
 def discover(user_id: int, intelligence=None, include_staged: bool = True) -> list[dict]:
     """Read the whole archive and stage what it found for review.
 
@@ -366,6 +368,7 @@ def scan(theme_id: int) -> int:
     return len(memberships)
 
 
+@obs.traced("pipeline.constructs", "pipeline", args=("source_type", "source_id"), result=lambda r: {"iris.pipeline.constructs_matched": len(r)})
 def classify(user_id: int, source_type: str, source_id: int, embedding,
              content: str, occurred_at) -> list[int]:
     """Test one new entry against every construct the owner has confirmed.

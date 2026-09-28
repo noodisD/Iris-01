@@ -54,6 +54,7 @@ class SensorCollectorService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
+        com.iris.android.telemetry.Telemetry.install(applicationContext)
         store = CollectorStore.get(this)
         sync = SensorSync(applicationContext, store)
         fused = LocationServices.getFusedLocationProviderClient(this)
@@ -209,9 +210,15 @@ class SensorCollectorService : Service(), SensorEventListener {
                 val report = sync.run(network, Settings.collectionStartedAt(this)) { collecting }
                 if (collecting) SyncState.recordAttempt(this, now, report.sentPixel,
                     report.sentHealth, report.problem, report.message)
+                kotlinx.coroutines.runBlocking {
+                    com.iris.android.telemetry.Telemetry.flush(this@SensorCollectorService) {
+                        sync.pushTelemetry(network, it)
+                    }
+                }
             }
         } catch (error: Throwable) {
             Log.e(TAG, "Sensor sync failed", error)
+            com.iris.android.telemetry.Telemetry.error("collector.sync", error)
             if (collecting) runCatching { SyncState.recordAttempt(this, Instant.now(), false, false,
                 SyncState.Problem.UNREACHABLE, "Sync failed: ${error.javaClass.simpleName}") }
         } finally {
@@ -226,7 +233,7 @@ class SensorCollectorService : Service(), SensorEventListener {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     private fun fail(message: String, error: Throwable? = null) {
-        if (error != null) Log.e(TAG, message, error) else Log.e(TAG, message)
+        com.iris.android.telemetry.Telemetry.error("collector.collection", error ?: IllegalStateException(message))
         if (statusExecutor.isShutdown) return
         try {
             statusExecutor.execute {

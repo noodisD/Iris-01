@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+from .. import observability as obs
 from .adapters import _payload_hash, register, to_timestamp
 
 _DEGREE = re.compile(r"^(-?\d+(?:\.\d+)?)°,\s*(-?\d+(?:\.\d+)?)°$")
@@ -199,6 +200,7 @@ def day_of(value: object) -> datetime | None:
         return None
 
 
+@obs.traced("sensors.timeline_import", "sensors", result=lambda r: {"iris.sensors.result": r})
 def stage_export(raw: bytes) -> dict:
     """Stage a Timeline file, one pending batch per day it covers."""
     import json
@@ -214,12 +216,12 @@ def stage_export(raw: bytes) -> dict:
         raise ValueError("timeline export is not JSON") from exc
     parsed = parse_timeline(data)
     by_day: dict = defaultdict(list)
-    for obs in parsed["observations"]:
-        started = day_of(obs.get("occurred_at"))
+    for observation in parsed["observations"]:
+        started = day_of(observation.get("occurred_at"))
         if started is None:
             parsed["dropped_count"] += 1
             continue
-        by_day[started.date()].append(obs)
+        by_day[started.date()].append(observation)
     repo = SensorRepository()
     digest = parsed["raw_payload_hash"]
     batch_ids = []

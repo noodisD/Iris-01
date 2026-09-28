@@ -58,6 +58,11 @@ class IrisApiClient(
         .header("X-Iris-Sent-At", sentAt.toString())
         .post(json.toRequestBody(JSON)).build())
 
+    fun pushTelemetry(json: String): IrisResponse = request(Request.Builder()
+        .url("$root/api/observatory/client-events")
+        .header("Authorization", "Bearer $bearer")
+        .post(json.toRequestBody(JSON)).build())
+
     private fun request(request: Request, checkStatus: Boolean = false): IrisResponse = try {
         http.newCall(request).execute().use { response -> classify(response, checkStatus) }
     } catch (error: IOException) {

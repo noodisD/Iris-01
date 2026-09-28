@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any
 
+from agent import observability as obs
 from agent.config import settings
 from agent import intelligence
 from agent.intelligence import Intelligence
@@ -121,6 +122,7 @@ class IdeaService:
                 raise ReplyError("model_failed") from None
         return self.intelligence
 
+    @obs.traced("ideas.discover", "ideas", result=lambda r: {"iris.ideas.result": r})
     def discover(self) -> dict[str, Any]:
         entries = db.get_entries_for_reading(self.user_id, limit=None)
         model = settings.OPENAI_MODEL
@@ -249,6 +251,7 @@ class IdeaService:
         row = next(item for item in registry if int(item["id"]) == chosen)
         return "rejected" if row["status"] == "rejected" else chosen
 
+    @obs.traced("ideas.discover_links", "ideas", args=("idea_id",))
     def discover_links(self, idea_id: int) -> dict[str, Any]:
         graph = store.load_graph(self.user_id)
         subject = graph["by_id"].get(idea_id)
@@ -329,6 +332,7 @@ class IdeaService:
                 # The price table, not a client: an estimate never makes one.
                 "estimate": intelligence.Intelligence.estimate(settings.OPENAI_MODEL, tokens_in, tokens_out)}
 
+    @obs.traced("ideas.discover_meanings", "ideas")
     def discover_meanings(self) -> dict[str, Any]:
         """Propose pairs of accepted ideas that share one essential meaning.
 
@@ -437,6 +441,7 @@ class IdeaService:
             raise IdeaConflict
         return {"id": str(link_id), "status": "rejected"}
 
+    @obs.traced("ideas.critique", "ideas", args=("idea_id",))
     def critique(self, idea_id: int) -> dict[str, Any]:
         basis = self._basis(idea_id)
         if basis is None:

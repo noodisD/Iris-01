@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import ipaddress
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlsplit
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -113,6 +114,35 @@ def forget_rejection() -> None:
     _last_rejection = None
 
 
+def connection_status(cur: Any) -> dict[str, object]:
+    """The phone listener, pairing and delivery health, on the caller's cursor."""
+    from agent.config import settings as live_settings
+
+    cur.execute(
+        "SELECT paired_at, last_seen_at, last_intake_at FROM mobile_pairing WHERE id = 1"
+    )
+    paired_at, last_seen_at, last_intake_at = cur.fetchone()
+    cur.execute("SELECT count(*) FROM sensor_batches WHERE status = 'pending'")
+    pending_batches = cur.fetchone()[0]
+    listener = (
+        "listening" if live_settings.LAN_URL else
+        "failed" if live_settings.LAN_LISTENER_ERROR else
+        "not_started" if live_settings.LAN_BIND_HOST else "not_configured"
+    )
+    return {
+        "lan_url": live_settings.LAN_URL,
+        "public_key_sha256": live_settings.LAN_PUBLIC_KEY_SHA256,
+        "listener": listener,
+        "listener_error": live_settings.LAN_LISTENER_ERROR,
+        "paired": bool(live_settings.MOBILE_BEARER_HASH),
+        "paired_at": paired_at,
+        "last_seen_at": last_seen_at,
+        "last_intake_at": last_intake_at,
+        "last_rejection": last_rejection(),
+        "pending_batches": pending_batches,
+    }
+
+
 class MobileAuthMiddleware:
     """Serve loopback freely; on the LAN listener admit only /api requests carrying the paired bearer."""
 
@@ -138,7 +168,8 @@ class MobileAuthMiddleware:
         if (scope["type"] == "http" and
                 (scope.get("iris_tailnet") or scope.get("iris_lan") or not local_client) and
                 (path == "/api/places" or path.startswith("/api/places/")
-                 or path in {"/api/sensors/import/google-timeline", "/api/sensors/confirm-range"})):
+                 or path in {"/api/sensors/import/google-timeline", "/api/sensors/confirm-range"}
+                 or (path.startswith("/api/observatory/") and path != "/api/observatory/client-events"))):
             await self._reject(send, 404, "not found")
             return
         if scope.get("iris_tailnet"):

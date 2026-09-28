@@ -11,10 +11,12 @@ from agent.logging_config import configure_logging
 
 # Configure logging first, before any other imports
 configure_logging()
-# Named explicitly: as __main__ this logger would miss the handlers that
-# configure_logging() attaches to "iris_api".
+from agent import observability as obs  # noqa: E402
+from agent.observability import logs as obs_logs, runtime as obs_runtime  # noqa: E402
+obs.setup("server")
 logger = logging.getLogger("iris_api")
 
+import asyncio
 import hashlib
 import json
 import os
@@ -27,7 +29,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Path as ApiPath, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
@@ -101,30 +103,35 @@ async def lifespan(app: FastAPI):
     if not COMPANION_AVAILABLE:
         raise RuntimeError("IRIS core components failed to import; refusing to start "
                            "(see the ImportError logged above).")
-    logger.info("Applying schema migrations...")
-    migrations.upgrade()
+    obs_logs.attach("uvicorn", logging.INFO)
+    with obs.span("system.startup", "system", entry=True, root=True) as current:
+        obs.capture_input({"role": "server"}, span=current)
+        logger.info("Applying schema migrations...")
+        migrations.upgrade()
 
-
-    # Load the single pairing row after migrations, before accepting requests.
-    # A failed load must not accidentally retain a previous in-process token.
-    from agent.config import settings as live_settings
-    live_settings.MOBILE_BEARER_HASH = None
-    live_settings.LAN_BIND_ENABLED = False
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing WHERE id = 1"
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise RuntimeError("mobile pairing row is missing")
-        live_settings.MOBILE_BEARER_HASH = row[0]
-        live_settings.LAN_BIND_ENABLED = bool(row[1])
-
+        from agent.config import settings as live_settings
+        live_settings.MOBILE_BEARER_HASH = None
+        live_settings.LAN_BIND_ENABLED = False
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT bearer_hash, lan_bind_enabled FROM mobile_pairing WHERE id = 1"
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("mobile pairing row is missing")
+            live_settings.MOBILE_BEARER_HASH = row[0]
+            live_settings.LAN_BIND_ENABLED = bool(row[1])
+        obs.capture_output({"status": "initialized"}, span=current)
+        _publish_table_catalog()
+    obs_runtime.start_background(probe=True)
+    loop_watch = asyncio.create_task(obs_runtime.watch_event_loop())
     queue_worker.start()
     try:
         yield
     finally:
         queue_worker.stop()
+        loop_watch.cancel()
+        obs_runtime.stop_background()
 
 # Initialize FastAPI app
 app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
@@ -132,7 +139,9 @@ app = FastAPI(title="IRIS Companion API", version="0.1.0", lifespan=lifespan)
 # Keep the accidental non-loopback HTTP bind closed, too. The TLS listener
 # additionally tags all its requests, including those from local processes.
 from agent.mobile_auth import MobileAuthMiddleware, hash_token  # noqa: E402
+from agent.observability.http import TracingMiddleware  # noqa: E402
 app.add_middleware(MobileAuthMiddleware)
+app.add_middleware(TracingMiddleware)
 
 # A note on `def` versus `async def` below.
 #
@@ -288,34 +297,10 @@ def _record_phone_contact(intake: bool) -> None:
 @app.get("/api/mobile/connection")
 def mobile_connection() -> dict:
     """Show the owner the phone listener, pairing and delivery health."""
-    from agent.config import settings as live_settings
-    from agent.mobile_auth import last_rejection
+    from agent.mobile_auth import connection_status
 
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT paired_at, last_seen_at, last_intake_at "
-            "FROM mobile_pairing WHERE id = 1"
-        )
-        paired_at, last_seen_at, last_intake_at = cur.fetchone()
-        cur.execute("SELECT count(*) FROM sensor_batches WHERE status = 'pending'")
-        pending_batches = cur.fetchone()[0]
-    listener = (
-        "listening" if live_settings.LAN_URL else
-        "failed" if live_settings.LAN_LISTENER_ERROR else
-        "not_started" if live_settings.LAN_BIND_HOST else "not_configured"
-    )
-    return {
-        "lan_url": live_settings.LAN_URL,
-        "public_key_sha256": live_settings.LAN_PUBLIC_KEY_SHA256,
-        "listener": listener,
-        "listener_error": live_settings.LAN_LISTENER_ERROR,
-        "paired": bool(live_settings.MOBILE_BEARER_HASH),
-        "paired_at": paired_at,
-        "last_seen_at": last_seen_at,
-        "last_intake_at": last_intake_at,
-        "last_rejection": last_rejection(),
-        "pending_batches": pending_batches,
-    }
+        return connection_status(cur)
 
 
 @app.get("/api/mobile/status")
@@ -2260,6 +2245,385 @@ def get_latest_review(user_id: int = Depends(get_current_user_id)):
     """ReviewWeek for the most recent 7-day window ending today."""
     week_start = date.today() - timedelta(days=6)
     return _build_review_week(user_id, week_start)
+
+
+# ============================================================================
+# OBSERVATORY (laptop only; the phone and tailnet may only send client events)
+# ============================================================================
+
+import psycopg2  # noqa: E402
+from psycopg2 import pool as psycopg2_pool  # noqa: E402
+
+from agent.observability import queries as obs_queries  # noqa: E402
+from agent.observability import system_queries  # noqa: E402
+from agent.observability.catalog import known as obs_known, mark_schema_unavailable, register_route, register_tables  # noqa: E402
+from agent.observability.clients import ClientEvents, ingest as ingest_client_events  # noqa: E402
+from agent.observability.hub import format_sse, hub, matches  # noqa: E402
+from agent.observability.io import parts_for, strip_payload_attributes  # noqa: E402
+
+_OBS_WINDOWS = {900, 3600, 21600, 86400, 604800, 1209600}
+_DB_WINDOWS = {900, 3600, 21600, 86400}
+_OBS_OFF = "The Observatory is switched off (OBS_ENABLED=false)."
+
+
+def _window(window: int, allowed: set[int]) -> int:
+    if window not in allowed:
+        raise HTTPException(status_code=422, detail="unsupported window")
+    return window
+
+
+def _obs_required() -> None:
+    if not obs.enabled():
+        raise HTTPException(status_code=503, detail=_OBS_OFF)
+
+
+def _obs_cursor(reader):
+    _obs_required()
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            return reader(cur)
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        raise
+
+
+def _obs_health():
+    try:
+        return _obs_cursor(obs_queries.health_now)
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        return obs_queries.health_memory()
+
+
+@app.get("/api/observatory/overview")
+def observatory_overview(window: int = 900):
+    window = _window(window, _OBS_WINDOWS)
+    _obs_required()
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            return obs_queries.overview(cur, window)
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        return obs_queries.overview_memory(window)
+
+
+@app.get("/api/observatory/live")
+async def observatory_live(
+    request: Request,
+    components: str = "",
+    errors_only: bool = False,
+    lifecycle: bool = False,
+):
+    _obs_required()
+    wanted = {part for part in components.split(",") if part}
+    subscription = hub.subscribe(asyncio.get_running_loop(), lifecycle=lifecycle)
+
+    async def events():
+        last_health = 0.0
+        watermark = -1
+        try:
+            if lifecycle:
+                snapshot = hub.lifecycle_snapshot()
+                watermark = int(snapshot["sequence"])
+                yield format_sse("snapshot", snapshot)
+            else:
+                for kind, item in hub.backlog(wanted, errors_only):
+                    yield format_sse(kind, item)
+            while True:
+                if await request.is_disconnected():
+                    break
+                kind = None
+                item = None
+                try:
+                    kind, item = await asyncio.wait_for(subscription.queue.get(), 5.0)
+                except TimeoutError:
+                    yield ": ping\n\n"
+                now = asyncio.get_running_loop().time()
+                if now - last_health >= 5:
+                    yield format_sse("health", await run_in_threadpool(_obs_health))
+                    last_health = now
+                if kind is not None and item is not None:
+                    sequence = item.get("sequence")
+                    stale = lifecycle and isinstance(sequence, int) and sequence <= watermark
+                    if not stale and matches(kind, item, wanted, errors_only):
+                        yield format_sse(kind, item)
+                if subscription.lagged:
+                    yield format_sse("lagged", {"lagged": True})
+                    subscription.lagged = False
+        finally:
+            hub.unsubscribe(subscription)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/api/observatory/traces")
+def observatory_traces(
+    component: str | None = None,
+    status: str | None = None,
+    min_ms: float = 0,
+    q: str | None = None,
+    window: int = 3600,
+    limit: int = Query(default=100, le=500),
+):
+    window = _window(window, _OBS_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.traces(
+        cur, component=component, status=status, min_ms=min_ms, q=q, window_s=window, limit=limit,
+    ))
+
+
+@app.get("/api/observatory/traces/{trace_id}")
+def observatory_trace(trace_id: str = ApiPath(pattern="^[0-9a-f]{32}$")):
+    detail = _obs_cursor(lambda cur: obs_queries.trace_detail(cur, trace_id))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="No such trace.")
+    return detail
+
+
+@app.get("/api/observatory/operations")
+def observatory_operations(window: int = 3600, component: str | None = None):
+    window = _window(window, _OBS_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.operations(cur, window, component))
+
+
+@app.get("/api/observatory/queue")
+def observatory_queue():
+    return _obs_cursor(obs_queries.queue_view)
+
+
+@app.get("/api/observatory/database")
+def observatory_database(window: int = 3600):
+    window = _window(window, _DB_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.database_view(cur, window))
+
+
+@app.get("/api/observatory/llm")
+def observatory_llm(window: int = 86400):
+    window = _window(window, _OBS_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.llm_view(cur, window))
+
+
+@app.get("/api/observatory/analysis")
+def observatory_analysis(limit: int = Query(default=20, le=100)):
+    return _obs_cursor(lambda cur: obs_queries.analysis_view(cur, limit))
+
+
+@app.get("/api/observatory/errors")
+def observatory_errors(window: int = 86400):
+    window = _window(window, _OBS_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.errors_view(cur, window))
+
+
+@app.get("/api/observatory/logs")
+def observatory_logs(
+    level: str = "INFO",
+    source: str | None = None,
+    q: str | None = None,
+    trace_id: str | None = None,
+    window: int = 3600,
+    limit: int = Query(default=200, le=1000),
+):
+    window = _window(window, _OBS_WINDOWS)
+    return _obs_cursor(lambda cur: obs_queries.logs(
+        cur, level=level, source=source, q=q, trace_id=trace_id, window_s=window, limit=limit,
+    ))
+
+
+@app.get("/api/observatory/samples")
+def observatory_samples(names: str = "", window: int = 3600):
+    window = _window(window, _OBS_WINDOWS)
+    chosen = [part for part in names.split(",") if part]
+    return _obs_cursor(lambda cur: obs_queries.samples(cur, chosen, window))
+
+
+@app.get("/api/observatory/clients")
+def observatory_clients():
+    return _obs_cursor(obs_queries.clients_view)
+
+
+@app.post("/api/observatory/client-events")
+def observatory_client_events(body: ClientEvents):
+    return {"accepted": ingest_client_events(body)}
+
+
+def _obs_trace_filter(trace_id: str | None) -> str | None:
+    if trace_id is None:
+        return None
+    if len(trace_id) != 32 or any(ch not in "0123456789abcdef" for ch in trace_id):
+        raise HTTPException(status_code=422, detail="trace_id must be 32 lowercase hex characters.")
+    return trace_id
+
+
+def _obs_invocation(record: dict, source: str, logs: list | None = None, related: list | None = None) -> dict:
+    attributes = record.get("attributes") if isinstance(record.get("attributes"), dict) else {}
+    parts = parts_for(
+        str(record.get("name") or ""),
+        str(record.get("component") or ""),
+        attributes,
+        status=str(record.get("status") or "ok"),
+        status_message=record.get("status_message"),
+        running=record.get("status") == "running",
+    )
+    inputs, outputs = system_queries.split_parts(parts)
+    span = {
+        "trace_id": record.get("trace_id"),
+        "span_id": record.get("span_id"),
+        "parent_span_id": record.get("parent_span_id"),
+        "name": record.get("name"),
+        "component": record.get("component"),
+        "kind": record.get("kind"),
+        "started_at": record.get("started_at"),
+        "duration_ms": record.get("duration_ms"),
+        "self_ms": record.get("self_ms"),
+        "status": record.get("status"),
+        "status_message": record.get("status_message"),
+        "attrs": record.get("attrs") or {},
+        "module_id": record.get("module_id"),
+        "parent_module_id": record.get("parent_module_id"),
+        "links": record.get("links") or [],
+    }
+    return {
+        "span": span,
+        "io": {"inputs": inputs, "outputs": outputs},
+        "attributes": strip_payload_attributes(attributes),
+        "events": record.get("events") or [],
+        "logs": logs or [],
+        "related": related or [],
+        "source": source,
+    }
+
+
+@app.get("/api/observatory/system")
+def observatory_system(window: int = 3600, trace_id: str | None = None):
+    window = _window(window, _OBS_WINDOWS)
+    _obs_required()
+    chosen = _obs_trace_filter(trace_id)
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            return system_queries.system_view(cur, window, chosen)
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        return system_queries.system_memory(window, chosen)
+
+
+@app.get("/api/observatory/module-calls")
+def observatory_module_calls(
+    module_id: str,
+    window: int = 3600,
+    trace_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    window = _window(window, _OBS_WINDOWS)
+    _obs_required()
+    if not module_id or len(module_id) > 300:
+        raise HTTPException(status_code=422, detail="module_id must be 1-300 characters.")
+    chosen = _obs_trace_filter(trace_id)
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            result = system_queries.module_calls(cur, module_id, window, chosen, limit)
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        if not obs_known(module_id):
+            raise HTTPException(status_code=503, detail="Stored invocation data is temporarily unavailable.")
+        return system_queries.module_calls_memory(module_id, chosen, limit)
+    if not obs_known(module_id) and not result["recent"] and not result["active"]:
+        raise HTTPException(status_code=404, detail="Unknown Observatory module.")
+    return result
+
+
+@app.get("/api/observatory/spans/{trace_id}/{span_id}")
+def observatory_span(
+    trace_id: str = ApiPath(pattern="^[0-9a-f]{32}$"),
+    span_id: str = ApiPath(pattern="^[0-9a-f]{16}$"),
+):
+    _obs_required()
+    cached = hub.invocation_record(trace_id, span_id)
+    if cached is not None:
+        return _obs_invocation(cached, "memory")
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT trace_id, span_id, parent_span_id, name, component, kind, started_at,
+                       duration_ms, self_ms, status, status_message, attributes, events, links,
+                       module_id, parent_module_id
+                FROM obs_spans WHERE trace_id = %s AND span_id = %s
+                """,
+                (trace_id, span_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Invocation details are not currently available.")
+            record = {
+                "trace_id": row[0], "span_id": row[1], "parent_span_id": row[2], "name": row[3],
+                "component": row[4], "kind": row[5], "started_at": row[6].strftime("%Y-%m-%dT%H:%M:%S.%fZ") if hasattr(row[6], "strftime") else row[6],
+                "duration_ms": row[7], "self_ms": row[8], "status": row[9], "status_message": row[10],
+                "attributes": row[11] or {}, "events": row[12] or [], "links": row[13] or [],
+                "module_id": row[14], "parent_module_id": row[15],
+            }
+            cur.execute(
+                """
+                SELECT at, source, level, logger, message, exception, trace_id, span_id, attributes
+                FROM obs_logs WHERE trace_id = %s AND span_id = %s ORDER BY at
+                """,
+                (trace_id, span_id),
+            )
+            logs = [
+                {
+                    "at": item[0].strftime("%Y-%m-%dT%H:%M:%S.%fZ") if hasattr(item[0], "strftime") else item[0],
+                    "source": item[1], "level": item[2], "logger": item[3], "message": item[4],
+                    "exception": item[5], "trace_id": item[6], "span_id": item[7], "attributes": item[8] or {},
+                }
+                for item in cur.fetchall()
+            ]
+            cur.execute(
+                f"""
+                SELECT {system_queries.summary_select()}
+                FROM obs_spans
+                WHERE trace_id = %s AND (
+                    parent_span_id = %s OR attributes->>'iris.db.query_span_id' = %s
+                )
+                ORDER BY started_at
+                LIMIT 50
+                """,
+                (trace_id, span_id, span_id),
+            )
+            related = [system_queries.summary_row(item) for item in cur.fetchall()]
+    except HTTPException:
+        raise
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        raise HTTPException(status_code=503, detail="Stored invocation data is temporarily unavailable.")
+    return _obs_invocation(record, "database", logs, related)
+
+
+def _publish_route_catalog() -> None:
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        endpoint = getattr(route, "endpoint", None)
+        methods = getattr(route, "methods", None) or set()
+        if not isinstance(path, str):
+            continue
+        for method in methods:
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            register_route(method, path, endpoint)
+
+
+def _publish_table_catalog() -> None:
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                ORDER BY table_name, ordinal_position
+                """
+            )
+            register_tables(cur.fetchall())
+    except (psycopg2.Error, psycopg2_pool.PoolError):
+        mark_schema_unavailable()
+
+
+_publish_route_catalog()
 
 
 # ============================================================================

@@ -25,6 +25,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from . import observability as obs
 from . import timeutils
 from .database import db
 
@@ -68,7 +69,9 @@ def remembered(engine: str, user_id: int, compute: Callable[[], list[dict[str, A
         with _lock:
             hit = _results.get(key)
         if hit and hit[0] == stamp:
+            obs.set_attributes({f"iris.cache.{engine}": "hit"})
             return [dict(r) for r in hit[1]]
+    obs.set_attributes({f"iris.cache.{engine}": "miss"})
     result = compute()
     with _lock:
         _results[key] = (stamp, [dict(r) for r in result])

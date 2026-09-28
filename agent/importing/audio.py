@@ -24,6 +24,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
+from .. import observability as obs
 from ..timeutils import to_utc
 from ..transcription import probe_duration, transcribe
 from . import store
@@ -163,6 +164,7 @@ def _append_item(batch_id: int, user_id: int, stored: dict, original_name: str,
         return item_id
 
 
+@obs.traced("import.transcription_job", "import", args=("item_id",))
 def run_transcription_job(item_id: int) -> None:
     """Queue handler: transcribe one staged recording.
 
@@ -180,21 +182,23 @@ def run_transcription_job(item_id: int) -> None:
         row = cur.fetchone()
     if not row:
         logger.warning(f"Transcription job for item {item_id}: item is gone")
+        obs.capture_output({"outcome": "item_missing"})
         return
     user_id, audio_path, entry_date = row
     if not audio_path:
         logger.warning(f"Transcription job for item {item_id}: no audio attached")
+        obs.capture_output({"outcome": "no_audio", "item_id": item_id})
         return
 
     path = resolve(audio_path)
+    obs.capture_input({"item_id": item_id, "audio_path": str(path), "user_id": user_id})
     result = transcribe(path)
     text = result.text.strip()
 
     if not text:
-        # A silent recording is not a failure to retry; it is an empty entry,
-        # and saying so is more useful than an endless backoff.
         store.update_item(item_id, user_id, status="failed",
                           error="Nothing could be heard in this recording.")
+        obs.capture_output({"outcome": "silent", "item_id": item_id})
         return
 
     warning = None
@@ -203,6 +207,13 @@ def run_transcription_job(item_id: int) -> None:
 
     store.update_item(item_id, user_id, content=text,
                       content_hash=store.content_hash(text), error=warning)
+    obs.capture_output({
+        "outcome": "transcribed",
+        "transcript": text,
+        "model": result.model,
+        "chunk_count": result.chunk_count,
+        "warning": warning,
+    })
     logger.info(
         f"Transcribed item {item_id} with {result.model} "
         f"({result.chunk_count} chunk(s), {len(text)} characters)"

@@ -13,6 +13,8 @@ from typing import Any
 
 from openai import BadRequestError, OpenAI
 
+from .observability.content import MAX_TEXT, json_attr
+from .observability.llm import LlmCall
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -153,30 +155,65 @@ class Intelligence:
         }
         if temperature is not None and self.model not in _REJECTS_TEMPERATURE:
             kwargs["temperature"] = temperature
+        if not self.base_url:
+            kwargs["stream_options"] = {"include_usage": True}
+        prompt = json_attr(kwargs["messages"], MAX_TEXT)
+        call = LlmCall(
+            "chat_stream", kwargs["model"], prompt=prompt, purpose="chat.reply",
+        )
         try:
-            chunks = self.openai_client.chat.completions.create(**kwargs)
-        except BadRequestError as e:
-            if "temperature" not in str(e) or "temperature" not in kwargs:
-                raise
-            _REJECTS_TEMPERATURE.add(self.model)
-            del kwargs["temperature"]
-            chunks = self.openai_client.chat.completions.create(**kwargs)
+            try:
+                chunks = self.openai_client.chat.completions.create(**kwargs)
+            except BadRequestError as e:
+                call.finish(e)
+                if "temperature" not in str(e) or "temperature" not in kwargs:
+                    raise
+                _REJECTS_TEMPERATURE.add(self.model)
+                del kwargs["temperature"]
+                call = LlmCall(
+                    "chat_stream", kwargs["model"], prompt=prompt, purpose="chat.reply",
+                )
+                chunks = self.openai_client.chat.completions.create(**kwargs)
+            parts: list[str] = []
+            produced = False
+            finish_reason = None
+            for chunk in chunks:
+                if getattr(chunk, "usage", None):
+                    call.usage(chunk.usage)
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                finish_reason = choice.finish_reason or finish_reason
+                delta = getattr(choice.delta, "content", None)
+                if delta:
+                    if not produced:
+                        call.first_output()
+                    produced = True
+                    parts.append(delta)
+                    yield delta
+            if not produced:
+                raise RuntimeError(
+                    f"{self.model} returned no content (finish_reason={finish_reason}, "
+                    f"max_completion_tokens={max_tokens}).")
+            call.output("".join(parts))
+            call.finish()
+        except GeneratorExit:
+            call.finish(cancelled=True)
+            raise
+        except Exception as e:
+            call.finish(e)
+            raise
 
-        produced = False
-        finish_reason = None
-        for chunk in chunks:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            finish_reason = choice.finish_reason or finish_reason
-            delta = getattr(choice.delta, "content", None)
-            if delta:
-                produced = True
-                yield delta
-        if not produced:
-            raise RuntimeError(
-                f"{self.model} returned no content (finish_reason={finish_reason}, "
-                f"max_completion_tokens={max_tokens}).")
+
+    def _create_chat(self, kwargs: dict[str, Any]) -> Any:
+        """One non-streaming completion, including its prompt, usage and reply."""
+        with LlmCall(
+            "chat", kwargs["model"], prompt=json_attr(kwargs["messages"], MAX_TEXT),
+        ) as call:
+            response = self.openai_client.chat.completions.create(**kwargs)
+            call.usage(getattr(response, "usage", None))
+            call.output(response.choices[0].message.content)
+            return response
 
     def _chat_openai(
         self,
@@ -222,7 +259,7 @@ class Intelligence:
                 kwargs["tool_choice"] = "auto"
 
             try:
-                response = self.openai_client.chat.completions.create(**kwargs)
+                response = self._create_chat(kwargs)
             except BadRequestError as e:
                 if "temperature" not in str(e) or "temperature" not in kwargs:
                     raise
@@ -234,7 +271,7 @@ class Intelligence:
                 )
                 _REJECTS_TEMPERATURE.add(self.model)
                 del kwargs["temperature"]
-                response = self.openai_client.chat.completions.create(**kwargs)
+                response = self._create_chat(kwargs)
 
             choice = response.choices[0]
             if choice.message.content:

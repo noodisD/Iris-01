@@ -1082,6 +1082,184 @@
         "type": "text"
       }
     },
+    "obs_client_state": {
+      "received_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "source": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "state": {
+        "default": null,
+        "nullable": "NO",
+        "type": "jsonb"
+      }
+    },
+    "obs_logs": {
+      "at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "attributes": {
+        "default": "'{}'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "exception": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "bigint"
+      },
+      "level": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "logger": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "message": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "source": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "span_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
+      },
+      "trace_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
+      }
+    },
+    "obs_samples": {
+      "at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "value": {
+        "default": null,
+        "nullable": "NO",
+        "type": "double precision"
+      }
+    },
+    "obs_spans": {
+      "attributes": {
+        "default": "'{}'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "component": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "db_fingerprint": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
+      },
+      "duration_ms": {
+        "default": null,
+        "nullable": "NO",
+        "type": "double precision"
+      },
+      "events": {
+        "default": "'[]'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "is_entry": {
+        "default": null,
+        "nullable": "NO",
+        "type": "boolean"
+      },
+      "kind": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "links": {
+        "default": "'[]'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "module_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "name": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "parent_module_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "parent_span_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character"
+      },
+      "self_ms": {
+        "default": null,
+        "nullable": "NO",
+        "type": "double precision"
+      },
+      "span_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "started_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "status": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character varying"
+      },
+      "status_message": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "trace_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      }
+    },
     "observation_runs": {
       "candidates_staged": {
         "default": "0",
@@ -1612,6 +1790,11 @@
         "default": "CURRENT_TIMESTAMP",
         "nullable": "NO",
         "type": "timestamp with time zone"
+      },
+      "origin_traceparent": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
       },
       "source_id": {
         "default": null,
@@ -3163,6 +3346,146 @@
         "type": "p"
       }
     },
+    "obs_client_state": {
+      "obs_client_state_pkey": {
+        "definition": "PRIMARY KEY (source)",
+        "type": "p"
+      },
+      "obs_client_state_received_at_not_null": {
+        "definition": "NOT NULL received_at",
+        "type": "n"
+      },
+      "obs_client_state_source_check": {
+        "definition": "CHECK (((source)::text = ANY ((ARRAY['web'::character varying, 'android'::character varying])::text[])))",
+        "type": "c"
+      },
+      "obs_client_state_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      },
+      "obs_client_state_state_not_null": {
+        "definition": "NOT NULL state",
+        "type": "n"
+      }
+    },
+    "obs_logs": {
+      "obs_logs_at_not_null": {
+        "definition": "NOT NULL at",
+        "type": "n"
+      },
+      "obs_logs_attributes_not_null": {
+        "definition": "NOT NULL attributes",
+        "type": "n"
+      },
+      "obs_logs_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "obs_logs_level_not_null": {
+        "definition": "NOT NULL level",
+        "type": "n"
+      },
+      "obs_logs_logger_not_null": {
+        "definition": "NOT NULL logger",
+        "type": "n"
+      },
+      "obs_logs_message_not_null": {
+        "definition": "NOT NULL message",
+        "type": "n"
+      },
+      "obs_logs_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "obs_logs_source_check": {
+        "definition": "CHECK (((source)::text = ANY ((ARRAY['server'::character varying, 'web'::character varying, 'android'::character varying])::text[])))",
+        "type": "c"
+      },
+      "obs_logs_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      }
+    },
+    "obs_samples": {
+      "obs_samples_at_not_null": {
+        "definition": "NOT NULL at",
+        "type": "n"
+      },
+      "obs_samples_name_not_null": {
+        "definition": "NOT NULL name",
+        "type": "n"
+      },
+      "obs_samples_value_not_null": {
+        "definition": "NOT NULL value",
+        "type": "n"
+      }
+    },
+    "obs_spans": {
+      "obs_spans_attributes_not_null": {
+        "definition": "NOT NULL attributes",
+        "type": "n"
+      },
+      "obs_spans_component_not_null": {
+        "definition": "NOT NULL component",
+        "type": "n"
+      },
+      "obs_spans_duration_ms_not_null": {
+        "definition": "NOT NULL duration_ms",
+        "type": "n"
+      },
+      "obs_spans_events_not_null": {
+        "definition": "NOT NULL events",
+        "type": "n"
+      },
+      "obs_spans_is_entry_not_null": {
+        "definition": "NOT NULL is_entry",
+        "type": "n"
+      },
+      "obs_spans_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "obs_spans_links_not_null": {
+        "definition": "NOT NULL links",
+        "type": "n"
+      },
+      "obs_spans_module_id_not_null": {
+        "definition": "NOT NULL module_id",
+        "type": "n"
+      },
+      "obs_spans_name_not_null": {
+        "definition": "NOT NULL name",
+        "type": "n"
+      },
+      "obs_spans_pkey": {
+        "definition": "PRIMARY KEY (trace_id, span_id)",
+        "type": "p"
+      },
+      "obs_spans_self_ms_not_null": {
+        "definition": "NOT NULL self_ms",
+        "type": "n"
+      },
+      "obs_spans_span_id_not_null": {
+        "definition": "NOT NULL span_id",
+        "type": "n"
+      },
+      "obs_spans_started_at_not_null": {
+        "definition": "NOT NULL started_at",
+        "type": "n"
+      },
+      "obs_spans_status_check": {
+        "definition": "CHECK (((status)::text = ANY ((ARRAY['ok'::character varying, 'error'::character varying])::text[])))",
+        "type": "c"
+      },
+      "obs_spans_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "obs_spans_trace_id_not_null": {
+        "definition": "NOT NULL trace_id",
+        "type": "n"
+      }
+    },
     "observation_runs": {
       "observation_runs_candidates_staged_not_null": {
         "definition": "NOT NULL candidates_staged",
@@ -4023,6 +4346,25 @@
     },
     "mobile_pairing": {
       "mobile_pairing_pkey": "CREATE UNIQUE INDEX mobile_pairing_pkey ON public.mobile_pairing USING btree (id)"
+    },
+    "obs_client_state": {
+      "obs_client_state_pkey": "CREATE UNIQUE INDEX obs_client_state_pkey ON public.obs_client_state USING btree (source)"
+    },
+    "obs_logs": {
+      "idx_obs_logs_at": "CREATE INDEX idx_obs_logs_at ON public.obs_logs USING btree (at)",
+      "idx_obs_logs_trace": "CREATE INDEX idx_obs_logs_trace ON public.obs_logs USING btree (trace_id) WHERE (trace_id IS NOT NULL)",
+      "obs_logs_pkey": "CREATE UNIQUE INDEX obs_logs_pkey ON public.obs_logs USING btree (id)"
+    },
+    "obs_samples": {
+      "idx_obs_samples_name_at": "CREATE INDEX idx_obs_samples_name_at ON public.obs_samples USING btree (name, at)"
+    },
+    "obs_spans": {
+      "idx_obs_spans_component_started": "CREATE INDEX idx_obs_spans_component_started ON public.obs_spans USING btree (component, started_at)",
+      "idx_obs_spans_entry_started": "CREATE INDEX idx_obs_spans_entry_started ON public.obs_spans USING btree (started_at) WHERE is_entry",
+      "idx_obs_spans_fingerprint": "CREATE INDEX idx_obs_spans_fingerprint ON public.obs_spans USING btree (db_fingerprint, started_at) WHERE (db_fingerprint IS NOT NULL)",
+      "idx_obs_spans_module_started": "CREATE INDEX idx_obs_spans_module_started ON public.obs_spans USING btree (module_id, started_at DESC)",
+      "idx_obs_spans_started": "CREATE INDEX idx_obs_spans_started ON public.obs_spans USING btree (started_at)",
+      "obs_spans_pkey": "CREATE UNIQUE INDEX obs_spans_pkey ON public.obs_spans USING btree (trace_id, span_id)"
     },
     "observation_runs": {
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",

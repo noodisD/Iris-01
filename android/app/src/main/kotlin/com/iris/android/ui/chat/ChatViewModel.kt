@@ -65,7 +65,7 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
             is TalkUpdate.Failed -> {
                 _messages.value = _messages.value.filterNot { it.id == replyId }
                 viewModelScope.launch {
-                    try { fetchMessages(current.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
+                    try { fetchMessages(current.id) } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) { com.iris.android.telemetry.Telemetry.error("ChatViewModel.onSpoken", e) }
                 }
             }
         }
@@ -103,7 +103,7 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
             _failure.value = null
             _conversation.value = Loadable.Ready(spoken)
             viewModelScope.launch {
-                try { fetchMessages(spoken.id) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) {}
+                try { fetchMessages(spoken.id) } catch (cancelled: CancellationException) { throw cancelled } catch (e: Exception) { com.iris.android.telemetry.Telemetry.error("ChatViewModel.onTalkUpdate", e) }
             }
             return
         }
@@ -119,8 +119,8 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
                     if (gen == generation) _user.value = loaded
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    // The web shows the conversation even when the optional day tag cannot load.
+                } catch (e: Exception) {
+                    com.iris.android.telemetry.Telemetry.error("ChatViewModel.open", e)
                 }
             }
             try {
@@ -199,8 +199,8 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
                     fetchMessages(current.id)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    // Keep the reconciled local list if the history is temporarily unreachable.
+                } catch (e: Exception) {
+                    com.iris.android.telemetry.Telemetry.error("ChatViewModel.send", e)
                 }
                 val saved = error is ReplyFailed && error.saved
                 if (!saved && _draft.value.isEmpty()) _draft.value = text

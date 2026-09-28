@@ -106,6 +106,15 @@ class IrisApi(
         }
     }
 
+    suspend fun postTelemetry(json: String): Unit = withContext(Dispatchers.IO) {
+        val request = request("$root/api/observatory/client-events").post(json.toRequestBody(JSON)).build()
+        withResponse(request) { response ->
+            if (!response.isSuccessful) {
+                throw apiError(response.code, response.body?.string(), "Telemetry was not stored.", root)
+            }
+        }
+    }
+
     suspend fun <T> upload(
         path: String,
         parts: List<UploadPart>,

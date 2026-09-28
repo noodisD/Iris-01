@@ -32,6 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import observability as obs
 from .conflict import ConflictSuppressionEngine
 from .coverage import current_state_gate
 from .preferences import UserPreferencesService
@@ -87,26 +88,32 @@ class AnalysisPipeline:
         findings: list[dict[str, Any]] = []
         self._unavailable = []
         for name, engine in self.engines.items():
-            try:
-                produced = engine.callable()
-            except Exception as e:
-                logger.error(f"Engine '{name}' failed: {e}")
-                self._unavailable.append(name)
-                continue
-            for insight in produced:
-                insight.setdefault("engine_name", name)
-                if engine.identify:
-                    engine.identify(insight)
-                insight.setdefault("pattern_type", "theme")
-                insight.setdefault("pattern_key", str(insight.get("pattern_id")))
-                insight.setdefault("confidence_level", "low")
-                # The engine's own word for what it found. This used to fall
-                # back to the *summary*, so a row with no label key was
-                # labelled with its theme's name, or with "Insight".
-                if "label" not in insight:
-                    insight["label"] = (insight.get(f"{name}_label")
-                                        or insight.get("effect_direction") or "observed")
-                findings.append(insight)
+            with obs.span(f"engine.{name}", "engine") as span:
+                obs.capture_input({"user_id": self.user_id}, span=span)
+                try:
+                    produced = engine.callable()
+                except Exception as e:
+                    logger.error(f"Engine '{name}' failed: {e}")
+                    self._unavailable.append(name)
+                    obs.mark_error(span, e)
+                    obs.capture_output(
+                        {"findings": [], "unavailable": name, "error": f"{type(e).__name__}: {e}"},
+                        span=span,
+                    )
+                    continue
+                obs.set_attributes({"iris.engine.findings": len(produced)})
+                for insight in produced:
+                    insight.setdefault("engine_name", name)
+                    if engine.identify:
+                        engine.identify(insight)
+                    insight.setdefault("pattern_type", "theme")
+                    insight.setdefault("pattern_key", str(insight.get("pattern_id")))
+                    insight.setdefault("confidence_level", "low")
+                    if "label" not in insight:
+                        insight["label"] = (insight.get(f"{name}_label")
+                                            or insight.get("effect_direction") or "observed")
+                    findings.append(insight)
+                obs.capture_output(produced, span=span)
         return findings
 
     def gate(self, findings: list[dict[str, Any]],
@@ -116,18 +123,59 @@ class AnalysisPipeline:
         context = {"user_id": self.user_id, "prefs": prefs or {},
                    "suppression_log": self._suppression_log}
         for gate in self.gates:
-            try:
-                findings = gate.callable(findings, context)
-            except Exception as e:
-                # Fail closed. A gate exists to hold findings back, so a gate
-                # that throws was passing everything it was given — the
-                # coverage gate has its own wrapper, but the shared mechanism
-                # should not have "show it anyway" as its default.
-                logger.error(f"Gate '{gate.name}' failed, withholding its input: {e}")
-                self._suppression_log.setdefault("gate_unavailable", []).extend(
-                    f"{f.get('engine_name')}:{f.get('pattern_key', f.get('pattern_id'))}"
-                    for f in findings)
-                return []
+            before = {reason: len(items) for reason, items in self._suppression_log.items()}
+            with obs.span(
+                f"admission.{gate.name}",
+                "admission",
+                {"iris.admission.in": len(findings)},
+            ) as span:
+                obs.capture_input(
+                    {"findings": findings, "user_id": self.user_id, "prefs": context["prefs"]},
+                    span=span,
+                )
+                try:
+                    findings = gate.callable(findings, context)
+                except Exception as e:
+                    logger.error(f"Gate '{gate.name}' failed, withholding its input: {e}")
+                    self._suppression_log.setdefault("gate_unavailable", []).extend(
+                        f"{f.get('engine_name')}:{f.get('pattern_key', f.get('pattern_id'))}"
+                        for f in findings)
+                    new_logs = [
+                        item
+                        for reason, items in self._suppression_log.items()
+                        for item in items[before.get(reason, 0):]
+                    ]
+                    obs.mark_error(span, e)
+                    obs.set_attributes({"iris.admission.failed_closed": True})
+                    obs.capture_output(
+                        {
+                            "findings": [],
+                            "suppressed": new_logs,
+                            "failed_closed": True,
+                            "error": f"{type(e).__name__}: {e}",
+                        },
+                        span=span,
+                    )
+                    return []
+                delta = {
+                    reason: len(items) - before.get(reason, 0)
+                    for reason, items in self._suppression_log.items()
+                    if len(items) - before.get(reason, 0)
+                }
+                new_logs = [
+                    item
+                    for reason, items in self._suppression_log.items()
+                    for item in items[before.get(reason, 0):]
+                ]
+                obs.set_attributes({
+                    "iris.admission.out": len(findings),
+                    "iris.admission.reasons": delta,
+                    "iris.admission.suppressed": new_logs,
+                })
+                obs.capture_output(
+                    {"findings": findings, "suppressed": new_logs, "reasons": delta},
+                    span=span,
+                )
         return findings
 
     def run(self, prefs: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -284,24 +332,57 @@ def collect_findings(user_id: int, unavailable: list[str] | None = None) -> list
     asked and failed. An empty result means something different when one of
     them is there, and the difference is the one the owner is told about.
     """
-    pipeline = canonical_pipeline(user_id)
-    findings = pipeline.collect()
-    if unavailable is not None:
-        unavailable.extend(pipeline.unavailable)
-    return findings
+    with obs.span("admission.collect", "admission") as span:
+        obs.capture_input({"user_id": user_id}, span=span)
+        pipeline = canonical_pipeline(user_id)
+        findings = pipeline.collect()
+        if unavailable is not None:
+            unavailable.extend(pipeline.unavailable)
+        obs.set_attributes({
+            "iris.admission.findings": len(findings),
+            "iris.admission.unavailable": list(pipeline.unavailable),
+        })
+        obs.capture_output(
+            {"findings": findings, "unavailable": list(pipeline.unavailable)},
+            span=span,
+        )
+        return findings
 
 
 def admit_findings(findings: list[dict[str, Any]], user_id: int,
                    prefs: dict[str, Any] | None = None) -> Admission:
     """The admission policy. Every surface that says what IRIS noticed uses this."""
-    if prefs is None:
-        prefs = UserPreferencesService(user_id).get_prefs()
-    pipeline = canonical_pipeline(user_id)
-    gated = pipeline.gate(findings, prefs)
-    resolved = ConflictSuppressionEngine().suppress(gated)
-    ranked = InsightPrioritizationEngine(user_id).rank(resolved["visible"])
-    return Admission(findings=ranked, suppression_log=pipeline.get_suppression_log(),
-                     conflicts=resolved["suppressed"])
+    with obs.span("admission.admit", "admission", {"iris.admission.in": len(findings)}) as span:
+        if prefs is None:
+            prefs = UserPreferencesService(user_id).get_prefs()
+        obs.capture_input({"findings": findings, "user_id": user_id, "prefs": prefs}, span=span)
+        pipeline = canonical_pipeline(user_id)
+        gated = pipeline.gate(findings, prefs)
+        with obs.span("admission.conflict", "admission", {"iris.admission.in": len(gated)}) as conflict:
+            obs.capture_input({"findings": gated}, span=conflict)
+            resolved = ConflictSuppressionEngine().suppress(gated)
+            obs.set_attributes({
+                "iris.admission.out": len(resolved["visible"]),
+                "iris.admission.suppressed": resolved["suppressed"],
+            })
+            obs.capture_output(
+                {"visible": resolved["visible"], "suppressed": resolved["suppressed"]},
+                span=conflict,
+            )
+        visible = resolved["visible"]
+        with obs.span("admission.rank", "admission", {"iris.admission.in": len(visible)}) as rank:
+            obs.capture_input({"findings": visible}, span=rank)
+            ranked = InsightPrioritizationEngine(user_id).rank(visible)
+            obs.set_attributes({"iris.admission.out": len(ranked)})
+            obs.capture_output({"findings": ranked}, span=rank)
+        result = Admission(findings=ranked, suppression_log=pipeline.get_suppression_log(),
+                           conflicts=resolved["suppressed"])
+        obs.set_attributes({
+            "iris.admission.out": len(ranked),
+            "iris.admission.conflicts": len(resolved["suppressed"]),
+        })
+        obs.capture_output(result, span=span)
+        return result
 
 
 def admit(user_id: int, prefs: dict[str, Any] | None = None) -> Admission:

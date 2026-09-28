@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from .. import observability as obs
 from .repository import SensorRepository
 
 
@@ -13,6 +14,7 @@ class SensorService:
     def __init__(self) -> None:
         self._repo = SensorRepository()
 
+    @obs.traced("sensors.stage_delivery", "sensors", args=("delivery_key", "review_day", "clock_skew_seconds"), result=lambda r: {"iris.sensors.batch_id": r})
     def stage_delivery(self, batch: dict[str, Any], *, delivery_key: str,
                        review_day: date, clock_skew_seconds: int | None) -> int:
         """Stage one phone delivery without admitting analytical evidence."""
@@ -21,6 +23,7 @@ class SensorService:
             clock_skew_seconds=clock_skew_seconds,
         )
 
+    @obs.traced("sensors.commit_batch", "sensors", args=("batch_id", "expected_observation_count"), result=lambda r: {"iris.sensors.committed": len(r)})
     def commit_batch(self, batch_id: int, *, links: dict[str, int | None],
                      user_id: int, expected_observation_count: int | None = None) -> list[int]:
         """Atomically commit the batch, its linked evidence and theme aggregates.

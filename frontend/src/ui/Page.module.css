@@ -9,7 +9,20 @@
 .description { margin: var(--space-1) 0 0; max-width: 64ch; color: var(--petal-2); font-size: var(--text-md); line-height: 1.55; }
 .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .body { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; width: 100%; }
-.bleed { min-width: 0; }
+.page.workspace {
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+.workspace .title { font-size: var(--text-xl); }
+.workspaceBody {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 .section { display: flex; flex-direction: column; gap: var(--space-3); }
 .sectionHead { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-3); }
 .sectionTitle { margin: 0; font-family: var(--font-ui); font-size: var(--text-md); font-weight: 600; color: var(--petal); }

@@ -75,7 +75,7 @@ fun TalkIntro(onStart: () -> Unit, onCancel: () -> Unit) {
         cost = try {
             val e = IrisLink.api().send("GET", "/voice/estimate", null, VoiceEstimate.serializer())
             "${e.perTurn}, on ${e.model}."
-        } catch (_: Exception) { "The cost could not be worked out." }
+        } catch (e: Exception) { com.iris.android.telemetry.Telemetry.error("TalkPanel.cost", e); "The cost could not be worked out." }
     }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted[Manifest.permission.RECORD_AUDIO] == true) onStart() else onCancel()

@@ -19,6 +19,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import date, timedelta
 
+from . import observability as obs
 from . import day_differences, decisions, discovery
 from .database import db
 from .days.recompute import list_days
@@ -220,6 +221,7 @@ PARTS: list[tuple[str, Callable[[int], list[str]]]] = [
 ]
 
 
+@obs.traced("chat.approved_context", "chat")
 def approved_context(user_id: int) -> str:
     """The block, headed, with each part or a line saying it could not load."""
     out = [HEADER + ":"]

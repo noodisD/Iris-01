@@ -10,9 +10,17 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateOf
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.iris.android.api.IrisLink
+import com.iris.android.api.LinkState
 import com.iris.android.lock.AppLock
+import com.iris.android.telemetry.Telemetry
 import com.iris.android.ui.IrisRoot
 import com.iris.android.ui.theme.IrisTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** The collector is independent of this private, device-authenticated UI. */
 class MainActivity : FragmentActivity() {
@@ -29,9 +37,20 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Telemetry.install(applicationContext)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(30_000)
+                    (IrisLink.state.value as? LinkState.Ready)?.api?.let { api ->
+                        Telemetry.flush(applicationContext) {
+                            runCatching { api.postTelemetry(it) }.isSuccess
+                        }
+                    }
+                }
+            }
+        }
         enableEdgeToEdge()
-        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
-        pendingDestination.value = intent?.getStringExtra(EXTRA_DESTINATION)
         setContent {
             IrisTheme {
                 IrisRoot(

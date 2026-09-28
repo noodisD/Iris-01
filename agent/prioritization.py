@@ -15,6 +15,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from . import observability as obs
 from .timeutils import to_utc, utc_now
 from .constants import (
     ENGINE_BASE_WEIGHTS,
@@ -83,6 +84,7 @@ class InsightPrioritizationEngine:
         scored_list.sort(key=sort_key, reverse=True)
         return scored_list
 
+    @obs.traced("admission.select", "admission", args=("max_items",), result=lambda r: {"iris.admission.out": len(r)})
     def select(self, ranked: list[dict[str, Any]], max_items: int) -> list[dict[str, Any]]:
         """What fits in a prompt: one finding per pattern, at most `max_items`.
 
@@ -91,6 +93,7 @@ class InsightPrioritizationEngine:
         theme, or for the pair engines the pair — a tension between A and B is
         not one more thing said about A. The selection is recorded for audit.
         """
+        obs.set_attributes({"iris.admission.in": len(ranked)})
         if not ranked:
             # Nothing selected means the previous selection is no longer
             # current, so it is retired rather than left looking live.

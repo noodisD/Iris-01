@@ -26,6 +26,8 @@ import logging
 from agent.logging_config import configure_logging
 
 configure_logging()
+from agent import observability as obs
+obs.setup("cli")
 logger = logging.getLogger(__name__)
 
 # New architecture imports
@@ -873,10 +875,11 @@ def main():
         # Bring the schema up to date before anything touches it.
         try:
             migrations.upgrade()
+            from agent.observability import runtime as obs_runtime
+            obs_runtime.start_background(probe=False)
         except Exception as e:
             print(f"✗ CRITICAL: Could not connect to or migrate database: {e}")
             sys.exit(1)
-
         # The one local user, resolved as the API resolves it (ADR-0001).
         user_id = db.local_user_id()
         if user_id:
@@ -897,6 +900,8 @@ def main():
         # Always clean up connections, even if interrupted
         print("\nCleaning up connections...")
         try:
+            from agent.observability import runtime as obs_runtime
+            obs_runtime.stop_background()
             db.close_connection()
         except Exception as e:
             print(f"Warning: Error closing database: {e}")

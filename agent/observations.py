@@ -63,6 +63,7 @@ from .constants import (
     OBSERVATION_MIN_QUOTE_CHARS,
     OBSERVATION_MIN_STAGED_CHARS,
 )
+from . import observability as iris_obs
 from .database import db
 from .intelligence import Intelligence
 from .narrative_policy import FORBIDDEN_REGEX
@@ -249,6 +250,7 @@ An empty list is a good answer when nothing restates anything else."""
 INCOMPATIBLE = frozenset({"contradictory", "narrower", "broader"})
 
 
+@iris_obs.traced("insights.synthesise", "insights")
 def synthesise(observations: list[Observation], intelligence) -> list[Observation]:
     """Merge findings that are the same finding in different words.
 
@@ -385,6 +387,7 @@ Return JSON only:
 {"quotes": [{"i": 0, "verdict": "supports"}]}"""
 
 
+@iris_obs.traced("insights.check_support", "insights")
 def check_support(observations: list[Observation], intelligence,
                   tally: Counter | None = None) -> list[Observation]:
     """Keep a finding only if its quotes are instances of it.
@@ -412,6 +415,7 @@ def check_support(observations: list[Observation], intelligence,
     tally = tally if tally is not None else Counter()
     if intelligence is None:
         tally["unchecked"] += len(observations)
+        iris_obs.capture_output({"observations": [], "tally": dict(tally)})
         return []
     kept: list[Observation] = []
     for obs in observations:
@@ -463,6 +467,7 @@ def check_support(observations: list[Observation], intelligence,
             claim=obs.claim, citations=supporting, span_start=span_start,
             span_end=span_end, entries_read=obs.entries_read,
             confidence_level=_confidence(supporting, span_days), merged_from=obs.merged_from))
+    iris_obs.capture_output({"observations": kept, "tally": dict(tally)})
     return kept
 
 
@@ -500,6 +505,7 @@ class ObservationEngine:
 
         return check_support(self._verified(_parse_reply(reply), entries), self.intelligence)
 
+    @iris_obs.traced("insights.read_archive", "insights")
     def read_archive(self, include_staged: bool = True) -> tuple[list[Observation], int | None]:
         """Read everything, in passes, and record what the reading covered.
 

@@ -12,6 +12,7 @@ import { ImportScreen } from '@/screens/ImportScreen';
 import { ConstructsScreen } from '@/screens/ConstructsScreen';
 import { IdeasScreen } from '@/screens/IdeasScreen';
 import { SensorsScreen } from '@/screens/SensorsScreen';
+import { ObservatoryScreen } from '@/screens/ObservatoryScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
 
@@ -39,6 +40,8 @@ const router = createBrowserRouter([
       { path: 'ideas', element: <IdeasScreen /> },
       { path: 'ideas/:id', element: <IdeasScreen /> },
       { path: 'sensors', element: <SensorsScreen /> },
+      { path: 'observatory', element: <ObservatoryScreen /> },
+      { path: 'observatory/traces/:traceId', element: <ObservatoryScreen /> },
       { path: 'settings', element: <SettingsScreen /> },
     ],
   },

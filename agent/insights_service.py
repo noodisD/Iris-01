@@ -13,6 +13,7 @@ status survives the on-the-fly recomputation.
 import logging
 from datetime import UTC, datetime
 
+from . import observability as obs
 from .coverage import observation_coverage
 from .narrative_policy import FORBIDDEN_REGEX
 from .constants import (
@@ -474,6 +475,7 @@ class InsightsService:
             out["admitted"] = out["hiddenByStatus"] = out["suppressedByFilter"] = None
         return out
 
+    @obs.traced("insights.list", "insights", result=lambda r: {"iris.insights.count": len(r)})
     def list_summaries(self) -> list:
         """Return InsightSummary[], hiding resolved and still-snoozed insights."""
         statuses = db.get_insight_statuses(self.user_id)

@@ -4,7 +4,7 @@
  */
 
 import type { ApiError } from '@/types/api';
-
+import { tracedRequest } from '@/lib/telemetry';
 const BASE = (import.meta.env.VITE_BACKEND_URL ?? '') as string;
 
 class HttpError extends Error {
@@ -38,15 +38,24 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    credentials: 'include',
-    body: body == null ? undefined : JSON.stringify(body),
-  });
+  const traced = tracedRequest(method, path);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...traced.headers,
+      },
+      credentials: 'include',
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+  } catch (err) {
+    traced.finish(0, String(err));
+    throw err;
+  }
+  traced.finish(res.status);
 
   if (!res.ok) {
     let payload: unknown = null;
@@ -78,10 +87,12 @@ export function upload<T>(
   opts: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    const traced = tracedRequest('POST', path);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BASE}/api${path}`, true);
     xhr.withCredentials = true;
     xhr.setRequestHeader('Accept', 'application/json');
+    for (const [key, value] of Object.entries(traced.headers)) xhr.setRequestHeader(key, value);
 
     if (opts.onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -93,6 +104,7 @@ export function upload<T>(
       reject(new HttpError(status, { code: 'unknown', message }));
 
     xhr.onload = () => {
+      traced.finish(xhr.status);
       let payload: unknown;
       try { payload = JSON.parse(xhr.responseText); } catch { payload = null; }
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -101,9 +113,9 @@ export function upload<T>(
         reject(new HttpError(xhr.status, toApiError(xhr.status, payload, xhr.statusText)));
       }
     };
-    xhr.onerror = () => fail(0, 'The upload could not reach IRIS.');
-    xhr.ontimeout = () => fail(0, 'The upload timed out.');
-    xhr.onabort = () => fail(0, 'Upload cancelled.');
+    xhr.onerror = () => { traced.finish(0, 'The upload could not reach IRIS.'); fail(0, 'The upload could not reach IRIS.'); };
+    xhr.ontimeout = () => { traced.finish(0, 'The upload timed out.'); fail(0, 'The upload timed out.'); };
+    xhr.onabort = () => { traced.finish(0, 'Upload cancelled.'); fail(0, 'Upload cancelled.'); };
 
     opts.signal?.addEventListener('abort', () => xhr.abort(), { once: true });
     xhr.send(form);
@@ -123,13 +135,22 @@ export const api = {
  * Yields each `data:` payload as it arrives. Caller is responsible for breaking.
  */
 export async function* sse<T = unknown>(path: string, body: unknown): AsyncGenerator<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
+  const traced = tracedRequest('POST', path);
+  const started = performance.now();
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...traced.headers },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    traced.finish(0, String(err));
+    throw err;
+  }
   if (!res.ok || !res.body) {
+    traced.finish(res.status);
     let payload: unknown = null;
     try { payload = await res.json(); } catch { /* not JSON */ }
     throw new HttpError(res.status, toApiError(res.status, payload, 'IRIS could not be reached.'));
@@ -138,22 +159,27 @@ export async function* sse<T = unknown>(path: string, body: unknown): AsyncGener
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    let idx;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const block = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const data = block
-        .split('\n')
-        .filter(l => l.startsWith('data:'))
-        .map(l => l.slice(5).trim())
-        .join('');
-      if (data) yield JSON.parse(data) as T;
+  let ttfb: number | undefined;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (ttfb == null && value) ttfb = performance.now() - started;
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const data = block
+          .split('\n')
+          .filter(l => l.startsWith('data:'))
+          .map(l => l.slice(5).trim())
+          .join('');
+        if (data) yield JSON.parse(data) as T;
+      }
     }
+  } finally {
+    traced.finish(res.status, undefined, ttfb == null ? undefined : { 'iris.client.ttfb_ms': ttfb });
   }
 }
 
@@ -162,7 +188,17 @@ export async function* sse<T = unknown>(path: string, body: unknown): AsyncGener
  * not parse (audio), with the same URL base and the same error shape.
  */
 export async function postRaw(path: string, init: RequestInit, fallback: string): Promise<Response> {
-  const res = await fetch(`${BASE}/api${path}`, { method: 'POST', credentials: 'include', ...init });
+  const traced = tracedRequest('POST', path);
+  const headers = new Headers(init.headers);
+  for (const [key, value] of Object.entries(traced.headers)) headers.set(key, value);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api${path}`, { method: 'POST', credentials: 'include', ...init, headers });
+  } catch (err) {
+    traced.finish(0, String(err));
+    throw err;
+  }
+  traced.finish(res.status);
   if (!res.ok) {
     let payload: unknown = null;
     try { payload = await res.json(); } catch { /* not JSON */ }

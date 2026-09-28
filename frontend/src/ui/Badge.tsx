@@ -3,7 +3,7 @@ import styles from './Badge.module.css';
 
 /** A short status word. `confirmed` is gold: something the owner confirmed. */
 export function Badge({ children, tone = 'neutral' }: {
-  children: React.ReactNode; tone?: 'neutral' | 'confirmed' | 'better' | 'worse' | 'action';
+  children: React.ReactNode; tone?: 'neutral' | 'confirmed' | 'better' | 'worse' | 'action' | 'caution';
 }) {
   return <span className={`${styles.badge} ${styles[tone]}`}>{children}</span>;
 }

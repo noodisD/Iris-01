@@ -35,6 +35,7 @@ import logging
 import re
 from typing import Any
 
+from . import observability as obs
 from .narrative_policy import FORBIDDEN_REGEX
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ def facts_letter(facts: list[str], findings: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+@obs.traced("insights.review_letter", "insights")
 def compose(facts: list[str], findings: list[str], week_entries: list[str],
             intelligence: Any, formats: list[str] | None = None) -> str:
     """Write the letter, or fall back to the facts.

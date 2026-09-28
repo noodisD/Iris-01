@@ -476,6 +476,27 @@ def freeze_time(monkeypatch):
     return machine
 
 @pytest.fixture
+def captured_spans():
+    from agent.observability import testing
+
+    with testing.capturing() as spans:
+        yield spans
+
+
+@pytest.fixture
+def observatory():
+    from agent.observability import testing
+    from agent.observability.store import sink
+
+    testing.reset()
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("TRUNCATE obs_spans, obs_logs, obs_samples, obs_client_state")
+        conn.commit()
+    yield
+    sink.clear()
+
+
+@pytest.fixture
 def mock_llm(monkeypatch):
     """
     Standard mock for LLM to avoid real API costs and ensure determinism.

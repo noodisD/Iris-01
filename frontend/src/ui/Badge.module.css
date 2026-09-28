@@ -3,6 +3,7 @@
 .better { color: var(--better); border-color: rgba(143, 196, 168, 0.4); }
 .worse { color: var(--worse); border-color: rgba(217, 138, 138, 0.4); }
 .action { color: var(--iris-text); border-color: rgba(139, 127, 214, 0.5); background: var(--iris-soft); }
+.caution { color: var(--caution); border-color: rgba(217, 168, 119, 0.45); background: var(--caution-soft); }
 .stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .value { font-family: var(--font-read); font-size: var(--text-2xl); line-height: 1.1; font-variant-numeric: lining-nums tabular-nums; color: var(--petal); }
 .label { font-size: var(--text-xs); color: var(--petal-3); }

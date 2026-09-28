@@ -17,6 +17,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from . import observability as obs
+from .observability.llm import LlmCall
 from .timeutils import to_utc, utc_now
 from .config import settings
 
@@ -55,8 +57,12 @@ def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list
     """
     text = text.replace("\n", " ")
     try:
-        response = openai.embeddings.create(input=[text], model=model)
-        return response.data[0].embedding
+        with LlmCall("embeddings", model, prompt=text) as call:
+            response = openai.embeddings.create(input=[text], model=model)
+            embedding = response.data[0].embedding
+            call.usage(getattr(response, "usage", None))
+            call.output(f"<vector dim={len(embedding)}>")
+            return embedding
     except _TRANSIENT_OPENAI_ERRORS:
         raise  # let tenacity handle
     except Exception as e:
@@ -64,6 +70,7 @@ def generate_embedding(text: str, model: str = "text-embedding-3-small") -> list
         raise
 
 
+@obs.traced("pipeline.cross_theme_refresh", "pipeline", args=("user_id",))
 def _refresh_cross_theme_analyses(user_id: int) -> None:
     """Recompute leverage and decision impact for a user, into their caches.
 
@@ -83,14 +90,21 @@ def _refresh_cross_theme_analyses(user_id: int) -> None:
     from .leverage import LeverageEngine
 
     try:
-        LeverageEngine(user_id).analyze_all_leverage()
-        DecisionImpactEngine(user_id).analyze_all_anchors()
+        with obs.span("engine.leverage", "engine") as span:
+            obs.capture_input({"user_id": user_id}, span=span)
+            leverage = LeverageEngine(user_id).analyze_all_leverage()
+            obs.capture_output(leverage, span=span)
+        with obs.span("engine.decision_impact", "engine") as span:
+            obs.capture_input({"user_id": user_id}, span=span)
+            impact = DecisionImpactEngine(user_id).analyze_all_anchors()
+            obs.capture_output(impact, span=span)
+        obs.capture_output({"outcome": "complete"})
     except Exception as e:
-        # Non-blocking: the entry is already stored, and a stale cross-theme
-        # cache is a worse-context problem, not a data problem.
+        obs.capture_output({"outcome": "failed", "error": f"{type(e).__name__}: {e}"})
         logger.warning(f"Cross-theme refresh failed for user {user_id}: {e}")
 
 
+@obs.traced("pipeline.rebuild_themes", "pipeline", args=("user_id",))
 def rebuild_themes(user_id: int) -> dict:
     """Throw away a user's themes and find them again (ADR-0014), then refresh
     the cross-theme analyses that are cached against theme ids."""
@@ -99,6 +113,7 @@ def rebuild_themes(user_id: int) -> dict:
     return result
 
 
+@obs.traced("pipeline.run", "pipeline", args=("source_type", "source_id"))
 def run_processing_pipeline(source_type: str, source_id: int):
     """
     Runs the full processing pipeline for a given source item.
@@ -134,6 +149,20 @@ def run_processing_pipeline(source_type: str, source_id: int):
         content = item_data['content']
         user_id = item_data['user_id']
         occurred_at = item_data['occurred_at']
+        obs.capture_input({
+            "source_type": source_type,
+            "source_id": source_id,
+            "user_id": user_id,
+            "content": content,
+            "occurred_at": occurred_at,
+            "content_format": item_data.get("content_format"),
+        })
+        obs.set_attributes({
+            "iris.pipeline.user_id": user_id,
+            "iris.pipeline.content_chars": len(content or ""),
+        })
+        matched_theme_id = None
+        matched_constructs: list = []
 
         # Backfill detection logging. to_utc() handles strings, dates and both
         # flavours of datetime, so the branching this used to need is gone.
@@ -162,6 +191,8 @@ def run_processing_pipeline(source_type: str, source_id: int):
         if not db.is_still_processing(source_type, source_id):
             logger.info(f"{source_type} {source_id} changed while being processed; "
                         "leaving it to the re-queued run")
+            obs.set_attributes({"iris.pipeline.outcome": "superseded"})
+            obs.capture_output({"outcome": "superseded"})
             return
 
         # 4. Store the canonical embedding in PostgreSQL
@@ -253,13 +284,25 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 )
                 raise
 
-        # 6. Update status to 'complete'
+        obs.set_attributes({
+            "iris.pipeline.evidence": should_check_persistence,
+            "iris.pipeline.matched_theme_id": matched_theme_id,
+            "iris.pipeline.constructs_matched": len(matched_constructs),
+            "iris.pipeline.outcome": "complete",
+        })
         db.update_processing_status(source_type, source_id, 'complete')
+        obs.capture_output({
+            "outcome": "complete",
+            "evidence": should_check_persistence,
+            "matched_theme_id": matched_theme_id,
+            "matched_constructs": matched_constructs,
+        })
         logger.info(f"Successfully completed processing for {source_type} ID: {source_id}")
 
     except Exception as e:
         logger.error(f"Processing pipeline failed for {source_type} ID {source_id}: {e}")
         db.update_processing_status(source_type, source_id, 'failed')
+        obs.set_attributes({"iris.pipeline.outcome": "failed"})
         # Re-raised, not swallowed. The caller is the ingest queue, which uses
         # the exception to decide whether to retry; swallowing it here reported
         # success for work that had not happened, and the queue would then have

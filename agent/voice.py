@@ -19,6 +19,8 @@ from pathlib import Path
 
 from prompts.system_prompt import SYSTEM_PROMPT
 
+from . import observability as obs
+from .observability.llm import LlmCall
 from .approved_context import approved_context
 from .config import settings
 from .database import db
@@ -96,8 +98,13 @@ class TooLong(VoiceError):
     pass
 
 
+@obs.traced("voice.transcribe", "voice", result=lambda t: {"iris.voice.heard_chars": len(t)})
 def transcribe_utterance(audio: bytes, mime: str) -> str:
     """What the owner said, as text. The audio is deleted before this returns."""
+    obs.set_attributes({
+        "iris.voice.audio_bytes": len(audio),
+        "iris.voice.mime": mime,
+    })
     if not audio:
         raise VoiceError("Nothing was recorded.")
     if len(audio) > MAX_UTTERANCE_BYTES:
@@ -134,19 +141,41 @@ def open_speech(text: str) -> Iterator[bytes]:
         raise VoiceError("Nothing to say.")
     if len(text) > MAX_SPEECH_CHARS:
         raise VoiceError("Too much to say at once; send it a sentence at a time.")
-    client = Intelligence().openai_client
-    manager = client.audio.speech.with_streaming_response.create(
-        model=settings.TTS_MODEL,
-        voice=settings.TTS_VOICE,
-        input=text,
-        instructions=VOICE_INSTRUCTIONS,
-        response_format="mp3",
+    call = LlmCall(
+        "speech",
+        settings.TTS_MODEL,
+        prompt=text,
+        purpose="voice.speech",
+        attributes={"iris.llm.voice": settings.TTS_VOICE},
     )
-    response = manager.__enter__()
+    try:
+        client = Intelligence().openai_client
+        manager = client.audio.speech.with_streaming_response.create(
+            model=settings.TTS_MODEL,
+            voice=settings.TTS_VOICE,
+            input=text,
+            instructions=VOICE_INSTRUCTIONS,
+            response_format="mp3",
+        )
+        response = manager.__enter__()
+    except Exception as e:
+        call.finish(e)
+        raise
 
     def chunks() -> Iterator[bytes]:
         try:
-            yield from response.iter_bytes(chunk_size=4096)
+            try:
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    call.first_output()
+                    call.add_output_bytes(len(chunk))
+                    yield chunk
+                call.finish()
+            except GeneratorExit:
+                call.finish(cancelled=True)
+                raise
+            except Exception as e:
+                call.finish(e)
+                raise
         finally:
             manager.__exit__(None, None, None)
 

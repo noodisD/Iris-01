@@ -11,6 +11,9 @@ import json
 import logging
 from typing import Any, Literal
 
+from opentelemetry import trace
+
+from agent import observability as obs
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from agent.constants import OBSERVATION_MAX_TOKENS
@@ -295,15 +298,19 @@ class CritiqueContent(_Strict):
     relatedThought: list[Thought] = Field(max_length=3)
 
 
+@obs.traced("ideas.ask", "ideas")
 def _ask(intelligence: Any, prompt: str, payload: object) -> dict[str, Any]:
+    encoded = json.dumps(payload, ensure_ascii=False)
+    obs.set_attributes({"iris.ideas.payload_chars": len(encoded)})
     try:
         reply = intelligence.chat(
-            messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+            messages=[{"role": "user", "content": encoded}],
             system_prompt=prompt,
             max_tokens=OBSERVATION_MAX_TOKENS,
         )
-    except Exception:
+    except Exception as e:
         logger.error("idea model call failed")
+        obs.mark_error(trace.get_current_span(), e)
         raise ReplyError("model_failed") from None
     try:
         data = json.loads(_strip_fence(reply))

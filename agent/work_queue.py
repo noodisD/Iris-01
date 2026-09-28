@@ -21,7 +21,12 @@ be seen is better than one that has been quietly dropped.
 
 import logging
 import threading
+from datetime import UTC, datetime
+from typing import Any
 
+from opentelemetry.trace import SpanKind
+
+from . import observability as obs
 from .database import db
 from .pipeline import run_processing_pipeline
 
@@ -71,54 +76,66 @@ def notify() -> None:
     worker.wake()
 
 
-def _claim_due(limit: int) -> list[dict]:
+def _claim_due(limit: int) -> list[dict[str, Any]]:
     """Take a lease on up to `limit` items whose retry time has arrived."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """UPDATE processing_queue
-               SET next_attempt_at = NOW() + make_interval(secs => %s),
-                   attempts = attempts + 1
-               WHERE id IN (
-                   SELECT id FROM processing_queue
+            """WITH due AS (
+                   SELECT id, next_attempt_at AS due_at FROM processing_queue
                    WHERE next_attempt_at <= NOW() AND attempts < %s
                    ORDER BY next_attempt_at
                    FOR UPDATE SKIP LOCKED
                    LIMIT %s
                )
-               RETURNING id, user_id, source_type, source_id, attempts, generation;""",
-            (LEASE_SECONDS, MAX_ATTEMPTS, limit),
+               UPDATE processing_queue q
+                  SET next_attempt_at = NOW() + make_interval(secs => %s),
+                      attempts = q.attempts + 1
+                 FROM due
+                WHERE q.id = due.id
+            RETURNING q.id, q.user_id, q.source_type, q.source_id, q.attempts, q.generation,
+                      q.origin_traceparent, due.due_at, q.created_at;""",
+            (MAX_ATTEMPTS, limit, LEASE_SECONDS),
         )
         rows = cur.fetchall()
         conn.commit()
     return [
-        {"id": r[0], "user_id": r[1], "source_type": r[2],
-         "source_id": r[3], "attempts": r[4], "generation": r[5]}
-        for r in rows
+        {
+            "id": row[0], "user_id": row[1], "source_type": row[2], "source_id": row[3],
+            "attempts": row[4], "generation": row[5], "origin_traceparent": row[6],
+            "due_at": row[7], "created_at": row[8],
+        }
+        for row in rows
     ]
 
 
-def _succeed(item_id: int, generation: int) -> None:
+def _succeed(item_id: int, generation: int) -> bool:
     """Retire a job — only if the source is still the version it ran on.
 
     If the source was edited while the job ran, the generation moved on and the
     row stays, re-armed to run now: the edit is processed rather than lost with
-    the job that read the old text.
+    the job that read the old text. True when the row was deleted.
     """
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM processing_queue WHERE id = %s AND generation = %s;",
-                    (item_id, generation))
-        if cur.rowcount == 0:
-            cur.execute("UPDATE processing_queue SET next_attempt_at = NOW() WHERE id = %s;",
-                        (item_id,))
+        cur.execute(
+            "DELETE FROM processing_queue WHERE id = %s AND generation = %s;",
+            (item_id, generation),
+        )
+        deleted = isinstance(cur.rowcount, int) and cur.rowcount > 0
+        if not deleted:
+            cur.execute(
+                "UPDATE processing_queue SET next_attempt_at = NOW() WHERE id = %s;",
+                (item_id,),
+            )
         conn.commit()
+    return deleted
 
 
-def _fail(item_id: int, attempts: int, error: str) -> None:
+def _fail(item_id: int, attempts: int, error: str) -> int | None:
     """Schedule the next attempt, or park the item once the schedule runs out."""
     if attempts <= len(BACKOFF_SECONDS):
-        delay = BACKOFF_SECONDS[attempts - 1]
+        delay: int | None = BACKOFF_SECONDS[attempts - 1]
     else:
-        delay = None  # exhausted: leave it parked, visible, not retried
+        delay = None
 
     with db.connection() as conn, conn.cursor() as cur:
         if delay is None:
@@ -135,20 +152,30 @@ def _fail(item_id: int, attempts: int, error: str) -> None:
                 (error[:2000], delay, item_id),
             )
         conn.commit()
+    return delay
+
+
+_leased: set[int] = set()
+_current: dict[str, Any] | None = None
+
+
+def leased_ids() -> list[int]:
+    return list(_leased)
+
+
+def current_item() -> dict[str, Any] | None:
+    return _current
+
+
+def _age_ms(value: object) -> float:
+    if not isinstance(value, datetime):
+        return 0.0
+    moment = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return max(0.0, (datetime.now(UTC) - moment).total_seconds() * 1000)
 
 
 def _run(source_type: str, source_id: int) -> None:
-    """Do one queued job.
-
-    Most queue entries are evidence being ingested, and go to the pipeline.
-    'transcription' is not: it is a job *kind*, turning a stored recording into
-    text. ADR-0003 asks anything new to say which side of the evidence line it
-    falls on, and the answer is neither — the audio is not evidence, and the
-    transcript only becomes evidence once it is committed as a reflection. So it
-    must never appear in EVIDENCE_WEIGHTS or get_unassigned_embeddings, and it
-    is dispatched here rather than being taught to run_processing_pipeline,
-    whose table_map is a map of evidence sources.
-    """
+    """Dispatch one claimed job. Transcription is not evidence; everything else is."""
     if source_type == "transcription":
         from .importing.audio import run_transcription_job
 
@@ -159,20 +186,76 @@ def _run(source_type: str, source_id: int) -> None:
 
 def process_due(limit: int = 20) -> tuple[int, int]:
     """Process items whose retry time has arrived. Returns (succeeded, failed)."""
+    global _current
     succeeded = failed = 0
-    for item in _claim_due(limit):
+    with obs.suppressed():
+        claimed = _claim_due(limit)
+    for item in claimed:
+        item_id = item.get("id")
+        if isinstance(item_id, int):
+            _leased.add(item_id)
+    for item in claimed:
+        item_id = item.get("id")
+        _current = {**item, "since": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
+        attrs = {
+            "iris.queue.item_id": item.get("id"),
+            "iris.queue.source_type": item.get("source_type"),
+            "iris.queue.source_id": item.get("source_id"),
+            "iris.queue.attempt": item.get("attempts"),
+            "iris.queue.max_attempts": MAX_ATTEMPTS,
+            "iris.queue.generation": item.get("generation"),
+            "iris.queue.wait_ms": _age_ms(item.get("due_at")),
+            "iris.queue.age_ms": _age_ms(item.get("created_at")),
+        }
         try:
-            _run(item["source_type"], item["source_id"])
-            _succeed(item["id"], item["generation"])
-            succeeded += 1
-        except Exception as e:
-            failed += 1
-            _fail(item["id"], item["attempts"], str(e))
-            level = logger.warning if item["attempts"] < MAX_ATTEMPTS else logger.error
-            level(
-                f"Processing {item['source_type']} {item['source_id']} failed "
-                f"(attempt {item['attempts']}/{MAX_ATTEMPTS}): {e}"
-            )
+            with obs.span(
+                "queue.job", "queue", attrs, kind=SpanKind.CONSUMER,
+                links=obs.links_from_traceparent(item.get("origin_traceparent")),
+                entry=True, root=True,
+            ) as current:
+                obs.capture_input({
+                    "item": item,
+                    "source_type": item.get("source_type"),
+                    "source_id": item.get("source_id"),
+                    "generation": item.get("generation"),
+                    "attempt": item.get("attempts"),
+                    "due_at": item.get("due_at"),
+                }, span=current)
+                try:
+                    _run(str(item.get("source_type")), int(item.get("source_id") or 0))
+                    retired = _succeed(int(item_id or 0), int(item.get("generation") or 0))
+                    outcome = "retired" if retired else "superseded"
+                    obs.set_attributes({"iris.queue.outcome": outcome})
+                    obs.capture_output({"outcome": outcome}, span=current)
+                    succeeded += 1
+                except Exception as exc:
+                    failed += 1
+                    delay = _fail(int(item_id or 0), int(item.get("attempts") or 0), str(exc))
+                    obs.mark_error(current, exc)
+                    if delay is None:
+                        outcome = "exhausted"
+                        obs.set_attributes({"iris.queue.outcome": outcome})
+                        obs.capture_output({"outcome": outcome, "error": str(exc)}, span=current)
+                    else:
+                        outcome = "retry_scheduled"
+                        obs.set_attributes({
+                            "iris.queue.outcome": outcome,
+                            "iris.queue.retry_in_s": delay,
+                        })
+                        obs.capture_output(
+                            {"outcome": outcome, "retry_in_s": delay, "error": str(exc)},
+                            span=current,
+                        )
+                    attempts = int(item.get("attempts") or 0)
+                    level = logger.warning if attempts < MAX_ATTEMPTS else logger.error
+                    level(
+                        f"Processing {item.get('source_type')} {item.get('source_id')} failed "
+                        f"(attempt {attempts}/{MAX_ATTEMPTS}): {exc}"
+                    )
+        finally:
+            if isinstance(item_id, int):
+                _leased.discard(item_id)
+            _current = None
     return succeeded, failed
 
 
