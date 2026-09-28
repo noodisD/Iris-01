@@ -561,18 +561,18 @@ function ReviewView({ data }: { data: IdeasReview }) {
       {links.length > 0 && (
         <Section title={`Connections to judge (${links.length})`}
           description="How two of your accepted ideas relate. Change the relation if IRIS has it wrong.">
-          {links.map(link => <LinkCard key={link.id} link={link} />)}
+          <div className={styles.cardGrid}>{links.map(link => <LinkCard key={link.id} link={link} />)}</div>
         </Section>
       )}
       {fresh.length > 0 && (
         <Section title={`New ideas from your writing (${fresh.length})`}
           description="IRIS's wording of a position you state, with the quotes it rests on.">
-          {fresh.map(card => <ReviewCard key={card.idea.id} card={card} />)}
+          <div className={styles.cardGrid}>{fresh.map(card => <ReviewCard key={card.idea.id} card={card} />)}</div>
         </Section>
       )}
       {quotes.length > 0 && (
         <Section title={`New quotes for ideas you hold (${quotes.length})`}>
-          {quotes.map(card => <ReviewCard key={card.idea.id} card={card} />)}
+          <div className={styles.cardGrid}>{quotes.map(card => <ReviewCard key={card.idea.id} card={card} />)}</div>
         </Section>
       )}
       <AskIris run={data.lastRun} />
