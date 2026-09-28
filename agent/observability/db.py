@@ -97,9 +97,9 @@ class TracedCursor(psycopg2.extensions.cursor):
         return rows
 
     def _clear_query(self) -> None:
-        self._query_trace_id = None
-        self._query_span_id = None
-        self._query_table = None
+        self._query_trace_id: str | None = None
+        self._query_span_id: str | None = None
+        self._query_table: str | None = None
 
     def _remember_query(self, current: Any, table: object) -> None:
         context = current.get_span_context()

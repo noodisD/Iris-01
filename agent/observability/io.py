@@ -656,7 +656,7 @@ def _llm_parts(
             ensure_ascii=False,
             default=str,
         )
-        output_reason = "Vector values are stored as metadata, not text."
+        output_reason: str | None = "Vector values are stored as metadata, not text."
     elif name == "llm.speech" or _attr(attrs, "gen_ai.operation.name") == "speech":
         output_state = "metadata_only"
         output_text = json.dumps(

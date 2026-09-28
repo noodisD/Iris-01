@@ -202,7 +202,8 @@ def system_memory(window_s: int, trace_id: str | None = None) -> dict[str, Any]:
         observed[module_id]["p50_ms"] = _percentile(values, 0.5)
         observed[module_id]["p95_ms"] = _percentile(values, 0.95)
         observed[module_id]["rate_per_min"] = (observed[module_id]["calls"] / window_s) * 60 if window_s else None
-    oldest = min((item.get("started_at") for item in summaries if item.get("started_at")), default=None)
+    started = [item["started_at"] for item in summaries if item.get("started_at")]
+    oldest = min(started) if started else None
     return _assemble(
         window_s,
         trace_id,

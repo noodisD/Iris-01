@@ -46,7 +46,7 @@ def _coverage(cur: Any) -> dict[str, str | None]:
     }
 
 
-def _max_created(cur: Any, table: str) -> object:
+def _max_created(cur: Any, table: str) -> Any:
     cur.execute(f"SELECT max(created_at) FROM {table}")
     return cur.fetchone()[0]
 

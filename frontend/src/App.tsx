@@ -1,4 +1,6 @@
+import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { LoadingState } from '@/components/states';
 import { AppLayout } from '@/components/AppLayout';
 import { ChatScreen } from '@/screens/ChatScreen';
 import { TodayScreen } from '@/screens/TodayScreen';
@@ -12,7 +14,9 @@ import { ImportScreen } from '@/screens/ImportScreen';
 import { ConstructsScreen } from '@/screens/ConstructsScreen';
 import { IdeasScreen } from '@/screens/IdeasScreen';
 import { SensorsScreen } from '@/screens/SensorsScreen';
-import { ObservatoryScreen } from '@/screens/ObservatoryScreen';
+// The Observatory is a diagnostic screen most visits never open; load it on demand.
+const ObservatoryScreen = React.lazy(() => import('@/screens/ObservatoryScreen').then(m => ({ default: m.ObservatoryScreen })));
+const observatory = <React.Suspense fallback={<LoadingState label="Opening the Observatory…" />}><ObservatoryScreen /></React.Suspense>;
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
 
@@ -40,8 +44,8 @@ const router = createBrowserRouter([
       { path: 'ideas', element: <IdeasScreen /> },
       { path: 'ideas/:id', element: <IdeasScreen /> },
       { path: 'sensors', element: <SensorsScreen /> },
-      { path: 'observatory', element: <ObservatoryScreen /> },
-      { path: 'observatory/traces/:traceId', element: <ObservatoryScreen /> },
+      { path: 'observatory', element: observatory },
+      { path: 'observatory/traces/:traceId', element: observatory },
       { path: 'settings', element: <SettingsScreen /> },
     ],
   },
