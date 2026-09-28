@@ -7,8 +7,10 @@ use_gemini=True and chat_with_provider() was never called outside this module,
 while the Gemini SDK it depended on reached end of support in November 2025.
 """
 
+import json
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from openai import BadRequestError, OpenAI
@@ -19,12 +21,66 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+class _LearnedModels(set[str]):
+    """Model names learned from the API's own errors, kept across restarts.
+
+    Held only in memory, the lesson was forgotten on every restart, so the
+    first call after each one was refused and sent again: a failed request, a
+    round trip of delay, and an error in the Observatory each time. The file
+    is read on first use rather than at import, so it follows `DATA_DIR` as
+    configured when IRIS (or a test) actually runs.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self._name = name
+        self._loaded = False
+
+    def _path(self) -> Path:
+        return Path(settings.DATA_DIR).expanduser() / "model_quirks" / f"{self._name}.json"
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        try:
+            names = json.loads(self._path().read_text())
+        except (OSError, ValueError):
+            return
+        super().update(name for name in names if isinstance(name, str))
+
+    def _save(self) -> None:
+        try:
+            path = self._path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(sorted(self)))
+        except OSError as e:
+            logger.warning(f"Could not remember {self._name}: {e}")
+
+    def __contains__(self, name: object) -> bool:
+        self._load()
+        return super().__contains__(name)
+
+    def add(self, name: str) -> None:
+        self._load()
+        if super().__contains__(name):
+            return
+        super().add(name)
+        self._save()
+
+    def discard(self, name: object) -> None:
+        self._load()
+        if super().__contains__(name):
+            super().discard(name)
+            self._save()
+
+
 #: Models that rejected a non-default `temperature`. Learned from the API's own
 #: error rather than hardcoded against model names: new models keep appearing
 #: and a hardcoded list is wrong the moment one does. GPT-5 and the o-series
 #: accept only the default, so IRIS runs at whatever the model's default is and
 #: says so, rather than sending a value that is silently ignored.
-_REJECTS_TEMPERATURE: set[str] = set()
+_REJECTS_TEMPERATURE = _LearnedModels("rejects_temperature")
 
 
 class Intelligence:

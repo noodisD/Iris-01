@@ -31,11 +31,15 @@ counts, the quotes and the wording are checked; the adjectives are not.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
+from datetime import date
 from typing import Any
 
 from . import observability as obs
+from .database import db
 from .narrative_policy import FORBIDDEN_REGEX
 
 logger = logging.getLogger(__name__)
@@ -127,7 +131,6 @@ def facts_letter(facts: list[str], findings: list[str]) -> str:
     return "\n\n".join(parts)
 
 
-@obs.traced("insights.review_letter", "insights")
 def compose(facts: list[str], findings: list[str], week_entries: list[str],
             intelligence: Any, formats: list[str] | None = None) -> str:
     """Write the letter, or fall back to the facts.
@@ -136,8 +139,16 @@ def compose(facts: list[str], findings: list[str], week_entries: list[str],
     which rows are markdown, so a quote of the words can be kept as the
     owner's own span.
     """
+    return compose_letter(facts, findings, week_entries, intelligence, formats)[0]
+
+
+@obs.traced("insights.review_letter", "insights")
+def compose_letter(facts: list[str], findings: list[str], week_entries: list[str],
+                   intelligence: Any, formats: list[str] | None = None) -> tuple[str, bool]:
+    """The letter, and whether it may be kept: not when the model call failed,
+    so the next view tries again instead of showing the fallback all day."""
     if not week_entries or intelligence is None:
-        return facts_letter(facts, findings)
+        return facts_letter(facts, findings), True
     prompt = ("Facts about the week:\n" + "\n".join(f"- {f}" for f in facts)
               + "\n\nWhat IRIS noticed:\n"
               + ("\n".join(f"- {f}" for f in findings) if findings else "- nothing new"))
@@ -146,6 +157,46 @@ def compose(facts: list[str], findings: list[str], week_entries: list[str],
                                     system_prompt=SYSTEM_PROMPT)
     except Exception as e:
         logger.warning(f"Letter could not be written, using the facts: {e}")
-        return facts_letter(facts, findings)
+        return facts_letter(facts, findings), False
     held = hold_to_the_rules(written, week_entries, facts + findings, formats)
-    return held or facts_letter(facts, findings)
+    return held or facts_letter(facts, findings), True
+
+
+def letter_key(facts: list[str], week_entries: list[str], with_findings: bool, today: date) -> str:
+    """What a kept letter was written from.
+
+    The findings are not in the key: computing them is the slow part a kept
+    letter exists to skip. They are computed from the whole record, so the day
+    stands in for them. A letter is rewritten at most once a day, and at once
+    when the week's entries or the facts change.
+    """
+    payload = {
+        "prompt": SYSTEM_PROMPT,
+        "facts": facts,
+        "entries": [hashlib.sha256(text.encode("utf-8")).hexdigest() for text in week_entries],
+        "findings": with_findings,
+        "day": today.isoformat() if with_findings else None,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def kept_letter(user_id: int, key: str) -> str | None:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT letter FROM review_letters WHERE user_id = %s AND input_key = %s;", (user_id, key))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def keep_letter(user_id: int, key: str, letter: str) -> None:
+    """Keep the letter, and let old ones go: only the current week is ever asked for."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO review_letters (user_id, input_key, letter) VALUES (%s, %s, %s)
+               ON CONFLICT (user_id, input_key) DO UPDATE SET letter = EXCLUDED.letter, created_at = NOW();""",
+            (user_id, key, letter),
+        )
+        cur.execute(
+            "DELETE FROM review_letters WHERE user_id = %s AND created_at < NOW() - INTERVAL '14 days';",
+            (user_id,),
+        )
+        conn.commit()

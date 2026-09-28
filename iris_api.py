@@ -2229,6 +2229,12 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     if habits_total:
         facts.append(f"You kept {habits_hit} of {habits_total} habits at least once.")
 
+    entries = [r["content"] for r in this_week]
+    key = review_letter.letter_key(facts, entries, with_findings, date.today())
+    kept = review_letter.kept_letter(user_id, key)
+    if kept is not None:
+        return kept
+
     findings: list[str] = []
     if with_findings:
         try:
@@ -2243,10 +2249,13 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     except Exception as e:  # pragma: no cover - no API key
         logger.warning(f"No model for the letter: {e}")
         intelligence = None
-    return review_letter.compose(
-        facts, findings, [r["content"] for r in this_week], intelligence,
+    letter, keep = review_letter.compose_letter(
+        facts, findings, entries, intelligence,
         [r.get("content_format") or "plain" for r in this_week],
     )
+    if keep:
+        review_letter.keep_letter(user_id, key, letter)
+    return letter
 
 
 @app.get("/api/review/latest")

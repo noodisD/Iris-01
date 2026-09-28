@@ -1924,6 +1924,28 @@
         "type": "integer"
       }
     },
+    "review_letters": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "input_key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "letter": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "schema_migrations": {
       "applied_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -3972,6 +3994,32 @@
         "type": "n"
       }
     },
+    "review_letters": {
+      "review_letters_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "review_letters_input_key_not_null": {
+        "definition": "NOT NULL input_key",
+        "type": "n"
+      },
+      "review_letters_letter_not_null": {
+        "definition": "NOT NULL letter",
+        "type": "n"
+      },
+      "review_letters_pkey": {
+        "definition": "PRIMARY KEY (user_id, input_key)",
+        "type": "p"
+      },
+      "review_letters_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "review_letters_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      }
+    },
     "schema_migrations": {
       "schema_migrations_applied_at_not_null": {
         "definition": "NOT NULL applied_at",
@@ -4434,6 +4482,9 @@
       "idx_reflections_user_date": "CREATE INDEX idx_reflections_user_date ON public.reflections USING btree (user_id, reflection_date DESC)",
       "reflections_pkey": "CREATE UNIQUE INDEX reflections_pkey ON public.reflections USING btree (id)",
       "uq_reflections_user_day_hash": "CREATE UNIQUE INDEX uq_reflections_user_day_hash ON public.reflections USING btree (user_id, COALESCE(reflection_date, '-infinity'::date), content_hash) WHERE (content_hash IS NOT NULL)"
+    },
+    "review_letters": {
+      "review_letters_pkey": "CREATE UNIQUE INDEX review_letters_pkey ON public.review_letters USING btree (user_id, input_key)"
     },
     "schema_migrations": {
       "schema_migrations_pkey": "CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)"

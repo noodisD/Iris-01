@@ -568,7 +568,7 @@ class IdeaService:
             and idea_id in (int(link["from_idea_id"]), int(link["to_idea_id"]))
         ]
         links.sort(key=_link_sort)
-        current = _basis_hash(self._basis(idea_id) or {})
+        current = _basis_hash(self._basis(idea_id, graph) or {})
         page = store.idea_page(self.user_id, idea_id)
         critiques = [
             idea_critique(
@@ -601,8 +601,9 @@ class IdeaService:
             raise IdeaNotFound
         return idea_summary(idea)
 
-    def _basis(self, idea_id: int) -> dict[str, Any] | None:
-        graph = store.load_graph(self.user_id)
+    def _basis(self, idea_id: int, graph: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """What a critique of this idea rests on. Pass `graph` when it is already loaded."""
+        graph = graph if graph is not None else store.load_graph(self.user_id)
         idea = graph["by_id"].get(idea_id)
         if idea is None or not idea["anchored"]:
             return None

@@ -79,3 +79,29 @@ def test_review_habits_reflect_completion(client, seeded_week):
     assert metrics["habitsHit"] >= 1
 
 
+
+
+def test_the_letter_is_written_once_and_kept_until_the_week_changes(client, seeded_week, mock_llm, monkeypatch):
+    """Each view used to recompute every finding and ask the model again."""
+    admitted = []
+    real_admit = __import__("agent.pipeline_orchestrator", fromlist=["admit"]).admit
+    monkeypatch.setattr("agent.pipeline_orchestrator.admit", lambda user_id: admitted.append(user_id) or real_admit(user_id))
+
+    first = client.get("/api/review/latest").json()["letter"]
+    calls = mock_llm.chat.call_count
+    assert client.get("/api/review/latest").json()["letter"] == first
+    assert mock_llm.chat.call_count == calls, "a second view must not ask the model again"
+    assert len(admitted) == 1, "a second view must not recompute the findings"
+
+    ReflectionService(seeded_week).create_reflection(content="Another evening walk", energy_level=6)
+    client.get("/api/review/latest")
+    assert mock_llm.chat.call_count == calls + 1, "a new entry is a new letter"
+
+
+def test_a_failed_letter_is_not_kept(client, seeded_week, mock_llm):
+    mock_llm.chat.side_effect = RuntimeError("provider down")
+    client.get("/api/review/latest")
+    mock_llm.chat.side_effect = None
+    calls = mock_llm.chat.call_count
+    client.get("/api/review/latest")
+    assert mock_llm.chat.call_count == calls + 1, "after a failure the next view tries again"

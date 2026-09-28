@@ -12,7 +12,7 @@ These tests mock at the SDK boundary, never at the seam being verified.
 import pytest
 from openai import BadRequestError
 
-from agent.intelligence import Intelligence, _REJECTS_TEMPERATURE
+from agent.intelligence import Intelligence, _LearnedModels, _REJECTS_TEMPERATURE
 
 
 class _Message:
@@ -102,6 +102,24 @@ def test_the_refusal_is_learned_once_not_paid_per_call(iris, monkeypatch):
 
     assert len(calls) == 3, "the second call must not repeat the rejected attempt"
     _REJECTS_TEMPERATURE.discard("test-model")
+
+
+def test_the_refusal_is_remembered_across_a_restart(iris, monkeypatch):
+    """Forgetting on restart meant one refused request after every restart."""
+    _REJECTS_TEMPERATURE.discard("test-model")
+
+    def fake(**kwargs):
+        if "temperature" in kwargs:
+            raise _bad_request("Unsupported value: 'temperature' does not support 0.7")
+        return _Response("hello")
+
+    monkeypatch.setattr(iris.openai_client.chat.completions, "create", fake)
+    iris.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s", temperature=0.7)
+
+    after_restart = _LearnedModels("rejects_temperature")
+    assert "test-model" in after_restart
+    _REJECTS_TEMPERATURE.discard("test-model")
+    assert "test-model" not in _LearnedModels("rejects_temperature")
 
 
 def test_an_unrelated_bad_request_is_not_swallowed(iris, monkeypatch):
