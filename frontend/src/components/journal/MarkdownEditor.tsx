@@ -123,10 +123,14 @@ export function MarkdownEditor({
             '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--iris)' },
             '.cm-gutters': { display: 'none' },
             '.cm-placeholder': { color: 'var(--petal-3)', fontStyle: 'italic' },
-            '.cm-tooltip': { background: 'var(--dusk)', border: '1px solid var(--mist-2)', borderRadius: '8px' },
-            '.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-read)', fontSize: '15px', maxWidth: 'min(560px, 90vw)' },
-            '.cm-tooltip-autocomplete > ul > li': { padding: '6px 10px', whiteSpace: 'normal', lineHeight: '1.35' },
-            '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--iris-soft)', color: 'var(--petal)' },
+            '.cm-tooltip.cm-tooltip-autocomplete': {
+              background: 'var(--dusk)', border: '1px solid var(--mist-2)', borderRadius: '8px', overflow: 'hidden',
+            },
+            '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+              fontFamily: 'var(--font-read)', fontSize: '15px', maxWidth: 'min(560px, 90vw)', maxHeight: '16em',
+            },
+            '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '6px 10px', whiteSpace: 'normal', lineHeight: '1.35' },
+            '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--iris-soft)', color: 'var(--petal)' },
             '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--iris-text)' },
           }),
           EditorView.updateListener.of(update => {
