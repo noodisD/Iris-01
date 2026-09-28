@@ -697,7 +697,9 @@ function IdeaDetail({ id }: { id: string }) {
       <Backlinks page={detail.data.page} />
       <section className={styles.stack}>
         <h2 className={styles.sectionTitle}>Written on</h2>
-        <QuoteList citations={detail.data.citations.filter(citation => citation.status === 'accepted')} />
+        <QuoteList citations={detail.data.citations.filter(citation => (
+          citation.status === (idea.status === 'active' ? 'accepted' : 'candidate')
+        ))} />
       </section>
       <section className={styles.stack}>
         <h2 className={styles.sectionTitle}>Connections</h2>
@@ -711,8 +713,8 @@ function IdeaDetail({ id }: { id: string }) {
       <CritiquePanel idea={idea} critiques={detail.data.critiques} />
       {error && <div role="alert">{failureText(error)}</div>}
       <div><Button variant="danger" disabled={reject.isPending} onClick={() => {
-        if (window.confirm(REMOVE_IDEA)) reject.mutate(id);
-      }}>Remove from framework</Button></div>
+        if (idea.status !== 'active' || window.confirm(REMOVE_IDEA)) reject.mutate(id);
+      }}>{idea.status === 'active' ? 'Remove from framework' : 'Dismiss proposal'}</Button></div>
     </Page>
   );
 }

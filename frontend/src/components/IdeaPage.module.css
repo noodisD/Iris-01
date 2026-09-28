@@ -27,12 +27,12 @@
 .error { margin: 0; color: var(--danger); font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 400; }
 
 /* Notes read like a page, not a form: the reading face, no box until you write. */
-.notes { display: flex; flex-direction: column; gap: var(--space-3); }
+.notes { display: flex; flex-direction: column; gap: var(--space-3); max-width: 760px; }
 .notesHead { display: flex; align-items: center; gap: var(--space-3); }
 .notesHead .title { margin-right: auto; }
 .status { color: var(--petal-3); font-size: var(--text-xs); }
 .page {
-  max-width: 68ch; padding: var(--space-2) 0; cursor: text;
+  padding: var(--space-2) 0; cursor: text;
   font-family: var(--font-read); font-size: 18px; line-height: 1.6; color: var(--petal);
 }
 .page.editing {
@@ -40,7 +40,7 @@
   background: var(--dusk); border: 1px solid var(--mist-2); border-radius: var(--radius-panel);
 }
 .blank {
-  max-width: 68ch; padding: var(--space-4); text-align: left; cursor: text;
+  padding: var(--space-4); text-align: left; cursor: text;
   font: italic 18px/1.6 var(--font-read); color: var(--petal-3);
   background: transparent; border: 1px dashed var(--mist-2); border-radius: var(--radius-panel);
 }
