@@ -194,3 +194,10 @@ def test_an_unknown_relation_is_refused(framework):
     proposal = client.get("/api/ideas/review").json()["links"][0]
     r = client.post(f"/api/ideas/links/{proposal['id']}/confirm", json={"kind": "resembles"})
     assert r.status_code == 409
+
+
+def test_the_reader_is_told_one_idea_is_one_proposition():
+    """It joined two separate sentences from one entry into a single idea with a
+    semicolon, only because they sat together."""
+    assert "Each idea is one proposition" in IDEA_READ_PROMPT
+    assert "never join them into one statement" in IDEA_READ_PROMPT

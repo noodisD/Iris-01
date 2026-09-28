@@ -26,8 +26,8 @@ from .models import (
     MEANING_KINDS,
     NAME_LIMIT,
     RATIONALE_LIMIT,
-    STATEMENT_LIMIT,
     STANCE_ANSWERS,
+    STATEMENT_LIMIT,
     SYMMETRIC_LINK_KINDS,
 )
 
@@ -42,6 +42,9 @@ IDEA_READ_PROMPT = (
     "a psychological pattern, or a quotation of another author unless the owner also "
     "states their own position on it. One occurrence is enough. Do not require the "
     "position to recur. Do not give advice. Do not say what the owner should believe. "
+    "Each idea is one proposition. Two separate points are two ideas even when they "
+    "sit in the same entry or the same paragraph: never join them into one statement "
+    "with a semicolon, \"and\" or \"whereas\". "
     "For each position return one statement of at most 600 characters, one domain "
     "(philosophy, economics, markets, politics, ethics, learning, life, or other), and verbatim quotes. "
     "A pattern, method, edge, or practice for buying and selling in markets is markets, not economics. "
