@@ -1,4 +1,5 @@
 import React from 'react';
+import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
@@ -20,6 +21,24 @@ const highlight = HighlightStyle.define([
   { tag: tags.quote, fontStyle: 'italic' },
   { tag: tags.monospace, fontFamily: 'var(--font-ui)' },
 ]);
+
+/**
+ * After `[[`, offer the titles a page can link to, as Obsidian does. Picking
+ * one writes the title and closes the link.
+ */
+function wikilinkSource(targets: () => string[]) {
+  return (context: CompletionContext): CompletionResult | null => {
+    const before = context.matchBefore(/\[\[[^\[\]|\n]*/);
+    if (!before) return null;
+    const from = before.from + 2;
+    const closed = context.state.sliceDoc(context.pos, context.pos + 2) === ']]';
+    return {
+      from,
+      filter: true,
+      options: targets().map(label => ({ label, apply: closed ? label : `${label}]]` })),
+    };
+  };
+}
 
 function apply(view: EditorView, command: Command): boolean {
   const sel = view.state.selection.main;
@@ -47,11 +66,23 @@ export function MarkdownEditor({
   selection,
   onChange,
   onSelect,
+  label = 'journal entry',
+  placeholderText = JOURNAL_PLACEHOLDER,
+  linkTargets,
+  fontSize = 20,
+  minHeight = 280,
 }: {
   value: string;
   selection: { start: number; end: number };
   onChange: (text: string) => void;
   onSelect: (start: number, end: number) => void;
+  /** The editable area's accessible name. */
+  label?: string;
+  placeholderText?: string;
+  /** Titles offered after `[[`. Without it, `[[` is plain text. */
+  linkTargets?: string[];
+  fontSize?: number;
+  minHeight?: number;
 }) {
   const host = React.useRef<HTMLDivElement>(null);
   const viewRef = React.useRef<EditorView | null>(null);
@@ -59,6 +90,8 @@ export function MarkdownEditor({
   const onSelectRef = React.useRef(onSelect);
   onChangeRef.current = onChange;
   onSelectRef.current = onSelect;
+  const targetsRef = React.useRef(linkTargets ?? []);
+  targetsRef.current = linkTargets ?? [];
 
   React.useEffect(() => {
     if (!host.current) return undefined;
@@ -73,15 +106,16 @@ export function MarkdownEditor({
           markdown(),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
-          placeholder(JOURNAL_PLACEHOLDER),
+          placeholder(placeholderText),
+          ...(linkTargets ? [autocompletion({ override: [wikilinkSource(() => targetsRef.current)], icons: false })] : []),
           // The editable area is named for screen readers, like the fallback textarea.
-          EditorView.contentAttributes.of({ 'aria-label': 'journal entry', 'aria-multiline': 'true' }),
+          EditorView.contentAttributes.of({ 'aria-label': label, 'aria-multiline': 'true' }),
           EditorView.theme({
             '&': { height: '100%', background: 'transparent', color: 'var(--petal)' },
             '.cm-scroller': {
               overflow: 'auto',
               fontFamily: 'var(--font-read)',
-              fontSize: '20px',
+              fontSize: `${fontSize}px`,
               lineHeight: '1.55',
             },
             '.cm-content': { padding: '8px 0 32px', caretColor: 'var(--iris)', minHeight: '100%' },
@@ -89,6 +123,11 @@ export function MarkdownEditor({
             '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--iris)' },
             '.cm-gutters': { display: 'none' },
             '.cm-placeholder': { color: 'var(--petal-3)', fontStyle: 'italic' },
+            '.cm-tooltip': { background: 'var(--dusk)', border: '1px solid var(--mist-2)', borderRadius: '8px' },
+            '.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-read)', fontSize: '15px', maxWidth: 'min(560px, 90vw)' },
+            '.cm-tooltip-autocomplete > ul > li': { padding: '6px 10px', whiteSpace: 'normal', lineHeight: '1.35' },
+            '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--iris-soft)', color: 'var(--petal)' },
+            '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--iris-text)' },
           }),
           EditorView.updateListener.of(update => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
@@ -121,5 +160,5 @@ export function MarkdownEditor({
     });
   }, [value, selection.start, selection.end]);
 
-  return <div ref={host} data-testid="journal-editor" style={{ height: '100%', minHeight: 280 }} />;
+  return <div ref={host} data-testid="journal-editor" style={{ height: '100%', minHeight }} />;
 }

@@ -19,6 +19,9 @@ from .models import (
     IDEA_POSITIONS,
     IDEA_REFERENCE_BATCH_SIZE,
     LINK_KINDS,
+    NOTES_LIMIT,
+    STATEMENT_LIMIT,
+    _iso_time,
     content_hash,
     quote_hash,
     empty_dropped,
@@ -50,6 +53,7 @@ LINK_NOT_FOUND = "Idea link not found"
 LINK_CONFLICT = "This link or its ideas changed. Reload before deciding."
 ANALYSIS_FAILED = "Ideas analysis could not finish. Review the last run."
 CRITIQUE_FAILED = "Iris could not produce a critique. No critique was saved."
+IDEA_DUPLICATE = "Another idea already says this. Change the wording, or merge the two."
 
 
 class IdeaNotFound(Exception):
@@ -58,6 +62,10 @@ class IdeaNotFound(Exception):
 
 class IdeaConflict(Exception):
     pass
+
+
+class IdeaDuplicate(IdeaConflict):
+    """The new wording is another idea's wording."""
 
 
 class IdeaUnavailable(Exception):
@@ -410,14 +418,26 @@ class IdeaService:
         *,
         position: str | None = None,
         domain: str | None = None,
+        statement: str | None = None,
+        notes: str | None = None,
     ) -> dict[str, Any]:
         if position is not None and position not in IDEA_POSITIONS:
             raise IdeaConflict
         if domain is not None and domain not in IDEA_DOMAINS:
             raise IdeaConflict
-        outcome = store.update_idea(self.user_id, idea_id, position=position, domain=domain)
+        if statement is not None:
+            statement = " ".join(statement.split())
+            if not statement or len(statement) > STATEMENT_LIMIT:
+                raise IdeaConflict
+        if notes is not None and len(notes) > NOTES_LIMIT:
+            raise IdeaConflict
+        outcome = store.update_idea(
+            self.user_id, idea_id, position=position, domain=domain, statement=statement, notes=notes,
+        )
         if outcome == "missing":
             raise IdeaNotFound
+        if outcome == "duplicate":
+            raise IdeaDuplicate
         if outcome != "ok":
             raise IdeaConflict
         return self._summary(idea_id)
@@ -543,6 +563,7 @@ class IdeaService:
         ]
         links.sort(key=_link_sort)
         current = _basis_hash(self._basis(idea_id) or {})
+        page = store.idea_page(self.user_id, idea_id)
         critiques = [
             idea_critique(
                 row,
@@ -556,6 +577,15 @@ class IdeaService:
             "citations": [idea_citation(row) for row in citations],
             "links": [idea_link(link) for link in links],
             "critiques": critiques,
+            "page": {
+                "notes": page["notes"],
+                "notesUpdatedAt": _iso_time(page["notes_updated_at"]),
+                "links": {target: str(linked) for target, linked in page["links"].items()},
+                "backlinks": [
+                    {"id": str(row["id"]), "statement": row["statement"], "status": row["status"]}
+                    for row in page["backlinks"]
+                ],
+            },
         }
 
     def _summary(self, idea_id: int) -> dict[str, Any]:

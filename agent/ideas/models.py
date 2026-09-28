@@ -7,6 +7,7 @@ shared by SQL checks, request validation, and the web client.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -39,11 +40,33 @@ RATIONALE_LIMIT = 1200
 NAME_LIMIT = 120
 CRITIQUE_TEXT_LIMIT = 1200
 IDEA_REFERENCE_BATCH_SIZE = 24
+NOTES_LIMIT = 20000
+
+#: `[[target]]` or `[[target|shown text]]`, as Obsidian writes a link.
+WIKILINK = re.compile(r"\[\[([^\[\]|\n]+)(\|[^\[\]\n]*)?\]\]")
 
 
 def statement_key(statement: str) -> str:
     """Identity of a proposition's wording, not of its display casing."""
     return hashlib.sha256(_normalized(statement).casefold().encode("utf-8")).hexdigest()
+
+
+def wikilink_targets(notes: str) -> list[str]:
+    """The idea statements a page links to, in the order written."""
+    return [match.group(1).strip() for match in WIKILINK.finditer(notes or "")]
+
+
+def rename_wikilinks(notes: str, old_key: str, new_statement: str) -> str:
+    """Point every link to the idea whose key was `old_key` at its new wording.
+
+    Shown text after `|` is the writer's own words and is kept as written.
+    """
+    def repoint(match: re.Match[str]) -> str:
+        if statement_key(match.group(1)) != old_key:
+            return match.group(0)
+        return f"[[{new_statement}{match.group(2) or ''}]]"
+
+    return WIKILINK.sub(repoint, notes or "")
 
 
 def content_hash(text: str) -> str:

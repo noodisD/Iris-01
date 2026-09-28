@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ideasApi from '@/api/ideas';
 import { qk } from '@/lib/queryClient';
-import type { ConfirmIdeaBody, IdeaDomain, IdeaPosition, LinkKind } from '@/types/api';
+import type { ConfirmIdeaBody, IdeaDetail, LinkKind, UpdateIdeaBody } from '@/types/api';
 
 const fresh = { staleTime: 0, refetchOnMount: 'always' as const, refetchOnWindowFocus: true };
 
@@ -67,9 +67,25 @@ export function useRejectIdeaCitations() {
 }
 
 export function useUpdateIdea() {
-  return useIdeaMutation(({ id, body }: { id: string; body: { position?: IdeaPosition; domain?: IdeaDomain } }) => (
-    ideasApi.updateIdea(id, body)
-  ));
+  return useIdeaMutation(({ id, body }: { id: string; body: UpdateIdeaBody }) => ideasApi.updateIdea(id, body));
+}
+
+/**
+ * Saves notes while the owner writes. Nothing else about an idea changes, so
+ * only this page's cache is refreshed, and only when asked: a refetch mid-
+ * sentence would not change what is on screen, just cost a request.
+ */
+export function useSaveIdeaNotes(id: string) {
+  const qc = useQueryClient();
+  return {
+    ...useMutation({
+      mutationFn: (notes: string) => ideasApi.updateIdea(id, { notes }),
+      onSuccess: (_idea, notes) => {
+        qc.setQueryData<IdeaDetail>(qk.idea(id), old => old && { ...old, page: { ...old.page, notes } });
+      },
+    }),
+    refresh: () => qc.invalidateQueries({ queryKey: qk.idea(id) }),
+  };
 }
 
 export function useDiscoverIdeaLinks() {

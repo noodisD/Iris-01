@@ -199,9 +199,13 @@ Set from Settings or the CLI's `/settings`; both write `user_preferences`.
 A substantive proposition — including a normative principle — that the owner
 endorses, questions, or opposes in their own writing. A topic word, an inferred
 trait, and a quotation of another author with no position of the owner's are
-not ideas. One verified passage is enough. The statement does not change once
-proposed; a changed proposition is another idea. This is not a psychological
-engine and is not selectable in Settings (ADR-0021).
+not ideas. One verified passage is enough. The owner may reword a statement to
+say the same proposition better; a changed proposition is another idea. This is
+not a psychological engine and is not selectable in Settings (ADR-0021).
+
+**Idea page** is the owner's own writing about an idea: Markdown notes in which
+`[[wording]]` links to another idea, and the list of ideas whose notes link
+here. Notes are not evidence and are never sent to a model (ADR-0026).
 
 **Domain** is one organising category: philosophy, economics, markets, politics,
 ethics, learning, life, or other. A pattern, method, edge, or practice for buying and selling in markets is

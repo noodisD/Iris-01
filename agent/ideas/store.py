@@ -9,7 +9,14 @@ from psycopg2.extras import Json
 from agent.database import db
 from agent.observations import _normalized
 
-from .models import SYMMETRIC_LINK_KINDS, content_hash, empty_dropped, statement_key
+from .models import (
+    SYMMETRIC_LINK_KINDS,
+    content_hash,
+    empty_dropped,
+    rename_wikilinks,
+    statement_key,
+    wikilink_targets,
+)
 
 _RUN_KEYS = (
     "id", "user_id", "kind", "started_at", "finished_at", "status", "model",
@@ -419,15 +426,25 @@ def update_idea(
     user_id: int,
     idea_id: int,
     *,
-    position: str | None,
-    domain: str | None,
+    position: str | None = None,
+    domain: str | None = None,
+    statement: str | None = None,
+    notes: str | None = None,
 ) -> str:
-    if position is None and domain is None:
+    """Change what the owner may change about an idea.
+
+    Position and domain belong to an idea the owner has accepted. The wording
+    and the notes can be changed while it is still a candidate too, since
+    rewording a proposal is how the owner makes it theirs. A new wording that
+    another idea already has is a conflict, not a merge. Renaming repoints
+    every `[[link]]` to it in the owner's notes, so no page loses its link.
+    """
+    if position is None and domain is None and statement is None and notes is None:
         return "conflict"
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT status FROM ideas
+            SELECT status, statement FROM ideas
              WHERE user_id = %s AND id = %s
              FOR UPDATE;
             """,
@@ -436,26 +453,89 @@ def update_idea(
         row = cur.fetchone()
         if row is None:
             return "missing"
-        if row[0] != "active":
+        status, old_statement = row
+        editable = ("active",) if position is not None or domain is not None else ("active", "candidate")
+        if status not in editable:
             conn.rollback()
             return "conflict"
-        assignments = []
-        values: list[Any] = []
-        if position is not None:
-            assignments.append("position = %s")
-            values.append(position)
-        if domain is not None:
-            assignments.append("domain = %s")
-            values.append(domain)
-        cur.execute(
-            f"""
-            UPDATE ideas SET {", ".join(assignments)}
-             WHERE user_id = %s AND id = %s;
-            """,
-            (*values, user_id, idea_id),
-        )
+        changes: dict[str, Any] = {"position": position, "domain": domain}
+        if notes is not None:
+            changes["notes"] = notes
+        renamed = statement is not None and statement != old_statement
+        if renamed:
+            assert statement is not None
+            new_key = statement_key(statement)
+            cur.execute(
+                "SELECT 1 FROM ideas WHERE user_id = %s AND statement_key = %s AND id <> %s;",
+                (user_id, new_key, idea_id),
+            )
+            if cur.fetchone() is not None:
+                conn.rollback()
+                return "duplicate"
+            changes |= {"statement": statement, "statement_key": new_key}
+        changes = {column: value for column, value in changes.items() if value is not None}
+        if changes:
+            stamp = ", notes_updated_at = NOW()" if "notes" in changes else ""
+            cur.execute(
+                f"""
+                UPDATE ideas SET {", ".join(f"{column} = %s" for column in changes)}{stamp}
+                 WHERE user_id = %s AND id = %s;
+                """,
+                (*changes.values(), user_id, idea_id),
+            )
+        if renamed:
+            assert statement is not None
+            _repoint_notes(cur, user_id, statement_key(old_statement), statement)
         conn.commit()
     return "ok"
+
+
+def _repoint_notes(cur: Any, user_id: int, old_key: str, new_statement: str) -> None:
+    cur.execute(
+        "SELECT id, notes FROM ideas WHERE user_id = %s AND notes LIKE %s;",
+        (user_id, "%[[%"),
+    )
+    for other_id, text in cur.fetchall():
+        rewritten = rename_wikilinks(text, old_key, new_statement)
+        if rewritten != text:
+            cur.execute(
+                "UPDATE ideas SET notes = %s WHERE user_id = %s AND id = %s;",
+                (rewritten, user_id, other_id),
+            )
+
+
+def idea_page(user_id: int, idea_id: int) -> dict[str, Any]:
+    """An idea's notes, where its links point, and the pages that link to it."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, statement, statement_key, status, notes, notes_updated_at
+              FROM ideas
+             WHERE user_id = %s AND status <> 'rejected';
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    by_key = {key: (int(row_id), statement) for row_id, statement, key, _, _, _ in rows}
+    page: dict[str, Any] = {"notes": "", "notes_updated_at": None, "links": {}, "backlinks": []}
+    own_key = None
+    for row_id, _, key, _, text, updated in rows:
+        if int(row_id) == idea_id:
+            own_key = key
+            page["notes"] = text
+            page["notes_updated_at"] = updated
+            for target in wikilink_targets(text):
+                found = by_key.get(statement_key(target))
+                if found is not None:
+                    page["links"][target] = found[0]
+    if own_key is not None:
+        for row_id, statement, _, status, text, _ in rows:
+            if int(row_id) == idea_id:
+                continue
+            if any(statement_key(target) == own_key for target in wikilink_targets(text)):
+                page["backlinks"].append({"id": int(row_id), "statement": statement, "status": status})
+    page["backlinks"].sort(key=lambda row: row["statement"].casefold())
+    return page
 
 
 def _citation_rows(cur: Any, user_id: int) -> list[dict[str, Any]]:

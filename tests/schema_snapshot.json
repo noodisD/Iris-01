@@ -771,6 +771,16 @@
         "nullable": "NO",
         "type": "integer"
       },
+      "notes": {
+        "default": "''::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "notes_updated_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
       "position": {
         "default": "'exploring'::text",
         "nullable": "NO",
@@ -3133,6 +3143,14 @@
       },
       "ideas_id_not_null": {
         "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "ideas_notes_check": {
+        "definition": "CHECK ((char_length(notes) <= 20000))",
+        "type": "c"
+      },
+      "ideas_notes_not_null": {
+        "definition": "NOT NULL notes",
         "type": "n"
       },
       "ideas_pkey": {

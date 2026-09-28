@@ -1,7 +1,7 @@
 import { api } from './client';
 import type {
-  ConfirmIdeaBody, IdeaCritique, IdeaDetail, IdeaDomain, IdeaPosition, IdeaRun, IdeaSummary,
-  IdeasFramework, IdeasReview, LinkKind, MeaningEstimate,
+  ConfirmIdeaBody, IdeaCritique, IdeaDetail, IdeaRun, IdeaSummary,
+  IdeasFramework, IdeasReview, LinkKind, MeaningEstimate, UpdateIdeaBody,
 } from '@/types/api';
 
 export function getIdeasFramework(): Promise<IdeasFramework> {
@@ -42,10 +42,8 @@ export function rejectIdeaCitations(id: string, citationIds: string[]): Promise<
   return api.post(`/ideas/${id}/citations/reject`, { citationIds });
 }
 
-export function updateIdea(
-  id: string,
-  body: { position?: IdeaPosition; domain?: IdeaDomain },
-): Promise<IdeaSummary> {
+/** Position and area of an accepted idea; wording and notes of any idea still in play. */
+export function updateIdea(id: string, body: UpdateIdeaBody): Promise<IdeaSummary> {
   return api.patch(`/ideas/${id}`, body);
 }
 

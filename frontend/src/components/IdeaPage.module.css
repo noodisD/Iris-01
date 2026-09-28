@@ -1,0 +1,58 @@
+/* An idea's own page: its wording, the owner's notes, and the notes that link here. */
+
+.statement { display: inline; }
+.rename {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 32px; height: 32px; margin-left: var(--space-2); padding: 0;
+  border: none; border-radius: var(--radius-control); background: transparent;
+  color: var(--petal-3); cursor: pointer; opacity: 0.6;
+}
+.statement:hover .rename, .rename:focus-visible { opacity: 1; }
+.rename:hover { background: var(--dusk-2); color: var(--petal); }
+.rename:focus-visible { outline: 2px solid var(--iris); outline-offset: 2px; }
+
+.statementEdit { display: flex; flex-direction: column; gap: var(--space-2); }
+.statementField {
+  width: 100%; max-width: 64ch; field-sizing: content; min-height: 2.4em; resize: none;
+  padding: 4px 8px; margin-left: -9px;
+  font: inherit; line-height: inherit; color: var(--petal);
+  background: var(--dusk); border: 1px solid var(--iris); border-radius: var(--radius-control);
+}
+.statementField:focus { outline: none; box-shadow: 0 0 0 3px var(--iris-soft); }
+.statementActions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-family: var(--font-ui); }
+
+.title { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.count { color: var(--petal-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.hint { color: var(--petal-3); font-family: var(--font-ui); font-size: var(--text-xs); font-weight: 400; }
+.error { margin: 0; color: var(--danger); font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 400; }
+
+/* Notes read like a page, not a form: the reading face, no box until you write. */
+.notes { display: flex; flex-direction: column; gap: var(--space-3); }
+.notesHead { display: flex; align-items: center; gap: var(--space-3); }
+.notesHead .title { margin-right: auto; }
+.status { color: var(--petal-3); font-size: var(--text-xs); }
+.page {
+  max-width: 68ch; padding: var(--space-2) 0; cursor: text;
+  font-family: var(--font-read); font-size: 18px; line-height: 1.6; color: var(--petal);
+}
+.page.editing {
+  cursor: auto; padding: var(--space-3) var(--space-4);
+  background: var(--dusk); border: 1px solid var(--mist-2); border-radius: var(--radius-panel);
+}
+.blank {
+  max-width: 68ch; padding: var(--space-4); text-align: left; cursor: text;
+  font: italic 18px/1.6 var(--font-read); color: var(--petal-3);
+  background: transparent; border: 1px dashed var(--mist-2); border-radius: var(--radius-panel);
+}
+.blank:hover { border-color: var(--iris); color: var(--petal-2); }
+.blank:focus-visible { outline: 2px solid var(--iris); outline-offset: 2px; }
+
+/* A link to another idea is the page's one accent. A link to nothing is dashed, as in Obsidian. */
+.wikilink { color: var(--iris-text); text-decoration: none; border-bottom: 1px solid var(--iris-soft); }
+.wikilink:hover { border-bottom-color: var(--iris-text); }
+.unlinked { color: var(--petal-2); border-bottom: 1px dashed var(--mist-2); cursor: help; }
+
+.backlinks { display: flex; flex-direction: column; gap: var(--space-2); border-top: 1px solid var(--mist); padding-top: var(--space-4); }
+.backlinkList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.backlink { font-family: var(--font-read); font-size: var(--text-md); line-height: 1.45; color: var(--petal); text-decoration: none; }
+.backlink:hover { color: var(--iris-text); text-decoration: underline; text-underline-offset: 3px; }

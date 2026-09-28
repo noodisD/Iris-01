@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-const { reject, confirmIdea, rejectLink, confirmLink, fixtures } = vi.hoisted(() => {
+const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, fixtures } = vi.hoisted(() => {
   const review = {
     ideas: [{
       idea: {
@@ -71,6 +71,12 @@ const { reject, confirmIdea, rejectLink, confirmLink, fixtures } = vi.hoisted(()
         relatedThought: [],
       },
     }],
+    page: {
+      notes: 'It follows from [[A central planner can know enough to set better prices than a market.|the planner claim]], not [[Some idea never written]].',
+      notesUpdatedAt: '2026-09-27T10:00:00Z',
+      links: { 'A central planner can know enough to set better prices than a market.': '8' },
+      backlinks: [{ id: '8', statement: 'A central planner can know enough to set better prices than a market.', status: 'active' }],
+    },
   };
   const linkedDetail = {
     idea: framework.ideas[1],
@@ -82,12 +88,14 @@ const { reject, confirmIdea, rejectLink, confirmLink, fixtures } = vi.hoisted(()
       toStatement: framework.ideas[1].statement,
     }],
     critiques: [],
+    page: { notes: '', notesUpdatedAt: null, links: {}, backlinks: [] },
   };
   return {
     reject: vi.fn(),
     confirmIdea: vi.fn(),
     rejectLink: vi.fn(),
     confirmLink: vi.fn(),
+    updateIdea: vi.fn(),
     fixtures: { review, framework, detail, linkedDetail },
   };
 });
@@ -105,7 +113,8 @@ vi.mock('@/hooks/useIdeas', () => ({
   useConfirmIdea: () => ({ mutate: confirmIdea, isPending: false, error: null }),
   useRejectIdea: () => ({ mutate: reject, isPending: false, error: null }),
   useRejectIdeaCitations: () => ({ mutate: vi.fn(), isPending: false, error: null }),
-  useUpdateIdea: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useUpdateIdea: () => ({ mutate: updateIdea, isPending: false, error: null, reset: vi.fn() }),
+  useSaveIdeaNotes: () => ({ mutate: vi.fn(), isPending: false, error: null, refresh: vi.fn() }),
   useDiscoverIdeaLinks: () => ({ mutate: vi.fn(), isPending: false, error: null }),
   useConfirmIdeaLink: () => ({ mutate: confirmLink, isPending: false, error: null }),
   useRejectIdeaLink: () => ({ mutate: rejectLink, isPending: false, error: null }),
@@ -242,5 +251,40 @@ describe('a proposed link between two ideas', () => {
     } finally {
       fixtures.review.links = [];
     }
+  });
+
+  it('renames an idea on its own page', () => {
+    renderAt('/ideas/7');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename this idea' }));
+    const field = screen.getByRole('textbox', { name: 'Wording of this idea' });
+    fireEvent.change(field, { target: { value: '  Fixed prices hide   scarcity. ' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(updateIdea).toHaveBeenCalledWith(
+      { id: '7', body: { statement: 'Fixed prices hide scarcity.' } }, expect.anything(),
+    );
+  });
+
+  it('keeps the old wording when renaming is cancelled', () => {
+    updateIdea.mockClear();
+    renderAt('/ideas/7');
+    fireEvent.click(screen.getByRole('button', { name: 'Rename this idea' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Wording of this idea' }), { key: 'Escape' });
+    expect(updateIdea).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Price controls destroy');
+  });
+
+  it('shows notes with links to other ideas, and the ideas that link here', () => {
+    renderAt('/ideas/7');
+    const notes = screen.getByRole('region', { name: 'Notes' });
+    expect(within(notes).getByRole('link', { name: 'the planner claim' })).toHaveAttribute('href', '/ideas/8');
+    expect(within(notes).getByText('Some idea never written')).toHaveAttribute('title', 'No idea has this wording yet');
+    const backlinks = screen.getByRole('region', { name: /Linked from/ });
+    expect(within(backlinks).getByRole('link', { name: /A central planner/ })).toHaveAttribute('href', '/ideas/8');
+  });
+
+  it('invites notes on an idea that has none', () => {
+    renderAt('/ideas/8');
+    expect(screen.getByRole('button', { name: /Type \[\[ to link another idea/ })).toBeInTheDocument();
+    expect(screen.getByText("No other idea's notes link here yet.")).toBeInTheDocument();
   });
 });

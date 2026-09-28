@@ -54,15 +54,17 @@ try:
         ANALYSIS_FAILED,
         CRITIQUE_FAILED,
         IDEA_CONFLICT,
+        IDEA_DUPLICATE,
         IDEA_NOT_FOUND,
         LINK_CONFLICT,
         LINK_NOT_FOUND,
         IdeaConflict,
+        IdeaDuplicate,
         IdeaNotFound,
         IdeaService,
         IdeaUnavailable,
     )
-    from agent.ideas.models import IDEA_DOMAINS, IDEA_POSITIONS
+    from agent.ideas.models import IDEA_DOMAINS, IDEA_POSITIONS, NOTES_LIMIT, STATEMENT_LIMIT
     from agent.trackers.habits import HabitTracker
     from agent.trackers.reflections import ReflectionService
     from agent.preferences import UserPreferencesService
@@ -1927,6 +1929,8 @@ def _require_enum(value: str | None, allowed: tuple[str, ...], name: str) -> Non
 def _idea_call(action):
     try:
         return action()
+    except IdeaDuplicate:
+        raise HTTPException(status_code=409, detail=IDEA_DUPLICATE)
     except IdeaNotFound:
         raise HTTPException(status_code=404, detail=IDEA_NOT_FOUND)
     except IdeaConflict:
@@ -1952,6 +1956,8 @@ class RejectCitationsBody(BaseModel):
 class UpdateIdeaBody(BaseModel):
     position: str | None = None
     domain: str | None = None
+    statement: str | None = Field(default=None, max_length=STATEMENT_LIMIT)
+    notes: str | None = Field(default=None, max_length=NOTES_LIMIT)
 
 
 @app.get("/api/ideas/framework")
@@ -2042,12 +2048,15 @@ def reject_idea_citations(
 
 @app.patch("/api/ideas/{idea_id}")
 def update_idea(idea_id: int, body: UpdateIdeaBody, user_id: int = Depends(get_current_user_id)):
-    if body.position is None and body.domain is None:
-        raise HTTPException(status_code=422, detail="position or domain is required")
+    if body.position is None and body.domain is None and body.statement is None and body.notes is None:
+        raise HTTPException(status_code=422, detail="position, domain, statement or notes is required")
     _require_enum(body.position, IDEA_POSITIONS, "position")
     _require_enum(body.domain, IDEA_DOMAINS, "domain")
+    if body.statement is not None and not body.statement.strip():
+        raise HTTPException(status_code=422, detail="statement cannot be empty")
     return _idea_call(lambda: IdeaService(user_id).update(
-        idea_id, position=body.position, domain=body.domain))
+        idea_id, position=body.position, domain=body.domain,
+        statement=body.statement, notes=body.notes))
 
 
 @app.post("/api/ideas/{idea_id}/links/discover")

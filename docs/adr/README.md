@@ -31,6 +31,7 @@ re-litigated by accident, only deliberately.
 | [0023](ADR-0023-insights-are-differences-in-outcome.md) | An insight is a difference in outcome | Why Insights compare a pattern's better and worse occasions, and old-engine findings left the clients |
 | [0024](ADR-0024-measured-day-differences.md) | Day differences are measured, not written | Why only qualifying, owner-approved measured comparisons enter chat without claiming a cause |
 | [0025](ADR-0025-talking-with-iris.md) | Talking with IRIS is chat with speech around it | Why voice wraps the ordinary chat turn instead of a realtime model, and why audio is never kept |
+| [0026](ADR-0026-idea-pages.md) | An idea has a page the owner writes, and wording the owner can change | Why ideas can be reworded, how `[[links]]` between notes survive a rename, and why notes are never evidence or sent to a model |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

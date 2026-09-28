@@ -641,11 +641,29 @@ export interface IdeasReview {
   lastRun: IdeaRun | null;
 }
 
+/** The owner's own page for an idea: notes in Markdown, with `[[wording]]` links to other ideas. */
+export interface IdeaPage {
+  notes: string;
+  notesUpdatedAt: ISODateTime | null;
+  /** Each `[[target]]` in the notes that names an idea, and that idea's id. */
+  links: Record<string, ID>;
+  /** Ideas whose notes link here. */
+  backlinks: { id: ID; statement: string; status: IdeaStatus }[];
+}
+
 export interface IdeaDetail {
   idea: IdeaSummary;
   citations: IdeaCitation[];
   links: IdeaLink[];
   critiques: IdeaCritique[];
+  page: IdeaPage;
+}
+
+export interface UpdateIdeaBody {
+  position?: IdeaPosition;
+  domain?: IdeaDomain;
+  statement?: string;
+  notes?: string;
 }
 
 export interface ConfirmIdeaBody {

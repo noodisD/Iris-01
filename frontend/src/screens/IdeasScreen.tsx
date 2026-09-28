@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { IdeaNeighborhood } from '@/components/IdeaNeighborhood';
+import { Backlinks, EditableStatement, IdeaNotes } from '@/components/IdeaPage';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { HttpError } from '@/api/client';
 import {
@@ -150,7 +151,8 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
 
   return (
     <Panel as="article">
-      <h3 className={styles.statement}>{card.idea.statement}</h3>
+      <h3 className={styles.statement}><EditableStatement idea={card.idea} /></h3>
+      <p className={styles.muted}><Link to={`/ideas/${card.idea.id}`}>Open its page</Link> to write notes on it.</p>
       <div className={styles.stack}>
         <h4 className={styles.minorTitle}>
           {card.citations.length === 1 ? 'In your writing' : `In your writing, ${card.citations.length} times`}
@@ -640,6 +642,8 @@ function CritiqueCard({ critique }: { critique: IdeaCritique }) {
 
 function IdeaDetail({ id }: { id: string }) {
   const detail = useIdea(id);
+  const framework = useIdeasFramework();
+  const queue = useIdeaReview();
   const update = useUpdateIdea();
   const reject = useRejectIdea();
   const links = useDiscoverIdeaLinks();
@@ -662,22 +666,35 @@ function IdeaDetail({ id }: { id: string }) {
     );
   }
   const accepted = detail.data.links.filter(link => link.status === 'accepted');
+  const statements = [
+    ...(framework.data?.ideas ?? []),
+    ...(queue.data?.ideas.map(card => card.idea) ?? []),
+  ].filter(other => other.id !== id).map(other => other.statement);
   const pending = detail.data.citations.filter(citation => citation.status === 'candidate');
   const error = update.error ?? reject.error ?? links.error;
 
   return (
-    <Page width="standard" title={idea.statement}
+    <Page width="standard" title={<EditableStatement idea={idea} />}
       lead={<span className={styles.detailLead}><Link to="/ideas">← All ideas</Link>
         <span className={styles.row}>
           <span className={styles.dot} style={{ background: AREA_COLOR[idea.domain] }} aria-hidden="true" />
           {labelOf(DOMAINS, idea.domain)}
         </span>
         {labelOf(POSITIONS, idea.position)}</span>}>
-      <div className={`${styles.decide} ${styles.detailDecide}`}>
-        <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
-        <Button disabled={update.isPending} onClick={() => update.mutate({ id, body: { position, domain } })}>Save</Button>
-      </div>
-      {pending.length > 0 && <p className={styles.muted}>New quotations are waiting in review.</p>}
+      {idea.status === 'active' ? (
+        <div className={`${styles.decide} ${styles.detailDecide}`}>
+          <Selectors position={position} domain={domain} onPosition={setPosition} onDomain={setDomain} />
+          <Button disabled={update.isPending} onClick={() => update.mutate({ id, body: { position, domain } })}>Save</Button>
+        </div>
+      ) : (
+        <p className={styles.muted}>
+          This idea is a proposal. <Link to="/ideas?view=review">Add it to your framework in Review</Link> to set
+          where you stand.
+        </p>
+      )}
+      {pending.length > 0 && idea.status === 'active' && <p className={styles.muted}>New quotations are waiting in review.</p>}
+      <IdeaNotes id={id} page={detail.data.page} statements={statements} />
+      <Backlinks page={detail.data.page} />
       <section className={styles.stack}>
         <h2 className={styles.sectionTitle}>Written on</h2>
         <QuoteList citations={detail.data.citations.filter(citation => citation.status === 'accepted')} />

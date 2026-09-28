@@ -1,7 +1,10 @@
 import React from 'react';
 
-function inline(text: string, keyPrefix: string): React.ReactNode[] {
-  const pattern = /(`[^`\n]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*]+\*|_[^_\n]+_|\[[^\]]+\]\([^)\s]+\))/g;
+/** Draws `[[target]]` or `[[target|shown]]`. Without one, the shown words are plain text. */
+export type WikilinkRenderer = (target: string, shown: string, key: string) => React.ReactNode;
+
+function inline(text: string, keyPrefix: string, wikilink?: WikilinkRenderer): React.ReactNode[] {
+  const pattern = /(\[\[[^[\]|\n]+(?:\|[^[\]\n]*)?\]\]|`[^`\n]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*]+\*|_[^_\n]+_|\[[^\]]+\]\([^)\s]+\))/g;
   const nodes: React.ReactNode[] = [];
   let last = 0;
   let index = 0;
@@ -10,7 +13,11 @@ function inline(text: string, keyPrefix: string): React.ReactNode[] {
     if (start > last) nodes.push(text.slice(last, start));
     const token = match[0];
     const key = `${keyPrefix}-${index++}`;
-    if (token.startsWith('`')) nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    if (token.startsWith('[[')) {
+      const [target, shown] = token.slice(2, -2).split('|');
+      const words = (shown ?? target).trim() || target.trim();
+      nodes.push(wikilink ? wikilink(target.trim(), words, key) : <span key={key}>{words}</span>);
+    } else if (token.startsWith('`')) nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
     else if (token.startsWith('**')) nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     else if (token.startsWith('~~')) nodes.push(<s key={key}>{token.slice(2, -2)}</s>);
     else if (token.startsWith('*') || token.startsWith('_')) nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
@@ -34,7 +41,7 @@ function headingSize(level: number): number {
   return level === 1 ? 28 : level === 2 ? 22 : 18;
 }
 
-export function MarkdownView({ text }: { text: string }) {
+export function MarkdownView({ text, wikilink }: { text: string; wikilink?: WikilinkRenderer }) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blocks: React.ReactNode[] = [];
   let i = 0;
@@ -48,7 +55,7 @@ export function MarkdownView({ text }: { text: string }) {
       const Tag = (`h${level}` as 'h1' | 'h2' | 'h3');
       blocks.push(
         <Tag key={i} style={{ margin: 0, fontFamily: 'var(--font-read)', fontWeight: 500, fontSize: headingSize(level), lineHeight: 1.2 }}>
-          {inline(heading[2], `h${i}`)}
+          {inline(heading[2], `h${i}`, wikilink)}
         </Tag>,
       );
       i += 1;
@@ -62,7 +69,7 @@ export function MarkdownView({ text }: { text: string }) {
       }
       blocks.push(
         <blockquote key={`q${i}`} style={{ margin: 0, paddingLeft: 12, borderLeft: '1px solid var(--mist-2)', color: 'var(--petal-2)', fontStyle: 'italic' }}>
-          {quoted.map((row, rowIndex) => <div key={rowIndex}>{inline(row, `q${i}-${rowIndex}`)}</div>)}
+          {quoted.map((row, rowIndex) => <div key={rowIndex}>{inline(row, `q${i}-${rowIndex}`, wikilink)}</div>)}
         </blockquote>,
       );
       continue;
@@ -80,7 +87,7 @@ export function MarkdownView({ text }: { text: string }) {
           {items.map((row, rowIndex) => (
             <li key={rowIndex}>
               {row.checked === null ? null : <span aria-hidden="true">{row.checked ? '☑ ' : '☐ '}</span>}
-              {inline(row.text, `l${i}-${rowIndex}`)}
+              {inline(row.text, `l${i}-${rowIndex}`, wikilink)}
             </li>
           ))}
         </ul>,
@@ -96,7 +103,7 @@ export function MarkdownView({ text }: { text: string }) {
       paragraph.push(lines[i]);
       i += 1;
     }
-    blocks.push(<p key={`p${i}`} style={{ margin: 0 }}>{inline(paragraph.join(' '), `p${i}`)}</p>);
+    blocks.push(<p key={`p${i}`} style={{ margin: 0 }}>{inline(paragraph.join(' '), `p${i}`, wikilink)}</p>);
   }
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{blocks}</div>;
 }
