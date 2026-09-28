@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
@@ -40,11 +40,10 @@ load_dotenv()
 
 # Import the companion system
 try:
-    from agent.constants import OBSERVATION_MAX_ENTRIES_READ, SELECTABLE_ENGINES
+    from agent.constants import SELECTABLE_ENGINES
     from agent.core import PersonalAICompanion
     from agent.database import db
     from agent.insights_service import InsightsService
-    from agent.observations import ObservationEngine, apply_preferences
     from agent import constructs
     from agent import decisions as decision_log
     from agent import discovery
@@ -157,83 +156,9 @@ app.add_middleware(MobileAuthMiddleware)
 # HABIT MODELS
 # ============================================================================
 
-class HabitCreate(BaseModel):
-    """Create a new habit"""
-    name: str
-    description: str | None = None
-    frequency_type: str = "daily"  # daily, weekly, specific_days
-    habit_type: str = "completion"  # completion, duration, count
-    weekly_target: float = 0
-    tracking_metric: str | None = "completion"
-    category: str | None = "general"
-
-class HabitUpdate(BaseModel):
-    """Update habit fields"""
-    name: str | None = None
-    description: str | None = None
-    habit_type: str | None = None
-    weekly_target: float | None = None
-    tracking_metric: str | None = None
-    is_active: bool | None = None
-
-class HabitCompletion(BaseModel):
-    """Log a habit completion"""
-    habit_id: int
-    value: float = 1.0
-    date: str | None = None  # ISO date string, defaults to today
-    notes: str | None = None
-
-class HabitSkip(BaseModel):
-    """Log a habit skip"""
-    habit_id: int
-    date: str | None = None  # ISO date string, defaults to today
-    reason: str | None = None
-
-class HabitResponse(BaseModel):
-    """Habit response model"""
-    id: int
-    name: str
-    description: str | None
-    frequency_type: str
-    category: str
-    is_active: bool
-    current_streak: int
-    longest_streak: int
-    total_completions: int
-    created_at: str
-
-
 # ============================================================================
 # REFLECTION MODELS
 # ============================================================================
-
-class ReflectionCreate(BaseModel):
-    """Create a new reflection"""
-    content: str
-    energy_level: int | None = None  # 1-10
-    clarity_level: int | None = None # 1-10
-    tags: list[str] | None = None
-    reflection_date: str | None = None  # ISO date string
-
-class ReflectionUpdate(BaseModel):
-    """Update reflection fields"""
-    content: str | None = None
-    energy_level: int | None = None
-    clarity_level: int | None = None
-    tags: list[str] | None = None
-
-class ReflectionResponse(BaseModel):
-    """Reflection response model"""
-    id: int
-    reflection_date: str
-    content: str
-    mood: str | None
-    energy_level: int | None
-    clarity_level: int | None
-    tags: list[str] | None
-    created_at: str
-    updated_at: str
-
 
 # ============================================================================
 # DECISION MODELS
@@ -781,39 +706,6 @@ def list_day_features(user_id: int = Depends(get_current_user_id)):
     return body
 
 
-@app.post("/api/chat/greeting")
-async def get_greeting(user_id: int = Depends(get_current_user_id)):
-    """Get a dynamic greeting for the user."""
-    try:
-        companion = PersonalAICompanion(user_id=user_id)
-        greeting = await run_in_threadpool(companion.generate_initial_greeting)
-        return {"greeting": greeting}
-    except Exception as e:
-        logger.error(f"Greeting error: {e}")
-        return {"greeting": "Hi, I'm Iris. How are you today?"}
-
-
-@app.post("/api/chat/proactive")
-async def proactive_chat(request: dict, user_id: int = Depends(get_current_user_id)):
-    """Trigger a proactive comment from IRIS."""
-    action_type = request.get("action_type")
-    details = request.get("details", {})
-
-    if not action_type:
-        raise HTTPException(status_code=400, detail="action_type required")
-
-    try:
-        companion = PersonalAICompanion(user_id=user_id)
-        iris_response = await run_in_threadpool(
-            companion.generate_proactive_comment, action_type, details
-        )
-        # Response already persisted by companion.generate_proactive_comment() -> memory.add_message()
-        return {"message": iris_response}
-    except Exception as e:
-        logger.error(f"Proactive error: {e}")
-        return {"message": "..."} # Fail silently
-
-
 # ============================================================================
 # CONVERSATION ENDPOINTS (single-user; used by the integrated frontend)
 # ============================================================================
@@ -1024,13 +916,6 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict
     }
 
 
-@app.get("/api/habits")
-def list_habits(user_id: int = Depends(get_current_user_id)):
-    """List all active habits (raw tracker shape; /api/habits/today is the UI contract)."""
-    tracker = HabitTracker(user_id)
-    habits = tracker.get_habits(active_only=True)
-    return {"habits": habits}
-
 @app.post("/api/habits")
 def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_current_user_id)):
     """Create a habit and return it in the frontend `Habit` contract shape."""
@@ -1084,211 +969,9 @@ def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depends(get_
     tracker.update_streaks(habit_id)
     return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
-@app.get("/api/habits/weekly")
-def get_weekly_summary(user_id: int = Depends(get_current_user_id)):
-    """Get weekly habit summary"""
-    tracker = HabitTracker(user_id)
-    summary = tracker.get_weekly_summary()
-    return summary
-
-@app.get("/api/habits/consistency/{days}")
-def get_consistency_report(days: int = 30, user_id: int = Depends(get_current_user_id)):
-    """Get consistency report across all habits"""
-
-    tracker = HabitTracker(user_id)
-    report = tracker.get_consistency_report(days)
-    return report
-
-@app.get("/api/habits/{habit_id}")
-def get_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
-    """Get details of a specific habit"""
-    tracker = HabitTracker(user_id)
-    habit = tracker.get_habit(habit_id)
-    if not habit:
-        raise HTTPException(status_code=404, detail="Habit not found")
-    return habit
-
-@app.put("/api/habits/{habit_id}")
-def update_habit(habit_id: int, updates: HabitUpdate, user_id: int = Depends(get_current_user_id)):
-    """Update a habit's properties"""
-    tracker = HabitTracker(user_id)
-    if not tracker.get_habit(habit_id):
-        raise HTTPException(status_code=404, detail="Habit not found")
-
-    update_dict = updates.model_dump(exclude_none=True)
-    tracker.update_habit(habit_id, **update_dict)
-    return {"message": "Habit updated successfully"}
-
-@app.delete("/api/habits/{habit_id}")
-def delete_habit(habit_id: int, user_id: int = Depends(get_current_user_id)):
-    """Delete a habit (soft-delete)"""
-    tracker = HabitTracker(user_id)
-    if not tracker.get_habit(habit_id):
-        raise HTTPException(status_code=404, detail="Habit not found")
-
-    tracker.delete_habit(habit_id)
-    return {"message": "Habit deleted successfully"}
-
-@app.post("/api/habits/complete")
-def log_completion(completion: HabitCompletion, user_id: int = Depends(get_current_user_id)):
-    """Log a habit completion"""
-    tracker = HabitTracker(user_id)
-
-    if not tracker.get_habit(completion.habit_id):
-        raise HTTPException(status_code=404, detail="Habit not found")
-
-    # Parse date if provided
-    completion_date = None
-    if completion.date:
-        try:
-            completion_date = datetime.fromisoformat(completion.date).date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-
-    tracker.log_completion(completion.habit_id, completion_date, completion.value, completion.notes)
-    streak_info = tracker.update_streaks(completion.habit_id)
-
-    return {
-        "message": "Completion logged successfully",
-        "streaks": streak_info
-    }
-
-@app.post("/api/habits/skip")
-def log_skip(skip: HabitSkip, user_id: int = Depends(get_current_user_id)):
-    """Log a habit skip"""
-    tracker = HabitTracker(user_id)
-
-    if not tracker.get_habit(skip.habit_id):
-        raise HTTPException(status_code=404, detail="Habit not found")
-
-    # Parse date if provided
-    skip_date = None
-    if skip.date:
-        try:
-            skip_date = datetime.fromisoformat(skip.date).date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-
-    tracker.log_skip(skip.habit_id, skip_date, skip.reason)
-    return {"message": "Skip logged successfully"}
-
-@app.get("/api/habits/{habit_id}/calendar")
-def get_habit_calendar(habit_id: int, start: str, end: str, user_id: int = Depends(get_current_user_id)):
-    """Get a calendar view of habit completions in a date range"""
-    tracker = HabitTracker(user_id)
-
-    if not tracker.get_habit(habit_id):
-        raise HTTPException(status_code=404, detail="Habit not found")
-
-    # Parse dates
-    try:
-        start_date = datetime.fromisoformat(start).date()
-        end_date = datetime.fromisoformat(end).date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-
-    calendar = tracker.get_calendar(habit_id, start_date, end_date)
-    return {"calendar": calendar, "habit_id": habit_id}
-
-
 # ============================================================================
 # REFLECTION ENDPOINTS
 # ============================================================================
-
-@app.get("/api/reflections")
-def list_reflections(user_id: int = Depends(get_current_user_id), limit: int = 30):
-    """List recent reflections"""
-    service = ReflectionService(user_id)
-    reflections = service.get_reflections(limit=limit)
-    return {"reflections": reflections}
-
-@app.post("/api/reflections")
-def create_reflection(reflection: ReflectionCreate, user_id: int = Depends(get_current_user_id)):
-    """Create a new reflection"""
-    service = ReflectionService(user_id)
-
-    # Parse date if provided
-    reflection_date = None
-    if reflection.reflection_date:
-        try:
-            reflection_date = datetime.fromisoformat(reflection.reflection_date).date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-
-    try:
-        reflection_id = service.create_reflection(
-            content=reflection.content,
-            reflection_date=reflection_date,
-            energy_level=reflection.energy_level,
-            clarity_level=reflection.clarity_level,
-            tags=reflection.tags
-        )
-        # No background task here: ReflectionService.create_reflection already
-        # runs the pipeline. Scheduling it again embedded every reflection twice,
-        # paying OpenAI twice and re-entering the window that made concurrent
-        # ingests mis-attribute each other's content.
-        return {"reflection_id": reflection_id, "message": "Reflection saved successfully"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/api/reflections/moods")
-def get_mood_trend(user_id: int = Depends(get_current_user_id), days: int = 30):
-    """Get mood trend data"""
-    service = ReflectionService(user_id)
-    trend = service.get_mood_trend(days)
-    return trend
-
-@app.get("/api/reflections/summary")
-def get_reflection_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
-    """Get comprehensive reflection summary"""
-    service = ReflectionService(user_id)
-    summary = service.get_reflection_summary(days)
-    return summary
-
-@app.get("/api/reflections/tags")
-def get_tags_summary(user_id: int = Depends(get_current_user_id), days: int = 30):
-    """Get tags summary from reflections"""
-    service = ReflectionService(user_id)
-    tags = service.get_tag_summary(days)
-    return tags
-
-@app.get("/api/reflections/{reflection_id}")
-def get_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
-    """Get a specific reflection"""
-    service = ReflectionService(user_id)
-    reflection = service.get_reflection(reflection_id)
-
-    if not reflection:
-        raise HTTPException(status_code=404, detail="Reflection not found")
-
-    return reflection
-
-@app.put("/api/reflections/{reflection_id}")
-def update_reflection(reflection_id: int, updates: ReflectionUpdate, user_id: int = Depends(get_current_user_id)):
-    """Update a reflection"""
-    service = ReflectionService(user_id)
-
-    if not service.get_reflection(reflection_id):
-        raise HTTPException(status_code=404, detail="Reflection not found")
-
-    try:
-        update_dict = updates.model_dump(exclude_none=True)
-        service.update_reflection(reflection_id, **update_dict)
-        return {"message": "Reflection updated successfully"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.delete("/api/reflections/{reflection_id}")
-def delete_reflection(reflection_id: int, user_id: int = Depends(get_current_user_id)):
-    """Delete a reflection"""
-    service = ReflectionService(user_id)
-
-    if not service.get_reflection(reflection_id):
-        raise HTTPException(status_code=404, detail="Reflection not found")
-
-    service.delete_reflection(reflection_id)
-    return {"message": "Reflection deleted successfully"}
-
 
 # ============================================================================
 # JOURNAL ENDPOINTS (single-user; frontend JournalEntry mapped onto reflections)
@@ -1628,15 +1311,6 @@ def put_pattern_verdict(pattern_id: str, body: PatternVerdict,
 # ============================================================================
 
 # Incoming PATCH /user/preferences keys (frontend camelCase) → app_settings columns.
-_PREF_KEY_MAP = {
-    "tone": "tone",
-    "density": "density",
-    "dailyCheckinTime": "daily_checkin_time",
-    "weeklyReviewTime": "weekly_review_time",
-    "maxNudgesPerDay": "max_nudges_per_day",
-    "threadsListenedFor": "threads",
-}
-
 def _age_days(ts) -> int:
     """Calendar days, on this machine's clock, from a timestamp (datetime or ISO
     string) to today.
@@ -1680,28 +1354,6 @@ def _user_to_contract(user_id: int) -> dict:
 @app.get("/api/user")
 def get_app_user(user_id: int = Depends(get_current_user_id)):
     """Return the frontend `User` (profile + app preferences)."""
-    return _user_to_contract(user_id)
-
-
-class PreferencesPatch(BaseModel):
-    """A Partial<UserPreferences>. Typed, so a bad value is a 422 naming the
-    field rather than a database error."""
-    model_config = ConfigDict(extra="ignore")
-    tone: str | None = Field(default=None, max_length=40)
-    density: str | None = Field(default=None, max_length=40)
-    dailyCheckinTime: str | None = Field(default=None, max_length=10)
-    weeklyReviewTime: str | None = Field(default=None, max_length=20)
-    maxNudgesPerDay: int | None = Field(default=None, ge=0, le=50)
-    threadsListenedFor: list[str] | None = None
-
-
-@app.patch("/api/user/preferences")
-def update_app_preferences(body: PreferencesPatch, user_id: int = Depends(get_current_user_id)):
-    """Merge a Partial<UserPreferences> into the app-settings store; return `User`."""
-    prefs = body.model_dump(exclude_unset=True)
-    fields = {_PREF_KEY_MAP[k]: v for k, v in prefs.items() if k in _PREF_KEY_MAP}
-    if fields:
-        db.upsert_app_settings(user_id, **fields)
     return _user_to_contract(user_id)
 
 
@@ -2184,31 +1836,6 @@ def get_insight_detail(insight_id: str, user_id: int = Depends(get_current_user_
     return detail
 
 
-class ObservationRequest(BaseModel):
-    """What to read. Deliberately small: this is a button, not a configuration."""
-    limit: int = OBSERVATION_MAX_ENTRIES_READ
-    since: date | None = None
-
-
-@app.post("/api/observations")
-def read_entries(body: ObservationRequest, user_id: int = Depends(get_current_user_id)):
-    """Read the owner's entries and report what recurs, with verbatim quotes.
-
-    One of the two paths that send journal entries to the model for analysis;
-    the other is discovery (/api/constructs/discover). Both are POSTs with no
-    caller inside IRIS: they happen when the owner asks, and at no other time.
-    This quick read stores nothing — what comes back is something IRIS noticed
-    while reading, shown with its receipts. Discovery stores what it finds as
-    proposals the owner reviews (ADR-0016).
-    """
-    engine = ObservationEngine(user_id)
-    observations = apply_preferences(engine.read(limit=body.limit, since=body.since), user_id)
-    return {
-        "observations": [o.as_dict() for o in observations],
-        "entriesRead": observations[0].entries_read if observations else 0,
-    }
-
-
 class DiscoverRequest(BaseModel):
     """Whether to include the staged recordings. Nothing else to configure."""
     includeStaged: bool = True
@@ -2632,16 +2259,6 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
 def get_latest_review(user_id: int = Depends(get_current_user_id)):
     """ReviewWeek for the most recent 7-day window ending today."""
     week_start = date.today() - timedelta(days=6)
-    return _build_review_week(user_id, week_start)
-
-
-@app.get("/api/review/week/{start}")
-def get_review_week(start: str, user_id: int = Depends(get_current_user_id)):
-    """ReviewWeek for the 7-day window beginning on the given ISO date."""
-    try:
-        week_start = date.fromisoformat(start)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date (use YYYY-MM-DD)")
     return _build_review_week(user_id, week_start)
 
 

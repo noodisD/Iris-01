@@ -1,7 +1,6 @@
 /**
  * Settings API — WIRED LIVE (single-user backend).
  *   GET    /api/user                        → User
- *   PATCH  /api/user/preferences            → User
  *   GET    /api/knowledge                   → KnownFact[]   (mapped from themes)
  *   DELETE /api/knowledge/:id               → forget a fact (a cluster is deleted,
  *                                             a confirmed pattern is retracted)

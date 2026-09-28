@@ -129,17 +129,6 @@ def test_a_snooze_length_out_of_range_is_refused(client, days):
     assert r.status_code == 422
 
 
-def test_a_bad_preference_value_is_refused_not_reported_as_saved(client):
-    r = client.patch("/api/user/preferences", json={"maxNudgesPerDay": "x"})
-    assert r.status_code == 422
-
-
-def test_a_valid_preference_is_saved(client):
-    r = client.patch("/api/user/preferences", json={"maxNudgesPerDay": 2})
-    assert r.status_code == 200
-    assert r.json()["preferences"]["maxNudgesPerDay"] == 2
-
-
 # --- chat -----------------------------------------------------------------
 
 def test_chat_that_cannot_start_sends_an_error_event(client, monkeypatch):

@@ -79,9 +79,3 @@ def test_review_habits_reflect_completion(client, seeded_week):
     assert metrics["habitsHit"] >= 1
 
 
-def test_review_specific_week(client, seeded_week):
-    from datetime import date, timedelta
-    start = (date.today() - timedelta(days=6)).isoformat()
-    r = client.get(f"/api/review/week/{start}")
-    assert r.status_code == 200
-    assert r.json()["weekStart"] == start

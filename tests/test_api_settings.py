@@ -34,23 +34,6 @@ def test_get_user_returns_contract(client, test_user):
     assert isinstance(prefs["threadsListenedFor"], list)
 
 
-def test_update_preferences_roundtrips(client):
-    r = client.patch("/api/user/preferences", json={"tone": "clinical", "density": "dense"})
-    assert r.status_code == 200
-    prefs = r.json()["preferences"]
-    assert prefs["tone"] == "clinical"
-    assert prefs["density"] == "dense"
-    # persists across a fresh GET
-    again = client.get("/api/user").json()["preferences"]
-    assert again["tone"] == "clinical"
-
-
-def test_update_preferences_threads(client):
-    r = client.patch("/api/user/preferences", json={"threadsListenedFor": ["mood", "sleep"]})
-    assert r.status_code == 200
-    assert r.json()["preferences"]["threadsListenedFor"] == ["mood", "sleep"]
-
-
 def test_knowledge_lists_themes_as_facts(client, test_user):
     from agent.database import db
     db.create_theme(test_user["id"], [0.0] * 1536, "Prefers mornings for deep work",

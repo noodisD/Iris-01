@@ -68,24 +68,6 @@ def test_a_brand_new_habit_kept_today_is_fully_consistent(client, test_user):
     )
 
 
-def test_consistency_agrees_between_the_two_endpoints(client, test_user):
-    """/habits/today and /habits/consistency answered the same question
-    differently: one divided by 30, the other by the habit's age."""
-    created = client.post(
-        "/api/habits", json={"name": "Read", "tag": "daily", "intent": "learn", "color": "indigo"}
-    ).json()
-    client.post(f"/api/habits/{created['id']}/toggle", json={"done": True})
-
-    today = client.get("/api/habits/today").json()["consistency30d"]
-    report = client.get("/api/habits/consistency/30").json()
-    # The report formats its rate as a string like "100.0%".
-    reported = float(report["habits"][0]["completion_rate"].rstrip("%")) / 100.0
-
-    assert today == pytest.approx(reported, abs=0.01), (
-        f"the two endpoints disagree: today={today}, report={reported}"
-    )
-
-
 def test_changing_a_completion_to_a_skip_takes_back_its_evidence(test_user, monkeypatch):
     """The owner says it did not happen. Until now only the completion row
     heard: its embedding, its theme occurrences and its queued job stayed, so

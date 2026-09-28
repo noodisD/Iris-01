@@ -141,7 +141,7 @@ only when the owner asks, reads evidence only, never chat.
 - Every quote is found verbatim in the entry it cites, or the whole finding is dropped
 - Every quote supports the claim: a contradicting quote drops the finding, a quote that only mentions the subject is not counted, and a check that cannot be made drops the finding
 - Two distinct entries at least; causal or prescriptive wording is dropped
-- A quick read (`POST /api/observations`) stores nothing; discovery stores candidates and a run record (ADR-0016)
+- Discovery (`POST /api/constructs/discover`) stores candidates and a run record (ADR-0016). The quick read that stored nothing (`POST /api/observations`) had no caller and was removed on 2026-09-28
 
 ### Confidence
 How much evidence stands behind a finding (`agent/confidence.py`).
