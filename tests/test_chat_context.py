@@ -1,4 +1,4 @@
-"""What the chat model is told, and whether the prompt describes it truthfully.
+"""What the chat model is told: source, time, and recorded-data boundaries.
 
 Three things went wrong here quietly. The prompt described a "Long-Term Trends"
 block that nothing produced. "Recent entries" were ordered by id, which since
@@ -40,7 +40,6 @@ def test_the_context_opens_with_today(companion, mocker):
     first = ctx.splitlines()[0]
     assert first.startswith("# Today: ")
     assert datetime.now().astimezone().date().isoformat() in first
-
 
 def test_every_block_the_chat_sends_is_described_in_the_prompt(companion, mocker):
     ctx = _context(companion, mocker)

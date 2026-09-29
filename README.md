@@ -1,14 +1,20 @@
 # IRIS
 
-A personal analytical companion. You write — journal entries, reflections, habit
-ticks — and IRIS looks for patterns that persist, drift, conflict or fade, then
-reports what it observed. It runs entirely on your machine, against your own
-database.
+A personal companion whose primary purpose is to help you grow on your own terms.
+IRIS draws on your journal entries, reflections, habits, conversations and
+approved records to help you understand yourself, explore your assumptions, and
+notice supported patterns as they appear during conversation.
 
-It is deliberately **not** a chat-first assistant. It operates under a
-non-interpretive contract: report the evidence, never assert causality, never
-give unsolicited advice. A pattern that appeared 12 times and then stopped is
-reported as exactly that.
+Personal factual claims must be grounded in available records. Interpretations
+are explicitly labeled hypotheses, open to correction. IRIS uses reflective
+listening, Socratic questioning and other psychotherapy-informed techniques,
+without presenting itself as a therapist or diagnosing you. It can challenge a
+choice respectfully and offer an optional next step tied to your own goals.
+
+The analytical engines still report observations, not causes or prescriptions.
+Chat does not create analytical evidence. The companion currently receives
+context automatically; this does not give it callable tools, continuous
+monitoring, or alerts outside chat.
 
 ---
 

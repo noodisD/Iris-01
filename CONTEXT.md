@@ -1,11 +1,19 @@
 # IRIS Domain Context
 
-IRIS is a local-first AI companion for one person. It runs on one machine, as
-one process with one PostgreSQL database, for one local user with no login
-(ADR-0001). It detects, verifies and prioritises long-term patterns in what that
-person deliberately logs, under a strict **non-interpretive contract**: it
-reports observations and the evidence behind them, never assumes causality, and
-never offers unsolicited advice.
+IRIS is a local-first AI companion for one person, with personal growth on the
+owner's own terms as its primary purpose. It runs on one machine, as one process
+with one PostgreSQL database, for one local user with no login (ADR-0001).
+
+Analytical findings remain non-interpretive: they report observations and their
+evidence, never establish causality or prescribe action. Companion dialogue uses
+that evidence to support self-understanding through reflective and Socratic
+questioning, explicitly labeled hypotheses, and direct, respectful warnings when
+the present conversation resembles a supported pattern. Suggestions are optional
+and tied to the owner's goals; this is not diagnosis or clinical treatment.
+Chat remains recall, not a source of analytical occurrences (ADR-0003), and the
+existing admission gates still govern which analytical findings reach chat
+(ADR-0007). The companion uses automatically supplied context, not callable tools
+or background monitoring.
 
 Every label and number below is what the code does. `tests/test_context_guards.py`
 fails if a classifier emits a label this file does not name, or if an engine

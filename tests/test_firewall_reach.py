@@ -1,10 +1,4 @@
-"""The rule against causes and advice applies wherever IRIS speaks.
-
-It ran on chat's templates and nowhere else: not on the Insights read, which
-carries a theme summary a model wrote; not on the system prompt's own examples,
-one of which taught the model to ask what "triggered" something; and the
-templates it did cover said "frequently" where nothing had measured frequency.
-"""
+"""Analytical narratives stay non-causal; chat context uses recorded facts."""
 
 from __future__ import annotations
 
@@ -12,6 +6,7 @@ import re
 
 from agent.narrative import NarrativeFormatter
 from agent.narrative_policy import FORBIDDEN_REGEX
+from prompts.system_prompt import SYSTEM_PROMPT
 
 
 def test_the_insights_read_drops_a_sentence_that_claims_a_cause():
@@ -24,13 +19,14 @@ def test_the_insights_read_drops_a_sentence_that_claims_a_cause():
     assert not FORBIDDEN_REGEX.search(read)
     assert "Recent: 4 (last 14 days)." in read, "the measured parts remain"
 
-
-def test_the_system_prompts_examples_pass_the_firewall():
-    from prompts.system_prompt import SYSTEM_PROMPT
-
-    examples = SYSTEM_PROMPT.split("GOOD EXAMPLES:")[1].split("CORE PRINCIPLES")[0]
-    for line in (line for line in examples.splitlines() if line.strip().startswith("-")):
-        assert not FORBIDDEN_REGEX.search(line), line
+def test_the_system_prompts_example_phrasings_pass_the_firewall():
+    """The prompt names causes and diagnosis only to rule them out, but the
+    wording it teaches the model to say must itself pass the rule."""
+    taught = SYSTEM_PROMPT.split("Attribute it accurately:")[1].split("A hypothetical")[0]
+    phrasings = re.findall(r'"([^"]+)"', taught)
+    assert len(phrasings) >= 3, phrasings
+    for phrasing in phrasings:
+        assert not FORBIDDEN_REGEX.search(phrasing), phrasing
 
 
 def test_the_proactive_prompt_states_only_what_was_recorded(mock_llm, test_user):
