@@ -208,7 +208,11 @@ A substantive proposition — including a normative principle — that the owner
 endorses, questions, or opposes in their own writing. A topic word, an inferred
 trait, and a quotation of another author with no position of the owner's are
 not ideas. One verified passage is enough. The owner may reword a statement to
-say the same proposition better; a changed proposition is another idea. This is
+say the same proposition better; a changed proposition is another idea. A
+proposal that only rewords an idea the owner holds, adds a reason or example,
+or restates one part of it, is that idea: its quotes are offered as new quotes
+for it. When IRIS proposes one anyway, the owner can fold it into the idea;
+its quotes join that idea, and the wording is not proposed again. This is
 not a psychological engine and is not selectable in Settings (ADR-0021).
 
 **Idea page** is the owner's own writing about an idea: Markdown notes in which

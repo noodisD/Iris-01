@@ -38,6 +38,11 @@ export function rejectIdea(id: string): Promise<{ id: string; status: 'rejected'
   return api.post(`/ideas/${id}/reject`);
 }
 
+/** The proposal is an idea the owner already holds: its quotes move there, accepted. */
+export function foldIdea(id: string, intoId: string): Promise<{ id: string; mergedInto: string; quotesMoved: number }> {
+  return api.post(`/ideas/${id}/fold`, { intoId: Number(intoId) });
+}
+
 export function rejectIdeaCitations(id: string, citationIds: string[]): Promise<{ id: string; rejected: number }> {
   return api.post(`/ideas/${id}/citations/reject`, { citationIds });
 }

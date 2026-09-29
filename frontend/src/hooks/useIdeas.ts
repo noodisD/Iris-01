@@ -60,6 +60,10 @@ export function useRejectIdea() {
   return useIdeaMutation((id: string) => ideasApi.rejectIdea(id));
 }
 
+export function useFoldIdea() {
+  return useIdeaMutation(({ id, intoId }: { id: string; intoId: string }) => ideasApi.foldIdea(id, intoId));
+}
+
 export function useRejectIdeaCitations() {
   return useIdeaMutation(({ id, citationIds }: { id: string; citationIds: string[] }) => (
     ideasApi.rejectIdeaCitations(id, citationIds)

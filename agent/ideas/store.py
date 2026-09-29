@@ -111,14 +111,14 @@ def list_registry(user_id: int) -> list[dict[str, Any]]:
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, statement, statement_key, domain, status, position
+            SELECT id, statement, statement_key, domain, status, position, merged_into_id
               FROM ideas
              WHERE user_id = %s
              ORDER BY id;
             """,
             (user_id,),
         )
-        keys = ("id", "statement", "statement_key", "domain", "status", "position")
+        keys = ("id", "statement", "statement_key", "domain", "status", "position", "merged_into_id")
         return [dict(zip(keys, row, strict=True)) for row in cur.fetchall()]
 
 
@@ -368,6 +368,60 @@ def reject_idea(user_id: int, idea_id: int) -> str:
         )
         conn.commit()
     return "ok"
+
+
+def fold_into(user_id: int, idea_id: int, target_id: int) -> tuple[str, int]:
+    """Fold a proposal into an idea the owner holds: its quotes become that idea's.
+
+    The owner chose the idea, so the quotes are accepted, not queued again. A
+    quote the idea already has is not doubled. The proposal is set aside and
+    remembers where it went. Returns the outcome and how many quotes moved.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, status FROM ideas
+             WHERE user_id = %s AND id IN (%s, %s)
+             ORDER BY id
+             FOR UPDATE;
+            """,
+            (user_id, idea_id, target_id),
+        )
+        status = {int(row[0]): row[1] for row in cur.fetchall()}
+        if idea_id not in status or target_id not in status:
+            conn.rollback()
+            return "missing", 0
+        if idea_id == target_id or status[idea_id] != "candidate" or status[target_id] != "active":
+            conn.rollback()
+            return "conflict", 0
+        cur.execute(
+            """
+            SELECT c.id, c.source_hash, r.content, r.evidence_eligible
+              FROM idea_citations c
+              LEFT JOIN reflections r
+                ON r.id = c.reflection_id AND r.user_id = %s
+             WHERE c.idea_id = %s AND c.status = 'candidate'
+               AND NOT EXISTS (
+                   SELECT 1 FROM idea_citations held
+                    WHERE held.idea_id = %s
+                      AND held.reflection_id = c.reflection_id
+                      AND held.quote_hash = c.quote_hash)
+             FOR UPDATE OF c;
+            """,
+            (user_id, idea_id, target_id),
+        )
+        moving = [int(row[0]) for row in cur.fetchall() if _valid_source(row[2], row[3], row[1])]
+        if moving:
+            cur.execute(
+                "UPDATE idea_citations SET idea_id = %s, status = 'accepted' WHERE id = ANY(%s);",
+                (target_id, moving),
+            )
+        cur.execute(
+            "UPDATE ideas SET status = 'rejected', merged_into_id = %s WHERE user_id = %s AND id = %s;",
+            (target_id, user_id, idea_id),
+        )
+        conn.commit()
+    return "ok", len(moving)
 
 
 def reject_citations(user_id: int, idea_id: int, citation_ids: list[int]) -> str | int:

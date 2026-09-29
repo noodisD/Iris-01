@@ -5,7 +5,7 @@ import { Backlinks, EditableStatement, IdeaNotes } from '@/components/IdeaPage';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { HttpError } from '@/api/client';
 import {
-  useConfirmIdea, useConfirmIdeaLink, useCritiqueIdea, useDiscoverIdeaLinks, useDiscoverIdeas,
+  useConfirmIdea, useConfirmIdeaLink, useCritiqueIdea, useDiscoverIdeaLinks, useDiscoverIdeas, useFoldIdea,
   useDiscoverMeanings, useMeaningEstimate,
   useIdea, useIdeaReview, useIdeasFramework, useRejectIdea, useRejectIdeaCitations,
   useRejectIdeaLink, useUpdateIdea,
@@ -159,6 +159,59 @@ function OnRecord({ citations }: { citations: IdeaCitation[] }) {
   );
 }
 
+function words(text: string): Set<string> {
+  return new Set(text.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+}
+
+/** Held ideas nearest in wording first, so the likely one is at the top. */
+function nearest(statement: string, ideas: IdeaSummary[]): IdeaSummary[] {
+  const mine = words(statement);
+  const score = (idea: IdeaSummary) => {
+    const theirs = words(idea.statement);
+    const shared = [...theirs].filter(word => mine.has(word)).length;
+    return shared / (new Set([...mine, ...theirs]).size || 1);
+  };
+  return [...ideas].sort((a, b) => score(b) - score(a));
+}
+
+/**
+ * "This is an idea I already hold": pick it, and the proposal's quotes become
+ * that idea's. IRIS proposes a reworded idea as new when it is not sure.
+ */
+function FoldIntoHeld({ card, onCancel }: { card: IdeasReview['ideas'][number]; onCancel: () => void }) {
+  const framework = useIdeasFramework();
+  const fold = useFoldIdea();
+  const [query, setQuery] = React.useState('');
+  const [chosen, setChosen] = React.useState<string | null>(null);
+  const held = (framework.data?.ideas ?? []).filter(idea => idea.id !== card.idea.id);
+  const q = query.trim().toLowerCase();
+  const options = (q ? held.filter(idea => idea.statement.toLowerCase().includes(q)) : nearest(card.idea.statement, held)).slice(0, 5);
+  return (
+    <div className={styles.fold}>
+      <label className={styles.fieldLabel} htmlFor={`fold-${card.idea.id}`}>Which idea is it?</label>
+      <input id={`fold-${card.idea.id}`} className={styles.foldSearch} type="search" value={query}
+        placeholder="Search your ideas" onChange={event => setQuery(event.target.value)} />
+      <ul className={styles.foldList} aria-label="Ideas you hold">
+        {options.map(idea => (
+          <li key={idea.id}>
+            <button type="button" className={styles.foldOption} aria-pressed={chosen === idea.id}
+              onClick={() => setChosen(idea.id)}>{idea.statement}</button>
+          </li>
+        ))}
+        {options.length === 0 && <li className={styles.muted}>No idea you hold says that.</li>}
+      </ul>
+      {fold.error && <div role="alert">{failureText(fold.error)}</div>}
+      <div className={styles.row}>
+        <Button variant="primary" disabled={!chosen || fold.isPending}
+          onClick={() => chosen && fold.mutate({ id: card.idea.id, intoId: chosen })}>
+          Add its quotes to this idea
+        </Button>
+        <Button variant="quiet" disabled={fold.isPending} onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
   const confirm = useConfirmIdea();
   const reject = useRejectIdea();
@@ -171,6 +224,7 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
   const busy = confirm.isPending || reject.isPending || dismissQuotes.isPending;
   const error = confirm.error ?? reject.error ?? dismissQuotes.error;
   const isNew = card.idea.status === 'candidate';
+  const [folding, setFolding] = React.useState(false);
 
   return (
     <Panel as="article">
@@ -204,6 +258,9 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
         <div className={styles.row}>
           {isNew ? (
             <>
+              <Button variant="quiet" disabled={busy || folding} onClick={() => setFolding(true)}>
+                It&apos;s an idea I already hold
+              </Button>
               <Button disabled={busy} onClick={() => reject.mutate(card.idea.id)}>Dismiss proposal</Button>
               <Button variant="primary" disabled={busy || ids.length === 0} onClick={() => confirm.mutate({
                 id: card.idea.id, body: { citationIds: ids, position, domain },
@@ -221,6 +278,7 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
           )}
         </div>
       </div>
+      {isNew && folding && <FoldIntoHeld card={card} onCancel={() => setFolding(false)} />}
     </Panel>
   );
 }

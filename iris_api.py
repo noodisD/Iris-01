@@ -2038,6 +2038,16 @@ def reject_idea(idea_id: int, user_id: int = Depends(get_current_user_id)):
     return _idea_call(lambda: IdeaService(user_id).reject(idea_id))
 
 
+class FoldIdeaBody(BaseModel):
+    intoId: int
+
+
+@app.post("/api/ideas/{idea_id}/fold")
+def fold_idea(idea_id: int, body: FoldIdeaBody, user_id: int = Depends(get_current_user_id)):
+    """A proposal is an idea the owner already holds: move its quotes there."""
+    return _idea_call(lambda: IdeaService(user_id).fold_into(idea_id, body.intoId))
+
+
 @app.post("/api/ideas/{idea_id}/citations/reject")
 def reject_idea_citations(
     idea_id: int, body: RejectCitationsBody, user_id: int = Depends(get_current_user_id),

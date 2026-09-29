@@ -74,12 +74,15 @@ IDEA_STANCE_PROMPT = (
 )
 
 IDEA_MATCH_PROMPT = (
-    "You are deciding whether a new proposition is the same proposition as exactly "
-    "one existing idea, not merely related, broader, narrower, or contradictory. A "
-    "match requires that accepting either statement commits the owner to the other. "
-    "A refinement, a special case, an opposite, or a shared topic is not a match. "
-    'Return JSON only: {"ideaId": null}. Use an id from the supplied list, or null '
-    "when none is the same proposition."
+    "You are deciding whether a new proposition is an idea the owner already has, so "
+    "that its quotes support that idea instead of proposing it again. It is the same "
+    "idea when it states the same claim in other words; when it is that claim with a "
+    "reason, an example, or an emphasis added; or when it restates one part of an "
+    "existing idea that says more. It is not the same idea when it is broader or more "
+    "general, adds a condition that changes what is claimed, is a specific case or "
+    "application in another situation, is the opposite, or only shares a topic. "
+    'Return JSON only: {"ideaId": null}. Use the id of the one closest idea from the '
+    "supplied list, or null when none is the same idea."
 )
 
 IDEA_LINK_PROMPT = (

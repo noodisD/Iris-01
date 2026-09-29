@@ -771,6 +771,11 @@
         "nullable": "NO",
         "type": "integer"
       },
+      "merged_into_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
       "notes": {
         "default": "''::text",
         "nullable": "NO",
@@ -3166,6 +3171,14 @@
       "ideas_id_not_null": {
         "definition": "NOT NULL id",
         "type": "n"
+      },
+      "ideas_merged_into_id_fkey": {
+        "definition": "FOREIGN KEY (merged_into_id) REFERENCES ideas(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "ideas_merged_into_is_other": {
+        "definition": "CHECK (((merged_into_id IS NULL) OR (merged_into_id <> id)))",
+        "type": "c"
       },
       "ideas_notes_check": {
         "definition": "CHECK ((char_length(notes) <= 20000))",

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, fixtures } = vi.hoisted(() => {
+const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, foldIdea, fixtures } = vi.hoisted(() => {
   const review = {
     ideas: [{
       idea: {
@@ -106,6 +106,7 @@ const { reject, confirmIdea, rejectLink, confirmLink, updateIdea, fixtures } = v
     rejectLink: vi.fn(),
     confirmLink: vi.fn(),
     updateIdea: vi.fn(),
+    foldIdea: vi.fn(),
     fixtures: { review, framework, detail, linkedDetail },
   };
 });
@@ -123,6 +124,7 @@ vi.mock('@/hooks/useIdeas', () => ({
   useConfirmIdea: () => ({ mutate: confirmIdea, isPending: false, error: null }),
   useRejectIdea: () => ({ mutate: reject, isPending: false, error: null }),
   useRejectIdeaCitations: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useFoldIdea: () => ({ mutate: foldIdea, isPending: false, error: null }),
   useUpdateIdea: () => ({ mutate: updateIdea, isPending: false, error: null, reset: vi.fn() }),
   useSaveIdeaNotes: () => ({ mutate: vi.fn(), isPending: false, error: null, refresh: vi.fn() }),
   useDiscoverIdeaLinks: () => ({ mutate: vi.fn(), isPending: false, error: null }),
@@ -308,5 +310,20 @@ describe('a proposed link between two ideas', () => {
     expect(record.tagName).toBe('SUMMARY');
     expect(record.closest('details')).not.toHaveAttribute('open');
     expect(view.getByText(/Whoever writes the rule/)).toBeInTheDocument();
+  });
+
+  it('folds a proposal into an idea already held', () => {
+    renderAt('/ideas?view=review');
+    const card = screen.getByText('Price controls destroy the information prices carry about scarcity.').closest('article')!;
+    const view = within(card);
+    fireEvent.click(view.getByRole('button', { name: "It's an idea I already hold" }));
+    const options = within(view.getByRole('list', { name: 'Ideas you hold' })).getAllByRole('button');
+    // The proposal itself is never offered as the idea it folds into.
+    expect(options.map(option => option.textContent)).toEqual([
+      'A central planner can know enough to set better prices than a market.',
+    ]);
+    fireEvent.click(options[0]);
+    fireEvent.click(view.getByRole('button', { name: 'Add its quotes to this idea' }));
+    expect(foldIdea).toHaveBeenCalledWith({ id: '7', intoId: '8' });
   });
 });

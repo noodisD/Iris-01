@@ -241,8 +241,7 @@ class IdeaService:
         key = statement_key(statement)
         exact = [row for row in registry if row["statement_key"] == key]
         if exact:
-            row = min(exact, key=lambda item: int(item["id"]))
-            return "rejected" if row["status"] == "rejected" else int(row["id"])
+            return _held(min(exact, key=lambda item: int(item["id"])), registry)
         found: list[int] = []
         for batch in _batches(sorted(registry, key=lambda row: int(row["id"]))):
             try:
@@ -256,8 +255,7 @@ class IdeaService:
         if not found:
             return None
         chosen = min(found)
-        row = next(item for item in registry if int(item["id"]) == chosen)
-        return "rejected" if row["status"] == "rejected" else chosen
+        return _held(next(item for item in registry if int(item["id"]) == chosen), registry)
 
     @obs.traced("ideas.discover_links", "ideas", args=("idea_id",))
     def discover_links(self, idea_id: int) -> dict[str, Any]:
@@ -403,6 +401,15 @@ class IdeaService:
         if outcome != "ok":
             raise IdeaConflict
         return {"id": str(idea_id), "status": "rejected"}
+
+    def fold_into(self, idea_id: int, target_id: int) -> dict[str, Any]:
+        """The owner says this proposal is an idea they already hold."""
+        outcome, moved = store.fold_into(self.user_id, idea_id, target_id)
+        if outcome == "missing":
+            raise IdeaNotFound
+        if outcome != "ok":
+            raise IdeaConflict
+        return {"id": str(idea_id), "status": "rejected", "mergedInto": str(target_id), "quotesMoved": moved}
 
     def reject_citations(self, idea_id: int, citation_ids: list[int]) -> dict[str, Any]:
         outcome = store.reject_citations(self.user_id, idea_id, citation_ids)
@@ -641,6 +648,23 @@ class IdeaService:
             },
             "neighbours": neighbours,
         }
+
+
+def _held(row: dict[str, Any], registry: list[dict[str, Any]]) -> int | str:
+    """The idea a matched wording belongs to now.
+
+    A proposal the owner folded into another idea is not a dismissed wording:
+    its words belong to that idea, so new quotes go there.
+    """
+    by_id = {int(item["id"]): item for item in registry}
+    seen: set[int] = set()
+    while row["status"] == "rejected" and row.get("merged_into_id") and int(row["id"]) not in seen:
+        seen.add(int(row["id"]))
+        target = by_id.get(int(row["merged_into_id"]))
+        if target is None:
+            break
+        row = target
+    return "rejected" if row["status"] == "rejected" else int(row["id"])
 
 
 def _basis_hash(basis: dict[str, Any]) -> str:
