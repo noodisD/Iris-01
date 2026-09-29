@@ -1,35 +1,10 @@
-"""Reading an entry as an account of something that happened.
+"""Read source-grounded accounts of particular occasions in journal entries.
 
-Nothing here is registered with any engine, surface or queue. It is a reader
-built to answer one question before anything is designed around it: how much of
-this archive is made of *episodes* — a situation, what it demanded, what came
-in, what the owner did, and what they reported followed — rather than of
-subjects that recur. `scripts/read_episodes.py` runs it once and reports counts.
-
-Why a frame at all. The existing reader produces claims with quotations, which
-is enough to say "this subject keeps coming up" and not enough to say "these two
-accounts have the same shape". Comparing shapes is the point: an account of
-missing half an instruction while concentrating on an unfamiliar action has the
-same relation in it as an account from a completely different subject, and no
-amount of topical similarity will put them together (Gentner and Markman on
-structure mapping).
-
-What this does not do, deliberately:
-
-- It does not decide that two episodes are the same shape. This pass extracts
-  and verifies; comparison is a separate question, and asking it before knowing
-  how many comparable episodes exist would be building on a guess.
-- It does not write anything. No table, no candidate, no card.
-- It does not soften any existing rule. Every quote is verified verbatim against
-  the entry it is attributed to, and an episode whose parts cannot be supported
-  is dropped whole — the same fail-closed treatment `check_support` gives a
-  claim, and for the same reason: an unverifiable account of what someone did is
-  worse than no account.
-
-The one thing it adds is what ADR-0016 named as missing before a claim about
-behaviour could ever be confirmed: an actor, an event identity, a modality
-(happened, planned, or imagined) and a time. A frame with those four is the
-proof that refusal is waiting for. Until it is measured, it stays a prototype.
+The reader selects quoted passages for the situation, response, and any other
+populated part. All passages must resolve within verified source citations;
+actor, modality, and domain remain provisional classifications. The date is
+the citation's recorded entry date, not a separately established event date.
+Storage and comparison of accounts belong to the discovery pipeline.
 """
 
 from __future__ import annotations
@@ -40,7 +15,6 @@ from dataclasses import dataclass
 from datetime import date
 
 from .constants import OBSERVATION_MAX_TOKENS, OBSERVATION_MIN_QUOTE_CHARS
-from .narrative_policy import FORBIDDEN_REGEX
 from .readable import locate
 from .observations import (
     Citation,
@@ -76,7 +50,11 @@ SHAPE = ("situation", "response", "outcome")
 
 #: Bumped whenever the frame or the prompt changes, so a cached extraction is
 #: never silently mixed with one made by different rules.
-EXTRACTION_VERSION = 2
+EXTRACTION_VERSION = 3
+
+class ReadUnavailable(RuntimeError):
+    """An episode or label pass could not complete reliably."""
+
 
 SYSTEM_PROMPT = """You are reading someone's journal entries and extracting accounts of particular occasions.
 
@@ -85,20 +63,16 @@ An account is one occasion, not a habit or a summary. Extract only what the writ
 For each account, give:
 - "actor": "self" if the writer is describing their own experience, "other" if it is someone else's.
 - "modality": "happened" if the writing says it did, "planned" if it was intended, "hypothetical" if it is imagined or a comparison.
-- "situation": what was going on.
-- "demand": what was taking effort or attention, if the writing says.
-- "information": what came in — something said, seen, noticed — if the writing says.
-- "response": what the person did.
-- "outcome": what the writing says followed. Omit if it does not say.
-- "domain": two or three words for the area of life this happened in, in the writing's own terms.
-- "explanation": the writer's own account of why it went that way, if they give one. Theirs, not yours. Omit if they do not.
-- "quotes": the passages this rests on, each {"entryId": N, "sourceType": "reflection", "text": "..."} quoted word for word.
+- "situation": a passage showing what was going on.
+- "demand": a passage showing what took effort or attention, if stated.
+- "information": a passage showing what came in — something said, seen, noticed — if stated.
+- "response": a passage showing what the person did.
+- "outcome": a passage showing what followed, only if stated.
+- "domain": an optional, provisional two- or three-word area of life.
+- "explanation": a passage containing the writer's own explanation, only if stated.
+- "quotes": the source passages this account rests on, each {"entryId": N, "sourceType": "reflection", "text": "..."}.
 
-Rules:
-- Every part must come from the entry. Do not complete an account from what usually happens.
-- Do not explain why anything happened, and do not say what anyone should do.
-- If the same occasion is described twice, extract it once.
-- An entry may contain no accounts. An empty list is a good answer.
+Every populated situation, demand, information, response, outcome and explanation MUST be a contiguous passage of words from one of this account's quotes. Select the writing's actual words, not a summary or paraphrase. Include enough source quotations to support every populated passage. Do not invent an outcome or explanation when absent. Actor, modality and domain are provisional interpretations, not verified facts. If the same occasion is described twice, extract it once. An entry may contain no accounts; an empty list is a good answer.
 
 Return JSON only:
 {"episodes": [{"actor": "self", "modality": "happened", "domain": "...", "situation": "...", "demand": "...", "information": "...", "response": "...", "outcome": "...", "explanation": "...", "quotes": [...]}]}"""
@@ -221,7 +195,7 @@ def _citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
         source_type = str(q.get("sourceType") or "reflection")
         entry = by_id.get((source_type, entry_id))
         if entry is None:
-            logger.info(f"Citation names {source_type} {entry_id}, which was not read")
+            logger.info("Episode refused: citation source not read")
             return None
         quote = str(q.get("text") or "")
         if len(quote.strip()) < OBSERVATION_MIN_QUOTE_CHARS:
@@ -230,7 +204,7 @@ def _citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
         # of reading the entry, not a second version of what they wrote.
         original = locate(entry["content"], quote)
         if original is None:
-            logger.info(f"Quote not found in {source_type} {entry_id}")
+            logger.info("Episode refused: citation passage not found")
             return None
         found.append(Citation(entry_id=entry_id, entry_date=entry.get("date"),
                               text=original,
@@ -238,55 +212,66 @@ def _citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
     return tuple(found)
 
 
-def verified_episodes(raw: list, entries: list[dict]) -> list[Episode]:
-    """The episodes a reply describes that the entries actually support.
-
-    Refuses, rather than repairs, in every case the existing reader refuses:
-    an unusable actor or modality, a missing situation or response, a quote
-    that cannot be found word for word in the entry it names, and any wording
-    that explains or prescribes (`narrative_policy`). An account of what
-    someone did is the most consequential thing this system can hold, so it is
-    held to the strictest rule already in the codebase rather than a new one.
-    """
+def _verified_episodes(raw: list, entries: list[dict]) -> tuple[list[Episode], int]:
+    """Keep only accounts whose every populated source passage is locatable."""
     by_id = {(e.get("source_type", "reflection"), e["id"]): e for e in entries}
     kept: list[Episode] = []
-    for item in raw or []:
+    omitted = 0
+    for item in raw:
         if not isinstance(item, dict):
+            omitted += 1
+            logger.info("Episode refused: invalid account")
             continue
         actor = _clean(item.get("actor"))
         modality = _clean(item.get("modality"))
         if actor not in ACTORS or modality not in MODALITIES:
+            omitted += 1
             logger.info("Episode refused: actor or modality not stated")
             continue
 
-        fields = {part: _clean(item.get(part)) for part in PARTS}
+        fields = {part: _clean(item.get(part)) for part in (*PARTS, "explanation")}
         if not fields["situation"] or not fields["response"]:
+            omitted += 1
             logger.info("Episode refused: no situation or no response")
             continue
-        if any(FORBIDDEN_REGEX.search(v) for v in fields.values() if v):
-            logger.info("Episode refused: causal or prescriptive wording")
-            continue
 
-        citations = _citations(item.get("quotes") or [], by_id)
+        quotes = item.get("quotes")
+        citations = _citations(quotes, by_id) if isinstance(quotes, list) else None
         if not citations:
+            omitted += 1
             logger.info("Episode refused: its quotes could not be verified")
             continue
 
+        # Resolve against the verified citations rather than the entire entry:
+        # a passage in an uncited part of the source cannot support this account.
+        resolved = {
+            part: next((original for citation in citations
+                        if (original := locate(citation.text, value)) is not None), None)
+            if value else None
+            for part, value in fields.items()
+        }
+        if any(fields[part] and resolved[part] is None for part in fields):
+            omitted += 1
+            logger.info("Episode refused: unsupported source passage")
+            continue
         dates = [c.entry_date for c in citations if c.entry_date]
         kept.append(Episode(
             actor=actor, modality=modality,
-            situation=fields["situation"], response=fields["response"],
-            demand=fields["demand"], information=fields["information"],
-            outcome=fields["outcome"],
+            situation=resolved["situation"], response=resolved["response"],
+            demand=resolved["demand"], information=resolved["information"],
+            outcome=resolved["outcome"],
             domain=_clean(item.get("domain")),
-            explanation=_clean(item.get("explanation")),
+            explanation=resolved["explanation"],
             citations=citations,
-            # The occasion's own day, where the writing that carries it has
-            # one. An undated recording can describe an episode; it cannot say
-            # when it happened, and nothing here fills that in.
+            # This is the recorded entry date, not an independently dated event.
             occurred_on=min(dates) if dates else None,
         ))
-    return kept
+    return kept, omitted
+
+
+def verified_episodes(raw: list, entries: list[dict]) -> list[Episode]:
+    """Return supported accounts; omit valid-but-unusable account candidates."""
+    return _verified_episodes(raw, entries)[0]
 
 
 class EpisodeReader:
@@ -300,6 +285,7 @@ class EpisodeReader:
         # test that passed None would have read the archive for real.
         self.intelligence = intelligence
         self.engine = ObservationEngine(user_id, intelligence=intelligence)
+        self.omitted_accounts = 0
 
     def read(self, entries: list[dict], readable: dict | None = None) -> list[Episode]:
         """Every episode these entries support, in one pass per chunk.
@@ -309,8 +295,12 @@ class EpisodeReader:
         (`_citations`), so a reading copy can make an entry easier to parse and
         can never become the thing that gets cited.
         """
-        if not entries or self.intelligence is None:
+        self.omitted_accounts = 0
+        if not entries:
             return []
+        if self.intelligence is None:
+            logger.error("Episode pass unavailable: no provider")
+            raise ReadUnavailable("Episode pass unavailable: no provider")
         from .markdown_text import for_model
         prepared = []
         for entry in entries:
@@ -335,17 +325,21 @@ class EpisodeReader:
                     system_prompt=SYSTEM_PROMPT,
                     max_tokens=OBSERVATION_MAX_TOKENS,
                 )
-            except Exception as e:
-                logger.error(f"Episode pass {i} of {len(chunks)} failed: {e}")
-                continue
+            except Exception as exc:
+                logger.error("Episode pass unavailable: provider failure (chunk %s of %s)", i, len(chunks))
+                raise ReadUnavailable("Episode pass unavailable: provider failure") from exc
             try:
-                raw = json.loads(_strip_fence(reply)).get("episodes") or []
-            except (ValueError, AttributeError) as e:
-                logger.warning(f"Episode pass {i} did not return JSON: {e}")
-                continue
-            # Verified against what the owner wrote, whatever was read.
+                document = json.loads(_strip_fence(reply))
+            except (ValueError, TypeError, AttributeError) as exc:
+                logger.error("Episode pass unavailable: malformed JSON (chunk %s of %s)", i, len(chunks))
+                raise ReadUnavailable("Episode pass unavailable: malformed JSON") from exc
+            if not isinstance(document, dict) or not isinstance(document.get("episodes"), list):
+                logger.error("Episode pass unavailable: invalid schema (chunk %s of %s)", i, len(chunks))
+                raise ReadUnavailable("Episode pass unavailable: invalid schema")
             originals = [{**e, "content": e.get("_original", e["content"])} for e in chunk]
-            found.extend(verified_episodes(raw, originals))
+            valid, omitted = _verified_episodes(document["episodes"], originals)
+            found.extend(valid)
+            self.omitted_accounts += omitted
         return found
 
 

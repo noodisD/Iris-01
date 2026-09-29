@@ -23,7 +23,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from agent.episodes import Episode, EpisodeReader, tally, verified_episodes
+import pytest
+
+from agent.episodes import Episode, EpisodeReader, ReadUnavailable, tally, verified_episodes
 
 LESSON = ("Third cycling lesson on the busy road. I was so taken up with the gears and "
           "the clipless pedals that when the instructor said to take the second exit I "
@@ -47,13 +49,12 @@ ENTRIES = [
 def _episode(**over):
     base = {
         "actor": "self", "modality": "happened",
-        "situation": "a cycling lesson on a busy road",
-        "demand": "managing the gears and the pedals",
-        "information": "an instruction to take the second exit",
-        "response": "asked for the instruction again at the roundabout",
-        "outcome": "only part of the instruction was taken in",
-        "quotes": [{"entryId": 1, "sourceType": "reflection",
-                    "text": "I only heard the word second and had to ask again at the roundabout"}],
+        "situation": "Third cycling lesson on the busy road",
+        "demand": "so taken up with the gears and the clipless pedals",
+        "information": "the instructor said to take the second exit",
+        "response": "had to ask again at the roundabout",
+        "outcome": "I only heard the word second",
+        "quotes": [{"entryId": 1, "sourceType": "reflection", "text": LESSON}],
     }
     return {**base, **over}
 
@@ -86,11 +87,10 @@ def test_someone_elses_experience_does_not_become_the_owners():
     """The quote is real and the account is accurate — about Marek. Recorded as
     the owner's, it would be evidence of something they never did."""
     theirs = _episode(
-        actor="other", situation="a drive on the ring road",
-        demand="working the sat nav", information="the turning",
-        response="missed the turning", outcome="had to go round again",
-        quotes=[{"entryId": 3, "sourceType": "reflection",
-                 "text": "Marek told me he missed his turning on the ring road"}])
+        actor="other", situation="on the ring road",
+        demand="busy with the sat nav", information="his turning",
+        response="he missed his turning", outcome=None,
+        quotes=[{"entryId": 3, "sourceType": "reflection", "text": FRIEND}])
 
     kept = verified_episodes([theirs], ENTRIES)
 
@@ -103,11 +103,10 @@ def test_an_intention_is_not_an_event():
     """A record of plans read as a record of behaviour is the oldest way this
     sort of reader flatters someone."""
     intention = _episode(
-        modality="planned", situation="a tournament next week",
+        modality="planned", situation="Next week",
         demand=None, information=None,
-        response="decide the repertoire in advance", outcome=None,
-        quotes=[{"entryId": 4, "sourceType": "reflection",
-                 "text": "Next week I will decide the whole repertoire in advance"}])
+        response="decide the whole repertoire in advance", outcome=None,
+        quotes=[{"entryId": 4, "sourceType": "reflection", "text": PLAN}])
 
     kept = verified_episodes([intention], ENTRIES)
 
@@ -130,13 +129,47 @@ def test_an_account_attributed_to_the_wrong_entry_is_refused():
 
     assert verified_episodes([misplaced], ENTRIES) == []
 
+@pytest.mark.parametrize("part", (
+    "situation", "demand", "information", "response", "outcome", "explanation"))
+def test_unsupported_part_omits_entire_account_and_counts_it(part):
+    raw = _episode(**{part: "invented words that were never written"})
+    reader = EpisodeReader(1, intelligence=_Reader({"episodes": [raw, _episode()]}))
+    kept = reader.read(ENTRIES)
+    assert len(kept) == 1
+    assert kept[0].response == "had to ask again at the roundabout"
+    assert reader.omitted_accounts == 1
 
-def test_an_account_that_explains_itself_is_refused():
-    """The frame records what happened. "Because" is an interpretation, and the
-    owner's interpretation is theirs to make (agent/narrative_policy.py)."""
-    explained = _episode(outcome="missed the instruction because attention was used up")
 
-    assert verified_episodes([explained], ENTRIES) == []
+def test_field_in_entry_but_outside_accounts_citation_is_not_evidence():
+    raw = _episode(quotes=[{"entryId": 1, "sourceType": "reflection",
+                            "text": "I only heard the word second and had to ask again at the roundabout"}])
+    assert verified_episodes([raw], ENTRIES) == []
+
+
+def test_omitted_count_resets_for_each_successful_read():
+    model = _Reader({"episodes": [_episode(response="invented response")]},
+                    {"episodes": []})
+    reader = EpisodeReader(1, intelligence=model)
+    assert reader.read(ENTRIES) == []
+    assert reader.omitted_accounts == 1
+    assert reader.read(ENTRIES) == []
+    assert reader.omitted_accounts == 0
+
+
+def test_an_owners_causal_language_is_quoted_not_adopted():
+    entry = {"id": 5, "date": None, "content": (
+        "I missed the turn because the map was folded. I stopped to read it."),
+        "source_type": "reflection"}
+    raw = _episode(situation="the map was folded",
+                   response="I stopped to read it",
+                   outcome="I missed the turn because the map was folded",
+                   explanation="because the map was folded",
+                   demand=None, information=None,
+                   quotes=[{"entryId": 5, "sourceType": "reflection",
+                            "text": entry["content"]}])
+    episode = verified_episodes([raw], [entry])[0]
+    assert episode.outcome == "I missed the turn because the map was folded"
+    assert episode.explanation == "because the map was folded"
 
 
 def test_an_account_with_no_situation_or_no_response_is_a_remark():
@@ -184,32 +217,40 @@ def test_one_occasion_and_a_connection_are_not_a_pattern():
         "honest answer is the account and the owner's own connection to it")
 
 
-def test_a_pass_that_returns_nothing_usable_returns_nothing():
-    """Fail closed, like every other reader here: a model that answers badly
-    produces no accounts rather than unverified ones."""
-    assert EpisodeReader(1, intelligence=_Reader("not json")).read(ENTRIES) == []
-    assert EpisodeReader(1, intelligence=None).read(ENTRIES) == []
+def test_empty_read_is_distinct_from_unavailable_or_invalid_pass():
+    reader = EpisodeReader(1, intelligence=_Reader({"episodes": []}))
+    assert reader.read(ENTRIES) == []
+    assert reader.omitted_accounts == 0
+    assert EpisodeReader(1, intelligence=None).read([]) == []
+    with pytest.raises(ReadUnavailable, match="no provider"):
+        EpisodeReader(1, intelligence=None).read(ENTRIES)
+    for reply in ("not json", [], {}, {"episodes": None}, {"episodes": {}}):
+        with pytest.raises(ReadUnavailable):
+            EpisodeReader(1, intelligence=_Reader(reply)).read(ENTRIES)
+
+def test_later_chunk_failure_does_not_publish_earlier_accounts(monkeypatch, caplog):
+    import agent.episodes as episodes
+
+    monkeypatch.setattr(episodes, "chunk_entries",
+                        lambda entries: [[entries[0]], [entries[1]]])
+
+    class FailingModel(_Reader):
+        def chat(self, messages, system_prompt, **kwargs):
+            if self.asked:
+                raise RuntimeError("sensitive provider response")
+            return super().chat(messages, system_prompt, **kwargs)
+
+    reader = EpisodeReader(1, intelligence=FailingModel({"episodes": [_episode()]}))
+    with pytest.raises(ReadUnavailable, match="provider failure"):
+        reader.read(ENTRIES[:2])
+    assert "sensitive provider response" not in caplog.text
 
 
-def test_nothing_is_written_anywhere():
-    """This reader is a measurement. It has no table, no candidate, no card —
-    so it cannot become a surface by accident before anyone decides it should."""
-    import inspect
 
-    import agent.episodes as module
-
-    source = inspect.getsource(module)
-    for writer in ("INSERT", "UPDATE", "db.create", "promote(", "add_theme"):
-        assert writer not in source, f"the prototype writes something: {writer}"
-
-
-def test_an_episode_states_itself_flatly_for_the_support_check():
+def test_an_episode_retains_its_quoted_response():
     episode = verified_episodes([_episode()], ENTRIES)[0]
-    claim = episode.as_claim()
-
-    assert claim.startswith("On one occasion:")
-    assert "because" not in claim and "should" not in claim
-
+    assert episode.response == "had to ask again at the roundabout"
+    assert episode.outcome == "I only heard the word second"
 
 def test_the_frame_is_what_a_behaviour_claim_was_missing():
     """ADR-0016 refuses to confirm that something *happened* because actor,
@@ -250,13 +291,11 @@ def test_an_account_with_no_outcome_has_nothing_to_agree_with():
 
 
 def test_an_explanation_is_kept_as_theirs_and_apart_from_what_happened():
-    """The owner's own account of why is what a proposed connection might
-    agree with or extend — and what decides whether it is new to them."""
     explained = verified_episodes([_episode(
-        explanation="I think the unfamiliar actions were using up the attention",
+        explanation="I was so taken up with the gears and the clipless pedals",
         domain="cycling")], ENTRIES)[0]
 
-    assert explained.explanation.startswith("I think")
+    assert explained.explanation == "I was so taken up with the gears and the clipless pedals"
     assert explained.domain == "cycling"
     assert explained.explanation not in explained.situation
 

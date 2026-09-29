@@ -22,10 +22,11 @@ counted, never assigned to the person.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .narrative_policy import FORBIDDEN_REGEX
@@ -123,3 +124,12 @@ def load(path: Path | None = None) -> list[Pattern]:
     if not out:
         raise ValueError("the library is empty")
     return out
+
+
+def library_hash(patterns: list[Pattern]) -> str:
+    """Bind a reading to exactly the library fields and matching markers used."""
+    canonical = json.dumps(
+        [{**asdict(pattern), "markers": pattern.markers} for pattern in patterns],
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

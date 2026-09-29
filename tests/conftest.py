@@ -195,6 +195,21 @@ def offline_embeddings(monkeypatch):
         "agent.persistence.PersistenceEngine._generate_theme_summary",
         lambda self, entries: "Offline Theme",
     )
+
+    # An eligible journal entry now schedules an independent discovery read.
+    # Keep routine queue drains offline without making production provider
+    # failures look like a successful empty archive.
+    class OfflineDiscoveryModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def chat(self, *, messages, system_prompt, **kwargs):
+            from agent.episodes import SYSTEM_PROMPT as episode_prompt
+            if system_prompt != episode_prompt:
+                raise AssertionError("a discovery label pass needs a scripted response")
+            return '{"episodes":[]}'
+
+    monkeypatch.setattr("agent.discovery_worker.Intelligence", OfflineDiscoveryModel)
     yield
 
 

@@ -271,22 +271,34 @@ a link, or evidence.
 ### Occasion
 One account the reader found in the owner's writing: what was going on, what
 they did, what followed, in the writing's own terms, with the passages it rests
-on. Occasions are what the Patterns and Insights screens count.
+on. Populated parts resolve within verified source quotations; actor, modality,
+domain and library labels are provisional. Only a self-described, happened
+account with situation, response and outcome is comparable. The source's
+recorded date is not an independently established event date (ADR-0027).
 
 ### Library pattern
 A pattern known in general (`patterns/library.json`), not one found in the
-owner's data. A labelling pass says which occasions are instances of it and
-whether each went better or worse. The owner says whether each occasion really
-belongs and whether the pattern rings true. The Patterns screen shows what
-keeps coming up.
+owner's data. Queue-backed discovery labels current, eligible reflections;
+source revisions and extraction/library versions invalidate stale readings.
+The owner can reject an occasion, correct its tone, and separately judge a
+pattern. The Patterns screen leads with the source passages and keeps rejected
+accounts available for review (ADR-0027).
 
 ### Insight (difference in outcome)
-Among one library pattern's occasions, another pattern that was there at least
-two occasions more often on one side (went better, went worse) than the other,
-with both sides non-empty (ADR-0023). Stated with both sides' counts, as a
-difference and never as a cause; the owner says whether it rings true. The
-old engine's findings are not insights in this sense and no longer appear in
-either client.
+Among one library pattern's accepted occasions, another accepted pattern
+present at least two occasions more often on one side than the other. Both
+better and worse sides need at least three occasions, and their co-label rates
+must differ by at least 25 percentage points. Show both denominators and their
+source accounts, as a difference rather than a cause (ADR-0023, ADR-0027).
+An outcome pair instead juxtaposes two accounts from different entries without
+claiming a trend. The old engine's findings are not insights in this sense.
+
+### Selected evidence
+A typed, owner-scoped pattern, outcome-pair, co-label or measured-day reference
+with a recorded range and snapshot. Chat previews current source-backed
+evidence and checks its snapshot again before saving a selected turn. Changed
+or no-longer-qualifying evidence requires review, not a stale quotation sent
+to the model. Discussing it never approves it (ADR-0027).
 
 ---
 

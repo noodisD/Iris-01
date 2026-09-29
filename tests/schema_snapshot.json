@@ -99,7 +99,7 @@
       },
       "verdict": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "character varying"
       }
     },
@@ -347,8 +347,40 @@
       },
       "verdict": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "character varying"
+      }
+    },
+    "discovery_reads": {
+      "completed_at": {
+        "default": null,
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "extraction_version": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "library_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "omitted_accounts": {
+        "default": "0",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_revision": {
+        "default": null,
+        "nullable": "NO",
+        "type": "bigint"
       }
     },
     "embeddings": {
@@ -1347,6 +1379,23 @@
         "type": "integer"
       }
     },
+    "occasion_sources": {
+      "occasion_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "source_revision": {
+        "default": null,
+        "nullable": "NO",
+        "type": "bigint"
+      }
+    },
     "occasions": {
       "actor": {
         "default": null,
@@ -1378,6 +1427,11 @@
         "nullable": "YES",
         "type": "text"
       },
+      "extraction_version": {
+        "default": "2",
+        "nullable": "NO",
+        "type": "integer"
+      },
       "fingerprint": {
         "default": null,
         "nullable": "NO",
@@ -1392,6 +1446,11 @@
         "default": null,
         "nullable": "YES",
         "type": "text"
+      },
+      "is_current": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
       },
       "modality": {
         "default": null,
@@ -1539,6 +1598,11 @@
         "nullable": "NO",
         "type": "integer"
       },
+      "is_current": {
+        "default": "false",
+        "nullable": "NO",
+        "type": "boolean"
+      },
       "labelled_by": {
         "default": null,
         "nullable": "YES",
@@ -1548,6 +1612,11 @@
         "default": null,
         "nullable": "NO",
         "type": "integer"
+      },
+      "owner_tone": {
+        "default": null,
+        "nullable": "YES",
+        "type": "character varying"
       },
       "owner_verdict": {
         "default": null,
@@ -1697,7 +1766,7 @@
       },
       "verdict": {
         "default": null,
-        "nullable": "NO",
+        "nullable": "YES",
         "type": "character varying"
       }
     },
@@ -1867,6 +1936,11 @@
         "default": null,
         "nullable": "YES",
         "type": "character varying"
+      },
+      "discovery_revision": {
+        "default": "1",
+        "nullable": "NO",
+        "type": "bigint"
       },
       "energy_level": {
         "default": null,
@@ -2603,10 +2677,6 @@
       "day_difference_verdicts_verdict_check": {
         "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
         "type": "c"
-      },
-      "day_difference_verdicts_verdict_not_null": {
-        "definition": "NOT NULL verdict",
-        "type": "n"
       }
     },
     "day_features": {
@@ -2799,9 +2869,39 @@
       "difference_verdicts_verdict_check": {
         "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
         "type": "c"
+      }
+    },
+    "discovery_reads": {
+      "discovery_reads_completed_at_not_null": {
+        "definition": "NOT NULL completed_at",
+        "type": "n"
       },
-      "difference_verdicts_verdict_not_null": {
-        "definition": "NOT NULL verdict",
+      "discovery_reads_extraction_version_not_null": {
+        "definition": "NOT NULL extraction_version",
+        "type": "n"
+      },
+      "discovery_reads_library_hash_not_null": {
+        "definition": "NOT NULL library_hash",
+        "type": "n"
+      },
+      "discovery_reads_omitted_accounts_not_null": {
+        "definition": "NOT NULL omitted_accounts",
+        "type": "n"
+      },
+      "discovery_reads_pkey": {
+        "definition": "PRIMARY KEY (reflection_id)",
+        "type": "p"
+      },
+      "discovery_reads_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "discovery_reads_reflection_id_not_null": {
+        "definition": "NOT NULL reflection_id",
+        "type": "n"
+      },
+      "discovery_reads_source_revision_not_null": {
+        "definition": "NOT NULL source_revision",
         "type": "n"
       }
     },
@@ -3581,6 +3681,32 @@
         "type": "n"
       }
     },
+    "occasion_sources": {
+      "occasion_sources_occasion_id_fkey": {
+        "definition": "FOREIGN KEY (occasion_id) REFERENCES occasions(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "occasion_sources_occasion_id_not_null": {
+        "definition": "NOT NULL occasion_id",
+        "type": "n"
+      },
+      "occasion_sources_pkey": {
+        "definition": "PRIMARY KEY (occasion_id, reflection_id)",
+        "type": "p"
+      },
+      "occasion_sources_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "occasion_sources_reflection_id_not_null": {
+        "definition": "NOT NULL reflection_id",
+        "type": "n"
+      },
+      "occasion_sources_source_revision_not_null": {
+        "definition": "NOT NULL source_revision",
+        "type": "n"
+      }
+    },
     "occasions": {
       "occasions_actor_check": {
         "definition": "CHECK (((actor)::text = ANY ((ARRAY['self'::character varying, 'other'::character varying])::text[])))",
@@ -3598,12 +3724,20 @@
         "definition": "NOT NULL created_at",
         "type": "n"
       },
+      "occasions_extraction_version_not_null": {
+        "definition": "NOT NULL extraction_version",
+        "type": "n"
+      },
       "occasions_fingerprint_not_null": {
         "definition": "NOT NULL fingerprint",
         "type": "n"
       },
       "occasions_id_not_null": {
         "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "occasions_is_current_not_null": {
+        "definition": "NOT NULL is_current",
         "type": "n"
       },
       "occasions_modality_check": {
@@ -3708,6 +3842,10 @@
         "definition": "NOT NULL id",
         "type": "n"
       },
+      "pattern_labels_is_current_not_null": {
+        "definition": "NOT NULL is_current",
+        "type": "n"
+      },
       "pattern_labels_occasion_id_fkey": {
         "definition": "FOREIGN KEY (occasion_id) REFERENCES occasions(id) ON DELETE CASCADE",
         "type": "f"
@@ -3719,6 +3857,10 @@
       "pattern_labels_occasion_id_pattern_id_key": {
         "definition": "UNIQUE (occasion_id, pattern_id)",
         "type": "u"
+      },
+      "pattern_labels_owner_tone_check": {
+        "definition": "CHECK (((owner_tone)::text = ANY ((ARRAY['better'::character varying, 'worse'::character varying, 'mixed'::character varying])::text[])))",
+        "type": "c"
       },
       "pattern_labels_owner_verdict_check": {
         "definition": "CHECK (((owner_verdict)::text = ANY ((ARRAY['yes'::character varying, 'no'::character varying, 'unsure'::character varying])::text[])))",
@@ -3821,10 +3963,6 @@
       "pattern_verdicts_verdict_check": {
         "definition": "CHECK (((verdict)::text = ANY ((ARRAY['rings_true'::character varying, 'does_not'::character varying, 'unsure'::character varying])::text[])))",
         "type": "c"
-      },
-      "pattern_verdicts_verdict_not_null": {
-        "definition": "NOT NULL verdict",
-        "type": "n"
       }
     },
     "places": {
@@ -3972,6 +4110,10 @@
       },
       "reflections_content_not_null": {
         "definition": "NOT NULL content",
+        "type": "n"
+      },
+      "reflections_discovery_revision_not_null": {
+        "definition": "NOT NULL discovery_revision",
         "type": "n"
       },
       "reflections_energy_level_check": {
@@ -4365,6 +4507,9 @@
     "difference_verdicts": {
       "difference_verdicts_pkey": "CREATE UNIQUE INDEX difference_verdicts_pkey ON public.difference_verdicts USING btree (user_id, pattern_id, other_pattern_id)"
     },
+    "discovery_reads": {
+      "discovery_reads_pkey": "CREATE UNIQUE INDEX discovery_reads_pkey ON public.discovery_reads USING btree (reflection_id)"
+    },
     "embeddings": {
       "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",
       "embeddings_source_type_source_id_model_name_key": "CREATE UNIQUE INDEX embeddings_source_type_source_id_model_name_key ON public.embeddings USING btree (source_type, source_id, model_name)",
@@ -4448,6 +4593,10 @@
     "observation_runs": {
       "idx_observation_runs_user": "CREATE INDEX idx_observation_runs_user ON public.observation_runs USING btree (user_id, started_at DESC)",
       "observation_runs_pkey": "CREATE UNIQUE INDEX observation_runs_pkey ON public.observation_runs USING btree (id)"
+    },
+    "occasion_sources": {
+      "occasion_sources_pkey": "CREATE UNIQUE INDEX occasion_sources_pkey ON public.occasion_sources USING btree (occasion_id, reflection_id)",
+      "occasion_sources_reflection": "CREATE INDEX occasion_sources_reflection ON public.occasion_sources USING btree (reflection_id)"
     },
     "occasions": {
       "occasions_pkey": "CREATE UNIQUE INDEX occasions_pkey ON public.occasions USING btree (id)",

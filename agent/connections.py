@@ -51,7 +51,7 @@ import logging
 from dataclasses import dataclass, field
 
 from .constants import OBSERVATION_MAX_TOKENS
-from .episodes import Episode, areas, coarse_area, comparable
+from .episodes import Episode, ReadUnavailable, areas, coarse_area, comparable
 from .narrative_policy import FORBIDDEN_REGEX
 from .observations import _normalized, _strip_fence
 
@@ -388,6 +388,8 @@ For EVERY circumstance and EVERY account, using only what the account itself say
 - "size": how large what followed was, as the account describes it — "small", "moderate", "large", or "unclear". The size of what happened, not how they felt about it.
 
 Leave out any account where "held" is "no" or "unclear"; only list the ones a circumstance describes.
+Include one result for every circumstance ID you were given, even if no accounts
+describe it: in that case return "accounts": []. Do not omit a circumstance.
 
 Do not say what should have been done, do not rank anything, and do not explain.
 
@@ -405,14 +407,16 @@ def label_many(subjects: list[tuple[str, str, str]], episodes: list[Episode],
     questions about text the model had already been shown. The accounts go once
     and the questions come with them.
 
-    The cost of that is one unusable reply losing every circumstance in the
-    batch rather than one, so batches are kept small by the caller.
+    A failed or incomplete batch is unavailable, never a partial result.
     """
     usable = comparable(episodes)
     out: dict[str, dict[int, dict]] = {}
     counts = {"comparable": len(usable), "asked": False, "subjects": len(subjects)}
-    if not usable or not subjects or intelligence is None:
+    if not usable or not subjects:
         return out, counts
+    if intelligence is None:
+        logger.error("Labelling unavailable: provider missing")
+        raise ReadUnavailable("Labelling provider unavailable")
 
     described = "\n\n".join(
         f"[{sid}] {statement}\n{markers}" if markers else f"[{sid}] {statement}"
@@ -422,30 +426,56 @@ def label_many(subjects: list[tuple[str, str, str]], episodes: list[Episode],
         reply = intelligence.chat(messages=[{"role": "user", "content": asked}],
                                   system_prompt=MANY_PROMPT,
                                   max_tokens=OBSERVATION_MAX_TOKENS)
-    except Exception as e:
-        logger.error(f"Labelling could not be asked: {e}")
-        return out, counts
+    except Exception as exc:
+        logger.error("Labelling unavailable: provider failure")
+        raise ReadUnavailable("Labelling provider failure") from exc
     counts["asked"] = True
     try:
-        answered = json.loads(_strip_fence(reply)).get("circumstances") or []
-    except (ValueError, AttributeError) as e:
-        logger.error(f"Labelling reply unusable: {e}")
-        return out, counts
+        decoded = json.loads(_strip_fence(reply))
+    except (ValueError, TypeError, AttributeError) as exc:
+        logger.error("Labelling unavailable: invalid JSON")
+        raise ReadUnavailable("Labelling invalid JSON") from exc
 
+    def invalid(reason: str) -> None:
+        logger.error("Labelling unavailable: %s", reason)
+        raise ReadUnavailable(f"Labelling {reason}")
+
+    if not isinstance(decoded, dict) or not isinstance(decoded.get("circumstances"), list):
+        invalid("invalid schema")
     known = {sid for sid, _, _ in subjects}
-    for item in answered:
-        if not isinstance(item, dict) or _clean(item.get("id")) not in known:
-            continue
+    if len(known) != len(subjects):
+        invalid("duplicate requested IDs")
+    for item in decoded["circumstances"]:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            invalid("invalid schema")
+        sid = item["id"]
+        if sid not in known:
+            invalid("unknown circumstance ID")
+        if sid in out:
+            invalid("duplicate circumstance ID")
+        accounts = item.get("accounts")
+        if not isinstance(accounts, list):
+            invalid("invalid schema")
         rows: dict[int, dict] = {}
-        for account in item.get("accounts") or []:
+        seen: set[int] = set()
+        for account in accounts:
             if not isinstance(account, dict):
-                continue
-            idx = _indexes(account.get("i"), len(usable))
-            tone = _clean(account.get("went")).lower()
-            size = _clean(account.get("size")).lower()
-            if idx and tone in TONES and size in MAGNITUDES:
-                rows[idx[0]] = {"tone": tone, "size": size}
-        out[_clean(item.get("id"))] = rows
+                invalid("invalid schema")
+            idx = account.get("i")
+            if type(idx) is not int or idx < 0 or idx >= len(usable):
+                invalid("invalid account index")
+            if idx in seen:
+                invalid("duplicate account index")
+            seen.add(idx)
+            tone = account.get("went")
+            size = account.get("size")
+            if tone not in (*TONES, "unclear") or size not in (*MAGNITUDES, "unclear"):
+                invalid("invalid classification")
+            if tone != "unclear" and size != "unclear":
+                rows[idx] = {"tone": tone, "size": size}
+        out[sid] = rows
+    if set(out) != known:
+        invalid("missing circumstance ID")
     counts["labelled"] = len(out)
     return out, counts
 

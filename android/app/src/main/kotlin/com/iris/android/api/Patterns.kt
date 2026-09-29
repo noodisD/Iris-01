@@ -6,28 +6,78 @@ import kotlinx.serialization.Serializable
 // writing that are instances of them. Wire names match GET /api/patterns.
 
 @Serializable
-data class PatternVerdict(val verdict: String, val note: String? = null)
+data class PatternVerdict(val verdict: String?, val note: String? = null)
+
+@Serializable
+data class Coverage(
+    val range: String,
+    val asOf: String,
+    val recordedFrom: String?,
+    val recordedTo: String?,
+    val entryCount: Int,
+    val accountCount: Int,
+    val undatedAccountCount: Int,
+)
+
+val DISCOVERY_RANGES = listOf("all", "30d", "90d")
+
+fun discoveryRange(range: String): String {
+    require(range in DISCOVERY_RANGES) { "Unknown reading range: $range" }
+    return range
+}
+
+fun patternRoute(id: String, range: String) =
+    "patterns/${java.net.URLEncoder.encode(id, Charsets.UTF_8).replace("+", "%20")}?range=${discoveryRange(range)}"
+fun patternDiscussionRoute(pattern: PatternSummary, range: String): String =
+    evidenceRoute(EvidenceRef.Pattern(pattern.id, discoveryRange(range), pattern.snapshot))
+
+fun pairDiscussionRoute(pair: OutcomePair, range: String): String =
+    evidenceRoute(EvidenceRef.Outcome(pair.patternId, discoveryRange(range), pair.snapshot))
+
+fun coLabelDiscussionRoute(d: Difference, range: String): String =
+    evidenceRoute(EvidenceRef.CoLabel(d.patternId, d.otherId, discoveryRange(range), d.snapshot))
+
+fun dayDiscussionRoute(d: DayDifference, range: String): String =
+    evidenceRoute(EvidenceRef.Day(d.outcome, d.split, discoveryRange(range), d.snapshot))
+
 
 @Serializable
 data class PatternSummary(
     val id: String,
     val name: String,
     val statement: String,
-    val evidence: String? = null,
-    /** Occasions, not counting any the owner said are not this pattern. */
+    val holdsWhen: List<String>,
+    val notWhen: List<String>,
+    val basis: String?,
+    val evidence: String?,
+    val source: String?,
     val occasions: Int,
-    val tones: Map<String, Int> = emptyMap(),
-    val verdict: PatternVerdict? = null,
+    val tones: Map<String, Int>,
+    val reviewed: Int,
+    val rejected: Int,
+    val labelledBy: List<String>,
+    val verdict: PatternVerdict?,
+    val entryCount: Int,
+    val recordedFrom: String?,
+    val recordedTo: String?,
+    val undatedAccountCount: Int,
+    val examples: List<Occasion>,
+    val question: String,
+    val snapshot: String,
+    val coverage: Coverage,
 )
 
 @Serializable
-data class PatternsResponse(val patterns: List<PatternSummary>)
+data class PatternsResponse(val patterns: List<PatternSummary>, val coverage: Coverage, val snapshot: String)
 
 @Serializable
 data class PatternInfo(
     val id: String,
     val name: String,
     val statement: String,
+    val holdsWhen: List<String>,
+    val notWhen: List<String>,
+    val question: String,
     val basis: String? = null,
     val evidence: String? = null,
     val source: String? = null,
@@ -37,27 +87,33 @@ data class PatternInfo(
 data class OccasionCitation(
     val entryId: String,
     val sourceType: String,
-    val entryDate: String? = null,
-    val text: String = "",
+    val entryDate: String?,
+    val text: String,
 )
 
 @Serializable
 data class Occasion(
     val id: String,
-    val occurredOn: String? = null,
+    val recordedOn: String?,
+    val domain: String?,
     val situation: String,
     val response: String,
-    val outcome: String? = null,
-    val citations: List<OccasionCitation> = emptyList(),
-    /** How it turned out, as the labelling read it: better, worse or mixed. */
+    val outcome: String?,
+    val explanation: String?,
+    val citations: List<OccasionCitation>,
+    val suggestedTone: String,
+    val ownerTone: String?,
     val tone: String,
-    val labelledBy: String? = null,
-    val ownerVerdict: String? = null,
-    val verdictNote: String? = null,
+    val size: String?,
+    val labelledBy: String?,
+    val ownerVerdict: String?,
+    val verdictNote: String?,
 )
 
 @Serializable
-data class DistinctivePattern(val patternId: String, val name: String, val better: Int, val worse: Int)
+data class DistinctivePattern(val patternId: String, val name: String, val better: Int, val worse: Int,
+                              val betterTotal: Int, val worseTotal: Int,
+                              val betterRate: Double, val worseRate: Double)
 
 @Serializable
 data class PatternDetail(
@@ -65,6 +121,8 @@ data class PatternDetail(
     val occasions: List<Occasion>,
     val distinctive: List<DistinctivePattern> = emptyList(),
     val verdict: PatternVerdict? = null,
+    val coverage: Coverage,
+    val snapshot: String,
 )
 
 @Serializable
@@ -77,28 +135,14 @@ val PATTERN_VERDICTS = listOf("rings_true" to "rings true", "does_not" to "doesn
 val OCCASION_VERDICTS = listOf("yes" to "this one", "no" to "not this", "unsure" to "unsure")
 
 /**
- * The pattern most worth a look: found on the most occasions and still without
- * the owner's verdict. Offered as a question, because whether it holds is theirs
- * to say.
+ * Today still offers the most frequent unjudged pattern. A note alone isn't a
+ * judgment, so the owner can still answer the question later.
  */
 fun nextPattern(patterns: List<PatternSummary>): PatternSummary? =
-    patterns.filter { it.occasions > 0 && it.verdict == null }
+    patterns.filter { it.occasions > 0 && it.verdict?.verdict == null }
         .sortedWith(compareByDescending<PatternSummary> { it.occasions }.thenBy { it.name })
         .firstOrNull()
 
-/** The list: patterns found in the owner's writing, most occasions first, then by name. */
-fun byOccasions(patterns: List<PatternSummary>): List<PatternSummary> =
-    patterns.filter { it.occasions > 0 }
-        .sortedWith(compareByDescending<PatternSummary> { it.occasions }.thenBy { it.name })
-
-/** "3 worse · 5 better", with mixed only when there are any. */
-fun toneCounts(p: PatternSummary): String {
-    if (p.occasions == 0) return "none found"
-    val parts = mutableListOf("${p.tones["worse"] ?: 0} worse", "${p.tones["better"] ?: 0} better")
-    val mixed = p.tones["mixed"] ?: 0
-    if (mixed > 0) parts += "$mixed mixed"
-    return parts.joinToString(" · ")
-}
 
 /**
  * An insight: a difference in outcome. Among a pattern's occasions, another
@@ -117,10 +161,41 @@ data class Difference(
     val betterTotal: Int,
     val verdict: PatternVerdict? = null,
     val patternVerdict: PatternVerdict? = null,
+    val betterRate: Double,
+    val worseRate: Double,
+    val rateGap: Double,
+    val coverage: Coverage,
+    val snapshot: String,
+    val sampleLabel: String,
+    val dismissed: Boolean,
 )
 
 @Serializable
-data class DifferencesResponse(val differences: List<Difference>)
+data class OutcomePair(
+    val kind: String,
+    val patternId: String,
+    val patternName: String,
+    val question: String,
+    val better: Occasion,
+    val worse: Occasion,
+    val betterTotal: Int,
+    val worseTotal: Int,
+    val mixedTotal: Int,
+    val verdict: PatternVerdict?,
+    val coverage: Coverage,
+    val snapshot: String,
+)
+
+@Serializable
+data class DifferenceDetail(
+    val difference: Difference,
+    val groups: Map<String, List<Occasion>>,
+    val mixedExcluded: Int,
+)
+
+@Serializable
+data class DifferencesResponse(val differences: List<Difference>, val reflections: List<OutcomePair>,
+                               val coverage: Coverage, val snapshot: String)
 
 /** Measured phone/Timeline day groups, compared without implying a cause. */
 @Serializable
@@ -134,18 +209,31 @@ data class DayDifference(
     val rightMean: Double,
     val pValue: Double,
     val verdict: PatternVerdict? = null,
+    val leftLabel: String,
+    val rightLabel: String,
+    val threshold: Double?,
+    val coverage: DayCoverage,
+    val snapshot: String,
 )
 
 @Serializable
-data class DayDifferencesResponse(val differences: List<DayDifference>)
+data class DayCoverage(val range: String, val asOf: String, val recordedFrom: String,
+                       val recordedTo: String, val measuredDays: Int, val checkinDays: Int,
+                       val overlappingDays: Int)
 
-/** The difference as one sentence, both sides counted. */
-fun differenceSentence(d: Difference): String {
-    fun times(n: Int) = if (n == 1) "1 time" else "$n times"
-    return "Of the ${times(d.worseTotal)} \u201c${d.patternName}\u201d went worse, \u201c${d.otherName}\u201d was there in " +
-        "${d.worse}; of the ${times(d.betterTotal)} it went better, in ${d.better}."
-}
+@Serializable
+data class DayDiagnostics(val measuredDays: Int, val checkinDays: Int, val overlappingDays: Int,
+                          val eligibleComparisons: Int, val reason: String?)
 
-/** Those still waiting for the owner's verdict first, each group in server order. */
-fun awaitingFirst(differences: List<Difference>): List<Difference> =
-    differences.filter { it.verdict == null } + differences.filter { it.verdict != null }
+@Serializable
+data class DayDifferencesResponse(val differences: List<DayDifference>, val diagnostics: DayDiagnostics)
+
+@Serializable
+data class ContributingDay(val day: String, val value: Double,
+                           val splitValue: kotlinx.serialization.json.JsonElement,
+                           val entryIds: List<String>)
+
+@Serializable
+data class DayDifferenceDetail(val difference: DayDifference, val leftDays: List<ContributingDay>,
+                               val rightDays: List<ContributingDay>,
+                               val excluded: Map<String, Int>)

@@ -25,6 +25,12 @@ function pattern(id: string, occasions: number, verdict: PatternSummary['verdict
   return {
     id, name: `Pattern ${id}`, statement: `What ${id} says.`, holdsWhen: [], notWhen: [], question: '',
     basis: null, evidence: null, source: null, occasions, tones: { better: 0, worse: occasions, mixed: 0 },
+    entryCount: occasions, recordedFrom: occasions ? '2026-09-01' : null,
+    recordedTo: occasions ? '2026-09-01' : null, undatedAccountCount: 0,
+    examples: [], snapshot: 'a'.repeat(64),
+    coverage: { range: 'all', asOf: '2026-09-29', recordedFrom: occasions ? '2026-09-01' : null,
+      recordedTo: occasions ? '2026-09-01' : null, entryCount: occasions, accountCount: occasions,
+      undatedAccountCount: 0 },
     reviewed: 0, rejected: 0, labelledBy: [], verdict,
   };
 }
@@ -42,13 +48,23 @@ describe('Today', () => {
     state.habits = { ...state.habits, data: noHabits, isError: false };
     show();
     expect(screen.getByRole('heading', { name: 'Pattern c' })).toBeInTheDocument();
-    expect(screen.getByText('6 occasions in your writing')).toBeInTheDocument();
+    expect(screen.getByText('6 recorded accounts in your writing')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
-    expect(state.verdict).toHaveBeenCalledWith('rings_true');
+    expect(state.verdict).toHaveBeenCalledWith({ verdict: 'rings_true', note: null });
   });
 
   it('shows nothing when every found pattern has a verdict', () => {
     expect(nextPattern([pattern('a', 3, { verdict: 'does_not', note: null }), pattern('b', 0)])).toBeUndefined();
+  });
+
+  it('keeps a note-only pattern selectable and preserves its note on a quick verdict', () => {
+    const noted = pattern('noted', 2, { verdict: null, note: 'Still considering it' });
+    expect(nextPattern([noted])?.id).toBe('noted');
+    state.patterns = { ...state.patterns, data: { patterns: [noted] }, isError: false };
+    state.habits = { ...state.habits, data: noHabits, isError: false };
+    show();
+    fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
+    expect(state.verdict).toHaveBeenCalledWith({ verdict: 'rings_true', note: 'Still considering it' });
   });
 
   it('says when patterns did not load', () => {

@@ -5,9 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iris.android.api.ChatMessage
 import com.iris.android.api.ChatStreamEvent
+import com.iris.android.api.DiscussionPreview
+import com.iris.android.api.EvidenceRef
 import com.iris.android.api.Conversation
 import com.iris.android.api.IrisLink
 import com.iris.android.api.User
+import com.iris.android.api.valid
 import com.iris.android.api.json
 import com.iris.android.talk.TalkSession
 import com.iris.android.talk.TalkUpdate
@@ -23,7 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.decodeFromJsonElement
 
-class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
+class ChatViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
     private val _conversation = MutableStateFlow<Loadable<Conversation>>(Loadable.Loading)
     val conversation: StateFlow<Loadable<Conversation>> = _conversation
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -36,11 +39,20 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
     val pending: StateFlow<Boolean> = _pending
     private val _failure = MutableStateFlow<String?>(null)
     val failure: StateFlow<String?> = _failure
+    private val _reference = MutableStateFlow<EvidenceRef?>(
+        savedStateHandle.get<String>("selectedEvidence")?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { json.decodeFromString(EvidenceRef.serializer(), it) }.getOrNull() })
+    val reference: StateFlow<EvidenceRef?> = _reference
+    private val _preview = MutableStateFlow<Loadable<DiscussionPreview>?>(null)
+    val preview: StateFlow<Loadable<DiscussionPreview>?> = _preview
     private var draftInitialized = _draft.value.isNotEmpty()
+    private var evidenceInitialized = savedStateHandle.contains("selectedEvidence")
+    private var attachedToTalk = false
 
     init {
         // A spoken turn (ADR-0025) is shown as it happens, like a typed one.
         viewModelScope.launch { TalkSession.updates.collect(::onSpoken) }
+        _reference.value?.let(::loadEvidence)
     }
 
     private fun onSpoken(update: TalkUpdate) {
@@ -73,17 +85,69 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
     private var visitOpen = false
     private var generation = 0
 
-    /** Nav arguments are offered for editing, never sent automatically. */
-    fun setInitialDraft(text: String?) {
-        if (!draftInitialized && text != null) {
-            draftInitialized = true
-            if (_draft.value.isEmpty()) _draft.value = text
+    /** Navigation carries only a typed pointer; the current owner evidence is loaded before sending. */
+    fun setEvidence(ref: EvidenceRef?, invalid: Boolean = false) {
+        if (evidenceInitialized || (!invalid && ref == null)) return
+        evidenceInitialized = true
+        if (ref == null || !ref.valid()) {
+            _preview.value = Loadable.Failed("That evidence link is invalid.")
+            return
+        }
+        _reference.value = ref
+        savedStateHandle["selectedEvidence"] = json.encodeToString(EvidenceRef.serializer(), ref)
+        attachedToTalk = TalkSession.conversation != null
+        loadEvidence(ref)
+    }
+
+    private fun loadEvidence(ref: EvidenceRef) {
+        _preview.value = Loadable.Loading
+        viewModelScope.launch {
+            try {
+                val path = "/discovery/discussion?ref=" +
+                    java.net.URLEncoder.encode(json.encodeToString(EvidenceRef.serializer(), ref), Charsets.UTF_8)
+                val loaded = IrisLink.api().send("GET", path, null, DiscussionPreview.serializer())
+                if (_reference.value != ref) return@launch
+                _preview.value = Loadable.Ready(loaded)
+                if (!draftInitialized && _draft.value.isEmpty()) {
+                    draftInitialized = true
+                    setDraft(loaded.question)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (_reference.value == ref) _preview.value =
+                    Loadable.Failed(error.message ?: "Selected evidence is unavailable.")
+            }
         }
     }
 
-    fun setDraft(text: String) { _draft.value = text }
+    fun retryEvidence() { _reference.value?.let(::loadEvidence) }
+    fun acceptUpdatedEvidence() {
+        val loaded = (_preview.value as? Loadable.Ready)?.value ?: return
+        _reference.value = loaded.ref
+        savedStateHandle["selectedEvidence"] = json.encodeToString(EvidenceRef.serializer(), loaded.ref)
+        _preview.value = Loadable.Ready(loaded.copy(changed = false))
+    }
+    fun removeEvidence() {
+        _reference.value = null
+        savedStateHandle["selectedEvidence"] = ""
+        _preview.value = null
+    }
+    fun setDraft(text: String) {
+        draftInitialized = true
+        _draft.value = text
+        savedStateHandle["draft"] = text
+    }
 
     /** A tab return starts an empty open. Rotation keeps the one already started. */
+    fun onTalkStateChanged() {
+        if (attachedToTalk && _reference.value != null &&
+            TalkSession.conversation == null && !TalkSession.running) {
+            attachedToTalk = false
+            startSession()
+        }
+    }
+
     fun onScreenEntered() {
         if (visitOpen) return
         visitOpen = true
@@ -145,9 +209,12 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
         val gen = generation
         val text = _draft.value.trim()
         val current = (_conversation.value as? Loadable.Ready)?.value ?: return
-        if (text.isEmpty() || _pending.value) return
+        val selected = _reference.value
+        val currentPreview = (_preview.value as? Loadable.Ready)?.value
+        if (text.isEmpty() || _pending.value || (selected != null &&
+            (currentPreview == null || currentPreview.changed || TalkSession.conversation != null))) return
         _pending.value = true
-        _draft.value = ""
+        setDraft("")
         _failure.value = null
         val now = Instant.now()
         val ownerId = "m_${now.toEpochMilli()}"
@@ -162,7 +229,11 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
                 val turn = ChatTurn()
                 var terminal: ChatTurn.Step? = null
                 val body = json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(),
-                    kotlinx.serialization.json.buildJsonObject { put("text", kotlinx.serialization.json.JsonPrimitive(text)) })
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("text", kotlinx.serialization.json.JsonPrimitive(text))
+                        if (selected != null) put("evidenceRef",
+                            json.encodeToJsonElement(EvidenceRef.serializer(), selected))
+                    })
                 IrisLink.api().sse("/conversations/${current.id}/messages/stream", body)
                     .map { turn.accept(json.decodeFromJsonElement<ChatStreamEvent>(it)) }
                     .takeWhile { step ->
@@ -203,7 +274,8 @@ class ChatViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
                     com.iris.android.telemetry.Telemetry.error("ChatViewModel.send", e)
                 }
                 val saved = error is ReplyFailed && error.saved
-                if (!saved && _draft.value.isEmpty()) _draft.value = text
+                if (selected != null) retryEvidence()
+                if (!saved && _draft.value.isEmpty()) setDraft(text)
                 val reason = error.message ?: error.toString()
                 _failure.value = if (saved) "Your message was saved, but Iris couldn't reply: $reason"
                     else "Couldn't reach Iris: $reason"

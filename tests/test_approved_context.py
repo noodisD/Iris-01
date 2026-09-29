@@ -10,7 +10,7 @@ from datetime import date
 from agent import approved_context as approved
 from agent import decisions, discovery
 from agent.database import db
-from tests.test_api_patterns import LABELS, READING, SETBACK, X
+from tests.test_api_patterns import SETBACK, X, import_reading, reading_for
 from tests.test_ideas_meaning import GARDEN, KITCHEN, SHARED, framework  # noqa: F401 - fixture
 
 
@@ -34,17 +34,22 @@ def _user(client) -> int:
 
 
 def test_only_insights_and_patterns_that_ring_true_are_in_the_block(test_user):
-    discovery.load_reading(test_user["id"], READING, LABELS)
+    import_reading(test_user["id"], *reading_for(test_user["id"]))
     block = approved.approved_context(test_user["id"])
-    assert "## Differences in outcome they said ring true" in block and "None yet." in block
+    assert "## Current comparisons with an owner's saved rings-true opinion" in block
+    assert "None yet." in block
 
     discovery.set_difference_verdict(test_user["id"], X, SETBACK, "rings_true")
-    discovery.set_pattern_verdict(test_user["id"], SETBACK, "does_not")
     discovery.set_pattern_verdict(test_user["id"], X, "rings_true")
     block = approved.approved_context(test_user["id"])
-    assert "Of the 3 times" in block and "was there in 3; of the 1 time it went better, in 0." in block
+    assert "3/3 read as worse and 0/3 read as better" in block
+    assert "has not independently verified each account" in block
+    discovery.set_pattern_verdict(test_user["id"], SETBACK, "does_not")
+    block = approved.approved_context(test_user["id"])
+    differences = block.split("## Current comparisons with an owner's saved rings-true opinion")[1].split("## ")[0]
+    assert "None yet." in differences
     patterns = block.split("## Patterns they said ring true")[1].split("## ")[0]
-    assert patterns.count("\n- ") == 1  # the one they rejected stays out
+    assert patterns.count("\n- ") == 1
 
 
 def test_decisions_are_in_the_block_with_their_outcome(test_user):

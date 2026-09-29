@@ -1,3 +1,4 @@
+import type { DiscoveryRange } from '@/types/api';
 import { QueryClient } from '@tanstack/react-query';
 
 export const queryClient = new QueryClient({
@@ -35,9 +36,15 @@ export const qk = {
   review: ['review', 'latest'] as const,
   decisions: ['decisions'] as const,
   patterns: ['patterns'] as const,
-  pattern: (id: string) => ['patterns', id] as const,
-  // Under 'patterns', so a verdict that refreshes the patterns refreshes these too.
-  differences: ['patterns', '~differences'] as const,
-  dayDifferences: ['day-differences'] as const,
+  pattern: (id: string, period: DiscoveryRange = 'all') => ['patterns', 'detail', id, period] as const,
+  summaries: (period: DiscoveryRange) => ['patterns', 'summaries', period] as const,
+  differences: (period: DiscoveryRange) => ['patterns', 'differences', period] as const,
+  differenceDetail: (patternId: string, otherId: string, period: DiscoveryRange, snapshot: string) =>
+    ['patterns', 'difference-detail', patternId, otherId, period, snapshot] as const,
+  discoveryStatus: ['patterns', 'status'] as const,
+  dayDifferencesRoot: ['day-differences'] as const,
+  dayDifferences: (period: DiscoveryRange) => ['day-differences', period] as const,
+  dayDifferenceDetail: (outcome: string, split: string, period: DiscoveryRange, snapshot: string) =>
+    ['day-differences', 'detail', outcome, split, period, snapshot] as const,
   observatory: (part: string, ...args: unknown[]) => ['observatory', part, ...args] as const,
 };

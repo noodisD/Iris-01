@@ -1,5 +1,6 @@
 """Measured day comparisons. Dates, scores and packages are invented."""
 
+import json
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
@@ -35,8 +36,6 @@ def test_five_days_each_side_are_required_and_four_are_not():
     assert (difference["leftCount"], difference["rightCount"]) == (5, 5)
     assert (difference["leftMean"], difference["rightMean"]) == (2.0, 8.0)
     assert difference["pValue"] <= 0.01
-    assert "5 days" in difference["sentence"] and "office days" in difference["sentence"]
-    assert not any(word in difference["sentence"].lower() for word in ("caused", "because", "means"))
     assert calculate(rows[:-1], scores) == []
 
 
@@ -110,7 +109,33 @@ def test_only_explicit_checkin_metrics_count_and_multiple_entries_make_one_day()
     }}
 
 
-def test_verdict_survives_disappearing_difference_and_only_rings_true_reaches_chat(test_user):
+def test_diagnostics_distinguish_missing_measurements_scores_overlap_and_groups(test_user):
+    user_id = test_user["id"]
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
+    client = TestClient(app)
+    try:
+        def reason():
+            return client.get("/api/day-differences").json()["diagnostics"]["reason"]
+
+        assert reason() == "no_measured_days"
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO day_features
+                   (user_id, day, day_kind, office_minutes, home_minutes, location_coverage)
+                   VALUES (%s, %s, 'office', 480, 0, 1.0)""", (user_id, START))
+            conn.commit()
+        assert reason() == "no_checkins"
+        db.create_reflection(user_id, content="", reflection_date=START + timedelta(days=1), energy_level=4)
+        assert reason() == "no_overlap"
+        db.create_reflection(user_id, content="", reflection_date=START, energy_level=3)
+        assert reason() == "insufficient_groups"
+        assert client.get("/api/day-differences/energy/office_home").status_code == 409
+        assert client.get("/api/day-differences/energy/not-a-split").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_verdict_survives_disappearing_difference_and_only_rings_true_reaches_chat(test_user, mock_llm):
     user_id = test_user["id"]
     app.dependency_overrides[get_current_user_id] = lambda: user_id
     client = TestClient(app)
@@ -126,9 +151,11 @@ def test_verdict_survives_disappearing_difference_and_only_rings_true_reaches_ch
                     (user_id, day, kind, 540 if index < 5 else 0, 540 if index >= 5 else 0),
                 )
             conn.commit()
+        created = []
         for index in range(10):
-            db.create_reflection(user_id, content="", reflection_date=START + timedelta(days=index),
-                                 energy_level=2 if index < 5 else 8)
+            created.append(db.create_reflection(
+                user_id, content="", reflection_date=START + timedelta(days=index),
+                energy_level=2 if index < 5 else 8))
 
         body = client.get("/api/day-differences")
         assert body.status_code == 200
@@ -136,27 +163,94 @@ def test_verdict_survives_disappearing_difference_and_only_rings_true_reaches_ch
         assert len(rows) == 1 and rows[0]["split"] == "office_home"
         assert (rows[0]["leftCount"], rows[0]["rightCount"]) == (5, 5)
         assert "lat" not in str(body.json()).lower()
-        sentence = rows[0]["sentence"]
+        detail = client.get("/api/day-differences/energy/office_home")
+        assert detail.status_code == 200
+        assert len(detail.json()["leftDays"]) == len(detail.json()["rightDays"]) == 5
+        assert {entry_id for side in ("leftDays", "rightDays")
+                for day in detail.json()[side] for entry_id in day["entryIds"]} == {
+                    str(entry_id) for entry_id in created}
+        ref = {"kind": "day", "range": "all", "snapshot": rows[0]["snapshot"],
+               "outcome": "energy", "split": "office_home"}
+        preview = client.get("/api/discovery/discussion", params={"ref": json.dumps(ref)})
+        assert preview.status_code == 200
+        assert len(preview.json()["evidence"]["leftDays"]) == 5
+        assert len(preview.json()["evidence"]["rightDays"]) == 5
+        opened = client.post("/api/conversations").json()["id"]
+        sent = client.post(f"/api/conversations/{opened}/messages/stream",
+                           json={"text": "What changed between these days?", "evidenceRef": ref})
+        assert '"done": true' in sent.text
+        selected = json.loads(mock_llm.stream.call_args.kwargs["system_prompt"]
+                              .split("Selected evidence for this discussion", 1)[1].splitlines()[-1])
+        assert selected["observation"]["leftCount"] == selected["observation"]["rightCount"] == 5
+        assert {entry_id for group in selected["groups"].values()
+                for day in group for entry_id in day["entryIds"]} == {str(entry) for entry in created}
+        approved_marker = "Saved opinion; current office days"
+        note_only = client.put("/api/day-differences/energy/office_home/verdict",
+                               json={"verdict": None, "note": "I want to review those days."})
+        assert note_only.status_code == 200
+        assert client.get("/api/day-differences").json()["differences"][0]["verdict"] == {
+            "verdict": None, "note": "I want to review those days."}
+        assert approved_marker not in approved_context.approved_context(user_id)
         rejected = client.put("/api/day-differences/energy/office_home/verdict",
                               json={"verdict": "does_not"})
         assert rejected.status_code == 200
-        assert sentence not in approved_context.approved_context(user_id)
+        assert approved_marker not in approved_context.approved_context(user_id)
         accepted = client.put("/api/day-differences/energy/office_home/verdict",
-                              json={"verdict": "rings_true"})
+                              json={"verdict": "rings_true", "note": "I want to review those days."})
         assert accepted.status_code == 200
         block = approved_context.approved_context(user_id)
-        assert sentence in block and "never causes" in block
+        assert approved_marker in block and "Not a cause or a rule" in block
         assert client.get("/api/day-differences").json()["differences"][0]["verdict"]["verdict"] == "rings_true"
+        cleared = client.put("/api/day-differences/energy/office_home/verdict",
+                             json={"verdict": None, "note": "I want to review those days."})
+        assert cleared.status_code == 200
+        assert client.get("/api/day-differences").json()["differences"][0]["verdict"] == {
+            "verdict": None, "note": "I want to review those days."}
+        assert approved_marker not in approved_context.approved_context(user_id)
+        client.put("/api/day-differences/energy/office_home/verdict",
+                   json={"verdict": "rings_true", "note": "I want to review those days."})
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM day_features WHERE user_id = %s AND day = %s",
                         (user_id, START + timedelta(days=9)))
             conn.commit()
         assert client.get("/api/day-differences").json()["differences"] == []
-        assert sentence not in approved_context.approved_context(user_id)
+        assert client.get("/api/discovery/discussion", params={"ref": json.dumps(ref)}).status_code == 409
+        assert approved_marker not in approved_context.approved_context(user_id)
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT verdict FROM day_difference_verdicts WHERE user_id = %s AND outcome = 'energy' AND split = 'office_home'", (user_id,))
             assert cur.fetchone()[0] == "rings_true"
         assert client.put("/api/day-differences/energy/unknown/verdict",
                           json={"verdict": "rings_true"}).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recent_day_range_never_falls_back_to_old_measured_groups(test_user):
+    user_id = test_user["id"]
+    old = [date.today() - timedelta(days=55 - i) for i in range(5)]
+    recent = [date.today() - timedelta(days=9 - i) for i in range(5)]
+    with db.connection() as conn, conn.cursor() as cur:
+        for day in old:
+            cur.execute(
+                """INSERT INTO day_features
+                   (user_id, day, day_kind, office_minutes, home_minutes, location_coverage)
+                   VALUES (%s, %s, 'office', 540, 0, 1.0)""", (user_id, day))
+        for day in recent:
+            cur.execute(
+                """INSERT INTO day_features
+                   (user_id, day, day_kind, office_minutes, home_minutes, location_coverage)
+                   VALUES (%s, %s, 'home', 0, 540, 1.0)""", (user_id, day))
+        conn.commit()
+    for day in old:
+        db.create_reflection(user_id, content="", reflection_date=day, energy_level=2)
+    for day in recent:
+        db.create_reflection(user_id, content="", reflection_date=day, energy_level=8)
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
+    try:
+        client = TestClient(app)
+        assert len(client.get("/api/day-differences?range=all").json()["differences"]) == 1
+        assert client.get("/api/day-differences?range=30d").json()["differences"] == []
+        assert len(client.get("/api/day-differences?range=90d").json()["differences"]) == 1
+        assert client.get("/api/day-differences?range=invalid").status_code == 422
     finally:
         app.dependency_overrides.clear()

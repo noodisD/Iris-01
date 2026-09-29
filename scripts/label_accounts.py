@@ -22,15 +22,16 @@ import logging
 import sys
 import time
 
-logging.disable(logging.CRITICAL)
+if __name__ == "__main__":  # the CLI silences the reader; an importer keeps its capture
+    logging.disable(logging.CRITICAL)
 
 from pathlib import Path  # noqa: E402
 
 from agent.connections import label_many, render  # noqa: E402
-from agent.episodes import EXTRACTION_VERSION, Episode, comparable  # noqa: E402
+from agent.episodes import EXTRACTION_VERSION, Episode, ReadUnavailable, comparable  # noqa: E402
 from agent.config import settings  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
-from agent.library import load  # noqa: E402
+from agent.library import library_hash, load  # noqa: E402
 
 
 def main() -> int:
@@ -64,16 +65,19 @@ def main() -> int:
     episodes = [Episode.from_dict(e) for e in body["episodes"]]
     usable = comparable(episodes)
     patterns = load(Path(args.library) if args.library else None)
+    current_hash = library_hash(patterns)
 
     store = Path(args.labels)
     kept, by = {}, {}
     if store.exists():
         previous = json.loads(store.read_text())
-        if previous.get("readAt") == body.get("readAt"):
+        if (previous.get("readAt") == body.get("readAt")
+                and previous.get("extractionVersion") == EXTRACTION_VERSION
+                and previous.get("libraryHash") == current_hash):
             kept = previous.get("labels", {})
             by = previous.get("by", {})
         else:
-            print("the accounts changed since the last labelling; starting again")
+            print("the accounts or library changed since the last labelling; starting again")
     todo = [p for p in patterns if args.again or p.id not in kept]
     batches = [todo[i:i + args.batch] for i in range(0, len(todo), args.batch)]
     # The accounts dominate the prompt, so the cost of a run is roughly the
@@ -87,30 +91,33 @@ def main() -> int:
     if args.dry_run:
         print("dry run: nothing was sent.")
         return 0
+    if not usable:
+        print("no comparable accounts; nothing to label.")
+        return 0
 
     started = time.time()
     model = Intelligence(model=model_name)
-    for batch in batches:
-        labels, counts = label_many(
-            [(p.id, p.statement, p.markers) for p in batch], episodes, model)
-        if not counts["asked"]:
-            print(f"  the model could not be asked — stopping, {len(kept)} pattern(s) kept.")
-            break
-        for pattern in batch:
-            rows = labels.get(pattern.id)
-            if rows is None:
-                print(f"  {pattern.id}: no answer in the batch — not recorded")
-                continue
-            kept[pattern.id] = {str(i): answer for i, answer in rows.items()}
-            by[pattern.id] = model_name
-            print(f"  {pattern.id}: {len(rows)} accounts")
-        # Written after each batch: a run that stops keeps what it paid for.
+    try:
+        for batch in batches:
+            labels, _ = label_many(
+                [(p.id, p.statement, p.markers) for p in batch], episodes, model)
+            for pattern in batch:
+                rows = labels[pattern.id]
+                kept[pattern.id] = {str(i): answer for i, answer in rows.items()}
+                by[pattern.id] = model_name
+                print(f"  {pattern.id}: {len(rows)} accounts")
+    except ReadUnavailable as exc:
+        print(f"  labelling unavailable ({exc}); existing label cache unchanged.",
+              file=sys.stderr)
+        return 1
+    if batches:
         store.parent.mkdir(parents=True, exist_ok=True)
         store.write_text(json.dumps({"readAt": body.get("readAt"),
+                                     "extractionVersion": EXTRACTION_VERSION,
+                                     "libraryHash": current_hash,
                                      "accounts": len(usable),
                                      "labelledAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
                                      "by": by, "labels": kept}, indent=1))
-
     print(json.dumps({"patterns_labelled": len(kept), "accounts": len(usable),
                       "seconds": round(time.time() - started), "labels": str(store)}, indent=1))
     return 0

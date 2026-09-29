@@ -23,6 +23,7 @@ than silently mixed with a new one.
     uv run python scripts/read_episodes.py --dry-run      # what would be read
     uv run python scripts/read_episodes.py                # one pass, cached
     uv run python scripts/read_episodes.py --reuse        # counts from the cache, free
+    uv run python scripts/read_episodes.py --no-staged   # importable source revisions
     uv run python scripts/read_episodes.py --limit 40     # a cheaper first look
 """
 
@@ -35,12 +36,13 @@ import sys
 import time
 
 # The reader logs what it refuses, and what it refuses is the owner's writing.
-logging.disable(logging.CRITICAL)
+if __name__ == "__main__":  # only the CLI run; an importer keeps its capture
+    logging.disable(logging.CRITICAL)
 
 from pathlib import Path  # noqa: E402
 
 from agent.database import db  # noqa: E402
-from agent.episodes import EXTRACTION_VERSION, Episode, EpisodeReader, tally  # noqa: E402
+from agent.episodes import EXTRACTION_VERSION, Episode, EpisodeReader, ReadUnavailable, tally  # noqa: E402
 from agent.intelligence import Intelligence  # noqa: E402
 from agent.observations import chunk_entries, interleave  # noqa: E402
 
@@ -81,6 +83,7 @@ def main() -> int:
         return 0
 
     entries = list(db.get_entries_for_reading(args.user, limit=args.limit))
+    source_revisions = {str(entry["id"]): entry["discovery_revision"] for entry in entries}
     if not args.no_staged:
         from agent.constants import OBSERVATION_MIN_STAGED_CHARS
         entries += db.get_staged_for_reading(args.user, OBSERVATION_MIN_STAGED_CHARS)
@@ -99,11 +102,17 @@ def main() -> int:
         print(f"reading copies available for {len(copies)} entries")
 
     started = time.time()
-    episodes = EpisodeReader(args.user, intelligence=Intelligence()).read(entries, copies)
+    reader = EpisodeReader(args.user, intelligence=Intelligence())
+    try:
+        episodes = reader.read(entries, copies)
+    except ReadUnavailable:
+        print("reading unavailable: the existing cache was not changed.", file=sys.stderr)
+        return 1
     counts = tally(episodes)
     counts["entries_read"] = len(entries)
     counts["passes"] = len(chunks)
     counts["seconds"] = round(time.time() - started)
+    counts["omitted_accounts"] = reader.omitted_accounts
     # Which entries yielded one, as a count of entries rather than of episodes:
     # a single long entry can carry several, and "half the archive describes
     # occasions" is a different fact from "there are eighty episodes".
@@ -116,6 +125,9 @@ def main() -> int:
         "readAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "user": args.user,
         "entriesRead": len(entries),
+        "sourceRevisions": source_revisions,
+        "includesStaged": not args.no_staged,
+        "omittedAccounts": reader.omitted_accounts,
         "episodes": [e.as_dict() for e in episodes],
     }, indent=1))
     counts["cached_at"] = str(cache)

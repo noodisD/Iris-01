@@ -66,25 +66,25 @@ def _ideas(user_id: int) -> list[str]:
     return lines
 
 
-def _times(n: int) -> str:
-    return f"{n} time" if n == 1 else f"{n} times"
-
 
 def _insights(user_id: int) -> list[str]:
     rows = [d for d in discovery.differences(user_id, load_library())
-            if (d["verdict"] or {}).get("verdict") == "rings_true"][:MAX_INSIGHTS]
-    lines = ["## Differences in outcome they said ring true (differences, never causes)"]
+            if (d["verdict"] or {}).get("verdict") == "rings_true"
+            and not d["dismissed"]][:MAX_INSIGHTS]
+    lines = ["## Current comparisons with an owner's saved rings-true opinion (observational, never causes)"]
     if not rows:
         lines.append("None yet.")
     for d in rows:
-        lines.append(f"- Of the {_times(d['worseTotal'])} \"{d['patternName']}\" went worse, \"{d['otherName']}\" was "
-                     f"there in {d['worse']}; of the {_times(d['betterTotal'])} it went better, in {d['better']}.")
+        lines.append(f"- Saved opinion; in currently recorded \"{d['patternName']}\" accounts, "
+                     f"\"{d['otherName']}\" was labelled in {d['worse']}/{d['worseTotal']} "
+                     f"read as worse and {d['better']}/{d['betterTotal']} read as better. "
+                     "The owner has not independently verified each account.")
     return lines
 
 
 def _patterns(user_id: int) -> list[str]:
     rows = [s for s in discovery.summaries(user_id, load_library())
-            if (s["verdict"] or {}).get("verdict") == "rings_true"][:MAX_PATTERNS]
+            if s["occasions"] > 0 and (s["verdict"] or {}).get("verdict") == "rings_true"][:MAX_PATTERNS]
     lines = ["## Patterns they said ring true (from a general library, found in their writing)"]
     if not rows:
         lines.append("None yet.")
@@ -150,14 +150,16 @@ def _sensors(user_id: int) -> list[str]:
     return lines
 
 def _days(user_id: int) -> list[str]:
-    """Only today's qualifying differences the owner said ring true."""
+    """Only current qualifying comparisons with a saved owner opinion."""
     rows = [row for row in day_differences.for_user(user_id)
             if (row["verdict"] or {}).get("verdict") == "rings_true"][:MAX_INSIGHTS]
-    lines = ["## Day differences they said ring true (measured by the phone and Timeline; never causes)"]
+    lines = ["## Current day differences with an owner's saved rings-true opinion (observational, never causes)"]
     if not rows:
         lines.append("None yet.")
     for row in rows:
-        lines.append(f"- {row['sentence']}")
+        lines.append(f"- Saved opinion; current {row['leftLabel']} averaged {row['leftMean']} "
+                     f"across {row['leftCount']} days versus {row['rightMean']} across "
+                     f"{row['rightCount']} {row['rightLabel']}. Not a cause or a rule.")
     return lines
 
 

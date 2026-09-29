@@ -120,6 +120,8 @@ export function JournalScreen() {
       setSelection({ start: 0, end: 0 });
       setCheckin(emptyCheckin());
       qc.invalidateQueries({ queryKey: qk.journal });
+      qc.invalidateQueries({ queryKey: qk.patterns });
+      qc.invalidateQueries({ queryKey: qk.dayDifferencesRoot });
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -2,6 +2,7 @@
 package com.iris.android.ui.patterns
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,11 +15,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,11 +33,19 @@ import com.iris.android.api.DayDifference
 import com.iris.android.api.DayDifferencesResponse
 import com.iris.android.api.Difference
 import com.iris.android.api.DifferencesResponse
+import com.iris.android.api.DifferenceDetail
+import com.iris.android.api.DayDifferenceDetail
+import com.iris.android.api.DayDiagnostics
+import com.iris.android.api.OutcomePair
+import com.iris.android.api.Occasion
 import com.iris.android.api.IrisLink
 import com.iris.android.api.Ok
+import com.iris.android.api.DISCOVERY_RANGES
+import com.iris.android.api.patternRoute
+import com.iris.android.api.pairDiscussionRoute
+import com.iris.android.api.coLabelDiscussionRoute
+import com.iris.android.api.dayDiscussionRoute
 import com.iris.android.api.PATTERN_VERDICTS
-import com.iris.android.api.awaitingFirst
-import com.iris.android.api.differenceSentence
 import com.iris.android.ui.Loadable
 import com.iris.android.ui.components.EmptyState
 import com.iris.android.ui.components.ErrorState
@@ -42,6 +57,7 @@ import com.iris.android.ui.components.RefreshableList
 import com.iris.android.ui.theme.IrisType
 import com.iris.android.ui.theme.LocalIrisColors
 import com.iris.android.ui.theme.Serif
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -54,25 +70,27 @@ import kotlinx.serialization.json.put
  * is independent for each comparison.
  */
 
-class InsightsViewModel : ViewModel() {
-    private val _differences = MutableStateFlow<Loadable<List<Difference>>>(Loadable.Loading)
+class InsightsViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
+    val range = savedStateHandle.getStateFlow("range", "all")
+    private val _differences = MutableStateFlow<Loadable<DifferencesResponse>>(Loadable.Loading)
     val differences = _differences.asStateFlow()
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
     private val _saving = MutableStateFlow(false)
     val saving = _saving.asStateFlow()
-    private val _error = MutableStateFlow<String?>(null)
+    private val _error = MutableStateFlow<Pair<String, String>?>(null)
     val error = _error.asStateFlow()
-
-    private val _dayDifferences = MutableStateFlow<Loadable<List<DayDifference>>>(Loadable.Loading)
+    private val _dayDifferences = MutableStateFlow<Loadable<DayDifferencesResponse>>(Loadable.Loading)
     val dayDifferences = _dayDifferences.asStateFlow()
     private val _refreshingDays = MutableStateFlow(false)
     val refreshingDays = _refreshingDays.asStateFlow()
     private val _savingDay = MutableStateFlow(false)
     val savingDay = _savingDay.asStateFlow()
-    private val _dayError = MutableStateFlow<String?>(null)
+    private val _dayError = MutableStateFlow<Pair<String, String>?>(null)
     val dayError = _dayError.asStateFlow()
-    private var dayRefreshPending = false
+    private var writingGeneration = 0
+    private var daysGeneration = 0
+
 
     fun refresh() {
         refreshPatterns()
@@ -80,73 +98,105 @@ class InsightsViewModel : ViewModel() {
     }
 
     private fun refreshPatterns() {
+        val version = ++writingGeneration
+        val selected = range.value
         viewModelScope.launch {
-            if (_refreshing.value) return@launch
             _refreshing.value = true
-            try {
-                val result = IrisLink.api().send("GET", "/differences", null, DifferencesResponse.serializer())
-                _differences.value = Loadable.Ready(awaitingFirst(result.differences))
-            } catch (e: Exception) {
-                _differences.value = Loadable.Failed(e.message ?: "Iris couldn't reach your data just now.")
-            } finally {
+            if (selected !in DISCOVERY_RANGES) {
+                _differences.value = Loadable.Failed("Unknown reading range: $selected")
                 _refreshing.value = false
+                return@launch
+            }
+            try {
+                val result = IrisLink.api().send("GET", "/differences?range=$selected", null, DifferencesResponse.serializer())
+                if (version == writingGeneration) _differences.value = Loadable.Ready(result)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (version == writingGeneration) _differences.value =
+                    Loadable.Failed(e.message ?: "Iris couldn't reach your data just now.")
+            } finally {
+                if (version == writingGeneration) _refreshing.value = false
             }
         }
     }
 
     fun refreshDays() {
+        val version = ++daysGeneration
+        val selected = range.value
         viewModelScope.launch {
-            if (_refreshingDays.value) {
-                dayRefreshPending = true
+            _refreshingDays.value = true
+            if (selected !in DISCOVERY_RANGES) {
+                _dayDifferences.value = Loadable.Failed("Unknown reading range: $selected")
+                _refreshingDays.value = false
                 return@launch
             }
-            _refreshingDays.value = true
             try {
-                do {
-                    dayRefreshPending = false
-                    try {
-                        val result = IrisLink.api().send("GET", "/day-differences", null, DayDifferencesResponse.serializer())
-                        _dayDifferences.value = Loadable.Ready(result.differences)
-                    } catch (e: Exception) {
-                        _dayDifferences.value = Loadable.Failed(e.message ?: "Iris couldn't reach your day comparisons just now.")
-                    }
-                } while (dayRefreshPending)
+                val result = IrisLink.api().send("GET", "/day-differences?range=$selected", null, DayDifferencesResponse.serializer())
+                if (version == daysGeneration) _dayDifferences.value = Loadable.Ready(result)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (version == daysGeneration) _dayDifferences.value =
+                    Loadable.Failed(e.message ?: "Iris couldn't reach your day comparisons just now.")
             } finally {
-                _refreshingDays.value = false
+                if (version == daysGeneration) _refreshingDays.value = false
             }
         }
     }
 
-    fun judge(d: Difference, verdict: String) {
+    fun judge(d: Difference, verdict: String?, note: String?) {
         viewModelScope.launch {
             if (_saving.value) return@launch
             _saving.value = true
             _error.value = null
+            _refreshing.value = false
+            writingGeneration++
             try {
                 IrisLink.api().send("PUT",
                     "/differences/${Uri.encode(d.patternId)}/${Uri.encode(d.otherId)}/verdict",
-                    buildJsonObject { put("verdict", verdict) }.toString(), Ok.serializer())
+                    buildJsonObject { put("verdict", verdict); put("note", note) }.toString(), Ok.serializer())
                 refreshPatterns()
-            } catch (e: Exception) {
-                _error.value = e.message ?: "That didn't save."
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _error.value = "${d.patternId}/${d.otherId}" to (e.message ?: "That didn't save. Try again.")
             } finally {
                 _saving.value = false
             }
         }
     }
+    fun judgePair(pair: com.iris.android.api.OutcomePair, verdict: String?, note: String?) {
+        viewModelScope.launch {
+            if (_saving.value) return@launch
+            _saving.value = true
+            _error.value = null
+            writingGeneration++
+            try {
+                IrisLink.api().send("PUT", "/patterns/${Uri.encode(pair.patternId)}/verdict",
+                    buildJsonObject { put("verdict", verdict); put("note", note) }.toString(),
+                    Ok.serializer())
+                refreshPatterns()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _error.value = "pair/${pair.patternId}" to (e.message ?: "That didn't save. Try again.")
+            } finally { _saving.value = false }
+        }
+    }
 
-    fun judgeDay(d: DayDifference, verdict: String) {
+
+    fun judgeDay(d: DayDifference, verdict: String?, note: String?) {
         viewModelScope.launch {
             if (_savingDay.value) return@launch
             _savingDay.value = true
             _dayError.value = null
+            _refreshingDays.value = false
+            daysGeneration++
             try {
                 IrisLink.api().send("PUT",
                     "/day-differences/${Uri.encode(d.outcome)}/${Uri.encode(d.split)}/verdict",
-                    buildJsonObject { put("verdict", verdict) }.toString(), Ok.serializer())
+                    buildJsonObject { put("verdict", verdict); put("note", note) }.toString(), Ok.serializer())
                 refreshDays()
-            } catch (e: Exception) {
-                _dayError.value = e.message ?: "That answer didn't save."
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                _dayError.value = "${d.outcome}/${d.split}" to (e.message ?: "That didn't save. Try again.")
             } finally {
                 _savingDay.value = false
             }
@@ -157,6 +207,7 @@ class InsightsViewModel : ViewModel() {
 @Composable
 fun InsightsScreen(onNavigate: (String) -> Unit) {
     val vm: InsightsViewModel = viewModel()
+    val range by vm.range.collectAsState()
     val state by vm.differences.collectAsState()
     val refreshing by vm.refreshing.collectAsState()
     val saving by vm.saving.collectAsState()
@@ -166,73 +217,127 @@ fun InsightsScreen(onNavigate: (String) -> Unit) {
     val savingDay by vm.savingDay.collectAsState()
     val dayError by vm.dayError.collectAsState()
     val colors = LocalIrisColors.current
-    LaunchedEffect(Unit) { vm.refresh() }
-    IrisScaffold(title = "Insights", kicker = "insights · differences in outcome") { padding ->
+    var filter by rememberSaveable(range) { mutableStateOf("current") }
+    var showAll by rememberSaveable(range) { mutableStateOf(false) }
+    RefreshOnReturn(range, vm::refresh)
+    IrisScaffold(title = "Insights", kicker = "situations to consider") { padding ->
         RefreshableList(refreshing || refreshingDays, vm::refresh) {
             LazyColumn(Modifier.fillMaxWidth().padding(padding),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Text("For each pattern in your writing, the other patterns that were there more often when it " +
-                        "went one way than the other. A difference, not a cause: say whether it rings true.",
+                    RangeChoices(range) { onNavigate("insights?range=$it") }
+                    DiscoveryStatusStrip(onCompletion = vm::refresh)
+                    Text("Recorded situations and measured days to compare, not causes or advice.",
                         color = colors.ink3, fontSize = 13.sp)
+                    Kicker("from your writing")
                 }
-                error?.let { item { Text(it, color = colors.rose, style = IrisType.mono) } }
                 when (val s = state) {
-                    is Loadable.Loading -> item { LoadingState("Iris is comparing the occasions…") }
-                    is Loadable.Failed -> item { ErrorState(onRetry = vm::refresh) }
-                    is Loadable.Ready -> if (s.value.isEmpty()) item {
-                        EmptyState("No differences yet.",
-                            "An insight needs a pattern with occasions that went both better and worse, and " +
-                                "another pattern that sits on one side by two or more.")
-                    } else items(s.value, key = { "${it.patternId}/${it.otherId}" }) { d ->
-                        val current = d.verdict?.verdict
-                        IrisCard(Modifier.fillMaxWidth().alpha(if (current == "does_not") 0.55f else 1f)) {
-                            if (current != null) Kicker("judged")
-                            Text(differenceSentence(d), fontFamily = Serif, fontSize = 18.sp,
-                                lineHeight = 25.sp, color = colors.ink)
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(onClick = { onNavigate("patterns/${Uri.encode(d.patternId)}") }) {
-                                    Text("${d.patternName} →", color = colors.sage)
-                                }
-                                TextButton(onClick = { onNavigate("patterns/${Uri.encode(d.otherId)}") }) {
-                                    Text("${d.otherName} →", color = colors.ink3)
-                                }
+                    is Loadable.Loading -> item { LoadingState("Comparing recorded situations…") }
+                    is Loadable.Failed -> item { ErrorState(s.message, onRetry = vm::refresh) }
+                    is Loadable.Ready -> {
+                        val data = s.value
+                        item {
+                            Text("${data.coverage.entryCount} contributing entries · " +
+                                "recorded ${data.coverage.recordedFrom ?: "date unknown"} to " +
+                                "${data.coverage.recordedTo ?: "date unknown"}. Unwritten events are not absences.",
+                                color = colors.ink3, fontSize = 12.sp)
+                            Choices(listOf("current" to "Current", "saved" to "Saved opinions",
+                                "dismissed" to "Dismissed"), filter, true) {
+                                filter = it
+                                showAll = false
                             }
-                            Choices(PATTERN_VERDICTS, current, !saving) { vm.judge(d, it) }
+                        }
+                        val cards = buildList<WritingCard> {
+                            data.differences.forEach { add(WritingCard.Contrast(it)) }
+                            data.reflections.forEach { add(WritingCard.Pairing(it)) }
+                        }.filter { card ->
+                            when (filter) {
+                                "dismissed" -> card.dismissed
+                                "saved" -> !card.dismissed && card.verdict != null
+                                else -> !card.dismissed
+                            }
+                        }
+                        val used = mutableSetOf<String>()
+                        val featured = cards.filter { card -> used.size < 3 && used.add(card.patternId) }
+                        val rest = cards.filterNot { it in featured }
+                        if (cards.isEmpty()) item {
+                            EmptyState("No writing comparisons in this view.",
+                                "No current recorded accounts meet the conservative comparison rule. " +
+                                    "Review Journal or read existing writing.")
+                        }
+                        items(featured + if (showAll) rest else emptyList(), key = { it.key }) { card ->
+                            when (card) {
+                                is WritingCard.Contrast -> ContrastCard(card.d, range, onNavigate,
+                                    !saving, error?.takeIf { it.first == "${card.d.patternId}/${card.d.otherId}" }?.second,
+                                    vm::judge)
+                                is WritingCard.Pairing -> PairCard(card.pair, range, onNavigate,
+                                    !saving, error?.takeIf { it.first == "pair/${card.pair.patternId}" }?.second,
+                                    vm::judgePair)
+                            }
+                        }
+                        if (rest.isNotEmpty()) item {
+                            TextButton(onClick = { showAll = !showAll }) {
+                                Text(if (showAll) "Show fewer" else "Show all comparisons (${rest.size} more)")
+                            }
                         }
                     }
                 }
                 item {
-                    Kicker("Days compared")
-                    Text("Comparisons of measured phone and Timeline days, not causes. " +
-                        "These groups include only days with enough measurements to compare; " +
-                        "say whether each difference rings true for you.",
+                    Kicker("days compared")
+                    Text("Explicit check-ins against confirmed phone measurements. Observations, not causes.",
                         color = colors.ink3, fontSize = 13.sp)
                 }
-                dayError?.let { item { Text(it, color = colors.rose, style = IrisType.mono) } }
                 when (val s = dayState) {
-                    is Loadable.Loading -> item { LoadingState("Iris is comparing measured days…") }
+                    is Loadable.Loading -> item { LoadingState("Comparing measured days…") }
                     is Loadable.Failed -> item { ErrorState(s.message, onRetry = vm::refreshDays) }
-                    is Loadable.Ready -> if (s.value.isEmpty()) item {
-                        EmptyState("No day comparisons yet.",
-                            "There aren't enough measured days in both groups for a reliable comparison.")
-                    } else items(s.value, key = { "day/${it.outcome}/${it.split}" }) { d ->
-                        val current = d.verdict?.verdict
-                        IrisCard(Modifier.fillMaxWidth().alpha(if (current == "does_not") 0.55f else 1f)) {
-                            if (current != null) Kicker("judged")
-                            Text(d.sentence, fontFamily = Serif, fontSize = 18.sp,
-                                lineHeight = 25.sp, color = colors.ink)
-                            Text("${d.leftCount} days compared with ${d.rightCount} days",
-                                color = colors.ink3, fontSize = 13.sp)
-                            d.verdict?.note?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, color = colors.ink3, fontSize = 13.sp)
-                            }
-                            Choices(PATTERN_VERDICTS, current, !savingDay) { vm.judgeDay(d, it) }
+                    is Loadable.Ready -> {
+                        val data = s.value
+                        if (data.differences.isEmpty()) item {
+                            EmptyState("No qualifying day comparison.", dayReason(data.diagnostics))
+                        }
+                        items(data.differences, key = { "day/$range/${it.outcome}/${it.split}" }) { d ->
+                            MeasuredCard(d, range, onNavigate, !savingDay,
+                                dayError?.takeIf { it.first == "${d.outcome}/${d.split}" }?.second,
+                                vm::judgeDay)
+                        }
+                        item {
+                            Text("${data.diagnostics.measuredDays} measured · ${data.diagnostics.checkinDays} check-in · " +
+                                "${data.diagnostics.overlappingDays} overlapping days", color = colors.ink3, fontSize = 12.sp)
+                            TextButton(onClick = { onNavigate("journal") }) { Text("Journal") }
+                            TextButton(onClick = { onNavigate("sensors") }) { Text("Sensors") }
                         }
                     }
                 }
             }
         }
     }
+}
+
+internal sealed interface WritingCard {
+    val patternId: String
+    val verdict: String?
+    val dismissed: Boolean
+    val key: String
+    data class Contrast(val d: Difference) : WritingCard {
+        override val patternId get() = d.patternId
+        override val verdict get() = d.verdict?.verdict
+        override val dismissed get() = d.dismissed
+        override val key get() = "co/${d.patternId}/${d.otherId}"
+    }
+    data class Pairing(val pair: OutcomePair) : WritingCard {
+        override val patternId get() = pair.patternId
+        override val verdict get() = pair.verdict?.verdict
+        override val dismissed get() = verdict == "does_not"
+        override val key get() = "pair/${pair.patternId}"
+    }
+}
+
+private fun dayReason(d: DayDiagnostics) = when (d.reason) {
+    "no_measured_days" -> "No confirmed measured days in this period. Review Sensors."
+    "no_checkins" -> "No explicit check-in scores in this period. Review Journal."
+    "no_overlap" -> "Measured days and check-ins do not overlap."
+    "insufficient_groups" -> "No comparison has five valid days in each group."
+    "no_qualifying_difference" -> "The existing difference and permutation gates were not met."
+    else -> "Review Journal and Sensors for contributing days."
 }

@@ -140,6 +140,57 @@ export interface JournalListResponse {
 export type OccasionTone = 'better' | 'worse' | 'mixed';
 export type OccasionVerdictValue = 'yes' | 'no' | 'unsure';
 export type PatternVerdictValue = 'rings_true' | 'does_not' | 'unsure';
+export type DiscoveryRange = 'all' | '30d' | '90d';
+/** The URL carries only typed IDs, a recorded range and a change token; never passages. */
+export type EvidenceRef =
+  | { kind: 'pattern' | 'outcome_pair'; patternId: string; range: DiscoveryRange; snapshot: string }
+  | { kind: 'co_label'; patternId: string; otherId: string; range: DiscoveryRange; snapshot: string }
+  | { kind: 'day'; outcome: DayDifference['outcome']; split: DayDifference['split'];
+      range: DiscoveryRange; snapshot: string };
+
+export interface DiscussionPreview {
+  ref: EvidenceRef;
+  title: string;
+  question: string;
+  evidence: PatternDetail | OutcomePair | DifferenceDetail | DayDifferenceDetail;
+  changed: boolean;
+}
+
+
+export interface Coverage {
+  range: DiscoveryRange;
+  asOf: ISODate;
+  recordedFrom: ISODate | null;
+  recordedTo: ISODate | null;
+  entryCount: number;
+  accountCount: number;
+  undatedAccountCount: number;
+}
+
+/** A saved opinion, not a source-verification or causal finding. */
+export interface Feedback<V> {
+  verdict: V | null;
+  note: string | null;
+}
+
+export interface OccasionFeedback extends Feedback<OccasionVerdictValue> {
+  ownerTone?: OccasionTone | null;
+}
+
+export interface DiscoveryStatus {
+  eligibleEntries: number;
+  currentEntries: number;
+  unreadEntries: number;
+  pendingEntries: number;
+  failedEntries: number;
+  excludedEntries: number;
+  omittedAccounts: number;
+  lastCompletedAt: ISODateTime | null;
+  model: string;
+  estimatedRequests: number;
+  estimate: string;
+}
+
 
 export interface PatternInfo {
   id: string;
@@ -154,14 +205,18 @@ export interface PatternInfo {
   source: string | null;
 }
 
-export interface PatternVerdict {
-  verdict: PatternVerdictValue;
-  note: string | null;
-}
+export type PatternVerdict = Feedback<PatternVerdictValue>;
 
 export interface PatternSummary extends PatternInfo {
   /** Occasions, not counting any you said are not this pattern. */
   occasions: number;
+  entryCount: number;
+  recordedFrom: ISODate | null;
+  recordedTo: ISODate | null;
+  undatedAccountCount: number;
+  examples: Occasion[];
+  coverage: Coverage;
+  snapshot: string;
   tones: Record<OccasionTone, number>;
   reviewed: number;
   rejected: number;
@@ -179,7 +234,7 @@ export interface OccasionCitation {
 
 export interface Occasion {
   id: ID;
-  occurredOn: string | null;
+  recordedOn: ISODate | null;
   domain: string | null;
   situation: string;
   response: string;
@@ -187,6 +242,8 @@ export interface Occasion {
   explanation: string | null;
   citations: OccasionCitation[];
   tone: OccasionTone;
+  suggestedTone: OccasionTone;
+  ownerTone: OccasionTone | null;
   size: string | null;
   labelledBy: string | null;
   ownerVerdict: OccasionVerdictValue | null;
@@ -196,10 +253,11 @@ export interface Occasion {
 export interface PatternDetail {
   pattern: PatternInfo;
   occasions: Occasion[];
-  /** Other patterns also present on each side, and on how many occasions. */
-  alsoTrue: Record<'better' | 'worse', Record<string, number>>;
-  /** Differences of two or more between the sides. Not causes: differences. */
-  distinctive: { patternId: string; name: string; better: number; worse: number }[];
+  /** Same denominator-aware comparisons as the Insights page. */
+  distinctive: { patternId: string; name: string; better: number; worse: number;
+    betterTotal: number; worseTotal: number; betterRate: number; worseRate: number }[];
+  coverage: Coverage;
+  snapshot: string;
   verdict: PatternVerdict | null;
 }
 
@@ -221,6 +279,67 @@ export interface Difference {
   verdict: PatternVerdict | null;
   /** The owner's verdict on the pattern itself, if any. */
   patternVerdict: PatternVerdict | null;
+  betterRate: number;
+  worseRate: number;
+  rateGap: number;
+  coverage: Coverage;
+  snapshot: string;
+  sampleLabel: 'exploratory';
+  dismissed: boolean;
+}
+
+export interface OutcomePair {
+  kind: 'outcome_pair';
+  patternId: string;
+  patternName: string;
+  question: string;
+  better: Occasion;
+  worse: Occasion;
+  betterTotal: number;
+  worseTotal: number;
+  mixedTotal: number;
+  verdict: PatternVerdict | null;
+  coverage: Coverage;
+  snapshot: string;
+}
+
+export interface DifferenceDetail {
+  difference: Difference;
+  groups: Record<'betterWith' | 'betterWithout' | 'worseWith' | 'worseWithout', Occasion[]>;
+  mixedExcluded: number;
+}
+
+export interface DayCoverage {
+  range: DiscoveryRange;
+  asOf: ISODate;
+  recordedFrom: ISODate;
+  recordedTo: ISODate;
+  measuredDays: number;
+  checkinDays: number;
+  overlappingDays: number;
+}
+
+export interface DayDiagnostics {
+  measuredDays: number;
+  checkinDays: number;
+  overlappingDays: number;
+  eligibleComparisons: number;
+  reason: 'no_measured_days' | 'no_checkins' | 'no_overlap'
+    | 'insufficient_groups' | 'no_qualifying_difference' | null;
+}
+
+export interface ContributingDay {
+  day: ISODate;
+  value: number;
+  splitValue: number | string;
+  entryIds: ID[];
+}
+
+export interface DayDifferenceDetail {
+  difference: DayDifference;
+  leftDays: ContributingDay[];
+  rightDays: ContributingDay[];
+  excluded: Record<'missingScore' | 'missingMeasurement' | 'lowCoverage' | 'partialSteps' | 'medianTies', number>;
 }
 
 /** A comparison of outcome ratings on two groups of measured days, not a cause. */
@@ -234,6 +353,11 @@ export interface DayDifference {
   rightMean: number;
   pValue: number;
   verdict: PatternVerdict | null;
+  leftLabel: string;
+  rightLabel: string;
+  threshold: number | null;
+  coverage: DayCoverage;
+  snapshot: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

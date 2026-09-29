@@ -11,30 +11,47 @@
  */
 
 import { api } from './client';
-import type { Difference, OccasionVerdictValue, PatternDetail, PatternSummary, PatternVerdictValue } from '@/types/api';
+import type {
+  Coverage, Difference, DifferenceDetail, DiscoveryRange, DiscoveryStatus, OccasionFeedback,
+  OutcomePair, PatternDetail, PatternSummary, PatternVerdict,
+} from '@/types/api';
 
-export async function getPatterns(): Promise<{ patterns: PatternSummary[] }> {
-  return api.get('/patterns');
+export async function getPatterns(period: DiscoveryRange = 'all'): Promise<{ patterns: PatternSummary[]; coverage: Coverage }> {
+  return api.get(`/patterns?range=${period}`);
 }
 
-export async function getPattern(id: string): Promise<PatternDetail> {
-  return api.get(`/patterns/${id}`);
+export async function getPattern(id: string, period: DiscoveryRange = 'all'): Promise<PatternDetail> {
+  return api.get(`/patterns/${encodeURIComponent(id)}?range=${period}`);
 }
 
 export async function setOccasionVerdict(patternId: string, occasionId: string,
-                                         verdict: OccasionVerdictValue | null): Promise<{ ok: boolean }> {
-  return api.put(`/patterns/${patternId}/occasions/${occasionId}`, { verdict });
+                                         feedback: OccasionFeedback): Promise<{ ok: boolean }> {
+  return api.put(`/patterns/${encodeURIComponent(patternId)}/occasions/${encodeURIComponent(occasionId)}`, feedback);
 }
 
-export async function setPatternVerdict(patternId: string, verdict: PatternVerdictValue): Promise<{ ok: boolean }> {
-  return api.put(`/patterns/${patternId}/verdict`, { verdict });
+export async function setPatternVerdict(patternId: string, feedback: PatternVerdict): Promise<{ ok: boolean }> {
+  return api.put(`/patterns/${encodeURIComponent(patternId)}/verdict`, feedback);
 }
 
-export async function getDifferences(): Promise<{ differences: Difference[] }> {
-  return api.get('/differences');
+export async function getDifferences(period: DiscoveryRange = 'all'): Promise<{
+  differences: Difference[]; reflections: OutcomePair[]; coverage: Coverage; snapshot: string;
+}> {
+  return api.get(`/differences?range=${period}`);
+}
+
+export function getDifferenceDetail(patternId: string, otherId: string, period: DiscoveryRange): Promise<DifferenceDetail> {
+  return api.get(`/differences/${encodeURIComponent(patternId)}/${encodeURIComponent(otherId)}?range=${period}`);
 }
 
 export async function setDifferenceVerdict(patternId: string, otherId: string,
-                                           verdict: PatternVerdictValue): Promise<{ ok: boolean }> {
-  return api.put(`/differences/${patternId}/${otherId}/verdict`, { verdict });
+                                           feedback: PatternVerdict): Promise<{ ok: boolean }> {
+  return api.put(`/differences/${encodeURIComponent(patternId)}/${encodeURIComponent(otherId)}/verdict`, feedback);
+}
+
+export function getDiscoveryStatus(): Promise<DiscoveryStatus> {
+  return api.get('/discovery/status');
+}
+
+export function refreshDiscovery(scope: 'unread' | 'failed'): Promise<{ queuedEntries: number }> {
+  return api.post('/discovery/refresh', { scope });
 }

@@ -1,7 +1,7 @@
 # ADR-0023: An insight is a difference in outcome
 
 ## Status
-Accepted — 2026-09-25
+Accepted — 2026-09-25 · Threshold and reading lifecycle amended by [ADR-0027](ADR-0027-source-backed-patterns-and-selected-evidence.md)
 
 ## Context
 The Insights screen showed the old analytical engine's findings: theme
@@ -20,22 +20,23 @@ An **insight** is one such difference: pattern A, another pattern B, and B's
 count on each side of A's occasions ("when A came up, B was there 5 of 6 times
 it went worse, and 1 of 7 times it went better"). It is listed only when:
 
-- A has occasions on both sides, since a side with none compares nothing;
-- B's counts on the two sides differ by two or more, the same threshold the
-  Patterns screen uses.
+- A has at least three accepted occasions on each of the better and worse sides;
+- B's counts differ by two or more and its shares of the two sides differ by
+  at least 25 percentage points (ADR-0027).
 
-The Insights screen, on web and phone, lists every such difference across the
-library, largest first, with those still waiting for a verdict at the top. The
-owner says whether each rings true. That verdict is stored per pair in
-`difference_verdicts` (migration 0032). The differences themselves are
-arithmetic over `pattern_labels` and are not stored, so a verdict survives a
-difference that later disappears.
+The Insights screen, on web and phone, shows these denominator-aware
+differences with inspectable source accounts. The owner says whether each
+rings true. That verdict is stored per pair in `difference_verdicts` (migration
+0032). The differences themselves are arithmetic over current
+`pattern_labels` and are not stored, so a verdict survives a difference that
+later disappears. Separate exploratory outcome pairs show one better and one
+worse occasion from different entries, without claiming a trend.
 
 Patterns stays as its own screen for what keeps coming up. The old engine's
 findings leave both clients. Its `/api/insights` routes and data stay on the
-server, and chat still reads through admission.
-
-Nothing here is sent to a model.
+server, and chat still reads through admission. Computing a difference calls
+no model; an owner-selected conversation can send its current bounded evidence
+context to chat after preview and snapshot verification (ADR-0027).
 
 ## Consequences
 An insight is only as good as the labels under it. Labellers err in both

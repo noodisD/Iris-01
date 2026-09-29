@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,6 +43,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -61,6 +64,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.iris.android.R
 import com.iris.android.api.ChatMessage
+import com.iris.android.api.EvidenceRef
+import com.iris.android.api.DiscussionPreview
+import com.iris.android.api.PatternDetail
+import com.iris.android.api.OutcomePair
+import com.iris.android.api.DifferenceDetail
+import com.iris.android.api.DayDifferenceDetail
+import com.iris.android.api.Occasion
+import com.iris.android.api.json
+import com.iris.android.api.patternRoute
 import com.iris.android.talk.TalkPhase
 import com.iris.android.talk.TalkService
 import com.iris.android.talk.TalkSession
@@ -82,23 +94,31 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
+import kotlinx.serialization.json.decodeFromJsonElement
 @Composable
-fun ChatScreen(draft: String? = null) {
+fun ChatScreen(evidence: String? = null, onNavigate: (String) -> Unit = {}) {
     val model: ChatViewModel = viewModel()
     val context = LocalContext.current
     DisposableEffect(model) {
         onDispose { model.onScreenLeft((context as? Activity)?.isChangingConfigurations == true) }
     }
-    LaunchedEffect(model) { model.setInitialDraft(draft); model.onScreenEntered() }
+    LaunchedEffect(model) {
+        val ref = evidence?.let { runCatching { json.decodeFromString(EvidenceRef.serializer(), it) }.getOrNull() }
+        model.setEvidence(ref, invalid = evidence != null && ref == null)
+        model.onScreenEntered()
+    }
     val conversation by model.conversation.collectAsState()
     val messages by model.messages.collectAsState()
     val user by model.user.collectAsState()
     val typed by model.draft.collectAsState()
     val pending by model.pending.collectAsState()
     val failure by model.failure.collectAsState()
+    val reference by model.reference.collectAsState()
+    val preview by model.preview.collectAsState()
     val talk by TalkSession.state.collectAsState()
     var asking by remember { mutableStateOf(false) }
     val talking = talk.phase != TalkPhase.Off
+    LaunchedEffect(talking, reference) { model.onTalkStateChanged() }
     val startTalking = {
         asking = false
         (conversation as? Loadable.Ready)?.value?.let { TalkService.start(context, it) }
@@ -154,6 +174,10 @@ fun ChatScreen(draft: String? = null) {
             if (conversation is Loadable.Ready) {
                 Column(Modifier.fillMaxWidth().background(colors.bg0).border(BorderStroke(1.dp, colors.lineSoft))
                     .padding(horizontal = 20.dp, vertical = 14.dp)) {
+                    if (preview != null) {
+                        EvidenceSelection(preview, reference, model::removeEvidence, model::retryEvidence,
+                            model::acceptUpdatedEvidence, onNavigate)
+                    }
                     if (talking) {
                         TalkPanel(onEnd = {
                             if (TalkSession.running) TalkService.end(context) else TalkSession.end(context)
@@ -177,16 +201,20 @@ fun ChatScreen(draft: String? = null) {
                                 disabledContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent,
                             ))
-                        IconButton(onClick = { asking = true }, enabled = !pending,
+                        IconButton(onClick = { asking = true }, enabled = !pending && preview == null,
                             modifier = Modifier.padding(bottom = 6.dp)) {
                             Icon(painterResource(R.drawable.ic_mic), contentDescription = "Talk with IRIS", tint = colors.ink2)
                         }
-                        FilledIconButton(onClick = model::send, enabled = !pending && typed.isNotBlank(),
+                        FilledIconButton(onClick = model::send, enabled = !pending && typed.isNotBlank() &&
+                            !talking && (preview == null || (preview is Loadable.Ready &&
+                                !(preview as Loadable.Ready<DiscussionPreview>).value.changed)),
                             modifier = Modifier.padding(bottom = 6.dp)) {
                             Icon(painterResource(R.drawable.ic_send), contentDescription = "Send")
                         }
                     }
                     Spacer(Modifier.height(10.dp))
+                    if (preview != null) Text("Selected evidence is for typed discussion. Remove it to use Talk.",
+                        color = colors.ink3, style = IrisType.mono.copy(fontSize = 11.sp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("STORED ON THIS MACHINE · REPLIES GENERATED BY OPENAI",
@@ -224,6 +252,91 @@ fun ChatScreen(draft: String? = null) {
                     ChatBubble(message)
                 }
                 if (pending && messages.none { it.streaming == true }) item { TypingIndicator() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EvidenceSelection(preview: Loadable<DiscussionPreview>?, reference: EvidenceRef?,
+                              onRemove: () -> Unit, onRetry: () -> Unit, onAccept: () -> Unit,
+                              onNavigate: (String) -> Unit) {
+    val colors = LocalIrisColors.current
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp).border(1.dp, colors.line, RoundedCornerShape(12.dp))
+        .height(210.dp).verticalScroll(rememberScrollState()).padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("SELECTED EVIDENCE", style = IrisType.mono, color = colors.sage)
+            TextButton(onClick = onRemove) { Text("Remove") }
+        }
+        when (preview) {
+            is Loadable.Loading -> Text("Opening current evidence…", color = colors.ink2)
+            is Loadable.Failed -> {
+                Text(preview.message, color = colors.rose)
+                if (reference != null) TextButton(onClick = onRetry) { Text("Retry preview") }
+            }
+            is Loadable.Ready -> {
+                val data = preview.value
+                Text(data.title, color = colors.ink, style = MaterialTheme.typography.titleSmall)
+                EvidencePassages(data, onNavigate)
+                if (data.changed) {
+                    Text("Review updated evidence before sending. Your draft has not been sent.",
+                        color = colors.rose)
+                    TextButton(onClick = onAccept) { Text("Use updated evidence") }
+                }
+            }
+            null -> Unit
+        }
+        if (reference != null) TextButton(onClick = {
+            onNavigate(when (reference) {
+                is EvidenceRef.Pattern -> patternRoute(reference.patternId, reference.range)
+                else -> "insights?range=${reference.range}"
+            })
+        }) { Text("Back to source") }
+    }
+}
+
+@Composable
+private fun EvidencePassages(preview: DiscussionPreview, onNavigate: (String) -> Unit) {
+    val parsed = runCatching {
+        when (preview.ref) {
+            is EvidenceRef.Pattern -> json.decodeFromJsonElement<PatternDetail>(preview.evidence)
+                .occasions.filter { it.ownerVerdict != "no" }.take(4)
+            is EvidenceRef.Outcome -> json.decodeFromJsonElement<OutcomePair>(preview.evidence)
+                .let { listOf(it.better, it.worse) }
+            is EvidenceRef.CoLabel -> json.decodeFromJsonElement<DifferenceDetail>(preview.evidence)
+                .groups.values.mapNotNull { it.firstOrNull() }
+            is EvidenceRef.Day -> emptyList()
+        }
+    }
+    val colors = LocalIrisColors.current
+    if (parsed.isFailure) {
+        Text("The selected source could not be displayed.", color = colors.rose)
+        return
+    }
+    val accounts = parsed.getOrThrow()
+    if (preview.ref is EvidenceRef.Day) {
+        val detail = runCatching { json.decodeFromJsonElement<DayDifferenceDetail>(preview.evidence) }.getOrNull()
+        if (detail == null) {
+            Text("The selected days could not be displayed.", color = colors.rose)
+            return
+        }
+        Text("${detail.difference.leftLabel}: ${detail.difference.leftMean} across " +
+            "${detail.difference.leftCount} days; ${detail.difference.rightLabel}: " +
+            "${detail.difference.rightMean} across ${detail.difference.rightCount} days.",
+            color = colors.ink2)
+        (detail.leftDays.take(5) + detail.rightDays.take(5)).forEach { day ->
+            Text("${day.day} · score ${day.value} · measured ${day.splitValue}", color = colors.ink2)
+            day.entryIds.forEach { id ->
+                TextButton(onClick = { onNavigate("journal?entry=$id") }) { Text("Open check-in") }
+            }
+        }
+    } else accounts.forEach { account ->
+        Text("${account.recordedOn ?: "date unknown"} · provisional ${account.tone}: " +
+            "${account.response}${account.outcome?.let { " → $it" }.orEmpty()}", color = colors.ink2)
+        account.citations.take(2).forEach { citation ->
+            TextButton(onClick = { onNavigate("journal?entry=${citation.entryId}") }) {
+                Text("“${citation.text}” · Open entry")
             }
         }
     }

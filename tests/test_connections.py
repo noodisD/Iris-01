@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from types import SimpleNamespace
+
+import pytest
 
 from agent.connections import MAX_CANDIDATES, Candidate, propose, render, vet
-from agent.episodes import Citation, Episode
+from agent.episodes import Citation, Episode, ReadUnavailable
 
 RELATION = ("The decisions reconsidered afterwards were the ones made while someone "
             "was waiting for an answer")
@@ -521,29 +524,119 @@ def test_several_circumstances_are_asked_in_one_call():
     assert seen["prompt"].count("[0] area:") == 1, "and only once"
 
 
-def test_an_answer_about_a_circumstance_that_was_not_asked_is_dropped():
-    from agent.connections import label_many
-
+def _batch_model(reply):
     class Model:
         def chat(self, messages, system_prompt, **kwargs):
-            return json.dumps({"circumstances": [
-                {"id": "invented", "accounts": [{"i": 0, "went": "better", "size": "small"}]}]})
+            if isinstance(reply, Exception):
+                raise reply
+            return json.dumps(reply) if not isinstance(reply, str) else reply
 
-    labels, counts = label_many([("first", "someone was waiting", "")], EPISODES, Model())
-
-    assert labels == {} and counts["asked"] is True
+    return Model()
 
 
-def test_a_batch_that_could_not_be_asked_says_so():
+_FIRST = {"id": "first", "accounts": [{"i": 0, "went": "better", "size": "small"}]}
+_SECOND = {"id": "second", "accounts": []}
+_SUBJECTS = [("first", "someone was waiting", ""),
+             ("second", "there was time", "")]
+
+
+def test_every_requested_circumstance_requires_an_explicit_row():
     from agent.connections import label_many
 
-    class Down:
-        def chat(self, messages, system_prompt, **kwargs):
-            raise RuntimeError("no credits remaining")
+    labels, counts = label_many(
+        _SUBJECTS, EPISODES, _batch_model({"circumstances": [_FIRST, _SECOND]}))
+    assert labels == {"first": {0: {"tone": "better", "size": "small"}}, "second": {}}
+    assert counts["labelled"] == 2
 
-    labels, counts = label_many([("first", "a circumstance", "")], EPISODES, Down())
 
-    assert labels == {} and counts["asked"] is False
+@pytest.mark.parametrize("reply", [
+    {"circumstances": [_FIRST]},
+    {"circumstances": [_FIRST, _FIRST, _SECOND]},
+    {"circumstances": [_FIRST, _SECOND, {"id": "invented", "accounts": []}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": [
+        {"i": 1, "went": "better", "size": "small"},
+        {"i": 1, "went": "worse", "size": "large"}]}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": [
+        {"i": 99, "went": "better", "size": "small"}]}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": [
+        {"i": -1, "went": "better", "size": "small"}]}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": [
+        {"i": 2, "went": "better", "size": "enormous"}]}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": [
+        {"i": 2, "went": "excellent", "size": "small"}]}]},
+    {"circumstances": [_FIRST, {"id": "second", "accounts": None}]},
+    {"circumstances": None},
+    "not JSON",
+    RuntimeError("sensitive provider response"),
+])
+def test_invalid_batch_is_not_partial_success(reply, caplog):
+    from agent.connections import label_many
+
+    with pytest.raises(ReadUnavailable):
+        label_many(_SUBJECTS, EPISODES, _batch_model(reply))
+    assert "sensitive provider response" not in caplog.text
+
+
+def test_missing_provider_is_unavailable_but_no_work_needs_none():
+    from agent.connections import label_many
+
+    with pytest.raises(ReadUnavailable):
+        label_many(_SUBJECTS, EPISODES, None)
+    assert label_many([], EPISODES, None)[0] == {}
+    assert label_many(_SUBJECTS, [], None)[0] == {}
+
+
+def test_unclear_labels_are_not_better_or_worse_evidence():
+    from agent.connections import label_many
+
+    labels, _ = label_many(_SUBJECTS, EPISODES, _batch_model({"circumstances": [
+        {"id": "first", "accounts": [
+            {"i": 0, "went": "unclear", "size": "small"},
+            {"i": 1, "went": "worse", "size": "unclear"},
+            {"i": 2, "went": "mixed", "size": "moderate"}]},
+        _SECOND]}))
+    assert labels["first"] == {2: {"tone": "mixed", "size": "moderate"}}
+
+
+def test_failed_later_batch_does_not_replace_a_good_label_cache(tmp_path, monkeypatch):
+    from scripts import label_accounts
+    from agent.episodes import EXTRACTION_VERSION
+
+    cache = tmp_path / "episodes.json"
+    cache.write_text(json.dumps({"version": EXTRACTION_VERSION, "readAt": "new",
+                                 "episodes": [EPISODES[0].as_dict()]}))
+    labels = tmp_path / "labels.json"
+    original = '{"readAt":"old","labels":{"first":{"0":{"tone":"worse","size":"large"}}}}'
+    labels.write_text(original)
+    monkeypatch.setattr(label_accounts, "load", lambda _: [
+        SimpleNamespace(id="first", statement="first", markers=""),
+        SimpleNamespace(id="second", statement="second", markers="")])
+    monkeypatch.setattr(label_accounts, "library_hash", lambda _: "test-hash")
+
+    class Model:
+        def __init__(self, model):
+            pass
+
+        @staticmethod
+        def estimate(*args):
+            return "estimate"
+
+    monkeypatch.setattr(label_accounts, "Intelligence", Model)
+    calls = 0
+
+    def read_batch(subjects, episodes, model):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ReadUnavailable("Labelling missing circumstance ID")
+        return {"first": {0: {"tone": "better", "size": "small"}}}, {}
+
+    monkeypatch.setattr(label_accounts, "label_many", read_batch)
+    monkeypatch.setattr("sys.argv", ["label_accounts.py", "--cache", str(cache),
+                                     "--labels", str(labels), "--batch", "1"])
+    assert label_accounts.main() == 1
+    assert calls == 2
+    assert labels.read_text() == original
 
 
 def test_a_run_can_say_what_it_will_cost_before_it_spends_it():

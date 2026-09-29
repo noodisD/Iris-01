@@ -1,11 +1,18 @@
 import { api } from './client';
-import type { DayDifference, PatternVerdictValue } from '@/types/api';
+import type { DayDiagnostics, DayDifference, DayDifferenceDetail, DiscoveryRange, PatternVerdict } from '@/types/api';
 
-export function getDayDifferences(): Promise<{ differences: DayDifference[] }> {
-  return api.get('/day-differences');
+export function getDayDifferences(period: DiscoveryRange = 'all'): Promise<{
+  differences: DayDifference[]; diagnostics: DayDiagnostics;
+}> {
+  return api.get(`/day-differences?range=${period}`);
+}
+
+export function getDayDifferenceDetail(outcome: DayDifference['outcome'], split: DayDifference['split'],
+                                       period: DiscoveryRange): Promise<DayDifferenceDetail> {
+  return api.get(`/day-differences/${encodeURIComponent(outcome)}/${encodeURIComponent(split)}?range=${period}`);
 }
 
 export function setDayDifferenceVerdict(outcome: DayDifference['outcome'], split: DayDifference['split'],
-                                        verdict: PatternVerdictValue): Promise<{ ok: boolean }> {
-  return api.put(`/day-differences/${encodeURIComponent(outcome)}/${encodeURIComponent(split)}/verdict`, { verdict });
+                                        feedback: PatternVerdict): Promise<{ ok: boolean }> {
+  return api.put(`/day-differences/${encodeURIComponent(outcome)}/${encodeURIComponent(split)}/verdict`, feedback);
 }

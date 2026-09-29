@@ -1,0 +1,117 @@
+package com.iris.android.ui.patterns
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.iris.android.api.IrisLink
+import com.iris.android.ui.theme.IrisType
+import com.iris.android.ui.theme.LocalIrisColors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+@Serializable
+private data class DiscoveryStatus(
+    val eligibleEntries: Int,
+    val currentEntries: Int,
+    val unreadEntries: Int,
+    val pendingEntries: Int,
+    val failedEntries: Int,
+    val excludedEntries: Int,
+    val omittedAccounts: Int,
+    val lastCompletedAt: String?,
+    val model: String,
+    val estimatedRequests: Int,
+    val estimate: String,
+)
+@Serializable
+private data class DiscoveryRefreshResult(val queuedEntries: Int)
+
+
+/** Poll only while this page is resumed and a read is pending. */
+@Composable
+internal fun DiscoveryStatusStrip(onCompletion: () -> Unit = {}) {
+    val owner = LocalLifecycleOwner.current
+    val latestCompletion by rememberUpdatedState(onCompletion)
+    val colors = LocalIrisColors.current
+    var status by remember { mutableStateOf<DiscoveryStatus?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var requesting by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    fun request(scope: String) {
+        requesting = true
+        coroutineScope.launch {
+            try {
+                IrisLink.api().send("POST", "/discovery/refresh",
+                    buildJsonObject { put("scope", scope) }.toString(),
+                    DiscoveryRefreshResult.serializer())
+                refresh++
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "Reading request failed. Try again." }
+            finally { requesting = false }
+        }
+    }
+    LaunchedEffect(owner, refresh) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                try {
+                    val next = IrisLink.api().send("GET", "/discovery/status", null, DiscoveryStatus.serializer())
+                    val previous = status
+                    status = next
+                    error = null
+                    if (previous != null && (previous.currentEntries != next.currentEntries ||
+                            previous.lastCompletedAt != next.lastCompletedAt)) latestCompletion()
+                    if (next.pendingEntries == 0) awaitCancellation()
+                    delay(5_000)
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) {
+                    error = e.message ?: "Reading status unavailable."
+                    awaitCancellation()
+                }
+            }
+        }
+    }
+    Column {
+        status?.let { s ->
+            Text("Reading: ${s.currentEntries}/${s.eligibleEntries} entries · ${s.pendingEntries} pending · ${s.failedEntries} failed",
+                style = IrisType.mono, color = colors.ink3, fontSize = 12.sp)
+            s.lastCompletedAt?.let { Text("Last read: $it", color = colors.ink3, fontSize = 12.sp) }
+            if (s.omittedAccounts > 0) Text("${s.omittedAccounts} accounts could not be grounded in sources.", color = colors.ink3)
+            if (s.unreadEntries > 0) {
+                Text("${s.unreadEntries} eligible entries not read · ${s.model} · ${s.estimatedRequests} possible requests · ${s.estimate}",
+                    color = colors.ink3, fontSize = 12.sp)
+                TextButton(enabled = !requesting, onClick = { request("unread") }) {
+                    Text("Read existing writing")
+                }
+            }
+            if (s.failedEntries > 0) TextButton(enabled = !requesting, onClick = { request("failed") }) {
+                Text("Retry failed reading")
+            }
+            if (s.eligibleEntries > 0 && s.currentEntries == s.eligibleEntries && s.pendingEntries == 0 &&
+                s.failedEntries == 0 && s.unreadEntries == 0) {
+                Text("Reading complete; a completed read may have found no usable accounts.", color = colors.ink3, fontSize = 12.sp)
+            }
+        }
+        error?.let { Text(it, color = colors.rose, fontSize = 12.sp)
+            TextButton(onClick = { refresh++ }) { Text("Retry status") }
+        }
+    }
+}

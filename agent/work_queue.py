@@ -130,8 +130,8 @@ def _succeed(item_id: int, generation: int) -> bool:
     return deleted
 
 
-def _fail(item_id: int, attempts: int, error: str) -> int | None:
-    """Schedule the next attempt, or park the item once the schedule runs out."""
+def _fail(item_id: int, attempts: int, error: str, generation: int) -> int | None:
+    """Back off only this generation; an edit must retain its newer job."""
     if attempts <= len(BACKOFF_SECONDS):
         delay: int | None = BACKOFF_SECONDS[attempts - 1]
     else:
@@ -140,16 +140,17 @@ def _fail(item_id: int, attempts: int, error: str) -> int | None:
     with db.connection() as conn, conn.cursor() as cur:
         if delay is None:
             cur.execute(
-                "UPDATE processing_queue SET last_error = %s WHERE id = %s;",
-                (error[:2000], item_id),
+                """UPDATE processing_queue SET last_error = %s
+                    WHERE id = %s AND generation = %s""",
+                (error[:2000], item_id, generation),
             )
         else:
             cur.execute(
                 """UPDATE processing_queue
                    SET last_error = %s,
                        next_attempt_at = NOW() + make_interval(secs => %s)
-                   WHERE id = %s;""",
-                (error[:2000], delay, item_id),
+                   WHERE id = %s AND generation = %s""",
+                (error[:2000], delay, item_id, generation),
             )
         conn.commit()
     return delay
@@ -180,6 +181,11 @@ def _run(source_type: str, source_id: int) -> None:
         from .importing.audio import run_transcription_job
 
         run_transcription_job(source_id)
+        return
+    if source_type == "discovery":
+        from .discovery_worker import process_reflection
+
+        process_reflection(source_id)
         return
     run_processing_pipeline(source_type, source_id)
 
@@ -230,7 +236,8 @@ def process_due(limit: int = 20) -> tuple[int, int]:
                     succeeded += 1
                 except Exception as exc:
                     failed += 1
-                    delay = _fail(int(item_id or 0), int(item.get("attempts") or 0), str(exc))
+                    delay = _fail(int(item_id or 0), int(item.get("attempts") or 0),
+                                  str(exc), int(item.get("generation") or 0))
                     obs.mark_error(current, exc)
                     if delay is None:
                         outcome = "exhausted"

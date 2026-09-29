@@ -22,7 +22,8 @@ import logging
 import sys
 import time
 
-logging.disable(logging.CRITICAL)
+if __name__ == "__main__":  # the CLI silences the reader; an importer keeps its capture
+    logging.disable(logging.CRITICAL)
 
 from collections import Counter  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -69,7 +70,8 @@ def main() -> int:
     by_pattern = {pid: {int(i): answer for i, answer in rows.items()}
                   for pid, rows in labels["labels"].items()}
     sides = compare(by_pattern, args.pattern, episodes)
-    rows = distinctive(sides, minimum=args.minimum)
+    rows = distinctive(sides, {name: len(side.episodes) for name, side in sides.items()},
+                       minimum=args.minimum)
 
     by = labels.get("by", {})
     involved = {by.get(pid, "unrecorded") for pid, _, _ in rows} | {by.get(args.pattern, "unrecorded")}

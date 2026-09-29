@@ -98,8 +98,8 @@ def test_episode_reader_is_shown_plain_text_and_cites_the_original():
             return json.dumps({"episodes": [{
                 "actor": "self",
                 "modality": "happened",
-                "situation": "a pot was on the stove",
-                "response": "added the herbs",
+                "situation": "The basil went into the soup",
+                "response": "basil went into the soup",
                 "quotes": [{"entryId": 9, "sourceType": "reflection", "text": PLAIN_QUOTE}],
             }]})
 

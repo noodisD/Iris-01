@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent import discovery  # noqa: E402
 from agent.database import db  # noqa: E402
+from agent.episodes import EXTRACTION_VERSION  # noqa: E402
+from agent.library import library_hash, load as load_library  # noqa: E402
 
 
 def answers_from_sheet(path: Path) -> tuple[str | None, list[tuple[int, str, str | None]]]:
@@ -62,8 +64,29 @@ def _run() -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    episodes = json.loads(Path(args.cache).read_text())["episodes"]
+    reading = json.loads(Path(args.cache).read_text())
+    if reading.get("version") != EXTRACTION_VERSION:
+        print("the accounts were made by another extraction version; read again.")
+        return 1
+    episodes = reading["episodes"]
     labels = json.loads(Path(args.labels).read_text())
+    if labels.get("readAt") != reading.get("readAt"):
+        print("the labels were made against another reading; relabel first.")
+        return 1
+    if reading.get("includesStaged") is not False:
+        print("an importable cache requires scripts/read_episodes.py --no-staged.")
+        return 1
+    revisions = reading.get("sourceRevisions")
+    if (not isinstance(revisions, dict)
+            or any(not str(key).isdigit() or type(value) is not int or value < 1
+                   for key, value in revisions.items())):
+        print("the reading has no valid source revisions; read again with --no-staged.")
+        return 1
+    source_revisions = {int(key): value for key, value in revisions.items()}
+    if (labels.get("extractionVersion") != EXTRACTION_VERSION
+            or labels.get("libraryHash") != library_hash(load_library())):
+        print("the labels do not match the current extraction and library; relabel.")
+        return 1
     pattern, answers = answers_from_sheet(Path(args.answers))
     n_labels = sum(len(rows) for rows in labels.get("labels", {}).values())
     print(f"reading: {len(episodes)} occasions, {n_labels} labels across "
@@ -75,7 +98,12 @@ def _run() -> int:
     # No name passed: the same rule the app uses (IRIS_DEFAULT_USER, else
     # "local"), so this cannot load everything under a user the app never shows.
     user_id = args.user or db.local_user_id()
-    counts = discovery.load_reading(user_id, episodes, labels)
+    if reading.get("user") != user_id:
+        print("the reading belongs to another user; read again for this owner.")
+        return 1
+    counts = discovery.load_reading(
+        user_id, episodes, labels, source_revisions=source_revisions,
+        extraction_version=EXTRACTION_VERSION, library_hash=labels["libraryHash"])
     print("loaded:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
 
     applied = skipped = 0

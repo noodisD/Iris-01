@@ -87,23 +87,26 @@ def test_an_episode_read_from_the_copy_cites_the_original():
     and what they are shown back, is their own text."""
     entries = [{"id": 1, "date": None, "content": RAW, "source_type": "reflection"}]
     raw = [{"actor": "self", "modality": "happened", "domain": "pottery",
-            "situation": "a pottery class where the wheel wobbled",
-            "response": "kept going until the end",
-            "outcome": "a bowl came out of it",
+            "situation": "the wheel kept wobbling",
+            "response": "near the end it just worked",
+            "outcome": "i got a bowl out of it",
             "quotes": [{"entryId": 1, "sourceType": "reflection",
-                        "text": "Then near the end it just worked, and I got a bowl out of it."}]}]
+                        "text": TIDY}]}]
 
     kept = verified_episodes(raw, entries)
 
     assert len(kept) == 1
-    assert kept[0].citations[0].text == "then near the end it just worked and i got a bowl out of it"
+    assert kept[0].citations[0].text == RAW
+    assert kept[0].situation == "the wheel kept wobbling"
+    assert kept[0].response == "near the end it just worked"
+    assert kept[0].outcome == "i got a bowl out of it"
 
 
 def test_an_invented_quote_still_fails_however_it_is_punctuated():
     entries = [{"id": 1, "date": None, "content": RAW, "source_type": "reflection"}]
     raw = [{"actor": "self", "modality": "happened", "domain": "pottery",
-            "situation": "a pottery class", "response": "kept going",
-            "outcome": "a bowl",
+            "situation": "the pottery class", "response": "the wheel kept wobbling",
+            "outcome": "i got a bowl out of it",
             "quotes": [{"entryId": 1, "sourceType": "reflection",
                         "text": "I was pleased with how it turned out."}]}]
 

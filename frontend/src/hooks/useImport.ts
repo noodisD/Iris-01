@@ -87,6 +87,8 @@ export function useImportActions(batchId: string | undefined) {
         refresh();
         // Imported entries are journal entries now.
         qc.invalidateQueries({ queryKey: qk.journal });
+        qc.invalidateQueries({ queryKey: qk.patterns });
+        qc.invalidateQueries({ queryKey: qk.dayDifferencesRoot });
         qc.invalidateQueries({ queryKey: qk.importBatches });
       },
     }),
@@ -96,6 +98,8 @@ export function useImportActions(batchId: string | undefined) {
         qc.invalidateQueries({ queryKey: qk.importBatches });
         qc.invalidateQueries({ queryKey: qk.journal });
         qc.invalidateQueries({ queryKey: qk.ideas });
+        qc.invalidateQueries({ queryKey: qk.patterns });
+        qc.invalidateQueries({ queryKey: qk.dayDifferencesRoot });
       },
     }),
   };

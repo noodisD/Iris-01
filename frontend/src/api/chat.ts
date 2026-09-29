@@ -10,7 +10,7 @@
  */
 
 import { api, sse } from './client';
-import type { ChatMessage, Conversation } from '@/types/api';
+import type { ChatMessage, Conversation, DiscussionPreview, EvidenceRef } from '@/types/api';
 
 /** A new empty open. Earlier messages stay stored and are not returned here. */
 export async function startConversation(): Promise<Conversation> {
@@ -24,6 +24,10 @@ export async function getCurrentConversation(): Promise<Conversation> {
 export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
   return api.get<ChatMessage[]>(`/conversations/${conversationId}/messages`);
 }
+export function getDiscussionPreview(ref: EvidenceRef): Promise<DiscussionPreview> {
+  return api.get(`/discovery/discussion?ref=${encodeURIComponent(JSON.stringify(ref))}`);
+}
+
 
 /** The owner's message as shown while the reply is written; stored by the stream. */
 export function draftUserMessage(conversationId: string, text: string): ChatMessage {
@@ -57,9 +61,11 @@ export async function* streamReply(
   conversationId: string,
   userText: string,
   voice = false,
+  evidenceRef?: EvidenceRef,
 ): AsyncGenerator<{ text: string; done?: boolean; messageId?: string }> {
   // `voice` marks a turn that will be heard, not read (ADR-0025).
-  const body = voice ? { text: userText, voice: true } : { text: userText };
+  const body = { text: userText, ...(voice ? { voice: true } : {}),
+    ...(evidenceRef ? { evidenceRef } : {}) };
   for await (const ev of sse<StreamEvent>(`/conversations/${conversationId}/messages/stream`, body)) {
     // Default false: the draft is kept unless the server says the message was
     // stored. Defaulting the other way threw away what they wrote on the word

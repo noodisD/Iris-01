@@ -7,14 +7,22 @@ showing threshold, not a causal claim; only the owner can judge a comparison.
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 from collections import defaultdict
 from datetime import date
 from statistics import mean, median
-from typing import Any
+from typing import Any, TypedDict
 
 from agent.database import db
+from agent.discovery import period_bounds
 from agent.days.recompute import list_days
+
+class DayResults(TypedDict):
+    differences: list[dict]
+    diagnostics: dict[str, Any]
+    _details: dict[tuple[str, str], dict]
+
 
 OUTCOMES = ("energy", "mood", "sleep_quality", "stress", "focus")
 SPLITS = ("office_home", "commute", "steps", "screen_time", "social_share", "sleep")
@@ -158,46 +166,156 @@ def calculate(features: list[dict], scores: dict[str, dict[str, float]]) -> list
             })
     return result
 
+def _exclusions(features: list[dict], scores: dict[str, dict[str, float]],
+                outcome: str, split: str) -> dict[str, int]:
+    """One first-applicable exclusion reason per scored or measured day."""
+    by_day = {row["day"]: row for row in features}
+    sides = _sides(features, split)
+    values = [v for row in features if (v := _measurement(row, split)) is not None]
+    threshold = median(values) if values and split != "office_home" else None
+    excluded = dict.fromkeys(("missingScore", "missingMeasurement", "lowCoverage",
+                              "partialSteps", "medianTies"), 0)
+    for day in by_day.keys() | scores.keys():
+        row = by_day.get(day)
+        if outcome not in scores.get(day, {}):
+            reason = "missingScore"
+        elif row is None:
+            reason = "missingMeasurement"
+        elif split in ("office_home", "commute") and row["locationCoverage"] < MIN_LOCATION_COVERAGE:
+            reason = "lowCoverage"
+        elif split == "steps" and row["steps"] is not None and not row["stepsFullDay"]:
+            reason = "partialSteps"
+        elif split != "office_home" and _measurement(row, split) is None:
+            reason = "missingMeasurement"
+        elif split == "office_home" and row["dayKind"] not in ("office", "home"):
+            reason = "missingMeasurement"
+        elif threshold is not None and _measurement(row, split) == threshold:
+            reason = "medianTies"
+        elif day not in sides:
+            reason = "missingMeasurement"
+        else:
+            continue
+        excluded[reason] += 1
+    return excluded
 
-def for_user(user_id: int) -> list[dict]:
-    """Read confirmed day cache and self-report numbers, not journal words."""
+
+def _read_inputs(user_id: int, period: str) -> tuple[list[dict], dict, dict, date]:
+    start, as_of = period_bounds(period)
     features = list_days(user_id)
-    if not features:
-        return []
+    if start is not None:
+        lower, upper = start.isoformat(), as_of.isoformat()
+        features = [row for row in features if lower <= row["day"] <= upper]
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT reflection_date, energy_level, metrics FROM reflections
+            """SELECT id, reflection_date, energy_level, metrics FROM reflections
                 WHERE user_id = %s AND reflection_date IS NOT NULL
                   AND (energy_level IS NOT NULL OR metrics IS NOT NULL)
+                  AND (%s::date IS NULL OR reflection_date >= %s::date)
+                  AND (%s::date IS NULL OR reflection_date <= %s::date)
                 ORDER BY reflection_date, id""",
-            (user_id,),
-        )
-        scores = scores_from_rows(cur.fetchall())
-        differences = calculate(features, scores)
-        if not differences:
-            return []
-        cur.execute(
-            """SELECT outcome, split, verdict, note FROM day_difference_verdicts
-                WHERE user_id = %s""", (user_id,),
-        )
-        verdicts = {(outcome, split): {"verdict": verdict, "note": note}
-                    for outcome, split, verdict, note in cur.fetchall()}
-    for item in differences:
-        item["verdict"] = verdicts.get((item["outcome"], item["split"]))
-    return differences
+            (user_id, start, start, as_of if period != "all" else None,
+             as_of if period != "all" else None))
+        rows = cur.fetchall()
+    scores = scores_from_rows([(day, energy, metrics) for _id, day, energy, metrics in rows])
+    entry_ids: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for entry_id, day, energy, metrics in rows:
+        valid = scores_from_rows([(day, energy, metrics)])
+        for outcome in valid.get(day.isoformat(), {}):
+            entry_ids[(day.isoformat(), outcome)].append(str(entry_id))
+    return features, scores, entry_ids, as_of
 
 
-def set_verdict(user_id: int, outcome: str, split: str, verdict: str,
-                note: str | None = None) -> None:
-    """Store a verdict independently of today's comparison eligibility."""
-    if outcome not in OUTCOMES or split not in SPLITS or verdict not in VERDICTS:
-        raise ValueError("No such day comparison or verdict")
+def results(user_id: int, *, period: str = "all") -> DayResults:
+    """Qualifying rows plus honest missing-input diagnostics and exact day groups."""
+    features, scores, entry_ids, as_of = _read_inputs(user_id, period)
+    found = calculate(features, scores)
+    feature_by_day = {row["day"]: row for row in features}
+    eligible = 0
+    for split in SPLITS:
+        sides = _sides(features, split)
+        for outcome in OUTCOMES:
+            counts = [sum(side == name and outcome in scores.get(day, {})
+                          for day, side in sides.items()) for name in ("left", "right")]
+            eligible += min(counts) >= MIN_SIDE_DAYS
+    overlap = feature_by_day.keys() & scores.keys()
+    reason = ("no_measured_days" if not features else
+              "no_checkins" if not scores else
+              "no_overlap" if not overlap else
+              "insufficient_groups" if not eligible else
+              "no_qualifying_difference" if not found else None)
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO day_difference_verdicts (user_id, outcome, split, verdict, note)
-               VALUES (%s, %s, %s, %s, %s)
-               ON CONFLICT (user_id, outcome, split) DO UPDATE
-                   SET verdict = EXCLUDED.verdict, note = EXCLUDED.note, updated_at = now()""",
-            (user_id, outcome, split, verdict, (note or "").strip() or None),
-        )
+        cur.execute("""SELECT outcome, split, verdict, note FROM day_difference_verdicts
+                        WHERE user_id = %s""", (user_id,))
+        opinions = {(outcome, split): {"verdict": verdict, "note": note}
+                    for outcome, split, verdict, note in cur.fetchall()}
+    details: dict[tuple[str, str], dict] = {}
+    for item in found:
+        split, outcome = item["split"], item["outcome"]
+        sides = _sides(features, split)
+        measurement = {row["day"]: (
+            row["dayKind"] if split == "office_home" else _measurement(row, split))
+            for row in features}
+        grouped: dict[str, list[dict[str, Any]]] = {"left": [], "right": []}
+        for day, side in sides.items():
+            if outcome in scores.get(day, {}):
+                grouped[side].append({"day": day, "value": scores[day][outcome],
+                                      "splitValue": measurement[day],
+                                      "entryIds": entry_ids.get((day, outcome), [])})
+        for group in grouped.values():
+            group.sort(key=lambda row: row["day"], reverse=True)
+        days = sorted(row["day"] for group in grouped.values() for row in group)
+        threshold_values = [value for row in features
+                            if (value := _measurement(row, split)) is not None]
+        item["coverage"] = {
+            "range": period, "asOf": as_of.isoformat(),
+            "recordedFrom": days[0], "recordedTo": days[-1],
+            "measuredDays": len(features), "checkinDays": len(scores),
+            "overlappingDays": len(overlap)}
+        item["leftLabel"], item["rightLabel"] = SPLIT_LABELS[split]
+        item["threshold"] = (median(threshold_values)
+                             if split != "office_home" and threshold_values else None)
+        item["verdict"] = opinions.get((outcome, split))
+        payload = json.dumps([period, outcome, split, grouped, item["threshold"],
+                              item["verdict"]], sort_keys=True, separators=(",", ":"))
+        item["snapshot"] = hashlib.sha256(payload.encode()).hexdigest()
+        details[(outcome, split)] = {
+            "difference": item, "leftDays": grouped["left"], "rightDays": grouped["right"],
+            "excluded": _exclusions(features, scores, outcome, split)}
+    return {"differences": found, "diagnostics": {
+        "measuredDays": len(features), "checkinDays": len(scores),
+        "overlappingDays": len(overlap), "eligibleComparisons": eligible, "reason": reason},
+        "_details": details}
+
+
+def detail_for_user(user_id: int, outcome: str, split: str, *,
+                    period: str = "all") -> dict | None:
+    return results(user_id, period=period)["_details"].get((outcome, split))
+
+
+def for_user(user_id: int, *, period: str = "all") -> list[dict]:
+    """Read qualifying, source-linked comparisons in the selected period."""
+    return results(user_id, period=period)["differences"]
+
+
+def set_verdict(user_id: int, outcome: str, split: str, verdict: str | None,
+                note: str | None = None) -> None:
+    """Replace the owner's whole feedback record, including note-only feedback."""
+    if outcome not in OUTCOMES or split not in SPLITS or (verdict is not None and verdict not in VERDICTS):
+        raise ValueError("No such day comparison or verdict")
+    cleaned_note = (note or "").strip() or None
+    with db.connection() as conn, conn.cursor() as cur:
+        if verdict is None and cleaned_note is None:
+            cur.execute(
+                """DELETE FROM day_difference_verdicts
+                    WHERE user_id = %s AND outcome = %s AND split = %s""",
+                (user_id, outcome, split),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO day_difference_verdicts (user_id, outcome, split, verdict, note)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (user_id, outcome, split) DO UPDATE
+                       SET verdict = EXCLUDED.verdict, note = EXCLUDED.note, updated_at = now()""",
+                (user_id, outcome, split, verdict, cleaned_note),
+            )
         conn.commit()

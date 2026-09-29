@@ -382,7 +382,7 @@ def test_the_queue_retries_a_failed_analysis_instead_of_deleting_it():
                       side_effect=RuntimeError("engine down")), \
          patch.object(work_queue, "_succeed", side_effect=lambda i: deleted.append(i)), \
          patch.object(work_queue, "_fail",
-                      side_effect=lambda i, a, e: failed.append(i)):
+                      side_effect=lambda i, a, e, g: failed.append(i)):
         succeeded, failures = work_queue.process_due()
 
     assert (succeeded, failures) == (0, 1), (succeeded, failures)

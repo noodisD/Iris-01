@@ -49,13 +49,13 @@ import com.iris.android.ui.review.ReviewScreen
 import com.iris.android.ui.theme.LocalIrisColors
 
 object Routes {
-    const val CHAT = "chat?draft={draft}"
+    const val CHAT = "chat?evidence={evidence}"
     const val TODAY = "today"
     const val JOURNAL = "journal?entry={entry}"
     const val JOURNAL_VOICE = "journal/voice"
-    const val INSIGHTS = "insights"
-    const val PATTERNS = "patterns"
-    const val PATTERN = "patterns/{id}"
+    const val INSIGHTS = "insights?range={range}"
+    const val PATTERNS = "patterns?range={range}"
+    const val PATTERN = "patterns/{id}?range={range}"
     const val MORE = "more"
     const val HABITS = "habits"
     const val NOTICED = "noticed"
@@ -149,8 +149,8 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
             androidx.compose.foundation.layout.Box(
                 androidx.compose.ui.Modifier.padding(bottom = padding.calculateBottomPadding())) {
                 NavHost(navController = nav, startDestination = Routes.CHAT) {
-                    composable(Routes.CHAT, arguments = listOf(navArgument("draft") { nullable = true; defaultValue = null })) {
-                        gated { ChatScreen(it.arguments?.getString("draft")) }
+                    composable(Routes.CHAT, arguments = listOf(navArgument("evidence") { nullable = true; defaultValue = null })) {
+                        gated { ChatScreen(it.arguments?.getString("evidence"), nav::navigate) }
                     }
                     composable(Routes.TODAY) { gated { TodayScreen(nav::navigate) } }
                     composable(Routes.JOURNAL, arguments = listOf(navArgument("entry") { nullable = true; defaultValue = null })) {
@@ -168,9 +168,16 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
                             )
                         }
                     }
-                    composable(Routes.INSIGHTS) { gated { InsightsScreen(nav::navigate) } }
-                    composable(Routes.PATTERNS) { gated { PatternsScreen(nav::navigate) } }
-                    composable(Routes.PATTERN, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
+                    composable(Routes.INSIGHTS, arguments = listOf(navArgument("range") { defaultValue = "all" })) {
+                        gated { InsightsScreen(nav::navigate) }
+                    }
+                    composable(Routes.PATTERNS, arguments = listOf(navArgument("range") { defaultValue = "all" })) {
+                        gated { PatternsScreen(nav::navigate) }
+                    }
+                    composable(Routes.PATTERN, arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("range") { defaultValue = "all" },
+                    )) {
                         gated {
                             PatternDetailScreen(
                                 requireNotNull(it.arguments?.getString("id")),

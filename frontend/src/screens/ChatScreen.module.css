@@ -20,6 +20,15 @@
 .composerWrap { border-top: 1px solid var(--mist); padding: var(--space-3) var(--page-pad) var(--space-4); background: var(--night); }
 .composerInner { max-width: var(--measure-reading); margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
 .failure { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+.evidence { max-height: 32vh; overflow: auto; padding: var(--space-3); border: 1px solid var(--mist-2);
+  border-radius: var(--radius-panel); background: var(--dusk); font-size: var(--text-sm); }
+.evidence h2 { font-size: var(--text-lg); margin: var(--space-2) 0; }
+.evidence h3 { font-size: var(--text-sm); margin: var(--space-2) 0; }
+.evidenceHead { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+.evidence p { margin: var(--space-2) 0; }
+.sourceAccount { border-top: 1px solid var(--mist); padding-top: var(--space-2); }
+.sourceAccount blockquote { margin: var(--space-2) 0; padding-left: var(--space-3);
+  border-left: 2px solid var(--iris); white-space: pre-wrap; }
 .composer { display: flex; align-items: flex-end; gap: var(--space-3); background: var(--dusk); border: 1px solid var(--mist-2);
   border-radius: var(--radius-panel); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); }
 .composer:focus-within { border-color: var(--iris); }

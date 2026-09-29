@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import * as chatApi from '@/api/chat';
-import type { ChatMessage } from '@/types/api';
+import type { ChatMessage, EvidenceRef } from '@/types/api';
 
 export function useConversation() {
   return useQuery({ queryKey: qk.conversation, queryFn: chatApi.getCurrentConversation });
@@ -26,6 +26,15 @@ export function useMessages(conversationId: string | undefined) {
     enabled:  !!conversationId,
   });
 }
+export function useEvidencePreview(ref: EvidenceRef | null) {
+  return useQuery({
+    queryKey: ['discovery', 'discussion', ref ? JSON.stringify(ref) : null],
+    queryFn: () => chatApi.getDiscussionPreview(ref!),
+    enabled: ref !== null,
+    retry: false,
+  });
+}
+
 
 /**
  * Send a message and stream IRIS's reply into the cache as it is written.
@@ -39,6 +48,7 @@ export function useMessages(conversationId: string | undefined) {
 export interface SpokenTurn {
   text: string;
   voice?: boolean;
+  evidenceRef?: EvidenceRef;
   /** Each fragment of IRIS's reply as it is written, for speaking it. */
   onFragment?: (fragment: string) => void;
 }
@@ -50,7 +60,8 @@ export function useSendMessage(conversationId: string | undefined) {
   return useMutation({
     mutationFn: async (input: string | SpokenTurn) => {
       if (!conversationId) throw new Error('No active conversation');
-      const { text, voice = false, onFragment } = typeof input === 'string' ? { text: input } : input;
+      const { text, voice = false, onFragment, evidenceRef } =
+        typeof input === 'string' ? { text: input } : input;
 
       const userMsg = chatApi.draftUserMessage(conversationId, text);
       const replyId = `m_stream_${Date.now()}`;
@@ -64,7 +75,7 @@ export function useSendMessage(conversationId: string | undefined) {
         let buffer = '';
         let finalId: string | undefined;
         let finished = false;
-        for await (const ev of chatApi.streamReply(conversationId, text, voice)) {
+        for await (const ev of chatApi.streamReply(conversationId, text, voice, evidenceRef)) {
           if (ev.done) { finalId = ev.messageId; finished = true; break; }
           buffer += ev.text;
           onFragment?.(ev.text);

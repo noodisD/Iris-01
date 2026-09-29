@@ -22,8 +22,8 @@ summaries of their own writing.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-
 from .episodes import Episode
 
 #: How what followed read, as the labelling pass judged it.
@@ -63,19 +63,25 @@ def compare(labels: dict[str, dict[int, dict]], pattern_id: str,
     return sides
 
 
-def distinctive(sides: dict[str, Side], minimum: int = 2) -> list[tuple[str, int, int]]:
-    """Patterns that sit on one side of a pattern's occasions and not the other.
+def distinctive(sides: dict[str, Side], totals: Mapping[str, int],
+                minimum: int = 2) -> list[tuple[str, int, int]]:
+    """Exploratory co-label contrasts, never causal claims.
 
-    `minimum` is the size of the difference, not of the larger side: two
-    occasions against one is a difference of one, which on this much evidence
-    is two occasions and a coincidence. Sorted by that difference, largest
-    first.
+    Each side needs three accounts; the count gap and a 25-point rate gap
+    must both hold. Integer cross-products preserve the exact boundary.
     """
+    better_total, worse_total = totals["better"], totals["worse"]
+    if min(better_total, worse_total) < 3:
+        return []
     ids = set(sides["better"].others) | set(sides["worse"].others)
     out = []
     for other in ids:
         better = sides["better"].others.get(other, 0)
         worse = sides["worse"].others.get(other, 0)
-        if abs(better - worse) >= minimum:
+        if (abs(better - worse) >= minimum
+                and 4 * abs(better * worse_total - worse * better_total)
+                >= better_total * worse_total):
             out.append((other, better, worse))
-    return sorted(out, key=lambda row: abs(row[1] - row[2]), reverse=True)
+    return sorted(out, key=lambda row: (
+        -abs(row[1] * worse_total - row[2] * better_total)
+        / (better_total * worse_total), row[0]))

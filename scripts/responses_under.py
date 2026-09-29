@@ -24,7 +24,8 @@ import logging
 import sys
 import time
 
-logging.disable(logging.CRITICAL)
+if __name__ == "__main__":  # the CLI silences the reader; an importer keeps its capture
+    logging.disable(logging.CRITICAL)
 
 from pathlib import Path  # noqa: E402
 

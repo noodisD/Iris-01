@@ -154,7 +154,8 @@ class PersonalAICompanion:
             logger.error(f"Error during shutdown cleanup: {e}")
 
     @obs.traced("chat.begin_turn", "chat", args=("spoken",))
-    def _begin_turn(self, user_message: str, spoken: bool = False) -> tuple[list[dict], str]:
+    def _begin_turn(self, user_message: str, spoken: bool = False, *,
+                    evidence_ref: dict | None = None) -> tuple[list[dict], str]:
         """Record the owner's message and build what the model is given.
 
         Shared by `chat` and `chat_stream`, so the two ways of replying cannot
@@ -162,6 +163,14 @@ class PersonalAICompanion:
         same turn with one instruction more: the reply will be heard, not read
         (ADR-0025).
         """
+        selected = None
+        if evidence_ref is not None:
+            from .discussion import prompt_block
+            from .discovery import resolve_discussion
+
+            selected = prompt_block(resolve_discussion(
+                self.user_id, evidence_ref, require_snapshot=True))
+
         # 1. Add user message to memory
         obs.set_attributes({
             "iris.chat.session_id": self.session_id,
@@ -181,6 +190,8 @@ class PersonalAICompanion:
 
 {aggregated_context}
 """
+        if selected is not None:
+            enhanced_prompt += f"\n{selected}\n"
         if spoken:
             enhanced_prompt += f"\n{SPOKEN_STYLE}\n"
         # 4. Short-term conversation context
@@ -202,7 +213,8 @@ class PersonalAICompanion:
         self.memory.add_message("assistant", response_text)
         return response_text
 
-    def begin_turn(self, user_message: str, spoken: bool = False) -> tuple[list[dict], str]:
+    def begin_turn(self, user_message: str, spoken: bool = False, *,
+                   evidence_ref: dict | None = None) -> tuple[list[dict], str]:
         """Store the owner's message and build the model's input, or raise.
 
         Separate from the streaming half so a caller can tell the owner what
@@ -211,7 +223,7 @@ class PersonalAICompanion:
         its draft when the server says the message was stored — so a write that
         failed could take the only copy of what they typed with it.
         """
-        return self._begin_turn(user_message, spoken)
+        return self._begin_turn(user_message, spoken, evidence_ref=evidence_ref)
 
     def stream_reply(self, short_term_context: list[dict],
                      enhanced_prompt: str) -> Iterator[str]:

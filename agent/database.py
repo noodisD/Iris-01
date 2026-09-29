@@ -871,8 +871,40 @@ class Database:
                ON CONFLICT (source_type, source_id) DO UPDATE
                   SET generation = processing_queue.generation + 1,
                       attempts = 0, last_error = NULL,
+                      next_attempt_at = NOW(),
                       origin_traceparent = EXCLUDED.origin_traceparent;""",
             (user_id, source_type, source_id, current_traceparent()),
+        )
+
+
+    @staticmethod
+    def _retire_discovery(cur, reflection_id: int) -> None:
+        """Make old evidence disappear in the same commit as a source edit."""
+        cur.execute(
+            """UPDATE occasions SET is_current = FALSE
+                WHERE id IN (
+                    SELECT occasion_id FROM occasion_sources WHERE reflection_id = %s
+                    UNION
+                    SELECT o.id FROM occasions o
+                     CROSS JOIN LATERAL jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(o.citations) = 'array'
+                              THEN o.citations ELSE '[]'::jsonb END) c(item)
+                     WHERE c.item->>'sourceType' = 'reflection'
+                       AND c.item->>'entryId' = %s::text);""",
+            (reflection_id, reflection_id),
+        )
+        cur.execute(
+            """UPDATE pattern_labels SET is_current = FALSE
+                WHERE occasion_id IN (
+                    SELECT occasion_id FROM occasion_sources WHERE reflection_id = %s
+                    UNION
+                    SELECT o.id FROM occasions o
+                     CROSS JOIN LATERAL jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(o.citations) = 'array'
+                              THEN o.citations ELSE '[]'::jsonb END) c(item)
+                     WHERE c.item->>'sourceType' = 'reflection'
+                       AND c.item->>'entryId' = %s::text);""",
+            (reflection_id, reflection_id),
         )
 
     @staticmethod
@@ -1779,7 +1811,7 @@ class Database:
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, reflection_date, content, content_format
+                SELECT id, reflection_date, content, content_format, discovery_revision
                   FROM reflections
                  WHERE user_id = %s AND evidence_eligible
                    AND (%s::date IS NULL OR reflection_date >= %s::date)
@@ -1790,7 +1822,8 @@ class Database:
                 (user_id, since, since, limit),
             )
             return [{"id": r[0], "date": r[1], "content": r[2],
-                     "content_format": r[3], "source_type": "reflection"}
+                     "content_format": r[3], "discovery_revision": r[4],
+                     "source_type": "reflection"}
                     for r in cur.fetchall()]
 
     def get_content_for_source(self, source_type: str, source_id: int) -> str:
@@ -3061,6 +3094,8 @@ class Database:
                 reflection_id = cur.fetchone()[0]
                 if (content or "").strip():
                     self._queue(cur, user_id, 'reflection', reflection_id)
+                    if evidence_eligible:
+                        self._queue(cur, user_id, 'discovery', reflection_id)
                 else:
                     cur.execute(
                         "UPDATE reflections SET processing_status = 'complete' WHERE id = %s;",
@@ -3194,12 +3229,22 @@ class Database:
                 cur.execute(
                     """UPDATE reflections SET reflection_date = %s,
                               date_source = 'user', date_confidence = 'certain',
-                              updated_at = CURRENT_TIMESTAMP
-                        WHERE id = %s AND user_id = %s AND reflection_date IS NULL;""",
+                              updated_at = CURRENT_TIMESTAMP,
+                              discovery_revision = discovery_revision + 1
+                        WHERE id = %s AND user_id = %s AND reflection_date IS NULL
+                    RETURNING evidence_eligible, content;""",
                     (on, reflection_id, user_id))
                 if cur.rowcount == 0:
                     conn.rollback()
                     return 0
+                eligible, content = cur.fetchone()
+                self._retire_discovery(cur, reflection_id)
+                if eligible and (content or "").strip():
+                    self._queue(cur, user_id, 'discovery', reflection_id)
+                else:
+                    cur.execute(
+                        "DELETE FROM processing_queue WHERE source_type = 'discovery' AND source_id = %s;",
+                        (reflection_id,))
 
                 cur.execute(
                     """UPDATE theme_occurrences SET occurred_at = %s
@@ -3230,6 +3275,15 @@ class Database:
 
                 if not update_pairs:
                     return True
+                cur.execute(
+                    "SELECT content, evidence_eligible FROM reflections WHERE id = %s FOR UPDATE;",
+                    (reflection_id,))
+                previous = cur.fetchone()
+                if previous is None:
+                    conn.rollback()
+                    return False
+                content_changed = ('content' in updates and
+                                   updates['content'] != previous[0])
 
                 set_clause = ", ".join([f"{k} = %s" for k, v in update_pairs])
                 values = []
@@ -3246,13 +3300,23 @@ class Database:
                     values
                 )
                 row = cur.fetchone()
-                if row and 'content' in updates:
+                if row and content_changed:
                     # What was derived from the old words goes in the same commit
                     # as the new words, and the entry is queued again. Done as
                     # separate steps after the edit, a crash in between left the
                     # new text beside the old embedding with nothing queued.
                     # Resetting the status is how a run already in flight learns
                     # that the text it read is no longer the text (pipeline.py).
+                    cur.execute(
+                        "UPDATE reflections SET discovery_revision = discovery_revision + 1 WHERE id = %s;",
+                        (reflection_id,))
+                    self._retire_discovery(cur, reflection_id)
+                    if previous[1] and (updates['content'] or "").strip():
+                        self._queue(cur, row[0], 'discovery', reflection_id)
+                    else:
+                        cur.execute(
+                            "DELETE FROM processing_queue WHERE source_type = 'discovery' AND source_id = %s;",
+                            (reflection_id,))
                     cur.execute(
                         """DELETE FROM theme_occurrences
                             WHERE source_type = 'reflection' AND source_id = %s
@@ -3265,11 +3329,17 @@ class Database:
                         "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
                         (reflection_id,))
                     cur.execute(
-                        "UPDATE reflections SET processing_status = 'pending' WHERE id = %s;",
-                        (reflection_id,))
+                        "UPDATE reflections SET processing_status = %s WHERE id = %s;",
+                        ('pending' if (updates['content'] or "").strip() else 'complete',
+                         reflection_id))
                     for theme_id in touched:
                         self._recompute_theme_stats(cur, theme_id)
-                    self._queue(cur, row[0], 'reflection', reflection_id)
+                    if (updates['content'] or "").strip():
+                        self._queue(cur, row[0], 'reflection', reflection_id)
+                    else:
+                        cur.execute(
+                            "DELETE FROM processing_queue WHERE source_type = 'reflection' AND source_id = %s;",
+                            (reflection_id,))
                 conn.commit()
                 return True
             except psycopg2.Error as e:
@@ -3287,6 +3357,27 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
+                cur.execute("SELECT id FROM reflections WHERE id = %s FOR UPDATE;", (reflection_id,))
+                if cur.fetchone() is None:
+                    conn.rollback()
+                    return False
+                cur.execute(
+                    """DELETE FROM occasions o WHERE
+                        EXISTS (SELECT 1 FROM occasion_sources s
+                                 WHERE s.occasion_id = o.id AND s.reflection_id = %s)
+                        OR EXISTS (
+                            SELECT 1 FROM jsonb_array_elements(
+                                CASE WHEN jsonb_typeof(o.citations) = 'array'
+                                     THEN o.citations ELSE '[]'::jsonb END) c(item)
+                             WHERE c.item->>'sourceType' = 'reflection'
+                               AND c.item->>'entryId' = %s::text);""",
+                    (reflection_id, reflection_id))
+                cur.execute(
+                    "DELETE FROM processing_queue WHERE source_type = 'discovery' AND source_id = %s;",
+                    (reflection_id,))
+                cur.execute(
+                    "DELETE FROM discovery_reads WHERE reflection_id = %s;",
+                    (reflection_id,))
                 cur.execute(
                     """DELETE FROM theme_occurrences
                         WHERE source_type = 'reflection' AND source_id = %s

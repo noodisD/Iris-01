@@ -13,7 +13,7 @@ import styles from './TodayScreen.module.css';
  */
 export function nextPattern(patterns: PatternSummary[] | undefined): PatternSummary | undefined {
   return (patterns ?? [])
-    .filter(p => p.occasions > 0 && !p.verdict)
+    .filter(p => p.occasions > 0 && !p.verdict?.verdict)
     .sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name))[0];
 }
 
@@ -89,11 +89,14 @@ function PatternToJudge({ pattern }: { pattern: PatternSummary }) {
           </div>
         </div>
         <div className={styles.patternFoot}>
-          <Badge>{pattern.occasions} occasions in your writing</Badge>
-          <Link to={`/patterns/${pattern.id}`}>See the occasions</Link>
+          <Badge>{pattern.occasions} recorded accounts in your writing</Badge>
+          <Link to={`/patterns/${pattern.id}?range=all`}>See the accounts</Link>
         </div>
         <ChoiceGroup label="Does this pattern ring true?" tone="confirm" options={VERDICTS} value={null}
-          disabled={verdict.isPending} onChange={value => value && verdict.mutate(value)} />
+          disabled={verdict.isPending} onChange={value => value && verdict.mutate({
+            verdict: value, note: pattern.verdict?.note ?? null,
+          })} />
+        {verdict.isError && <p role="alert">Opinion not saved. Try again.</p>}
       </Panel>
     </Section>
   );
