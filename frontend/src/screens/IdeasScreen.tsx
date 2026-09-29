@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { IdeaNeighborhood } from '@/components/IdeaNeighborhood';
 import { Backlinks, EditableStatement, IdeaNotes } from '@/components/IdeaPage';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -178,18 +178,23 @@ function nearest(statement: string, ideas: IdeaSummary[]): IdeaSummary[] {
  * "This is an idea I already hold": pick it, and the proposal's quotes become
  * that idea's. IRIS proposes a reworded idea as new when it is not sure.
  */
-function FoldIntoHeld({ card, onCancel }: { card: IdeasReview['ideas'][number]; onCancel: () => void }) {
+function FoldIntoHeld({ idea: subject, onCancel, onDone }: {
+  idea: IdeaSummary; onCancel: () => void; onDone?: (intoId: string) => void;
+}) {
   const framework = useIdeasFramework();
   const fold = useFoldIdea();
   const [query, setQuery] = React.useState('');
   const [chosen, setChosen] = React.useState<string | null>(null);
-  const held = (framework.data?.ideas ?? []).filter(idea => idea.id !== card.idea.id);
+  const merging = subject.status === 'active';
+  const held = (framework.data?.ideas ?? []).filter(idea => idea.id !== subject.id);
   const q = query.trim().toLowerCase();
-  const options = (q ? held.filter(idea => idea.statement.toLowerCase().includes(q)) : nearest(card.idea.statement, held)).slice(0, 5);
+  const options = (q ? held.filter(idea => idea.statement.toLowerCase().includes(q)) : nearest(subject.statement, held)).slice(0, 5);
   return (
     <div className={styles.fold}>
-      <label className={styles.fieldLabel} htmlFor={`fold-${card.idea.id}`}>Which idea is it?</label>
-      <input id={`fold-${card.idea.id}`} className={styles.foldSearch} type="search" value={query}
+      <label className={styles.fieldLabel} htmlFor={`fold-${subject.id}`}>
+        {merging ? 'Which idea does this repeat? It will be kept, with everything from this one.' : 'Which idea is it?'}
+      </label>
+      <input id={`fold-${subject.id}`} className={styles.foldSearch} type="search" value={query}
         placeholder="Search your ideas" onChange={event => setQuery(event.target.value)} />
       <ul className={styles.foldList} aria-label="Ideas you hold">
         {options.map(idea => (
@@ -203,8 +208,8 @@ function FoldIntoHeld({ card, onCancel }: { card: IdeasReview['ideas'][number]; 
       {fold.error && <div role="alert">{failureText(fold.error)}</div>}
       <div className={styles.row}>
         <Button variant="primary" disabled={!chosen || fold.isPending}
-          onClick={() => chosen && fold.mutate({ id: card.idea.id, intoId: chosen })}>
-          Add its quotes to this idea
+          onClick={() => chosen && fold.mutate({ id: subject.id, intoId: chosen }, { onSuccess: () => onDone?.(chosen) })}>
+          {merging ? 'Merge into this idea' : 'Add its quotes to this idea'}
         </Button>
         <Button variant="quiet" disabled={fold.isPending} onClick={onCancel}>Cancel</Button>
       </div>
@@ -278,7 +283,7 @@ function ReviewCard({ card }: { card: IdeasReview['ideas'][number] }) {
           )}
         </div>
       </div>
-      {isNew && folding && <FoldIntoHeld card={card} onCancel={() => setFolding(false)} />}
+      {isNew && folding && <FoldIntoHeld idea={card.idea} onCancel={() => setFolding(false)} />}
     </Panel>
   );
 }
@@ -736,6 +741,8 @@ function CritiqueCard({ critique }: { critique: IdeaCritique }) {
 
 function IdeaDetail({ id }: { id: string }) {
   const detail = useIdea(id);
+  const navigate = useNavigate();
+  const [merging, setMerging] = React.useState(false);
   const framework = useIdeasFramework();
   const queue = useIdeaReview();
   const update = useUpdateIdea();
@@ -806,9 +813,15 @@ function IdeaDetail({ id }: { id: string }) {
       </section>
       <CritiquePanel idea={idea} critiques={detail.data.critiques} />
       {error && <div role="alert">{failureText(error)}</div>}
-      <div><Button variant="danger" disabled={reject.isPending} onClick={() => {
+      {merging && <FoldIntoHeld idea={idea} onCancel={() => setMerging(false)} onDone={intoId => navigate(`/ideas/${intoId}`)} />}
+      <div className={styles.row}>
+        {idea.status === 'active' && !merging && (
+          <Button onClick={() => setMerging(true)}>Merge into another idea</Button>
+        )}
+        <Button variant="danger" disabled={reject.isPending} onClick={() => {
         if (idea.status !== 'active' || window.confirm(REMOVE_IDEA)) reject.mutate(id);
-      }}>{idea.status === 'active' ? 'Remove from framework' : 'Dismiss proposal'}</Button></div>
+      }}>{idea.status === 'active' ? 'Remove from framework' : 'Dismiss proposal'}</Button>
+      </div>
     </Page>
   );
 }

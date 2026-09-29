@@ -324,6 +324,17 @@ describe('a proposed link between two ideas', () => {
     ]);
     fireEvent.click(options[0]);
     fireEvent.click(view.getByRole('button', { name: 'Add its quotes to this idea' }));
-    expect(foldIdea).toHaveBeenCalledWith({ id: '7', intoId: '8' });
+    expect(foldIdea).toHaveBeenCalledWith({ id: '7', intoId: '8' }, expect.anything());
+  });
+
+  it('merges a held idea into another from its page', () => {
+    foldIdea.mockClear();
+    renderAt('/ideas/7');
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into another idea' }));
+    expect(screen.getByText(/It will be kept, with everything from this one/)).toBeInTheDocument();
+    const options = within(screen.getByRole('list', { name: 'Ideas you hold' })).getAllByRole('button');
+    fireEvent.click(options[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into this idea' }));
+    expect(foldIdea).toHaveBeenCalledWith({ id: '7', intoId: '8' }, expect.anything());
   });
 });

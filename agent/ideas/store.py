@@ -10,6 +10,7 @@ from agent.database import db
 from agent.observations import _normalized
 
 from .models import (
+    NOTES_LIMIT,
     SYMMETRIC_LINK_KINDS,
     content_hash,
     empty_dropped,
@@ -371,57 +372,129 @@ def reject_idea(user_id: int, idea_id: int) -> str:
 
 
 def fold_into(user_id: int, idea_id: int, target_id: int) -> tuple[str, int]:
-    """Fold a proposal into an idea the owner holds: its quotes become that idea's.
+    """Fold one idea into another the owner holds: the same idea, said twice.
 
-    The owner chose the idea, so the quotes are accepted, not queued again. A
-    quote the idea already has is not doubled. The proposal is set aside and
-    remembers where it went. Returns the outcome and how many quotes moved.
+    A proposal's waiting quotes become the held idea's, accepted, since the
+    owner chose where they belong. A held idea brings everything it has: its
+    quotes as they stood, its connections, and its notes, and links to it in
+    the owner's notes follow. Nothing is counted twice. The folded idea is set
+    aside and remembers where it went. Returns the outcome and how many quotes
+    moved.
     """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, status FROM ideas
+            SELECT id, status, statement, notes FROM ideas
              WHERE user_id = %s AND id IN (%s, %s)
              ORDER BY id
              FOR UPDATE;
             """,
             (user_id, idea_id, target_id),
         )
-        status = {int(row[0]): row[1] for row in cur.fetchall()}
-        if idea_id not in status or target_id not in status:
+        rows = {int(row[0]): row[1:] for row in cur.fetchall()}
+        if idea_id not in rows or target_id not in rows:
             conn.rollback()
             return "missing", 0
-        if idea_id == target_id or status[idea_id] != "candidate" or status[target_id] != "active":
+        status, statement, notes = rows[idea_id]
+        if idea_id == target_id or status not in ("candidate", "active") or rows[target_id][0] != "active":
             conn.rollback()
             return "conflict", 0
-        cur.execute(
-            """
-            SELECT c.id, c.source_hash, r.content, r.evidence_eligible
-              FROM idea_citations c
-              LEFT JOIN reflections r
-                ON r.id = c.reflection_id AND r.user_id = %s
-             WHERE c.idea_id = %s AND c.status = 'candidate'
-               AND NOT EXISTS (
-                   SELECT 1 FROM idea_citations held
-                    WHERE held.idea_id = %s
-                      AND held.reflection_id = c.reflection_id
-                      AND held.quote_hash = c.quote_hash)
-             FOR UPDATE OF c;
-            """,
-            (user_id, idea_id, target_id),
-        )
-        moving = [int(row[0]) for row in cur.fetchall() if _valid_source(row[2], row[3], row[1])]
-        if moving:
+        target_statement, target_notes = rows[target_id][1], rows[target_id][2]
+        if notes.strip() and len(_joined_notes(target_notes, statement, notes)) > NOTES_LIMIT:
+            conn.rollback()
+            return "conflict", 0
+        moved = _move_quotes(cur, user_id, idea_id, target_id, held=status == "active")
+        if status == "active":
+            _move_links(cur, user_id, idea_id, target_id)
+        if notes.strip():
             cur.execute(
-                "UPDATE idea_citations SET idea_id = %s, status = 'accepted' WHERE id = ANY(%s);",
-                (target_id, moving),
+                "UPDATE ideas SET notes = %s, notes_updated_at = NOW() WHERE user_id = %s AND id = %s;",
+                (_joined_notes(target_notes, statement, notes), user_id, target_id),
             )
         cur.execute(
             "UPDATE ideas SET status = 'rejected', merged_into_id = %s WHERE user_id = %s AND id = %s;",
             (target_id, user_id, idea_id),
         )
+        _repoint_notes(cur, user_id, statement_key(statement), target_statement)
         conn.commit()
-    return "ok", len(moving)
+    return "ok", moved
+
+
+def _joined_notes(target_notes: str, statement: str, notes: str) -> str:
+    """The folded idea's notes, kept under its own wording at the end."""
+    head = target_notes.rstrip()
+    return f"{head}\n\n## Merged from: {statement}\n\n{notes.strip()}\n" if head else notes
+
+
+def _move_quotes(cur: Any, user_id: int, idea_id: int, target_id: int, *, held: bool) -> int:
+    """A proposal's valid waiting quotes, accepted; or a held idea's quotes as they stood."""
+    cur.execute(
+        """
+        SELECT c.id, c.source_hash, r.content, r.evidence_eligible
+          FROM idea_citations c
+          LEFT JOIN reflections r
+            ON r.id = c.reflection_id AND r.user_id = %s
+         WHERE c.idea_id = %s AND c.status = ANY(%s)
+           AND NOT EXISTS (
+               SELECT 1 FROM idea_citations kept
+                WHERE kept.idea_id = %s
+                  AND kept.reflection_id = c.reflection_id
+                  AND kept.quote_hash = c.quote_hash)
+         FOR UPDATE OF c;
+        """,
+        (user_id, idea_id, ["accepted", "candidate"] if held else ["candidate"], target_id),
+    )
+    rows = cur.fetchall()
+    if held:
+        moving = [int(row[0]) for row in rows]
+        if moving:
+            cur.execute("UPDATE idea_citations SET idea_id = %s WHERE id = ANY(%s);", (target_id, moving))
+        return len(moving)
+    moving = [int(row[0]) for row in rows if _valid_source(row[2], row[3], row[1])]
+    if moving:
+        cur.execute(
+            "UPDATE idea_citations SET idea_id = %s, status = 'accepted' WHERE id = ANY(%s);",
+            (target_id, moving),
+        )
+    return len(moving)
+
+
+def _move_links(cur: Any, user_id: int, idea_id: int, target_id: int) -> None:
+    """Connections of the folded idea become the held idea's. A link between
+    the two, or one the held idea already has, is retired rather than doubled."""
+    cur.execute(
+        """
+        SELECT id, from_idea_id, to_idea_id, kind, status FROM idea_links
+         WHERE user_id = %s AND status IN ('accepted', 'candidate')
+           AND (from_idea_id = %s OR to_idea_id = %s)
+         FOR UPDATE;
+        """,
+        (user_id, idea_id, idea_id),
+    )
+    for link_id, old_start, old_end, kind, status in cur.fetchall():
+        start = target_id if old_start == idea_id else old_start
+        end = target_id if old_end == idea_id else old_end
+        if kind in SYMMETRIC_LINK_KINDS and start > end:
+            start, end = end, start
+        if start == end:
+            cur.execute("UPDATE idea_links SET status = 'rejected' WHERE id = %s;", (link_id,))
+            continue
+        cur.execute(
+            """SELECT id, status FROM idea_links
+                WHERE user_id = %s AND from_idea_id = %s AND to_idea_id = %s AND kind = %s AND id <> %s;""",
+            (user_id, start, end, kind, link_id),
+        )
+        existing = cur.fetchone()
+        if existing is not None and (existing[1] != "rejected" or status != "accepted"):
+            cur.execute("UPDATE idea_links SET status = 'rejected' WHERE id = %s;", (link_id,))
+            continue
+        if existing is not None:
+            # A dismissed proposal of a link the owner has since accepted here.
+            cur.execute("DELETE FROM idea_links WHERE id = %s;", (existing[0],))
+        cur.execute(
+            "UPDATE idea_links SET from_idea_id = %s, to_idea_id = %s WHERE id = %s;",
+            (start, end, link_id),
+        )
 
 
 def reject_citations(user_id: int, idea_id: int, citation_ids: list[int]) -> str | int:
