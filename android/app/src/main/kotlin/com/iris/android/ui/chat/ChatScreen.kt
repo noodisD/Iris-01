@@ -67,12 +67,11 @@ import com.iris.android.api.ChatMessage
 import com.iris.android.api.EvidenceRef
 import com.iris.android.api.DiscussionPreview
 import com.iris.android.api.PatternDetail
-import com.iris.android.api.OutcomePair
-import com.iris.android.api.DifferenceDetail
+import com.iris.android.api.InsightDetail
 import com.iris.android.api.DayDifferenceDetail
-import com.iris.android.api.Occasion
 import com.iris.android.api.json
 import com.iris.android.api.patternRoute
+import com.iris.android.api.insightRoute
 import com.iris.android.talk.TalkPhase
 import com.iris.android.talk.TalkService
 import com.iris.android.talk.TalkSession
@@ -274,6 +273,7 @@ private fun EvidenceSelection(preview: Loadable<DiscussionPreview>?, reference: 
             is Loadable.Failed -> {
                 Text(preview.message, color = colors.rose)
                 if (reference != null) TextButton(onClick = onRetry) { Text("Retry preview") }
+                else TextButton(onClick = { onNavigate("patterns?range=all") }) { Text("Current patterns") }
             }
             is Loadable.Ready -> {
                 val data = preview.value
@@ -289,8 +289,9 @@ private fun EvidenceSelection(preview: Loadable<DiscussionPreview>?, reference: 
         }
         if (reference != null) TextButton(onClick = {
             onNavigate(when (reference) {
-                is EvidenceRef.Pattern -> patternRoute(reference.patternId, reference.range)
-                else -> "insights?range=${reference.range}"
+                is EvidenceRef.Dynamic -> patternRoute(reference.dynamicId, reference.range)
+                is EvidenceRef.PersonalInsight -> insightRoute(reference.insightId, reference.range)
+                is EvidenceRef.Day -> "insights?range=${reference.range}"
             })
         }) { Text("Back to source") }
     }
@@ -298,23 +299,7 @@ private fun EvidenceSelection(preview: Loadable<DiscussionPreview>?, reference: 
 
 @Composable
 private fun EvidencePassages(preview: DiscussionPreview, onNavigate: (String) -> Unit) {
-    val parsed = runCatching {
-        when (preview.ref) {
-            is EvidenceRef.Pattern -> json.decodeFromJsonElement<PatternDetail>(preview.evidence)
-                .occasions.filter { it.ownerVerdict != "no" }.take(4)
-            is EvidenceRef.Outcome -> json.decodeFromJsonElement<OutcomePair>(preview.evidence)
-                .let { listOf(it.better, it.worse) }
-            is EvidenceRef.CoLabel -> json.decodeFromJsonElement<DifferenceDetail>(preview.evidence)
-                .groups.values.mapNotNull { it.firstOrNull() }
-            is EvidenceRef.Day -> emptyList()
-        }
-    }
     val colors = LocalIrisColors.current
-    if (parsed.isFailure) {
-        Text("The selected source could not be displayed.", color = colors.rose)
-        return
-    }
-    val accounts = parsed.getOrThrow()
     if (preview.ref is EvidenceRef.Day) {
         val detail = runCatching { json.decodeFromJsonElement<DayDifferenceDetail>(preview.evidence) }.getOrNull()
         if (detail == null) {
@@ -323,19 +308,67 @@ private fun EvidencePassages(preview: DiscussionPreview, onNavigate: (String) ->
         }
         Text("${detail.difference.leftLabel}: ${detail.difference.leftMean} across " +
             "${detail.difference.leftCount} days; ${detail.difference.rightLabel}: " +
-            "${detail.difference.rightMean} across ${detail.difference.rightCount} days.",
-            color = colors.ink2)
+            "${detail.difference.rightMean} across ${detail.difference.rightCount} days.", color = colors.ink2)
         (detail.leftDays.take(5) + detail.rightDays.take(5)).forEach { day ->
             Text("${day.day} · score ${day.value} · measured ${day.splitValue}", color = colors.ink2)
             day.entryIds.forEach { id ->
                 TextButton(onClick = { onNavigate("journal?entry=$id") }) { Text("Open check-in") }
             }
         }
-    } else accounts.forEach { account ->
-        Text("${account.recordedOn ?: "date unknown"} · provisional ${account.tone}: " +
-            "${account.response}${account.outcome?.let { " → $it" }.orEmpty()}", color = colors.ink2)
+        return
+    }
+    val selected = runCatching {
+        when (preview.ref) {
+            is EvidenceRef.Dynamic -> {
+                val detail = json.decodeFromJsonElement<PatternDetail>(preview.evidence)
+                val dynamicId = preview.ref.dynamicId
+                val eligible = detail.memberships[dynamicId].orEmpty()
+                    .filter { !it.excluded && it.ownerVerdict != "no" }
+                    .map { it.groupId to it.accountId }.toSet()
+                val groups = detail.groups[dynamicId].orEmpty()
+                    .map { group -> group to group.accountIds.filter { (group.id to it) in eligible } }
+                    .filter { it.second.isNotEmpty() }
+                val contrary = groups.filter { it.first.role in setOf("exception", "response_elsewhere", "mixed") }
+                val supporting = groups.filter { it.first.role == "support" }
+                Triple(detail.accounts, (contrary.take(1) + supporting.take(3)).flatMap { it.second }.distinct(),
+                    "What you wrote: ${detail.pattern.context.text} → ${detail.pattern.response.text}\n" +
+                    "You wrote: ${detail.pattern.ownerMeanings.joinToString("; ") { it.text }}\n" +
+                    "One possible explanation: ${detail.pattern.possibleMeaning?.text ?: "Not recorded"}\n" +
+                    "Another possibility: ${detail.pattern.alternative?.text ?: "Not recorded"}\n" +
+                    "At least ${detail.pattern.independentGroupCount} distinct occasions; showing up to four groups.")
+            }
+            is EvidenceRef.PersonalInsight -> {
+                val detail = json.decodeFromJsonElement<InsightDetail>(preview.evidence)
+                val groups = detail.groups.flatMap { (dynamicId, dynamicGroups) ->
+                    val eligible = detail.memberships[dynamicId].orEmpty()
+                        .filter { !it.excluded && it.ownerVerdict != "no" }
+                        .map { it.groupId to it.accountId }.toSet()
+                    dynamicGroups.map { group ->
+                        group to group.accountIds.filter { (group.id to it) in eligible }
+                    }
+                        .filter { it.second.isNotEmpty() }
+                }
+                val contrary = groups.filter { it.first.id in detail.insight.contraryGroups }
+                val supporting = groups.filter { it.first.id in detail.insight.supportingGroups }
+                Triple(detail.accounts, (contrary.take(1) + supporting.take(3)).flatMap { it.second }.distinct(),
+                    "What you wrote: ${detail.insight.observation.text}\n" +
+                    "One possible explanation: ${detail.insight.possibleMeaning.text}\n" +
+                    "Another possibility: ${detail.insight.alternative.text}\n" +
+                    "${detail.insight.supportingGroups.size} supporting / ${detail.insight.contraryGroups.size} contrary groups; showing up to four.")
+            }
+            is EvidenceRef.Day -> error("Handled above")
+        }
+    }.getOrNull()
+    if (selected == null) {
+        Text("The selected source could not be displayed.", color = colors.rose)
+        return
+    }
+    Text(selected.third, color = colors.ink2)
+    selected.second.mapNotNull(selected.first::get).forEach { account ->
+        Text("${account.recordedOn ?: "date unknown"}: ${account.response ?: account.selfReport ?: account.situation ?: "Account"}" +
+            "${account.immediateOutcome?.let { " → $it" }.orEmpty()}", color = colors.ink2)
         account.citations.take(2).forEach { citation ->
-            TextButton(onClick = { onNavigate("journal?entry=${citation.entryId}") }) {
+            TextButton(onClick = { onNavigate("journal?entry=${android.net.Uri.encode(citation.entryId)}") }) {
                 Text("“${citation.text}” · Open entry")
             }
         }

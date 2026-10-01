@@ -1,11 +1,9 @@
 .section { display: flex; flex-direction: column; gap: var(--space-4); }
 .heading { margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .note { margin: 2px 0 0; color: var(--petal-3); }
-.judged { margin: var(--space-3) 0 0; font-size: var(--text-sm); font-weight: 500; color: var(--petal-3); }
 .sentence { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); line-height: 1.5; color: var(--petal); max-width: 64ch; }
 .meta { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; color: var(--petal-3); font-size: var(--text-sm); }
 .error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
-.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .account { border-left: 2px solid var(--mist-2); padding: var(--space-2) var(--space-3); min-width: 0; overflow-wrap: anywhere; }
 .account p { margin: var(--space-2) 0; }
 .account blockquote { margin: var(--space-2) 0; font-family: var(--font-read); font-style: italic; color: var(--petal-2); }
@@ -14,4 +12,6 @@
 .evidence h3 { font-size: var(--text-sm); }
 .feedback { display: flex; flex-direction: column; gap: var(--space-2); align-items: start; }
 .feedback textarea { display: block; width: min(55ch, 100%); }
-@media (max-width: 600px) { .pair { grid-template-columns: 1fr; } }
+.interpretation { border-left: 2px solid var(--mist-2); padding-left: var(--space-3); }
+.interpretation h4 { margin: var(--space-3) 0 var(--space-1); }
+.interpretation p { margin: var(--space-1) 0; }

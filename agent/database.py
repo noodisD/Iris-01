@@ -878,34 +878,68 @@ class Database:
 
 
     @staticmethod
-    def _retire_discovery(cur, reflection_id: int) -> None:
-        """Make old evidence disappear in the same commit as a source edit."""
+    def _invalidate_discovery_source(
+        cur, user_id: int, reflection_id: int, *, deleted: bool = False,
+        queue_if_ready: bool = True,
+    ) -> None:
+        """Invalidate owner-wide synthesis after the caller locks the source row.
+
+        Take the owner state lock before touching accounts (or deleting a
+        reflection whose account FK cascades). Feedback writers take the same
+        state lock, so reversing these two locks would deadlock with them.
+        """
         cur.execute(
-            """UPDATE occasions SET is_current = FALSE
-                WHERE id IN (
-                    SELECT occasion_id FROM occasion_sources WHERE reflection_id = %s
-                    UNION
-                    SELECT o.id FROM occasions o
-                     CROSS JOIN LATERAL jsonb_array_elements(
-                         CASE WHEN jsonb_typeof(o.citations) = 'array'
-                              THEN o.citations ELSE '[]'::jsonb END) c(item)
-                     WHERE c.item->>'sourceType' = 'reflection'
-                       AND c.item->>'entryId' = %s::text);""",
-            (reflection_id, reflection_id),
+            """INSERT INTO discovery_state (user_id) VALUES (%s)
+               ON CONFLICT (user_id) DO NOTHING;""",
+            (user_id,),
         )
         cur.execute(
-            """UPDATE pattern_labels SET is_current = FALSE
-                WHERE occasion_id IN (
-                    SELECT occasion_id FROM occasion_sources WHERE reflection_id = %s
-                    UNION
-                    SELECT o.id FROM occasions o
-                     CROSS JOIN LATERAL jsonb_array_elements(
-                         CASE WHEN jsonb_typeof(o.citations) = 'array'
-                              THEN o.citations ELSE '[]'::jsonb END) c(item)
-                     WHERE c.item->>'sourceType' = 'reflection'
-                       AND c.item->>'entryId' = %s::text);""",
-            (reflection_id, reflection_id),
+            "SELECT user_id FROM discovery_state WHERE user_id = %s FOR UPDATE;",
+            (user_id,),
         )
+        cur.fetchone()
+        cur.execute(
+            """UPDATE discovery_state
+                  SET source_generation = source_generation + 1,
+                      stage = 'reading', error_kind = NULL, updated_at = NOW()
+                WHERE user_id = %s;""",
+            (user_id,),
+        )
+        cur.execute("DELETE FROM discovery_drafts WHERE user_id = %s;", (user_id,))
+        cur.execute("DELETE FROM discovery_views WHERE user_id = %s;", (user_id,))
+        cur.execute(
+            """DELETE FROM processing_queue
+                WHERE user_id = %s AND source_type = 'personal_dynamics'
+                  AND source_id = %s;""",
+            (user_id, user_id),
+        )
+        if deleted:
+            cur.execute(
+                "DELETE FROM discovery_accounts WHERE user_id = %s AND reflection_id = %s;",
+                (user_id, reflection_id),
+            )
+            cur.execute(
+                """DELETE FROM discovery_legacy_feedback
+                    WHERE user_id = %s AND kind = 'occasion'
+                      AND %s = ANY(source_ids);""",
+                (user_id, reflection_id),
+            )
+        else:
+            # Keep fingerprint identity and its correction, but never retain
+            # copied source passages from a changed or newly dated entry.
+            cur.execute(
+                """UPDATE discovery_accounts
+                      SET data = NULL, is_current = FALSE
+                    WHERE user_id = %s AND reflection_id = %s;""",
+                (user_id, reflection_id),
+            )
+        cur.execute("DELETE FROM discovery_reads WHERE reflection_id = %s;", (reflection_id,))
+        if queue_if_ready:
+            # Read completeness is checked against the whole remaining cohort,
+            # including an empty archive. New eligible entries must finish
+            # reading first; the last reader queues their synthesis.
+            from .discovery import queue_synthesis_if_ready
+            queue_synthesis_if_ready(cur, user_id)
 
     @staticmethod
     def _recompute_theme_stats(cur, theme_id: int) -> None:
@@ -3092,6 +3126,10 @@ class Database:
                      evidence_eligible, entry_sequence, content_format)
                 )
                 reflection_id = cur.fetchone()[0]
+                if evidence_eligible and (content or "").strip():
+                    self._invalidate_discovery_source(
+                        cur, user_id, reflection_id, queue_if_ready=False,
+                    )
                 if (content or "").strip():
                     self._queue(cur, user_id, 'reflection', reflection_id)
                     if evidence_eligible:
@@ -3238,7 +3276,8 @@ class Database:
                     conn.rollback()
                     return 0
                 eligible, content = cur.fetchone()
-                self._retire_discovery(cur, reflection_id)
+                if eligible and (content or "").strip():
+                    self._invalidate_discovery_source(cur, user_id, reflection_id)
                 if eligible and (content or "").strip():
                     self._queue(cur, user_id, 'discovery', reflection_id)
                 else:
@@ -3310,7 +3349,8 @@ class Database:
                     cur.execute(
                         "UPDATE reflections SET discovery_revision = discovery_revision + 1 WHERE id = %s;",
                         (reflection_id,))
-                    self._retire_discovery(cur, reflection_id)
+                    if previous[1]:
+                        self._invalidate_discovery_source(cur, row[0], reflection_id)
                     if previous[1] and (updates['content'] or "").strip():
                         self._queue(cur, row[0], 'discovery', reflection_id)
                     else:
@@ -3357,27 +3397,25 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                cur.execute("SELECT id FROM reflections WHERE id = %s FOR UPDATE;", (reflection_id,))
-                if cur.fetchone() is None:
+                cur.execute(
+                    "SELECT user_id, evidence_eligible, content FROM reflections WHERE id = %s FOR UPDATE;",
+                    (reflection_id,),
+                )
+                source = cur.fetchone()
+                if source is None:
                     conn.rollback()
                     return False
-                cur.execute(
-                    """DELETE FROM occasions o WHERE
-                        EXISTS (SELECT 1 FROM occasion_sources s
-                                 WHERE s.occasion_id = o.id AND s.reflection_id = %s)
-                        OR EXISTS (
-                            SELECT 1 FROM jsonb_array_elements(
-                                CASE WHEN jsonb_typeof(o.citations) = 'array'
-                                     THEN o.citations ELSE '[]'::jsonb END) c(item)
-                             WHERE c.item->>'sourceType' = 'reflection'
-                               AND c.item->>'entryId' = %s::text);""",
-                    (reflection_id, reflection_id))
+                user_id, eligible, content = source
+                if eligible and (content or "").strip():
+                    # Hold state before deleting accounts and their membership
+                    # feedback, including the reflection FK's cascading rows.
+                    self._invalidate_discovery_source(
+                        cur, user_id, reflection_id, deleted=True, queue_if_ready=False,
+                    )
                 cur.execute(
                     "DELETE FROM processing_queue WHERE source_type = 'discovery' AND source_id = %s;",
                     (reflection_id,))
-                cur.execute(
-                    "DELETE FROM discovery_reads WHERE reflection_id = %s;",
-                    (reflection_id,))
+                # The source invalidation above has already removed its read.
                 cur.execute(
                     """DELETE FROM theme_occurrences
                         WHERE source_type = 'reflection' AND source_id = %s
@@ -3397,6 +3435,11 @@ class Database:
                     (reflection_id,)
                 )
                 cur.execute("DELETE FROM reflections WHERE id = %s;", (reflection_id,))
+                if eligible and (content or "").strip():
+                    # Only now is the deleted reflection absent from the cohort
+                    # checked for complete reading (including empty archives).
+                    from .discovery import queue_synthesis_if_ready
+                    queue_synthesis_if_ready(cur, user_id)
                 # Counts reflect the deletion rather than remembering the entry.
                 for theme_id in touched:
                     self._recompute_theme_stats(cur, theme_id)

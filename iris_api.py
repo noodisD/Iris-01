@@ -34,7 +34,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 # Load environment variables
@@ -49,7 +49,6 @@ try:
     from agent import constructs
     from agent import decisions as decision_log
     from agent import discovery
-    from agent.library import load as load_library
     from agent.ideas.service import (
         ANALYSIS_FAILED,
         CRITIQUE_FAILED,
@@ -200,23 +199,31 @@ class DecisionOutcome(BaseModel):
 
 
 # ============================================================================
-# PATTERN MODELS
+# WRITING-BASED EVIDENCE AND MEASURED-DAY OPINIONS
 # ============================================================================
 
-class OccasionVerdict(BaseModel):
-    """The displayed account feedback, with an optional tone correction."""
-    verdict: Literal["yes", "no", "unsure"] | None
-    note: str | None = Field(default=None, max_length=1000)
-    ownerTone: Literal["better", "worse", "mixed"] | None = None
+class _CurrentWritingVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    range: Literal["all", "30d", "90d"]
+    snapshot: str = Field(pattern=r"^[0-9a-f]{64}$")
+    note: str | None = Field(max_length=1000)
 
-class PatternVerdict(BaseModel):
-    """The displayed pattern or comparison feedback, including note-only."""
+
+class WritingVerdict(_CurrentWritingVerdict):
+    verdict: Literal["rings_true", "does_not", "unsure"] | None
+
+
+class AccountVerdict(_CurrentWritingVerdict):
+    verdict: Literal["yes", "no", "unsure"] | None
+
+
+class DayVerdict(BaseModel):
     verdict: Literal["rings_true", "does_not", "unsure"] | None
     note: str | None = Field(default=None, max_length=1000)
 
+
 class DiscoveryRefresh(BaseModel):
     scope: Literal["unread", "failed"]
-
 
 # ============================================================================
 # SINGLE-USER SEAM
@@ -1211,179 +1218,38 @@ def record_decision_outcome(decision_id: int, body: DecisionOutcome,
 
 
 # ============================================================================
-# PATTERN ENDPOINTS (discovery; see agent/discovery.py and patterns/library.json)
+# PERSONAL WRITING PATTERNS AND INSIGHTS
 # ============================================================================
 
-def _library() -> dict:
-    return {p.id: p for p in load_library()}
-
-
-def _pattern_contract(p) -> dict:
-    return {"id": p.id, "name": p.name, "statement": p.statement,
-            "holdsWhen": list(p.holds_when), "notWhen": list(p.not_when),
-            "question": p.question, "basis": p.basis or None,
-            "evidence": p.evidence or None, "source": p.source or None}
-
-def _occasion_contract(o: dict) -> dict:
-    label = o["label"]
-    return {
-        "id": str(o["id"]),
-        "recordedOn": o["occurred_on"].isoformat() if o["occurred_on"] else None,
-        "domain": o["domain"], "situation": o["situation"], "response": o["response"],
-        "outcome": o["outcome"], "explanation": o["explanation"],
-        "citations": [{"entryId": str(c["entryId"]), "sourceType": c["sourceType"],
-                       "entryDate": c.get("entryDate"), "text": c["text"]}
-                      for c in (o["citations"] or [])],
-        "tone": label["tone"], "suggestedTone": label["suggested_tone"],
-        "ownerTone": label["owner_tone"], "size": label["size"],
-        "labelledBy": label["labelled_by"], "ownerVerdict": label["owner_verdict"],
-        "verdictNote": label["verdict_note"],
-    }
-
-
-def _discovery_inventory(user_id: int, library_hash_value: str) -> tuple:
-    """Count only eligible prose; a completed empty read is still current."""
-    from agent.episodes import EXTRACTION_VERSION
-    from agent.work_queue import MAX_ATTEMPTS
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """WITH inventory AS (
-                   SELECT r.content,
-                          (d.reflection_id IS NOT NULL
-                           AND d.source_revision = r.discovery_revision
-                           AND d.extraction_version = %s
-                           AND d.library_hash = %s) AS is_current,
-                          q.attempts, d.omitted_accounts, d.completed_at
-                     FROM reflections r
-                     LEFT JOIN discovery_reads d ON d.reflection_id = r.id
-                     LEFT JOIN processing_queue q
-                       ON q.source_type = 'discovery' AND q.source_id = r.id
-                    WHERE r.user_id = %s AND r.evidence_eligible
-                      AND length(btrim(coalesce(r.content, ''))) > 0
-               )
-               SELECT count(*),
-                      count(*) FILTER (WHERE is_current),
-                      count(*) FILTER (WHERE NOT is_current AND attempts IS NULL),
-                      count(*) FILTER (WHERE attempts IS NOT NULL AND attempts < %s),
-                      count(*) FILTER (WHERE attempts >= %s),
-                      coalesce(sum(omitted_accounts) FILTER (WHERE is_current), 0),
-                      max(completed_at) FILTER (WHERE is_current),
-                      coalesce(sum(length(content))
-                          FILTER (WHERE NOT is_current AND attempts IS NULL), 0)
-                 FROM inventory""",
-            (EXTRACTION_VERSION, library_hash_value, user_id,
-             MAX_ATTEMPTS, MAX_ATTEMPTS),
-        )
-        counts = cur.fetchone()
-        cur.execute(
-            """SELECT count(*) FROM reflections WHERE user_id = %s
-                 AND (NOT evidence_eligible OR length(btrim(coalesce(content, ''))) = 0)""",
-            (user_id,),
-        )
-        excluded = cur.fetchone()[0]
-        conn.commit()
-    return (*counts, excluded)
+def _writing_error(exc: Exception):
+    if isinstance(exc, (discovery.EvidenceNotReady, discovery.EvidenceChanged)):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, discovery.EvidenceNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    raise HTTPException(status_code=422, detail="Invalid writing evidence.") from exc
 
 
 @app.get("/api/discovery/status")
 def discovery_status(user_id: int = Depends(get_current_user_id)):
-    """Read-state and approximate cost; this never calls the model."""
-    from agent.config import settings
-    from agent.intelligence import Intelligence
-    from agent.library import library_hash
-
-    patterns = list(_library().values())
-    digest = library_hash(patterns)
-    (eligible, current, unread, pending, failed, omitted,
-     completed, unread_chars, excluded) = _discovery_inventory(user_id, digest)
-    batches = (len(patterns) + 4) // 5
-    requests = int(unread) * (1 + batches)
-    # An upper-bound label pass per unread entry; a read with no comparable
-    # account skips it. Character/4 is the convention used by offline estimates.
-    pattern_chars = sum(len(p.statement) + len(p.markers) for p in patterns)
-    tokens_in = (int(unread_chars) + int(unread) * (batches * 300 + pattern_chars)) // 4
-    estimate = Intelligence.estimate(
-        settings.OPENAI_WORKER_MODEL, tokens_in, int(unread) * (1200 + batches * 2000))
-    return {
-        "eligibleEntries": int(eligible), "currentEntries": int(current),
-        "unreadEntries": int(unread), "pendingEntries": int(pending),
-        "failedEntries": int(failed), "excludedEntries": int(excluded),
-        "omittedAccounts": int(omitted),
-        "lastCompletedAt": completed.isoformat() if completed else None,
-        "model": settings.OPENAI_WORKER_MODEL, "estimatedRequests": requests,
-        "estimate": f"Approximate: {estimate}",
-    }
+    """Read-state and structured approximate provider work; no provider call."""
+    return discovery.inventory(user_id)
 
 
 @app.post("/api/discovery/refresh", status_code=202)
 def refresh_discovery(body: DiscoveryRefresh, user_id: int = Depends(get_current_user_id)):
-    """Explicit archive read, or explicit retry of parked discovery jobs."""
-    from agent.episodes import EXTRACTION_VERSION
-    from agent.library import library_hash
-    from agent.observability.tracing import current_traceparent
-    from agent.work_queue import MAX_ATTEMPTS, notify
-
-    digest = library_hash(list(_library().values()))
-    with db.connection() as conn, conn.cursor() as cur:
-        if body.scope == "unread":
-            cur.execute(
-                """SELECT r.id
-                     FROM reflections r
-                     LEFT JOIN discovery_reads d ON d.reflection_id = r.id
-                     LEFT JOIN processing_queue q
-                       ON q.source_type = 'discovery' AND q.source_id = r.id
-                    WHERE r.user_id = %s AND r.evidence_eligible
-                      AND length(btrim(coalesce(r.content, ''))) > 0
-                      AND q.id IS NULL
-                      AND (d.reflection_id IS NULL
-                           OR d.source_revision <> r.discovery_revision
-                           OR d.extraction_version <> %s OR d.library_hash <> %s)
-                    ORDER BY r.id FOR UPDATE OF r""",
-                (user_id, EXTRACTION_VERSION, digest),
-            )
-            queued = 0
-            for (source_id,) in cur.fetchall():
-                # A concurrent refresh may have inserted its job while this
-                # transaction waited for the source lock. Never bump that
-                # existing job's generation on a repeated click.
-                cur.execute(
-                    """INSERT INTO processing_queue
-                           (user_id, source_type, source_id, origin_traceparent)
-                       VALUES (%s, 'discovery', %s, %s)
-                       ON CONFLICT (source_type, source_id) DO NOTHING
-                       RETURNING id""",
-                    (user_id, source_id, current_traceparent()),
-                )
-                queued += cur.fetchone() is not None
-        else:
-            cur.execute(
-                """UPDATE processing_queue q
-                      SET attempts = 0, last_error = NULL, next_attempt_at = NOW(),
-                          generation = q.generation + 1
-                     FROM reflections r
-                     LEFT JOIN discovery_reads d ON d.reflection_id = r.id
-                    WHERE q.source_type = 'discovery' AND q.source_id = r.id
-                      AND q.user_id = %s AND r.user_id = %s AND r.evidence_eligible
-                      AND length(btrim(coalesce(r.content, ''))) > 0
-                      AND q.attempts >= %s
-                      AND (d.reflection_id IS NULL
-                           OR d.source_revision <> r.discovery_revision
-                           OR d.extraction_version <> %s OR d.library_hash <> %s)""",
-                (user_id, user_id, MAX_ATTEMPTS, EXTRACTION_VERSION, digest),
-            )
-            queued = cur.rowcount
-        conn.commit()
-    if queued:
+    """Explicit archive reading or retry; queued work is never re-leased by a click."""
+    from agent.work_queue import notify
+    result = discovery.refresh(user_id, body.scope)
+    if result["queuedEntries"] or result["queuedSynthesis"]:
         notify()
-    return {"queuedEntries": queued}
+    return result
 
 
 @app.get("/api/discovery/discussion")
 def discovery_discussion(ref: str = Query(..., max_length=2048),
                          user_id: int = Depends(get_current_user_id)):
-    """Current owner-scoped preview; only typed IDs and a snapshot enter from navigation."""
-    from agent.evidence_ref import (CoLabelRef, DayRef, EvidenceNotCurrent,
-                                    EvidenceNotFound, PatternRef)
+    """Current owner-scoped preview; only typed IDs and a snapshot enter navigation."""
+    from agent.evidence_ref import EvidenceNotCurrent, EvidenceNotFound
     try:
         selected = discovery.resolve_discussion(user_id, ref)
     except EvidenceNotFound as exc:
@@ -1392,28 +1258,8 @@ def discovery_discussion(ref: str = Query(..., max_length=2048),
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid evidence reference.") from exc
-    pointer, evidence = selected["ref"], selected["evidence"]
-    if isinstance(pointer, PatternRef) and pointer.kind == "pattern":
-        data = {"pattern": _pattern_contract(evidence["pattern"]),
-                "occasions": [_occasion_contract(o) for o in evidence["occasions"]],
-                "distinctive": [{**row, "name": _library()[row["patternId"]].name}
-                                for row in evidence["distinctive"]],
-                "verdict": evidence["verdict"], "coverage": evidence["coverage"],
-                "snapshot": evidence["snapshot"]}
-    elif isinstance(pointer, PatternRef):
-        data = {**evidence, "better": _occasion_contract(evidence["better"]),
-                "worse": _occasion_contract(evidence["worse"])}
-    elif isinstance(pointer, CoLabelRef):
-        data = {"difference": evidence["difference"],
-                "groups": {name: [_occasion_contract(o) for o in rows]
-                           for name, rows in evidence["groups"].items()},
-                "mixedExcluded": evidence["mixedExcluded"]}
-    elif isinstance(pointer, DayRef):
-        data = evidence
-    else:
-        raise HTTPException(status_code=422, detail="Invalid evidence reference.")
-    body = {"ref": pointer.model_dump(), "title": selected["title"],
-            "question": selected["question"], "evidence": data,
+    body = {"ref": selected["ref"].model_dump(), "title": selected["title"],
+            "question": selected["question"], "evidence": selected["evidence"],
             "changed": selected["changed"]}
     _no_coordinates(body)
     return body
@@ -1422,76 +1268,80 @@ def discovery_discussion(ref: str = Query(..., max_length=2048),
 @app.get("/api/patterns")
 def list_patterns(range: Literal["all", "30d", "90d"] = Query("all"),
                   user_id: int = Depends(get_current_user_id)):
-    """All library lenses, with period-scoped source-backed writing."""
-    rows, coverage = discovery.summaries_with_coverage(
-        user_id, list(_library().values()), period=range)
-    return {"coverage": coverage, "snapshot": discovery.writing_snapshot(user_id, period=range),
-            "patterns": [
-                {**_pattern_contract(s["pattern"]), "occasions": s["occasions"], "tones": s["tones"],
-                 "reviewed": s["reviewed"], "rejected": s["rejected"], "labelledBy": s["labelledBy"],
-                 "verdict": s["verdict"], "coverage": s["coverage"], "entryCount": s["entryCount"],
-                 "recordedFrom": s["recordedFrom"], "recordedTo": s["recordedTo"],
-                 "undatedAccountCount": s["undatedAccountCount"],
-                 "examples": [_occasion_contract(o) for o in s["examples"]],
-                 "snapshot": s["snapshot"]}
-                for s in rows]}
+    """Current source-derived dynamics, not a list of generic library lenses."""
+    result = discovery.overview(user_id, period=range)
+    _no_coordinates(result)
+    return result
 
 
-@app.get("/api/patterns/{pattern_id}")
-def get_pattern(pattern_id: str, range: Literal["all", "30d", "90d"] = Query("all"),
+@app.get("/api/patterns/{dynamic_id}")
+def get_pattern(dynamic_id: str = ApiPath(pattern=r"^d_[0-9a-f]{64}$"),
+                range: Literal["all", "30d", "90d"] = Query("all"),
                 user_id: int = Depends(get_current_user_id)):
-    """One library lens and its period-scoped accounts, including rejected ones."""
-    library = _library()
-    if pattern_id not in library:
-        raise HTTPException(status_code=404, detail="No such pattern.")
-    d = discovery.detail(user_id, library[pattern_id], period=range)
-    return {
-        "pattern": _pattern_contract(d["pattern"]),
-        "occasions": [_occasion_contract(o) for o in d["occasions"]],
-        "distinctive": [{**row, "name": library[row["patternId"]].name}
-                        for row in d["distinctive"]],
-        "verdict": d["verdict"], "coverage": d["coverage"], "snapshot": d["snapshot"],
-    }
+    try:
+        result = discovery.pattern(user_id, dynamic_id, period=range)
+    except (discovery.EvidenceNotReady, discovery.EvidenceNotFound, ValueError) as exc:
+        _writing_error(exc)
+    _no_coordinates(result)
+    return result
 
 
-@app.put("/api/patterns/{pattern_id}/occasions/{occasion_id}")
-def put_occasion_verdict(pattern_id: str, occasion_id: int, body: OccasionVerdict,
+@app.get("/api/personal-insights")
+def list_personal_insights(range: Literal["all", "30d", "90d"] = Query("all"),
+                           user_id: int = Depends(get_current_user_id)):
+    result = discovery.overview(user_id, period=range, kind="insight")
+    _no_coordinates(result)
+    return result
+
+
+@app.get("/api/personal-insights/{insight_id}")
+def get_personal_insight(insight_id: str = ApiPath(pattern=r"^i_[0-9a-f]{64}$"),
+                         range: Literal["all", "30d", "90d"] = Query("all"),
                          user_id: int = Depends(get_current_user_id)):
-    """Whether this occasion is really an instance of the pattern."""
-    tone = {"owner_tone": body.ownerTone} if "ownerTone" in body.model_fields_set else {}
-    if not discovery.set_occasion_verdict(
-            user_id, pattern_id, occasion_id, body.verdict, body.note, **tone):
-        raise HTTPException(status_code=404, detail="That occasion is not labelled with this pattern.")
+    try:
+        result = discovery.insight(user_id, insight_id, period=range)
+    except (discovery.EvidenceNotReady, discovery.EvidenceNotFound, ValueError) as exc:
+        _writing_error(exc)
+    _no_coordinates(result)
+    return result
+
+
+@app.put("/api/patterns/{dynamic_id}/verdict")
+def put_pattern_verdict(body: WritingVerdict,
+                        dynamic_id: str = ApiPath(pattern=r"^d_[0-9a-f]{64}$"),
+                        user_id: int = Depends(get_current_user_id)):
+    try:
+        return discovery.set_feedback(user_id, "dynamic", dynamic_id, body.range,
+                                      body.snapshot, body.verdict, body.note)
+    except (discovery.EvidenceNotReady, discovery.EvidenceNotFound,
+            discovery.EvidenceChanged, ValueError) as exc:
+        _writing_error(exc)
+
+
+@app.put("/api/personal-insights/{insight_id}/verdict")
+def put_personal_insight_verdict(body: WritingVerdict,
+                                 insight_id: str = ApiPath(pattern=r"^i_[0-9a-f]{64}$"),
+                                 user_id: int = Depends(get_current_user_id)):
+    try:
+        return discovery.set_feedback(user_id, "insight", insight_id, body.range,
+                                      body.snapshot, body.verdict, body.note)
+    except (discovery.EvidenceNotReady, discovery.EvidenceNotFound,
+            discovery.EvidenceChanged, ValueError) as exc:
+        _writing_error(exc)
+
+
+@app.put("/api/patterns/{dynamic_id}/accounts/{account_id}")
+def put_account_verdict(body: AccountVerdict,
+                        dynamic_id: str = ApiPath(pattern=r"^d_[0-9a-f]{64}$"),
+                        account_id: str = ApiPath(pattern=r"^[0-9a-f]{64}$"),
+                        user_id: int = Depends(get_current_user_id)):
+    try:
+        discovery.set_membership_feedback(user_id, dynamic_id, account_id, body.range,
+                                          body.snapshot, body.verdict, body.note)
+    except (discovery.EvidenceNotReady, discovery.EvidenceNotFound,
+            discovery.EvidenceChanged, ValueError) as exc:
+        _writing_error(exc)
     return {"ok": True}
-
-
-@app.get("/api/differences")
-def list_differences(range: Literal["all", "30d", "90d"] = Query("all"),
-                     user_id: int = Depends(get_current_user_id)):
-    return {"differences": discovery.differences(user_id, list(_library().values()), period=range),
-            "reflections": [
-                {**pair, "better": _occasion_contract(pair["better"]),
-                 "worse": _occasion_contract(pair["worse"])}
-                for pair in discovery.outcome_pairs(user_id, list(_library().values()), period=range)],
-            "coverage": discovery.writing_coverage(user_id, period=range),
-            "snapshot": discovery.writing_snapshot(user_id, period=range)}
-
-
-@app.get("/api/differences/{pattern_id}/{other_pattern_id}")
-def get_difference_detail(pattern_id: str, other_pattern_id: str,
-                          range: Literal["all", "30d", "90d"] = Query("all"),
-                          user_id: int = Depends(get_current_user_id)):
-    library = _library()
-    if pattern_id not in library or other_pattern_id not in library or pattern_id == other_pattern_id:
-        raise HTTPException(status_code=404, detail="No such difference.")
-    result = discovery.difference_detail(user_id, list(library.values()),
-                                         pattern_id, other_pattern_id, period=range)
-    if result is None:
-        raise HTTPException(status_code=409, detail="This comparison has changed.")
-    return {"difference": result["difference"],
-            "groups": {key: [_occasion_contract(o) for o in group]
-                       for key, group in result["groups"].items()},
-            "mixedExcluded": result["mixedExcluded"]}
 
 
 @app.get("/api/day-differences")
@@ -1520,7 +1370,7 @@ def get_day_difference_detail(outcome: str, split: str,
 
 
 @app.put("/api/day-differences/{outcome}/{split}/verdict")
-def put_day_difference_verdict(outcome: str, split: str, body: PatternVerdict,
+def put_day_difference_verdict(outcome: str, split: str, body: DayVerdict,
                                user_id: int = Depends(get_current_user_id)):
     from agent.day_differences import set_verdict
     try:
@@ -1529,26 +1379,6 @@ def put_day_difference_verdict(outcome: str, split: str, body: PatternVerdict,
         raise HTTPException(status_code=404, detail="No such day comparison.") from exc
     return {"ok": True}
 
-
-@app.put("/api/differences/{pattern_id}/{other_pattern_id}/verdict")
-def put_difference_verdict(pattern_id: str, other_pattern_id: str, body: PatternVerdict,
-                           user_id: int = Depends(get_current_user_id)):
-    """Whether a difference in outcome rings true."""
-    library = _library()
-    if pattern_id not in library or other_pattern_id not in library or pattern_id == other_pattern_id:
-        raise HTTPException(status_code=404, detail="No such difference.")
-    discovery.set_difference_verdict(user_id, pattern_id, other_pattern_id, body.verdict, body.note)
-    return {"ok": True}
-
-
-@app.put("/api/patterns/{pattern_id}/verdict")
-def put_pattern_verdict(pattern_id: str, body: PatternVerdict,
-                        user_id: int = Depends(get_current_user_id)):
-    """Whether the pattern rings true at all."""
-    if pattern_id not in _library():
-        raise HTTPException(status_code=404, detail="No such pattern.")
-    discovery.set_pattern_verdict(user_id, pattern_id, body.verdict, body.note)
-    return {"ok": True}
 
 
 # ============================================================================

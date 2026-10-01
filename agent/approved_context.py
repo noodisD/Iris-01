@@ -24,7 +24,6 @@ from . import day_differences, decisions, discovery
 from .database import db
 from .days.recompute import list_days
 from .ideas.service import IdeaService
-from .library import load as load_library
 
 logger = logging.getLogger(__name__)
 
@@ -68,30 +67,36 @@ def _ideas(user_id: int) -> list[str]:
 
 
 def _insights(user_id: int) -> list[str]:
-    rows = [d for d in discovery.differences(user_id, load_library())
-            if (d["verdict"] or {}).get("verdict") == "rings_true"
-            and not d["dismissed"]][:MAX_INSIGHTS]
-    lines = ["## Current comparisons with an owner's saved rings-true opinion (observational, never causes)"]
+    current, _ = discovery.insights(user_id, period="all")
+    rows = [card for card in current if card.feedback is not None
+            and card.feedback.verdict == "rings_true"
+            and not card.feedback.needs_review][:MAX_INSIGHTS]
+    lines = ["## Personal insights the owner accepted as possibilities (still tentative)"]
     if not rows:
         lines.append("None yet.")
-    for d in rows:
-        lines.append(f"- Saved opinion; in currently recorded \"{d['patternName']}\" accounts, "
-                     f"\"{d['otherName']}\" was labelled in {d['worse']}/{d['worseTotal']} "
-                     f"read as worse and {d['better']}/{d['betterTotal']} read as better. "
-                     "The owner has not independently verified each account.")
+    for card in rows:
+        lines.append(
+            f"- {_cut(card.title, 100)}: observed {_cut(card.observation.text, 180)} "
+            f"Owner-endorsed possibility, not an established cause: "
+            f"{_cut(card.possible_meaning.text, 180)} "
+            f"Materially different rival: {_cut(card.alternative.text, 180)}")
     return lines
 
 
 def _patterns(user_id: int) -> list[str]:
-    rows = [s for s in discovery.summaries(user_id, load_library())
-            if s["occasions"] > 0 and (s["verdict"] or {}).get("verdict") == "rings_true"][:MAX_PATTERNS]
-    lines = ["## Patterns they said ring true (from a general library, found in their writing)"]
+    current, _ = discovery.patterns(user_id, period="all")
+    rows = [card for card in current if card.feedback is not None
+            and card.feedback.verdict == "rings_true"
+            and not card.feedback.needs_review][:MAX_PATTERNS]
+    lines = ["## Personal dynamics the owner said ring true (observation only, not a motive)"]
     if not rows:
         lines.append("None yet.")
-    for s in rows:
-        t = s["tones"]
-        lines.append(f"- {s['pattern'].name}: {_cut(s['pattern'].statement, 200)} "
-                     f"({s['occasions']} occasions: {t['worse']} went worse, {t['better']} better)")
+    for card in rows:
+        lines.append(
+            f"- {_cut(card.title, 100)}: when {_cut(card.context.text, 160)}, "
+            f"{_cut(card.response.text, 160)} "
+            f"[{card.evidence_state}; at least {card.independent_group_count} distinct events]. "
+            "The owner approved this observation, not Iris's suggested explanation.")
     return lines
 
 

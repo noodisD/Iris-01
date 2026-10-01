@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  useDayDifferenceDetail, useDayDifferences, useDayDifferenceVerdict, useDifferenceDetail,
-  useDifferences, useDifferenceVerdict, usePatternVerdict,
-} from '@/hooks/usePatterns';
+import { useDayDifferenceDetail, useDayDifferences, useDayDifferenceVerdict,
+  useInsightVerdict, usePersonalInsight, usePersonalInsights } from '@/hooks/usePatterns';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { evidenceHref } from '@/lib/evidence';
-import type {
-  ContributingDay, DayDifference, DayDiagnostics, Difference, DiscoveryRange, Occasion,
-  OutcomePair, PatternVerdict, PatternVerdictValue,
-} from '@/types/api';
-import { Badge, Button, ChoiceGroup, Page, Panel } from '@/ui';
+import type { ContributingDay, DayDifference, DayDiagnostics, DiscoveryRange,
+  InsightDetail, PatternVerdict, PatternVerdictValue, PersonalInsight } from '@/types/api';
+import { Button, ChoiceGroup, Page, Panel } from '@/ui';
+import { AccountEvidence, SourcedClause, VerdictEditor } from './PatternsScreen';
 import { DiscoveryStatusStrip } from './DiscoveryStatusStrip';
 import { DiscoveryPeriod, InvalidDiscoveryPeriod, useDiscoveryPeriod } from './DiscoveryPeriod';
 import styles from './InsightsScreen.module.css';
@@ -20,13 +17,16 @@ const VERDICTS: { value: PatternVerdictValue; label: string }[] = [
   { value: 'does_not', label: "Doesn't ring true" },
   { value: 'unsure', label: 'Unsure' },
 ];
-
+const kindLabel: Record<PersonalInsight['kind'], string> = {
+  function_and_tradeoff: 'Function and tradeoff', contextual_difference: 'Contextual difference',
+  shared_concern: 'Shared concern',
+};
 
 export function InsightsScreen() {
   const [period, setPeriod] = useDiscoveryPeriod();
   if (!period) return <InvalidDiscoveryPeriod />;
   return <Page title="Insights" width="standard"
-    description="Two recorded situations to compare, cautious co-label contrasts, and measured days. These are observations, not causes or advice.">
+    description="Tentative connections drawn from checked writing, alongside independent measured-day differences.">
     <DiscoveryPeriod period={period} onChange={setPeriod} />
     <DiscoveryStatusStrip />
     <WritingSection period={period} />
@@ -34,131 +34,94 @@ export function InsightsScreen() {
   </Page>;
 }
 
-type WritingCard = { kind: 'co_label'; difference: Difference } | { kind: 'outcome_pair'; pair: OutcomePair };
-
 function WritingSection({ period }: { period: DiscoveryRange }) {
-  const { data, isPending, isError, refetch } = useDifferences(period);
-  const [filter, setFilter] = useState<'current' | 'saved' | 'dismissed'>('current');
-  const [showAll, setShowAll] = useState(false);
-  const cards: WritingCard[] = [
-    ...(data?.differences.map(difference => ({ kind: 'co_label' as const, difference })) ?? []),
-    ...(data?.reflections.map(pair => ({ kind: 'outcome_pair' as const, pair })) ?? []),
-  ];
-  const visible = cards.filter(card => {
-    const verdict = card.kind === 'co_label' ? card.difference.verdict?.verdict : card.pair.verdict?.verdict;
-    const dismissed = card.kind === 'co_label' ? card.difference.dismissed : verdict === 'does_not';
-    return filter === 'dismissed' ? dismissed : filter === 'saved' ? !dismissed && verdict != null : !dismissed;
-  });
-  const first: WritingCard[] = [];
-  const remaining: WritingCard[] = [];
-  const used = new Set<string>();
-  visible.forEach(card => {
-    const id = card.kind === 'co_label' ? card.difference.patternId : card.pair.patternId;
-    if (first.length < 3 && !used.has(id)) { first.push(card); used.add(id); }
-    else remaining.push(card);
-  });
-  return <section aria-label="Writing differences" className={styles.section}>
+  const { data, isPending, isError, refetch } = usePersonalInsights(period);
+  return <section aria-label="Personal insights" className={styles.section}>
     <h2 className={styles.heading}>From your writing</h2>
-    {isPending ? <LoadingState label="Comparing recorded situations…" />
-      : isError || !data ? <ErrorState onRetry={() => refetch()} /> : <>
-        <p className={styles.note}>{data.coverage.entryCount} contributing entries · recorded {data.coverage.recordedFrom ?? 'date unknown'} to {data.coverage.recordedTo ?? 'date unknown'}. Unwritten events are not counted as absences.</p>
-        <div className={styles.meta}>
-          {(['current', 'saved', 'dismissed'] as const).map(choice =>
-            <Button key={choice} size="sm" onClick={() => { setFilter(choice); setShowAll(false); }}
-              disabled={filter === choice}>{choice === 'current' ? 'Current' : choice === 'saved' ? 'Saved opinions' : 'Dismissed'}</Button>)}
-        </div>
-        {visible.length === 0 ? <EmptyState title="No writing comparisons in this view."
-          body={data.coverage.entryCount === 0
-            ? 'No source-backed accounts in this period. Review your Journal or read existing writing.'
-            : 'The current accounts do not meet the conservative comparison rule, or there are no differently classified accounts from separate entries.'} />
-          : <>
-            {[...first, ...(showAll ? remaining : [])].map(card => card.kind === 'co_label'
-              ? <CoLabelCard key={`co/${period}/${card.difference.patternId}/${card.difference.otherId}`}
-                  d={card.difference} period={period} />
-              : <PairCard key={`pair/${period}/${card.pair.patternId}`} pair={card.pair} period={period} />)}
-            {remaining.length > 0 && <Button size="sm" onClick={() => setShowAll(!showAll)}>
-              {showAll ? 'Show fewer' : `Show all comparisons (${remaining.length} more)`}
-            </Button>}
-          </>}
-      </>}
+    {isPending ? <LoadingState label="Opening personal insights…" />
+      : isError || !data ? <ErrorState onRetry={() => refetch()} />
+      : data.status.stage !== 'ready' ? <p role="status">Writing analysis is not current yet; measured days remain available below.</p>
+      : data.insights.length === 0 ? <EmptyState title="No checked personal insights in this range."
+          body="A pattern can still be visible without enough evidence for an explanatory insight." />
+      : data.insights.map(insight => <InsightCard key={`${period}/${insight.id}`} insight={insight} period={period} />)}
   </section>;
 }
 
-function EvidenceAccount({ account }: { account: Occasion }) {
-  return <div className={styles.account}>
-    <span className={styles.note}>Recorded {account.recordedOn ?? 'date unknown'} · provisional {account.tone}</span>
-    <p>{account.response}{account.outcome && <> → {account.outcome}</>}</p>
-    {account.explanation && <blockquote>Your interpretation in the entry: {account.explanation}</blockquote>}
-    {account.citations.map((citation, index) => <blockquote key={index}>
-      {citation.text}{' '}
-      {citation.sourceType === 'reflection' && <Link to={`/journal?entry=${citation.entryId}`}>Open entry</Link>}
-    </blockquote>)}
+function InsightEvidence({ detail, insight }: { detail: InsightDetail; insight: PersonalInsight }) {
+  const seen = new Set<string>();
+  const groups = Object.entries(detail.groups).flatMap(([dynamicId, rows]) => rows.map(group => ({ dynamicId, group })));
+  return <div className={styles.evidence}>
+    <SourcedClause clause={insight.observation} accounts={detail.accounts} />
+    {(['supportingGroups', 'contraryGroups'] as const).map(kind => <section key={kind}
+      aria-label={kind === 'supportingGroups' ? 'Supporting event groups' : 'Contrary event groups'}>
+      <h4>{kind === 'supportingGroups' ? 'Supporting event groups' : 'Contrary event groups'} ({insight[kind].length})</h4>
+      {insight[kind].map(groupId => groups.filter(row => row.group.id === groupId).map(({ dynamicId, group }) =>
+        <div key={`${kind}/${dynamicId}/${groupId}`} className={styles.account}>
+          <p>Pattern {dynamicId} · {group.role.replace('_', ' ')} ·
+            {' '}{group.independenceUncertain ? 'independence uncertain' : group.independentlyCountable ? 'independently identified' : 'not independently counted'}</p>
+          {group.accountIds.filter(id => detail.accounts[id]).map(id => {
+            seen.add(id);
+            return <AccountEvidence key={id} account={detail.accounts[id]} />;
+          })}
+        </div>))}
+      {insight[kind].length === 0 && <p>None recorded in this checked scope.</p>}
+    </section>)}
+    <section aria-label="Unknown accounts"><h4>Unknown accounts ({insight.unknownAccountIds.length})</h4>
+      {insight.unknownAccountIds.filter(id => detail.accounts[id]).map(id => {
+        seen.add(id);
+        return <AccountEvidence key={id} account={detail.accounts[id]} />;
+      })}
+    </section>
+    <details><summary>All checked groups and accounts</summary>
+      {groups.map(({ dynamicId, group }) => <section key={`${dynamicId}/${group.id}`} className={styles.account}>
+        <h4>Pattern {dynamicId} · {group.role.replace('_', ' ')} · {group.accountIds.length} accounts</h4>
+        {group.accountIds.filter(id => detail.accounts[id]).map(id => {
+          seen.add(id);
+          const membership = (detail.memberships[dynamicId] ?? []).find(row => row.accountId === id);
+          return <div key={id}><p>Checked role: {membership?.role ?? group.role}
+            {membership?.excluded && ' · excluded by your correction'}</p>
+            <AccountEvidence account={detail.accounts[id]} /></div>;
+        })}
+      </section>)}
+      {Object.values(detail.accounts).filter(account => !seen.has(account.id)).map(account =>
+        <AccountEvidence key={account.id} account={account} />)}
+    </details>
   </div>;
 }
 
-function CoLabelCard({ d, period }: { d: Difference; period: DiscoveryRange }) {
-  const feedback = useDifferenceVerdict();
+function InsightCard({ insight, period }: { insight: PersonalInsight; period: DiscoveryRange }) {
   const [open, setOpen] = useState(false);
-  const [shown, setShown] = useState<Record<string, number>>({
-    betterWith: 5, betterWithout: 5, worseWith: 5, worseWithout: 5,
-  });
-  const detail = useDifferenceDetail(d.patternId, d.otherId, period, d.snapshot, open);
-  const moreOnWorse = d.worseRate > d.betterRate;
-  return <Panel as="article" aria-label={`${d.patternName} and ${d.otherName}`}>
-    <p className={styles.sentence}>{d.otherName} was labelled more often among {d.patternName} accounts
-      read as {moreOnWorse ? 'worse' : 'better'}.</p>
-    <p className={styles.meta}>Read as worse: {d.worse}/{d.worseTotal} ({Math.round(d.worseRate * 100)}%).
-      Read as better: {d.better}/{d.betterTotal} ({Math.round(d.betterRate * 100)}%).</p>
-    <p className={styles.note}>Exploratory · {d.coverage.range} · {d.coverage.entryCount} entries.
-      Small samples; not labelled with {d.otherName} is not evidence that it was absent.</p>
+  const detail = usePersonalInsight(insight.id, period, open);
+  const verdict = useInsightVerdict(insight.id);
+  return <Panel as="article" aria-label={insight.title}>
+    <p className={styles.note}>{kindLabel[insight.kind]} · recorded range {period}</p>
+    <h3>{insight.title}</h3>
+    <p className={styles.sentence}>{insight.observation.text}</p>
+    <section className={styles.interpretation} aria-label="Tentative explanation">
+      <h4>One possible explanation</h4><p>{insight.possibleMeaning.text}</p>
+      <h4>Another possibility</h4><p>{insight.alternative.text}</p>
+      <p>Immediate return: {insight.immediateReturn?.text ?? 'Not recorded'}</p>
+      <p>Later cost: {insight.laterCost?.text ?? 'Not recorded'}</p>
+    </section>
+    {insight.kind === 'contextual_difference' && <p>{insight.leftLabel}: {insight.leftGroupIds?.length ?? 0} groups ·
+      {' '}{insight.rightLabel}: {insight.rightGroupIds?.length ?? 0} groups.</p>}
+    <p>{insight.question}</p>
     <div className={styles.meta}>
-      <Link to={`/patterns/${encodeURIComponent(d.patternId)}?range=${period}`}>{d.patternName}</Link>
-      <Link to={`/patterns/${encodeURIComponent(d.otherId)}?range=${period}`}>{d.otherName}</Link>
-      <Link to={evidenceHref({ kind: 'co_label', patternId: d.patternId,
-        otherId: d.otherId, range: period, snapshot: d.snapshot })}>Explore with Iris</Link>
-      <Button size="sm" onClick={() => setOpen(!open)}>{open ? 'Hide evidence' : 'See the evidence'}</Button>
+      {insight.dynamicIds.map(id => <Link key={id} to={`/patterns/${encodeURIComponent(id)}?range=${period}`}>See personal pattern</Link>)}
+      <Link to={evidenceHref({ kind: 'personal_insight', insightId: insight.id,
+        range: period, snapshot: insight.snapshot })}>Explore with Iris</Link>
+      <Button size="sm" onClick={() => setOpen(!open)}>{open ? 'Hide evidence' : 'See all evidence'}</Button>
     </div>
-    {open && <section aria-label="Co-label evidence" className={styles.evidence}>
-      {detail.isPending ? <LoadingState label="Opening the contributing accounts…" />
-        : detail.isError || !detail.data ? <ErrorState onRetry={() => detail.refetch()} />
-        : <>
-          {(Object.keys(detail.data.groups) as (keyof typeof detail.data.groups)[]).map(group => {
-            const accounts = detail.data.groups[group];
-            return <section key={group} aria-label={group}>
-              <h3>{group.replace('With', ' · labelled with').replace('Without', ' · not labelled with')} ({accounts.length})</h3>
-              {accounts.slice(0, shown[group]).map(account => <EvidenceAccount key={account.id} account={account} />)}
-              {accounts.length > shown[group] && <Button size="sm"
-                onClick={() => setShown(current => ({ ...current, [group]: current[group] + 5 }))}>Show more</Button>}
-            </section>;
-          })}
-          <p className={styles.note}>{detail.data.mixedExcluded} mixed accounts excluded from both denominators.</p>
-        </>}
-    </section>}
-    <DifferenceFeedback initial={d.verdict} label="Note about this comparison"
-      onSave={value => feedback.mutate({ patternId: d.patternId, otherId: d.otherId, feedback: value })}
-      pending={feedback.isPending} error={feedback.isError} />
-  </Panel>;
-}
-
-function PairCard({ pair, period }: { pair: OutcomePair; period: DiscoveryRange }) {
-  const feedback = usePatternVerdict(pair.patternId);
-  return <Panel as="article" aria-label={`Two recorded situations: ${pair.patternName}`}>
-    <Badge>Two recorded situations to compare</Badge>
-    <h3>{pair.patternName}</h3>
-    <div className={styles.pair}>
-      <section aria-label="Read as better"><EvidenceAccount account={pair.better} /></section>
-      <section aria-label="Read as worse"><EvidenceAccount account={pair.worse} /></section>
-    </div>
-    <p className={styles.sentence}>What do you make of the difference between these situations?</p>
-    <p className={styles.note}>{pair.betterTotal} better · {pair.worseTotal} worse · {pair.mixedTotal} mixed recorded accounts.
-      The response did not necessarily cause the outcome.</p>
-    <div className={styles.meta}>
-      <Link to={`/patterns/${encodeURIComponent(pair.patternId)}?range=${period}`}>See the evidence</Link>
-      <Link to={evidenceHref({ kind: 'outcome_pair', patternId: pair.patternId,
-        range: period, snapshot: pair.snapshot })}>Explore with Iris</Link>
-    </div>
-    <DifferenceFeedback initial={pair.verdict} label="Note about this pattern"
-      onSave={value => feedback.mutate(value)} pending={feedback.isPending} error={feedback.isError} />
+    {open && (detail.isPending ? <LoadingState label="Opening checked accounts…" />
+      : detail.isError || !detail.data ? <ErrorState onRetry={() => detail.refetch()} />
+      : <InsightEvidence detail={detail.data} insight={detail.data.insight} />)}
+    <VerdictEditor key={`${insight.id}/${period}/${insight.snapshot}`}
+      draftKey={`iris:insight-note:${insight.id}/${period}`}
+      initial={insight.feedback} range={period} snapshot={insight.snapshot}
+      label="Note about this insight" pending={verdict.isPending} error={verdict.isError}
+      onSave={value => verdict.mutate(value, {
+        onSuccess: () => sessionStorage.removeItem(`iris:insight-note:${insight.id}/${period}`),
+      })} />
   </Panel>;
 }
 
@@ -175,9 +138,9 @@ function missingDays(diagnostics: DayDiagnostics): string {
 
 function DaySection({ period }: { period: DiscoveryRange }) {
   const { data, isPending, isError, refetch } = useDayDifferences(period);
-  return <section aria-label="Days compared" className={styles.section}>
-    <h2 className={styles.heading}>Days compared</h2>
-    <p className={styles.note}>Explicit check-ins against confirmed phone measurements; neither is a census of life.</p>
+  return <section aria-label="Measured day differences" className={styles.section}>
+    <h2 className={styles.heading}>Measured day differences</h2>
+    <p className={styles.note}>Explicit check-ins against confirmed phone measurements; independent of writing analysis.</p>
     {isPending ? <LoadingState label="Comparing measured days…" />
       : isError || !data ? <ErrorState onRetry={() => refetch()} />
       : data.differences.length === 0 ? <EmptyState title="No qualifying day comparison."
@@ -216,7 +179,7 @@ function DayCard({ d, period }: { d: DayDifference; period: DiscoveryRange }) {
           </details>
         </>}
     </section>}
-    <DifferenceFeedback initial={d.verdict} label="Note about these days"
+    <DayFeedback initial={d.verdict} label="Note about these days"
       onSave={value => feedback.mutate({ outcome: d.outcome, split: d.split, feedback: value })}
       pending={feedback.isPending} error={feedback.isError} />
   </Panel>;
@@ -234,7 +197,7 @@ function DayGroup({ title, days }: { title: string; days: ContributingDay[] }) {
   </section>;
 }
 
-function DifferenceFeedback({ initial, onSave, pending, error, label }: {
+function DayFeedback({ initial, onSave, pending, error, label }: {
   initial: PatternVerdict | null; onSave: (feedback: PatternVerdict) => void;
   pending: boolean; error: boolean; label: string;
 }) {
@@ -242,13 +205,10 @@ function DifferenceFeedback({ initial, onSave, pending, error, label }: {
   return <div className={styles.feedback}>
     <ChoiceGroup label="Does this ring true?" tone="confirm" options={VERDICTS} value={feedback.verdict}
       clearable disabled={pending} onChange={value => {
-        const next = { ...feedback, verdict: value };
-        setFeedback(next);
-        onSave(next);
+        const next = { ...feedback, verdict: value }; setFeedback(next); onSave(next);
       }} />
-    <label>{label}
-      <textarea value={feedback.note ?? ''} onChange={event => setFeedback({ ...feedback, note: event.target.value })} />
-    </label>
+    <label>{label}<textarea value={feedback.note ?? ''}
+      onChange={event => setFeedback({ ...feedback, note: event.target.value })} /></label>
     <Button size="sm" disabled={pending} onClick={() => onSave(feedback)}>Save note</Button>
     {error && <p role="alert" className={styles.error}>Feedback not saved. Try again.</p>}
   </div>;

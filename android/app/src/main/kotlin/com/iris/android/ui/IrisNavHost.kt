@@ -54,6 +54,7 @@ object Routes {
     const val JOURNAL = "journal?entry={entry}"
     const val JOURNAL_VOICE = "journal/voice"
     const val INSIGHTS = "insights?range={range}"
+    const val INSIGHT = "insights/{id}?range={range}"
     const val PATTERNS = "patterns?range={range}"
     const val PATTERN = "patterns/{id}?range={range}"
     const val MORE = "more"
@@ -86,12 +87,12 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
     val currentTab = when {
         route == "journal/voice" -> "journal"
         route.startsWith("patterns/") -> "more"
-        route in setOf("more", "insights", "patterns", "noticed", "review", "import", "sensors", "sensors/{id}", "settings", "collector") -> "more"
+        route in setOf("more", "insights", "insights/{id}", "patterns", "noticed", "review", "import", "sensors", "sensors/{id}", "settings", "collector") -> "more"
         else -> route
     }
     val vibe = when {
         route in setOf("journal", "journal/voice", "habits") -> OrbVibe.High
-        route.startsWith("patterns") || route == "insights" || route == "noticed" -> OrbVibe.Low
+        route.startsWith("patterns") || route.startsWith("insights") || route == "noticed" -> OrbVibe.Low
         route in setOf("review", "import") -> OrbVibe.Cool
         route.startsWith("sensors") || route == "settings" -> OrbVibe.Dim
         else -> OrbVibe.Calm
@@ -120,7 +121,7 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
     }
     CompositionLocalProvider(LocalOrbVibe provides vibe) {
         Scaffold(bottomBar = {
-            if (route !in setOf("onboarding", "journal/voice", "patterns/{id}", "sensors/{id}") && !WindowInsets.isImeVisible) {
+            if (route !in setOf("onboarding", "journal/voice", "patterns/{id}", "insights/{id}", "sensors/{id}") && !WindowInsets.isImeVisible) {
                 NavigationBar(containerColor = colors.bg1) {
                     tabs.forEach { tab ->
                         val selected = currentTab == tab.route
@@ -170,6 +171,16 @@ fun IrisNavHost(pendingDestination: String?, onDestinationHandled: () -> Unit) {
                     }
                     composable(Routes.INSIGHTS, arguments = listOf(navArgument("range") { defaultValue = "all" })) {
                         gated { InsightsScreen(nav::navigate) }
+                    }
+                    composable(Routes.INSIGHT, arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("range") { defaultValue = "all" },
+                    )) {
+                        gated {
+                            InsightsScreen(nav::navigate,
+                                selectedId = requireNotNull(it.arguments?.getString("id")),
+                                onBack = { nav.popBackStack() })
+                        }
                     }
                     composable(Routes.PATTERNS, arguments = listOf(navArgument("range") { defaultValue = "all" })) {
                         gated { PatternsScreen(nav::navigate) }

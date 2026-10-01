@@ -1,83 +1,61 @@
-/**
- * Today offers the pattern most worth a verdict, as a question, and a failed
- * load says so instead of showing an empty page.
- */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
-import type { PatternSummary } from '@/types/api';
+import { beforeEach, expect, it, vi } from 'vitest';
+import type { PersonalPattern } from '@/types/api';
 
 const state = vi.hoisted(() => ({
-  patterns: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
-  habits: { data: undefined as unknown, isLoading: false, isError: false, refetch: () => {} },
+  patterns: { data: undefined as unknown, isLoading: false, isError: false, refetch: vi.fn() },
+  habits: { data: undefined as unknown, isLoading: false, isError: false, refetch: vi.fn() },
   verdict: vi.fn(),
 }));
-
 vi.mock('@/hooks/usePatterns', () => ({
   usePatterns: () => state.patterns,
-  usePatternVerdict: () => ({ mutate: state.verdict, isPending: false }),
+  usePatternVerdict: () => ({ mutate: state.verdict, isPending: false, isError: false }),
 }));
 vi.mock('@/hooks/useHabits', () => ({ useHabits: () => state.habits }));
-
 import { TodayScreen, nextPattern } from './TodayScreen';
 
-function pattern(id: string, occasions: number, verdict: PatternSummary['verdict'] = null): PatternSummary {
-  return {
-    id, name: `Pattern ${id}`, statement: `What ${id} says.`, holdsWhen: [], notWhen: [], question: '',
-    basis: null, evidence: null, source: null, occasions, tones: { better: 0, worse: occasions, mixed: 0 },
-    entryCount: occasions, recordedFrom: occasions ? '2026-09-01' : null,
-    recordedTo: occasions ? '2026-09-01' : null, undatedAccountCount: 0,
-    examples: [], snapshot: 'a'.repeat(64),
-    coverage: { range: 'all', asOf: '2026-09-29', recordedFrom: occasions ? '2026-09-01' : null,
-      recordedTo: occasions ? '2026-09-01' : null, entryCount: occasions, accountCount: occasions,
-      undatedAccountCount: 0 },
-    reviewed: 0, rejected: 0, labelledBy: [], verdict,
-  };
+const hash = 'a'.repeat(64);
+function pattern(id: string, feedback: PersonalPattern['feedback'] = null): PersonalPattern {
+  const clause = { text: 'When asked, I paused', refs: [] };
+  return { id, title: `Pattern ${id}`, context: clause, response: clause,
+    evidenceState: 'emerging', ownerMeanings: [], immediateReturn: null, laterCost: null,
+    possibleMeaning: null, alternative: null, openQuestion: 'What differed?', lensMatches: [],
+    exceptionGroupIds: [], responseElsewhereGroupIds: [], independentGroupCount: 2,
+    accountCount: 2, entryCount: 2, recordedFrom: '2026-09-01', recordedTo: '2026-09-02',
+    undatedAccountCount: 0, exceptionCount: 0, unknownAccountCount: 0, example: null,
+    range: 'all', asOf: '2026-10-01', claimHash: hash, snapshot: hash, feedback };
 }
-const noHabits = { habits: [], doneCount: 0, totalCount: 0 };
+const feedback = (verdict: 'rings_true' | 'does_not' | null, note: string | null, needsReview = false) =>
+  ({ verdict, note, needsReview, updatedAt: '2026-09-22T10:00:00Z' });
+beforeEach(() => {
+  state.patterns = { data: { patterns: [], status: { stage: 'ready' } },
+    isLoading: false, isError: false, refetch: vi.fn() };
+  state.habits = { data: { habits: [], doneCount: 0, totalCount: 0 },
+    isLoading: false, isError: false, refetch: vi.fn() };
+  state.verdict.mockClear();
+});
 
-function show() {
+it('uses checked list order, not library frequency; a note-only row stays reviewable', () => {
+  const first = pattern('first', feedback('rings_true', null));
+  const noted = pattern('noted', feedback(null, 'Keep these words'));
+  state.patterns.data = { patterns: [first, noted, pattern('later')], status: { stage: 'ready' } };
   render(<MemoryRouter><TodayScreen /></MemoryRouter>);
-}
+  expect(screen.getByRole('heading', { name: 'Pattern noted' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
+  expect(state.verdict).toHaveBeenCalledWith({ range: 'all', snapshot: hash,
+    verdict: 'rings_true', note: 'Keep these words' });
+});
 
-describe('Today', () => {
-  it('offers the most frequent pattern still waiting for a verdict', () => {
-    state.patterns = { ...state.patterns, isError: false, data: { patterns: [
-      pattern('a', 9, { verdict: 'rings_true', note: null }), pattern('b', 4), pattern('c', 6), pattern('d', 0),
-    ] } };
-    state.habits = { ...state.habits, data: noHabits, isError: false };
-    show();
-    expect(screen.getByRole('heading', { name: 'Pattern c' })).toBeInTheDocument();
-    expect(screen.getByText('6 recorded accounts in your writing')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
-    expect(state.verdict).toHaveBeenCalledWith({ verdict: 'rings_true', note: null });
-  });
+it('makes stale saved feedback reviewable but does not feature unavailable synthesis', () => {
+  expect(nextPattern([pattern('review', feedback('rings_true', 'Old', true))])?.id).toBe('review');
+  state.patterns.data = { patterns: [pattern('review')], status: { stage: 'checking' } };
+  render(<MemoryRouter><TodayScreen /></MemoryRouter>);
+  expect(screen.queryByRole('heading', { name: 'Pattern review' })).toBeNull();
+});
 
-  it('shows nothing when every found pattern has a verdict', () => {
-    expect(nextPattern([pattern('a', 3, { verdict: 'does_not', note: null }), pattern('b', 0)])).toBeUndefined();
-  });
-
-  it('keeps a note-only pattern selectable and preserves its note on a quick verdict', () => {
-    const noted = pattern('noted', 2, { verdict: null, note: 'Still considering it' });
-    expect(nextPattern([noted])?.id).toBe('noted');
-    state.patterns = { ...state.patterns, data: { patterns: [noted] }, isError: false };
-    state.habits = { ...state.habits, data: noHabits, isError: false };
-    show();
-    fireEvent.click(screen.getByRole('radio', { name: 'Rings true' }));
-    expect(state.verdict).toHaveBeenCalledWith({ verdict: 'rings_true', note: 'Still considering it' });
-  });
-
-  it('says when patterns did not load', () => {
-    state.patterns = { ...state.patterns, data: undefined, isError: true };
-    state.habits = { ...state.habits, data: noHabits, isError: false };
-    show();
-    expect(screen.getByRole('alert')).toHaveTextContent("Patterns didn't load.");
-  });
-
-  it('says when nothing loaded at all', () => {
-    state.patterns = { ...state.patterns, data: undefined, isError: true };
-    state.habits = { ...state.habits, data: undefined, isError: true };
-    show();
-    expect(screen.getByText("Something didn't load.")).toBeInTheDocument();
-  });
+it('reports an unavailable pattern request independently of habits', () => {
+  state.patterns.isError = true;
+  render(<MemoryRouter><TodayScreen /></MemoryRouter>);
+  expect(screen.getByRole('alert')).toHaveTextContent("Patterns didn't load.");
 });

@@ -2,19 +2,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useHabits } from '@/hooks/useHabits';
 import { usePatterns, usePatternVerdict } from '@/hooks/usePatterns';
 import { LoadingState, ErrorState } from '@/components/states';
-import { Badge, Button, ChoiceGroup, Lens, Page, Panel, Section } from '@/ui';
-import type { PatternSummary, PatternVerdictValue } from '@/types/api';
+import { Badge, Button, ChoiceGroup, Page, Panel, Section } from '@/ui';
+import type { PersonalPattern, PatternVerdictValue } from '@/types/api';
 import styles from './TodayScreen.module.css';
 
-/**
- * The pattern most worth a look: the one found on the most occasions that you
- * have not yet said rings true or not. It is offered as a question, because
- * whether a pattern holds for you is yours to say.
- */
-export function nextPattern(patterns: PatternSummary[] | undefined): PatternSummary | undefined {
-  return (patterns ?? [])
-    .filter(p => p.occasions > 0 && !p.verdict?.verdict)
-    .sort((a, b) => b.occasions - a.occasions || a.name.localeCompare(b.name))[0];
+/** The server orders the personal dynamics; a note alone is not a verdict. */
+export function nextPattern(patterns: PersonalPattern[] | undefined): PersonalPattern | undefined {
+  return patterns?.find(p => !p.feedback?.verdict || p.feedback.needsReview);
 }
 
 const VERDICTS: { value: PatternVerdictValue; label: string }[] = [
@@ -39,7 +33,8 @@ export function TodayScreen() {
   }
 
   const habits = habitsQuery.data;
-  const featured = nextPattern(patternsQuery.data?.patterns);
+  const featured = patternsQuery.data?.status.stage === 'ready'
+    ? nextPattern(patternsQuery.data.patterns) : undefined;
 
   return (
     <Page title="Today" lead={today()} width="standard"
@@ -75,28 +70,35 @@ export function TodayScreen() {
   );
 }
 
-function PatternToJudge({ pattern }: { pattern: PatternSummary }) {
+function PatternToJudge({ pattern }: { pattern: PersonalPattern }) {
   const verdict = usePatternVerdict(pattern.id);
   return (
     <Section title="Does this ring true?"
-      description="The pattern found most often in your writing that you haven't judged yet.">
-      <Panel as="article" aria-label={pattern.name}>
+      description="The first unreviewed personal dynamic in the current checked order.">
+      <Panel as="article" aria-label={pattern.title}>
         <div className={styles.patternHead}>
-          <Lens size={28} />
           <div className={styles.patternText}>
-            <h3 className={styles.patternName}>{pattern.name}</h3>
-            <p className={styles.statement}>{pattern.statement}</p>
+            <h3 className={styles.patternName}>{pattern.title}</h3>
+            <p className={styles.statement}>{pattern.context.text} → {pattern.response.text}</p>
           </div>
         </div>
+        {pattern.feedback?.needsReview && <p>Your saved opinion needs review: the evidence changed.</p>}
         <div className={styles.patternFoot}>
-          <Badge>{pattern.occasions} recorded accounts in your writing</Badge>
-          <Link to={`/patterns/${pattern.id}?range=all`}>See the accounts</Link>
+          <Badge>{pattern.evidenceState === 'owner_described' ? 'You described this'
+            : `At least ${pattern.independentGroupCount} distinct occasions identified`}</Badge>
+          <Link to={`/patterns/${encodeURIComponent(pattern.id)}?range=all`}>See the accounts</Link>
         </div>
-        <ChoiceGroup label="Does this pattern ring true?" tone="confirm" options={VERDICTS} value={null}
-          disabled={verdict.isPending} onChange={value => value && verdict.mutate({
-            verdict: value, note: pattern.verdict?.note ?? null,
+        <ChoiceGroup label="Does this pattern ring true?" tone="confirm" options={VERDICTS}
+          value={pattern.feedback?.verdict ?? null} clearable
+          disabled={verdict.isPending} onChange={value => verdict.mutate({
+            range: 'all', snapshot: pattern.snapshot, verdict: value, note: pattern.feedback?.note ?? null,
           })} />
-        {verdict.isError && <p role="alert">Opinion not saved. Try again.</p>}
+        {pattern.feedback?.needsReview && pattern.feedback.verdict && <Button size="sm"
+          disabled={verdict.isPending} onClick={() => verdict.mutate({
+            range: 'all', snapshot: pattern.snapshot,
+            verdict: pattern.feedback!.verdict, note: pattern.feedback!.note,
+          })}>Confirm this opinion on current evidence</Button>}
+        {verdict.isError && <p role="alert">Opinion not saved. Review current evidence and try again.</p>}
       </Panel>
     </Section>
   );

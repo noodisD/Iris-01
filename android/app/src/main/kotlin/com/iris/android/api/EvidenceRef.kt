@@ -12,17 +12,13 @@ sealed class EvidenceRef {
     abstract val range: String
     abstract val snapshot: String
 
-    @Serializable @SerialName("pattern")
-    data class Pattern(val patternId: String, override val range: String,
+    @Serializable @SerialName("dynamic")
+    data class Dynamic(val dynamicId: String, override val range: String,
                        override val snapshot: String) : EvidenceRef()
 
-    @Serializable @SerialName("outcome_pair")
-    data class Outcome(val patternId: String, override val range: String,
-                       override val snapshot: String) : EvidenceRef()
-
-    @Serializable @SerialName("co_label")
-    data class CoLabel(val patternId: String, val otherId: String, override val range: String,
-                       override val snapshot: String) : EvidenceRef()
+    @Serializable @SerialName("personal_insight")
+    data class PersonalInsight(val insightId: String, override val range: String,
+                               override val snapshot: String) : EvidenceRef()
 
     @Serializable @SerialName("day")
     data class Day(val outcome: String, val split: String, override val range: String,
@@ -31,9 +27,8 @@ sealed class EvidenceRef {
 
 fun EvidenceRef.valid(): Boolean = range in DISCOVERY_RANGES &&
     snapshot.matches(Regex("[0-9a-f]{64}")) && when (this) {
-        is EvidenceRef.Pattern -> patternId.isNotBlank()
-        is EvidenceRef.Outcome -> patternId.isNotBlank()
-        is EvidenceRef.CoLabel -> patternId.isNotBlank() && otherId.isNotBlank()
+        is EvidenceRef.Dynamic -> dynamicId.matches(Regex("d_[0-9a-f]{64}"))
+        is EvidenceRef.PersonalInsight -> insightId.matches(Regex("i_[0-9a-f]{64}"))
         is EvidenceRef.Day -> outcome in setOf("energy", "mood", "sleep_quality", "stress", "focus") &&
             split in setOf("office_home", "commute", "steps", "screen_time", "social_share", "sleep")
     }

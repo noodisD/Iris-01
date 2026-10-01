@@ -41,7 +41,7 @@ class ChatViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     val failure: StateFlow<String?> = _failure
     private val _reference = MutableStateFlow<EvidenceRef?>(
         savedStateHandle.get<String>("selectedEvidence")?.takeIf { it.isNotEmpty() }
-            ?.let { runCatching { json.decodeFromString(EvidenceRef.serializer(), it) }.getOrNull() })
+            ?.let { runCatching { json.decodeFromString(EvidenceRef.serializer(), it) }.getOrNull()?.takeIf(EvidenceRef::valid) })
     val reference: StateFlow<EvidenceRef?> = _reference
     private val _preview = MutableStateFlow<Loadable<DiscussionPreview>?>(null)
     val preview: StateFlow<Loadable<DiscussionPreview>?> = _preview
@@ -52,7 +52,9 @@ class ChatViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     init {
         // A spoken turn (ADR-0025) is shown as it happens, like a typed one.
         viewModelScope.launch { TalkSession.updates.collect(::onSpoken) }
-        _reference.value?.let(::loadEvidence)
+        if (_reference.value == null && savedStateHandle.get<String>("selectedEvidence")?.isNotEmpty() == true)
+            _preview.value = Loadable.Failed("This saved evidence link is unavailable. Open a current pattern or insight.")
+        else _reference.value?.let(::loadEvidence)
     }
 
     private fun onSpoken(update: TalkUpdate) {
@@ -151,6 +153,9 @@ class ChatViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
     fun onScreenEntered() {
         if (visitOpen) return
         visitOpen = true
+        // A cited source may have changed while the chat destination was off screen.
+        // Keep the draft, but require the current owner-scoped preview again.
+        _reference.value?.takeIf { _preview.value !is Loadable.Loading }?.let(::loadEvidence)
         startSession()
     }
 

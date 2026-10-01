@@ -1,135 +1,118 @@
-"""A library of general patterns, and how an account is matched against one.
+"""Editorial process lenses for interpreting already-discovered personal dynamics.
 
-Asking a model to name the circumstances in an archive produced, twice, a
-result that could not be used. Told to stay concrete it named the one corner of
-a life with enough repetition to clear a "recurs three times" test — 66
-accounts over 48 areas, only three of which held three or more, so the report
-was about that corner and nothing else. Told to abstract, it produced sentences
-that matched nothing: of twelve field-neutral circumstances, eight were found
-in no account at all when each account was put to them one at a time, and one
-was found in more than half.
-
-A fixed library answers both. Each pattern is written once, in words that fit
-any area of life, with what it looks like, what it is not, and the question
-whose answer would retire it. Matching then has something stable to recognise,
-the same patterns can be counted again next month, and an archive weighted
-towards one activity does not decide what gets looked for.
-
-What a pattern is not: a type, a trait, a diagnosis, or a verdict. It is a
-question asked of an account — does this describe that — and the answer is
-counted, never assigned to the person.
+The literature informs questions, not a classification or a personal match. A lens
+cannot supply an occurrence, an unstated motive, or an outcome.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .narrative_policy import FORBIDDEN_REGEX
-
-logger = logging.getLogger(__name__)
-
 LIBRARY_PATH = Path(__file__).resolve().parent.parent / "patterns" / "library.json"
-
-REQUIRED = ("id", "name", "statement", "holds_when", "not_when", "question",
-            "retiring_answer")
-
-#: How well the idea behind a pattern has held up. A library that lists a
-#: finding replicated across hundreds of studies beside one whose headline
-#: effect vanished in a multi-lab replication, with no note of which is which,
-#: launders the second into somebody's self-understanding. The pattern is still
-#: worth looking for — what is graded here is the account of *why* it happens,
-#: never the owner's own occasions.
-EVIDENCE = ("well replicated", "mixed", "contested")
-
-#: A pattern may describe what the clinical and behavioural literatures
-#: describe. It may not name what they name. "The thing was started when there
-#: was no room left to delay it" is an observation about an occasion; the same
-#: pattern under the name of a condition is a diagnosis by accumulation — count
-#: the matches and the owner reads a verdict about themselves out of their own
-#: journal. The phenomena are useful; the labels are not available from this
-#: evidence, and the library refuses to carry them.
-DIAGNOSTIC = re.compile(
-    r"\b(adhd|attention deficit|hyperactiv\w*|autis\w*|aspergers?|neurodiverg\w*|"
-    r"neurotyp\w*|depress\w*|"
-    r"anxiety disorder|bipolar|ocd|ptsd|trauma\w*|addict\w*|disorder|syndrome|"
-    r"diagnos\w*|symptom\w*|pathol\w*|comorbid\w*|dysregulat\w*|dysfunction)\b",
-    re.IGNORECASE)
+FAMILIES = frozenset({"belonging", "uncertainty", "self_worth", "emotional_protection",
+                      "capacity", "agency"})
+LENS_FIELDS = frozenset({"id", "family", "name", "sequence", "possibleFunction",
+                         "immediateReturn", "possibleLaterCost", "requires", "notWhen",
+                         "alternative", "question", "sourceIds"})
+SOURCE_FIELDS = frozenset({"title", "url", "kind", "scope"})
+_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 
 
 @dataclass(frozen=True)
-class Pattern:
-    """One general pattern, with what would show it and what would not."""
-
+class Source:
     id: str
+    title: str
+    url: str
+    kind: str
+    scope: str
+
+
+@dataclass(frozen=True)
+class Lens:
+    id: str
+    family: str
     name: str
-    statement: str
-    holds_when: tuple[str, ...]
-    not_when: tuple[str, ...]
+    sequence: str
+    possible_function: str
+    immediate_return: str
+    possible_later_cost: str
+    requires: tuple[str, str]
+    not_when: str
+    alternative: str
     question: str
-    retiring_answer: str
-    #: Where the idea comes from, in plain words. Not a citation, and not a
-    #: claim that the literature establishes anything about this person.
-    basis: str = ""
-    #: How well the idea behind it has held up, and where to read about it.
-    evidence: str = ""
-    source: str = ""
-
-    @property
-    def markers(self) -> str:
-        """The pattern as the matching pass is shown it."""
-        return ("It holds when:\n" + "\n".join(f"- {h}" for h in self.holds_when)
-                + "\nIt does not hold when:\n" + "\n".join(f"- {n}" for n in self.not_when))
+    source_ids: tuple[str, ...]
+    sources: tuple[Source, ...]
 
 
-def load(path: Path | None = None) -> list[Pattern]:
-    """Every pattern in the library, refused whole if one of them is malformed.
+def _text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"{field} must be a nonblank, trimmed string")
+    return value
 
-    A library with a pattern that advises, explains a cause, or leaves out what
-    would *not* show it is worse than no library: it is a lens that decides
-    what it finds. Checked on load rather than trusted to review.
-    """
-    body = json.loads((path or LIBRARY_PATH).read_text())
-    out: list[Pattern] = []
+
+def load(path: Path | None = None) -> list[Lens]:
+    """Validate the whole v4 catalogue; reject any incomplete or foreign source."""
+    body = json.loads((path or LIBRARY_PATH).read_text(encoding="utf-8"))
+    if not isinstance(body, dict) or set(body) != {"version", "sources", "lenses"} or body["version"] != 4:
+        raise ValueError("invalid v4 lens library root")
+    if not isinstance(body["sources"], dict) or not body["sources"]:
+        raise ValueError("lens sources must be a nonempty object")
+    sources: dict[str, Source] = {}
+    for key, record in body["sources"].items():
+        if not isinstance(key, str) or not _ID.fullmatch(key.replace("_", "-")):
+            raise ValueError(f"invalid source ID: {key}")
+        if not isinstance(record, dict) or set(record) != SOURCE_FIELDS:
+            raise ValueError(f"invalid source record: {key}")
+        values = {field: _text(record[field], field) for field in SOURCE_FIELDS}
+        if values["kind"] not in {"research_article", "theoretical_overview"}:
+            raise ValueError(f"invalid source kind: {key}")
+        if not values["url"].startswith("https://"):
+            raise ValueError(f"invalid source URL: {key}")
+        sources[key] = Source(key, **values)
+    if not isinstance(body["lenses"], list) or not body["lenses"]:
+        raise ValueError("the lens library is empty")
+    result: list[Lens] = []
     seen: set[str] = set()
-    for item in body.get("patterns", []):
-        missing = [f for f in REQUIRED if not item.get(f)]
-        if missing:
-            raise ValueError(f"pattern {item.get('id', '?')} is missing {missing}")
-        if item["id"] in seen:
-            raise ValueError(f"pattern {item['id']} appears twice")
-        text = " ".join([item["statement"], item["question"], *item["holds_when"],
-                         *item["not_when"]])
-        if FORBIDDEN_REGEX.search(text):
-            raise ValueError(f"pattern {item['id']} explains or advises")
-        named = DIAGNOSTIC.search(f"{text} {item['name']} {item.get('basis', '')}")
-        if named:
-            raise ValueError(f"pattern {item['id']} names a condition: {named.group(0)}")
-        grade = item.get("evidence", "")
-        if grade and grade not in EVIDENCE:
-            raise ValueError(f"pattern {item['id']} has an unknown evidence grade: {grade}")
-        if item.get("source") and not grade:
-            raise ValueError(f"pattern {item['id']} cites a source without grading it")
-        seen.add(item["id"])
-        out.append(Pattern(
-            id=item["id"], name=item["name"], statement=item["statement"],
-            holds_when=tuple(item["holds_when"]), not_when=tuple(item["not_when"]),
-            question=item["question"], retiring_answer=item["retiring_answer"],
-            basis=item.get("basis", ""), evidence=item.get("evidence", ""),
-            source=item.get("source", "")))
-    if not out:
-        raise ValueError("the library is empty")
-    return out
+    for item in body["lenses"]:
+        if not isinstance(item, dict) or set(item) != LENS_FIELDS:
+            raise ValueError("invalid lens fields")
+        lens_id = _text(item["id"], "id")
+        if not _ID.fullmatch(lens_id):
+            raise ValueError(f"invalid lens ID: {lens_id}")
+        if lens_id in seen:
+            raise ValueError(f"lens {lens_id} appears twice")
+        seen.add(lens_id)
+        fields = {key: _text(item[key], key) for key in LENS_FIELDS - {"requires", "sourceIds"}}
+        if fields["family"] not in FAMILIES:
+            raise ValueError(f"unknown lens family: {fields['family']}")
+        if not fields["question"].endswith("?") or fields["question"].count("?") != 1:
+            raise ValueError(f"invalid lens question: {lens_id}")
+        requirements = item["requires"]
+        if not isinstance(requirements, list) or len(requirements) != 2:
+            raise ValueError(f"lens {lens_id} needs exactly two requirements")
+        requirements = tuple(_text(part, "requires") for part in requirements)
+        ids = item["sourceIds"]
+        if (not isinstance(ids, list) or not ids or
+                any(not isinstance(source_id, str) or source_id not in sources for source_id in ids) or
+                len(set(ids)) != len(ids)):
+            raise ValueError(f"lens {lens_id} has invalid source IDs")
+        result.append(Lens(
+            id=lens_id, family=fields["family"], name=fields["name"],
+            sequence=fields["sequence"], possible_function=fields["possibleFunction"],
+            immediate_return=fields["immediateReturn"],
+            possible_later_cost=fields["possibleLaterCost"], requires=requirements,
+            not_when=fields["notWhen"], alternative=fields["alternative"],
+            question=fields["question"], source_ids=tuple(ids),
+            sources=tuple(sources[source_id] for source_id in ids)))
+    return result
 
 
-def library_hash(patterns: list[Pattern]) -> str:
-    """Bind a reading to exactly the library fields and matching markers used."""
-    canonical = json.dumps(
-        [{**asdict(pattern), "markers": pattern.markers} for pattern in patterns],
-        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
+def library_hash(lenses: list[Lens]) -> str:
+    """Hash all display content, requirements, and bibliographic source scopes."""
+    canonical = json.dumps([asdict(lens) for lens in lenses], sort_keys=True,
+                           ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

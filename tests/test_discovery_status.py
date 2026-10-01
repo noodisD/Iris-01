@@ -24,12 +24,13 @@ def test_empty_success_is_current_and_excluded_entries_never_read(test_user):
                 before["excludedEntries"], before["unreadEntries"]) == (1, 1, 2, 0)
         assert before["currentEntries"] == 0
         process_due(limit=20)  # offline reader returns a valid empty episode list
+        process_due(limit=20)  # The completed read queues a separate synthesis job.
         after = client.get("/api/discovery/status").json()
         assert (after["currentEntries"], after["pendingEntries"],
                 after["unreadEntries"], after["omittedAccounts"]) == (1, 0, 0, 0)
         assert after["lastCompletedAt"] is not None
         assert client.post("/api/discovery/refresh", json={"scope": "unread"}).json() == {
-            "queuedEntries": 0}
+            "queuedEntries": 0, "queuedSynthesis": 0}
     finally:
         app.dependency_overrides.clear()
 
@@ -46,11 +47,12 @@ def test_explicit_unread_and_failed_refresh_are_idempotent_and_owner_scoped(test
     try:
         unread = client.get("/api/discovery/status").json()
         assert (unread["eligibleEntries"], unread["unreadEntries"],
-                unread["pendingEntries"], unread["estimatedRequests"]) == (1, 1, 0, 7)
-        assert "Approximate" in unread["estimate"]
+                unread["pendingEntries"]) == (1, 1, 0)
+        assert unread["estimate"]["readingRequests"] == 2
+        assert unread["estimate"]["approximate"] is True
         assert client.post("/api/discovery/refresh", json={"scope": "unread"}).status_code == 202
         assert client.post("/api/discovery/refresh", json={"scope": "unread"}).json() == {
-            "queuedEntries": 0}
+            "queuedEntries": 0, "queuedSynthesis": 0}
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("""UPDATE processing_queue SET attempts = %s, last_error = 'unavailable'
                             WHERE source_type = 'discovery' AND source_id = %s""",
@@ -58,10 +60,11 @@ def test_explicit_unread_and_failed_refresh_are_idempotent_and_owner_scoped(test
             conn.commit()
         parked = client.get("/api/discovery/status").json()
         assert (parked["failedEntries"], parked["pendingEntries"], parked["unreadEntries"]) == (1, 0, 0)
+        assert parked["stage"] == "failed"
         assert client.post("/api/discovery/refresh", json={"scope": "failed"}).json() == {
-            "queuedEntries": 1}
+            "queuedEntries": 1, "queuedSynthesis": 0}
         assert client.post("/api/discovery/refresh", json={"scope": "failed"}).json() == {
-            "queuedEntries": 0}
+            "queuedEntries": 0, "queuedSynthesis": 0}
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute("""SELECT attempts, last_error FROM processing_queue
                             WHERE source_type = 'discovery' AND source_id = %s""", (entry,))

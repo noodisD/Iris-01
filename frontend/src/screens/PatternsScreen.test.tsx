@@ -1,146 +1,125 @@
-/** Source-first Patterns interactions with invented accounts. */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Occasion, PatternDetail, PatternSummary } from '@/types/api';
+import { beforeEach, expect, it, vi } from 'vitest';
+import type { PatternDetail, PersonalAccount, PersonalPattern } from '@/types/api';
 
-const base = { holdsWhen: [], notWhen: [], question: '', basis: null, source: null };
-const coverage = {
-  range: 'all' as const, asOf: '2026-09-29', recordedFrom: '2024-05-03', recordedTo: '2024-05-03',
-  entryCount: 3, accountCount: 3, undatedAccountCount: 0,
-};
-
-function occasion(id: string, situation: string, tone: Occasion['tone'], entryId: string): Occasion {
-  return { id, recordedOn: '2024-05-03', domain: 'garden', situation, response: 'did something',
-           outcome: 'and then', explanation: null, tone, suggestedTone: tone, ownerTone: null,
-           size: 'large', labelledBy: 'strong-model', ownerVerdict: null, verdictNote: null,
-           citations: [{ entryId, sourceType: 'reflection', entryDate: '2024-05-03', text: situation }] };
-}
-
-const bigAccounts = [
-  occasion('1', 'The seedlings died again', 'worse', '31'),
-  occasion('2', 'The tomatoes failed', 'worse', '32'),
-  occasion('3', 'Planned the beds in winter', 'better', '33'),
-];
-function summary(id: string, name: string, accounts: Occasion[], extra: Partial<PatternSummary> = {}): PatternSummary {
-  const tones = { better: accounts.filter(a => a.tone === 'better').length,
-    worse: accounts.filter(a => a.tone === 'worse').length,
-    mixed: accounts.filter(a => a.tone === 'mixed').length };
-  return { ...base, id, name, statement: `${name}.`, evidence: null, occasions: accounts.length, tones,
-    entryCount: accounts.length, recordedFrom: accounts.length ? '2024-05-03' : null,
-    recordedTo: accounts.length ? '2024-05-03' : null, undatedAccountCount: 0,
-    examples: accounts.slice(0, 2), snapshot: 'a'.repeat(64),
-    coverage: { ...coverage, entryCount: accounts.length, accountCount: accounts.length,
-      recordedFrom: accounts.length ? '2024-05-03' : null, recordedTo: accounts.length ? '2024-05-03' : null },
-    reviewed: 0, rejected: 0, labelledBy: [], verdict: null, ...extra };
-}
-
-const server = vi.hoisted(() => ({
-  occasionVerdicts: [] as unknown[],
-  patternVerdicts: [] as unknown[],
-}));
-
+const id = `d_${'1'.repeat(64)}`;
+const snapshot = 'a'.repeat(64);
+const coverage = { range: 'all' as const, asOf: '2026-10-01', recordedFrom: '2026-09-19',
+  recordedTo: '2026-09-20', entryCount: 2, accountCount: 2, undatedAccountCount: 0 };
+const status = { readerVersion: snapshot, discoveryVersion: snapshot, interpretationVersion: snapshot,
+  libraryVersion: snapshot, model: 'test-model', stage: 'ready' as const, eligibleEntries: 2,
+  currentEntries: 2, unreadEntries: 0, pendingEntries: 0, failedEntries: 0, excludedEntries: 0,
+  omittedAccounts: 0, omittedFields: 0, synthesisPending: false, synthesisFailed: false,
+  lastCompletedAt: null, estimate: { readingRequests: 0, synthesisRequests: 0,
+    tokensIn: 0, tokensOut: 0, costText: 'zero', approximate: true as const } };
+const citation = { entryId: '42', sourceType: 'reflection', entryDate: '2026-09-20',
+  text: 'When she asked, I said yes right away.' };
+const account: PersonalAccount = { id: 'a', actor: 'self', recordKind: 'event',
+  situation: 'When she asked', response: 'I said yes right away', demand: null, information: null,
+  feeling: null, concern: null, immediateOutcome: null, laterOutcome: null, explanation: null,
+  selfReport: null, domain: null, recordedOn: '2026-09-20', citations: [citation] };
+const another: PersonalAccount = { ...account, id: 'b', recordedOn: '2026-09-19',
+  citations: [{ entryId: '43', sourceType: 'reflection', entryDate: '2026-09-19',
+    text: 'When my colleague asked, I agreed quickly.' }] };
+const clause = { text: 'I said yes when she asked', refs: [{ accountId: 'a', field: 'response', citationIndex: 0 }] };
+const pattern: PersonalPattern = { id, title: 'Saying yes when asked', context: clause,
+  response: clause, evidenceState: 'emerging', ownerMeanings: [], immediateReturn: null,
+  laterCost: null, possibleMeaning: null, alternative: null, openQuestion: 'What differed?',
+  lensMatches: [], exceptionGroupIds: [], responseElsewhereGroupIds: [], independentGroupCount: 2,
+  accountCount: 2, entryCount: 2, recordedFrom: '2026-09-19', recordedTo: '2026-09-20',
+  undatedAccountCount: 0, exceptionCount: 0, unknownAccountCount: 0,
+  example: { accountId: 'a', recordedOn: '2026-09-20', citation }, range: 'all', asOf: '2026-10-01',
+  claimHash: snapshot, snapshot, feedback: { verdict: null, note: 'A saved thought',
+    needsReview: true, updatedAt: '2026-09-21T10:00:00Z' } };
+const membership = { dynamicId: id, accountId: 'a', groupId: 'a', role: 'support' as const,
+  contextDecision: 'present' as const, responseDecision: 'present' as const,
+  relationDecision: 'linked' as const, refs: [], ownerVerdict: null, verdictNote: 'My source note', excluded: false };
+const detail: PatternDetail = { pattern, accounts: { a: account, b: another },
+  memberships: { [id]: [membership, { ...membership, accountId: 'b', groupId: 'b', verdictNote: null }] },
+  groups: { [id]: [
+    { id: 'a', accountIds: ['a'], role: 'support', independentlyCountable: true, independenceUncertain: false },
+    { id: 'b', accountIds: ['b'], role: 'support', independentlyCountable: true, independenceUncertain: false },
+  ] }, lenses: [],
+  checks: { checked: 2, unclear: 0, omittedAccounts: 0, omittedFields: 0,
+    exceptionSearchComplete: true },
+  coverage, status, snapshot };
+const sent = vi.hoisted(() => ({ accounts: [] as unknown[], patterns: [] as unknown[],
+  invalidateOnAccountSave: false, interpreting: false }));
 vi.mock('@/api/patterns', () => ({
-  getPatterns: async () => ({ patterns: [
-    summary('empty-one', 'A quiet pattern', []),
-    summary('big-one', 'Committed more than could be taken back', bigAccounts,
-            { verdict: { verdict: 'rings_true', note: 'An existing thought' } }),
-  ], coverage }),
-  getPattern: async (id: string): Promise<PatternDetail> => id === 'empty-one'
-    ? { pattern: { ...base, id, name: 'A quiet pattern', statement: 'Rare.', evidence: null },
-        occasions: [], distinctive: [],
-        coverage: { ...coverage, entryCount: 0, accountCount: 0, recordedFrom: null, recordedTo: null },
-        snapshot: 'a'.repeat(64), verdict: null }
-    : { pattern: { ...base, id, name: 'Committed more than could be taken back', statement: 'More was committed.',
-                   evidence: 'mixed' },
-        occasions: bigAccounts,
-        distinctive: [],
-        coverage, snapshot: 'a'.repeat(64), verdict: { verdict: 'rings_true', note: 'An existing thought' } },
-  setOccasionVerdict: async (patternId: string, occasionId: string, feedback: unknown) => {
-    server.occasionVerdicts.push({ patternId, occasionId, feedback });
+  getPatterns: async () => ({ patterns: [pattern], coverage, status, snapshot }),
+  getPattern: async () => {
+    if (sent.interpreting) throw new Error('corrected evidence not current');
+    return detail;
+  },
+  setAccountVerdict: async (_id: string, accountId: string, feedback: unknown) => {
+    sent.accounts.push({ accountId, feedback });
+    if (sent.invalidateOnAccountSave) sent.interpreting = true;
     return { ok: true };
   },
-  setPatternVerdict: async (patternId: string, feedback: unknown) => {
-    server.patternVerdicts.push({ patternId, feedback });
-    return { ok: true };
+  setPatternVerdict: async (_id: string, feedback: unknown) => {
+    sent.patterns.push(feedback); return { feedback: null, snapshot };
   },
-  getDiscoveryStatus: async () => ({
-    eligibleEntries: 3, currentEntries: 3, unreadEntries: 0, pendingEntries: 0,
-    failedEntries: 0, excludedEntries: 0, omittedAccounts: 0, lastCompletedAt: null,
-    model: 'test-model', estimatedRequests: 0, estimate: 'Approximate: no unread entries',
-  }),
-  refreshDiscovery: async () => ({ queuedEntries: 0 }),
-
+  getDiscoveryStatus: async () => sent.interpreting
+    ? { ...status, stage: 'interpreting' as const, synthesisPending: true } : status,
+  refreshDiscovery: async () => ({ queuedEntries: 0, queuedSynthesis: false }),
 }));
 import { PatternsScreen } from './PatternsScreen';
 
 function show(path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/patterns" element={<PatternsScreen />} />
-          <Route path="/patterns/:id" element={<PatternsScreen />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes>
+    <Route path="/patterns" element={<PatternsScreen />} />
+    <Route path="/patterns/:id" element={<PatternsScreen />} />
+  </Routes></MemoryRouter></QueryClientProvider>);
 }
-
-describe('the library', () => {
-  beforeEach(() => { server.occasionVerdicts = []; server.patternVerdicts = []; });
-
-  it('shows personal passages before the library lens and retains the period in evidence links', async () => {
-    show('/patterns?range=90d');
-    const card = await screen.findByRole('article');
-    expect(within(card).getAllByText('did something')).toHaveLength(2);
-    expect(within(card).getByRole('link', { name: 'See examples' }))
-      .toHaveAttribute('href', '/patterns/big-one?range=90d');
-    const discussion = within(card).getByRole('link', { name: 'Explore with Iris' });
-    const reference = JSON.parse(new URL(discussion.getAttribute('href')!, 'http://localhost').searchParams.get('evidence')!);
-    expect(reference).toEqual({ kind: 'pattern', patternId: 'big-one', range: '90d', snapshot: 'a'.repeat(64) });
-    expect(screen.queryByText('A quiet pattern')).toBeNull();
-  });
+beforeEach(() => {
+  sent.accounts = []; sent.patterns = [];
+  sent.invalidateOnAccountSave = false; sent.interpreting = false;
 });
 
-describe('a pattern', () => {
-  beforeEach(() => { server.occasionVerdicts = []; server.patternVerdicts = []; });
+it('shows the personal observation and its typed discussion link without a top-level library card', async () => {
+  show('/patterns?range=90d');
+  const card = await screen.findByRole('article');
+  expect(within(card).getByText('I said yes when she asked → I said yes when she asked')).toBeInTheDocument();
+  expect(within(card).getByText(/at least 2 distinct occasions identified/)).toBeInTheDocument();
+  expect(within(card).getByRole('link', { name: 'Open entry' })).toHaveAttribute('href', '/journal?entry=42');
+  const href = within(card).getByRole('link', { name: 'Explore with Iris' }).getAttribute('href')!;
+  expect(JSON.parse(new URL(href, 'http://localhost').searchParams.get('evidence')!))
+    .toEqual({ kind: 'dynamic', dynamicId: id, range: '90d', snapshot });
+});
 
-  it('groups provisional accounts and links each source citation', async () => {
-    show('/patterns/big-one');
-    const worse = await screen.findByRole('region', { name: 'read as worse' });
-    expect(within(worse).getAllByRole('article')).toHaveLength(2);
-    expect(within(screen.getByRole('region', { name: 'read as better' })).getAllByRole('article')).toHaveLength(1);
-    const card = screen.getByRole('article', { name: 'occasion: The seedlings died again' });
-    expect(within(card).getByRole('link', { name: 'open entry' })).toHaveAttribute('href', '/journal?entry=31');
-  });
+it('keeps absent results absent and exposes the full checked group and corrections', async () => {
+  show(`/patterns/${id}`);
+  expect(await screen.findByText(/Immediate return:/)).toBeInTheDocument();
+  expect(screen.getAllByText('Not recorded').length).toBeGreaterThan(0);
+  const group = screen.getByRole('region', { name: 'Event group a' });
+  expect(within(group).getByRole('link', { name: 'Open entry' })).toHaveAttribute('href', '/journal?entry=42');
+  expect(screen.getByText(/saved opinion needs review/i)).toBeInTheDocument();
+});
 
-  it('preserves existing notes in judgment updates and supports note-only feedback', async () => {
-    show('/patterns/big-one');
-    const card = await screen.findByRole('article', { name: 'occasion: The tomatoes failed' });
-    fireEvent.change(within(card).getByRole('textbox', { name: 'Note about this account' }),
-      { target: { value: 'Needs another look' } });
-    fireEvent.click(within(card).getByRole('button', { name: 'Save note' }));
-    await waitFor(() => expect(server.occasionVerdicts).toContainEqual({
-      patternId: 'big-one', occasionId: '2',
-      feedback: { verdict: null, note: 'Needs another look', ownerTone: null },
-    }));
-    fireEvent.click(within(card).getByRole('radio', { name: 'Not this' }));
-    fireEvent.click(screen.getByRole('radio', { name: "Doesn't ring true" }));
-    await waitFor(() => expect(server.occasionVerdicts).toContainEqual({
-      patternId: 'big-one', occasionId: '2',
-      feedback: { verdict: 'no', note: 'Needs another look', ownerTone: null },
-    }));
-    expect(server.patternVerdicts).toContainEqual({
-      patternId: 'big-one', feedback: { verdict: 'does_not', note: 'An existing thought' },
-    });
-  });
+it('saves an account verdict with its note in one revision-checked correction', async () => {
+  show(`/patterns/${id}`);
+  const group = await screen.findByRole('region', { name: 'Event group a' });
+  fireEvent.click(within(group).getByRole('radio', { name: 'Not this' }));
+  fireEvent.change(within(group).getByRole('textbox', { name: 'Note about this account' }),
+    { target: { value: 'This was a different occasion.' } });
+  expect(sent.accounts).toEqual([]);
+  fireEvent.click(within(group).getByRole('button', { name: 'Save correction' }));
+  await waitFor(() => expect(sent.accounts).toEqual([{ accountId: 'a',
+    feedback: { range: 'all', snapshot, verdict: 'no', note: 'This was a different occasion.' } }]));
+  fireEvent.click(screen.getByRole('radio', { name: "Doesn't ring true" }));
+  await waitFor(() => expect(sent.patterns).toContainEqual({ range: 'all', snapshot,
+    verdict: 'does_not', note: 'A saved thought' }));
+});
 
-  it('does not present a library-only lens as a personal finding', async () => {
-    show('/patterns/empty-one');
-    expect(await screen.findByText(/No source-backed example in this reading/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'open entry' })).toBeNull();
-  });
+it('reports rechecking instead of a generic load error while a correction invalidates the view', async () => {
+  sent.invalidateOnAccountSave = true;
+  show(`/patterns/${id}`);
+  const group = await screen.findByRole('region', { name: 'Event group a' });
+  fireEvent.click(within(group).getByRole('radio', { name: 'Not this' }));
+  fireEvent.click(within(group).getByRole('button', { name: 'Save correction' }));
+  expect(await screen.findByText(/corrected evidence is being rechecked/)).toBeInTheDocument();
+  expect(screen.queryByText("Something didn't load.")).not.toBeInTheDocument();
 });

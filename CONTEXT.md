@@ -268,37 +268,50 @@ possible premises, and unverified suggestions of related thought. It is
 labelled as Iris's, stored apart from the writing, and never becomes an idea,
 a link, or evidence.
 
-### Occasion
-One account the reader found in the owner's writing: what was going on, what
-they did, what followed, in the writing's own terms, with the passages it rests
-on. Populated parts resolve within verified source quotations; actor, modality,
-domain and library labels are provisional. Only a self-described, happened
-account with situation, response and outcome is comparable. The source's
-recorded date is not an independently established event date (ADR-0027).
+### Source account
+One extracted description from an eligible original reflection, with
+source-matched passages for every populated field. Actor (`self`, `other`,
+`unclear`) and record kind (`event`, `self_report`, `intention`,
+`hypothetical`) remain explicit. An event may have a situation and response
+with **no stated outcome**; it is not completed by a model. The written date
+is not proof of the event date. A separate contextual check rejects a
+wrong-actor, negated or hypothetical field even if its wording occurs in a
+citation. Unaccepted staged material, chat and measurements do not become
+personal-dynamics occasions.
 
-### Library pattern
-A pattern known in general (`patterns/library.json`), not one found in the
-owner's data. Queue-backed discovery labels current, eligible reflections;
-source revisions and extraction/library versions invalidate stale readings.
-The owner can reject an occasion, correct its tone, and separately judge a
-pattern. The Patterns screen leads with the source passages and keeps rejected
-accounts available for review (ADR-0027).
+### Personal dynamic
+A context–response relationship proposed from the owner's accounts and
+checked against the *whole eligible archive* for support, exceptions,
+response-elsewhere and unclear accounts. A retelling is not another
+independent event; unknown identity is not evidence of distinct occasions.
+Two distinct groups across two entries qualify as `emerging`, three as
+`recurring`; an explicit general self-report can qualify as
+`owner_described` without being miscounted as repeated events. The Patterns
+screen shows dated and undated source accounts, conservative lower bounds,
+owner corrections and omissions. A note alone is not approval. The 24
+`patterns/library.json` **process lenses** are optional explanatory
+frameworks applied *after* finding a dynamic, never the subjects of a
+catalogue classification.
 
-### Insight (difference in outcome)
-Among one library pattern's accepted occasions, another accepted pattern
-present at least two occasions more often on one side than the other. Both
-better and worse sides need at least three occasions, and their co-label rates
-must differ by at least 25 percentage points. Show both denominators and their
-source accounts, as a difference rather than a cause (ADR-0023, ADR-0027).
-An outcome pair instead juxtaposes two accounts from different entries without
-claiming a trend. The old engine's findings are not insights in this sense.
+### Personal insight
+A sourced and tentative interpretation of a checked personal dynamic:
+function/tradeoff, a contextual difference or a shared concern. The
+observation, owner's stated meaning, a possible explanation and a rival
+are different claims. Missing results remain `Not recorded`; neither
+written chronology nor an owner's concern proves motive or causality.
+Source accounts, supporting/contrary groups and unknowns remain inspectable.
+Measured-day comparisons are separate observational analyses of confirmed
+measurements and explicit check-ins (ADR-0024), not inferred journal outcomes.
 
 ### Selected evidence
-A typed, owner-scoped pattern, outcome-pair, co-label or measured-day reference
-with a recorded range and snapshot. Chat previews current source-backed
-evidence and checks its snapshot again before saving a selected turn. Changed
-or no-longer-qualifying evidence requires review, not a stale quotation sent
-to the model. Discussing it never approves it (ADR-0027).
+A typed, owner-scoped `dynamic`, `personal_insight` or `day` reference with
+a range and snapshot. The server previews bounded current source-backed
+evidence before chat and checks its snapshot again on send. Changed or
+no-longer-qualifying evidence requires owner review; unsent drafts survive
+navigation. Owner-rejected account classifications remain inspectable under
+corrections, but do not enter selected discussion groups or their counts.
+Chat never approves evidence or makes another occurrence.
+Historical catalogue/outcome-pair/co-label discussions are not accepted.
 
 ---
 

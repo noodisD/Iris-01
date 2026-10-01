@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.iris.android.api.DiscoveryStatus
 import com.iris.android.api.IrisLink
 import com.iris.android.ui.theme.IrisType
 import com.iris.android.ui.theme.LocalIrisColors
@@ -28,24 +29,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 @Serializable
-private data class DiscoveryStatus(
-    val eligibleEntries: Int,
-    val currentEntries: Int,
-    val unreadEntries: Int,
-    val pendingEntries: Int,
-    val failedEntries: Int,
-    val excludedEntries: Int,
-    val omittedAccounts: Int,
-    val lastCompletedAt: String?,
-    val model: String,
-    val estimatedRequests: Int,
-    val estimate: String,
-)
-@Serializable
-private data class DiscoveryRefreshResult(val queuedEntries: Int)
+private data class DiscoveryRefreshResult(val queuedEntries: Int, val queuedSynthesis: Boolean)
 
-
-/** Poll only while this page is resumed and a read is pending. */
+/** Poll while reading or synthesis is active; show unavailable analysis separately from ready-empty. */
 @Composable
 internal fun DiscoveryStatusStrip(onCompletion: () -> Unit = {}) {
     val owner = LocalLifecycleOwner.current
@@ -61,8 +47,7 @@ internal fun DiscoveryStatusStrip(onCompletion: () -> Unit = {}) {
         coroutineScope.launch {
             try {
                 IrisLink.api().send("POST", "/discovery/refresh",
-                    buildJsonObject { put("scope", scope) }.toString(),
-                    DiscoveryRefreshResult.serializer())
+                    buildJsonObject { put("scope", scope) }.toString(), DiscoveryRefreshResult.serializer())
                 refresh++
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = e.message ?: "Reading request failed. Try again." }
@@ -78,8 +63,8 @@ internal fun DiscoveryStatusStrip(onCompletion: () -> Unit = {}) {
                     status = next
                     error = null
                     if (previous != null && (previous.currentEntries != next.currentEntries ||
-                            previous.lastCompletedAt != next.lastCompletedAt)) latestCompletion()
-                    if (next.pendingEntries == 0) awaitCancellation()
+                            previous.stage != next.stage || previous.lastCompletedAt != next.lastCompletedAt)) latestCompletion()
+                    if (next.pendingEntries == 0 && !next.synthesisPending) awaitCancellation()
                     delay(5_000)
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) {
@@ -91,26 +76,35 @@ internal fun DiscoveryStatusStrip(onCompletion: () -> Unit = {}) {
     }
     Column {
         status?.let { s ->
-            Text("Reading: ${s.currentEntries}/${s.eligibleEntries} entries · ${s.pendingEntries} pending · ${s.failedEntries} failed",
+            Text("Discovery: ${s.stage} · ${s.currentEntries}/${s.eligibleEntries} entries read · " +
+                "${s.pendingEntries} pending · ${s.failedEntries} failed" +
+                if (s.synthesisPending) " · synthesis pending" else "",
                 style = IrisType.mono, color = colors.ink3, fontSize = 12.sp)
-            s.lastCompletedAt?.let { Text("Last read: $it", color = colors.ink3, fontSize = 12.sp) }
-            if (s.omittedAccounts > 0) Text("${s.omittedAccounts} accounts could not be grounded in sources.", color = colors.ink3)
-            if (s.unreadEntries > 0) {
-                Text("${s.unreadEntries} eligible entries not read · ${s.model} · ${s.estimatedRequests} possible requests · ${s.estimate}",
+            s.lastCompletedAt?.let { Text("Last completed: $it", color = colors.ink3, fontSize = 12.sp) }
+            if (s.omittedAccounts > 0 || s.omittedFields > 0) Text(
+                "${s.omittedAccounts} accounts and ${s.omittedFields} fields could not be grounded in sources.",
+                color = colors.ink3, fontSize = 12.sp)
+            if (s.unreadEntries > 0 || s.stage != "ready") {
+                Text("Archive estimate (${s.model}): ${s.estimate.readingRequests} reading + " +
+                    "${s.estimate.synthesisRequests} synthesis requests · ~${s.estimate.tokensIn} in / " +
+                    "${s.estimate.tokensOut} out tokens · ${s.estimate.costText}",
                     color = colors.ink3, fontSize = 12.sp)
-                TextButton(enabled = !requesting, onClick = { request("unread") }) {
-                    Text("Read existing writing")
+                if (s.unreadEntries > 0 || (s.currentEntries == s.eligibleEntries && !s.synthesisPending && !s.synthesisFailed)) {
+                    TextButton(enabled = !requesting, onClick = { request("unread") }) {
+                        Text("Read existing writing")
+                    }
                 }
             }
-            if (s.failedEntries > 0) TextButton(enabled = !requesting, onClick = { request("failed") }) {
-                Text("Retry failed reading")
+            if (s.failedEntries > 0 || s.synthesisFailed) TextButton(enabled = !requesting, onClick = { request("failed") }) {
+                Text("Retry failed discovery")
             }
-            if (s.eligibleEntries > 0 && s.currentEntries == s.eligibleEntries && s.pendingEntries == 0 &&
-                s.failedEntries == 0 && s.unreadEntries == 0) {
-                Text("Reading complete; a completed read may have found no usable accounts.", color = colors.ink3, fontSize = 12.sp)
+            if (s.stage == "ready" && s.currentEntries == s.eligibleEntries) {
+                Text("Current writing checked. A ready view can still have no qualifying dynamics.",
+                    color = colors.ink3, fontSize = 12.sp)
             }
         }
-        error?.let { Text(it, color = colors.rose, fontSize = 12.sp)
+        error?.let {
+            Text(it, color = colors.rose, fontSize = 12.sp)
             TextButton(onClick = { refresh++ }) { Text("Retry status") }
         }
     }

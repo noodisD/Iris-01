@@ -196,20 +196,24 @@ def offline_embeddings(monkeypatch):
         lambda self, entries: "Offline Theme",
     )
 
-    # An eligible journal entry now schedules an independent discovery read.
-    # Keep routine queue drains offline without making production provider
-    # failures look like a successful empty archive.
+    # Routine queue drains are offline. The neutral reader may find no accounts
+    # in a fixture; a nonempty scripted test supplies its own extraction and
+    # contextual verification responses. Unexpected model calls fail loudly.
+    from agent.intelligence import Intelligence as ProviderIntelligence
+
     class OfflineDiscoveryModel:
+        estimate = staticmethod(ProviderIntelligence.estimate)
         def __init__(self, *args, **kwargs):
             pass
 
         def chat(self, *, messages, system_prompt, **kwargs):
             from agent.episodes import SYSTEM_PROMPT as episode_prompt
             if system_prompt != episode_prompt:
-                raise AssertionError("a discovery label pass needs a scripted response")
+                raise AssertionError("personal synthesis needs a scripted response")
             return '{"episodes":[]}'
 
     monkeypatch.setattr("agent.discovery_worker.Intelligence", OfflineDiscoveryModel)
+    monkeypatch.setattr("agent.discovery.Intelligence", OfflineDiscoveryModel)
     yield
 
 
@@ -259,17 +263,19 @@ def _truncate_all() -> None:
     pipeline picked up, so runs influenced each other.
     """
     with db.connection() as conn, conn.cursor() as cur:
-        # schema_migrations is the migration ledger, not test data. Truncating
-        # it would make an already-migrated database claim it had never been
-        # migrated, and the next upgrade() would re-apply everything.
+        # Preserve both the migration ledger and the suite ownership marker.
+        # The latter is also required by the isolated eight-entry smoke seeder.
         cur.execute("""
             SELECT string_agg(quote_ident(tablename), ', ')
             FROM pg_tables
-            WHERE schemaname = 'public' AND tablename <> 'schema_migrations';
+            WHERE schemaname = 'public'
+              AND tablename NOT IN ('schema_migrations', '_iris_test_database');
         """)
         tables = cur.fetchone()[0]
         if tables:
             cur.execute(f"TRUNCATE {tables} RESTART IDENTITY CASCADE;")
+        cur.execute(f"INSERT INTO {_MARKER_TABLE} (created_at) "
+                    f"SELECT NOW() WHERE NOT EXISTS (SELECT 1 FROM {_MARKER_TABLE});")
         # Preserve migration 0018's required singleton after clearing test state.
         cur.execute("INSERT INTO mobile_pairing (id) VALUES (1);")
         conn.commit()

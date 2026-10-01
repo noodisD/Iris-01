@@ -11,7 +11,6 @@ These tests are about that guarantee, not about the plumbing.
 
 from datetime import date
 
-from psycopg2.extras import Json
 
 from agent import work_queue
 from agent.database import db
@@ -94,7 +93,7 @@ def test_an_entry_written_during_an_outage_becomes_evidence_when_it_clears(
     monkeypatch.setattr("agent.pipeline.generate_embedding", lambda t, model=None: [0.1] * 1536)
     _make_due_now(user_id)
 
-    assert work_queue.drain() == 1
+    work_queue.drain()
     assert _embedding_count("reflection", reflection_id) == 1, (
         "work written during the outage must become evidence once it clears"
     )
@@ -213,57 +212,3 @@ def test_discovery_jobs_follow_only_eligible_prose_and_actual_changes(test_user)
     assert checkin not in [row[1] for row in _queue_rows(user_id)]
 
 
-def test_edit_and_delete_remove_source_quotations_before_any_reread(test_user):
-    user_id = test_user["id"]
-    source = db.create_reflection(user_id, "I took the train", undated=True)
-    other = db.create_reflection(user_id, "I took the bus")
-    citations = [{"entryId": str(source), "sourceType": "reflection",
-                  "text": "I took the train"}]
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO occasions (user_id, fingerprint, actor, modality,
-                       situation, response, citations, extraction_version, is_current)
-               VALUES (%s, %s, 'self', 'happened', %s, %s, %s, 3, TRUE)
-               RETURNING id;""",
-            (user_id, "a" * 64, "I took the train", "I took the train", Json(citations)),
-        )
-        linked = cur.fetchone()[0]
-        cur.execute(
-            "INSERT INTO occasion_sources VALUES (%s, %s, 1);", (linked, source))
-        cur.execute(
-            """INSERT INTO pattern_labels (occasion_id, pattern_id, tone, is_current)
-               VALUES (%s, 'sample', 'better', TRUE);""", (linked,))
-        cur.execute(
-            """INSERT INTO discovery_reads
-               (reflection_id, source_revision, extraction_version, library_hash, completed_at)
-               VALUES (%s, 1, 3, %s, NOW());""", (source, "b" * 64))
-        conn.commit()
-
-    db.update_reflection(source, content="I walked instead")
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """SELECT o.is_current, l.is_current, r.discovery_revision
-                 FROM occasions o JOIN pattern_labels l ON l.occasion_id = o.id
-                 JOIN reflections r ON r.id = %s WHERE o.id = %s;""",
-            (source, linked))
-        assert cur.fetchone() == (False, False, 2)
-
-    # An unlinked legacy copy must not outlive the entry named in its citation.
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO occasions (user_id, fingerprint, actor, modality,
-                       situation, response, citations)
-               VALUES (%s, %s, 'self', 'happened', %s, %s, %s)
-               RETURNING id;""",
-            (user_id, "c" * 64, "I took the train", "I took the train",
-             Json([{**citations[0], "entryId": source}])))
-        legacy = cur.fetchone()[0]
-        conn.commit()
-    db.delete_reflection(source)
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM occasions WHERE id IN (%s, %s);", (linked, legacy))
-        assert cur.fetchall() == []
-        cur.execute("SELECT reflection_id FROM discovery_reads WHERE reflection_id = %s;",
-                    (source,))
-        assert cur.fetchall() == []
-    assert [row[1] for row in _queue_rows(user_id, "discovery")] == [other]

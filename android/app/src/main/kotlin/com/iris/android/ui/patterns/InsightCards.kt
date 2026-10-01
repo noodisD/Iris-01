@@ -15,21 +15,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.iris.android.api.DayDifference
 import com.iris.android.api.DayDifferenceDetail
-import com.iris.android.api.Difference
-import com.iris.android.api.DifferenceDetail
+import com.iris.android.api.InsightDetail
 import com.iris.android.api.IrisLink
-import com.iris.android.api.Occasion
-import com.iris.android.api.OutcomePair
 import com.iris.android.api.PATTERN_VERDICTS
-import com.iris.android.api.coLabelDiscussionRoute
+import com.iris.android.api.PersonalInsight
 import com.iris.android.api.dayDiscussionRoute
-import com.iris.android.api.pairDiscussionRoute
+import com.iris.android.api.insightDiscussionRoute
+import com.iris.android.api.insightRoute
 import com.iris.android.api.patternRoute
 import com.iris.android.ui.Loadable
 import com.iris.android.ui.components.ErrorState
@@ -40,100 +36,94 @@ import com.iris.android.ui.theme.LocalIrisColors
 import com.iris.android.ui.theme.Serif
 import kotlinx.coroutines.CancellationException
 
-@Composable
-private fun SourceAccount(o: Occasion, onNavigate: (String) -> Unit) {
-    val colors = LocalIrisColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Recorded ${o.recordedOn ?: "date unknown"} · provisional ${o.tone}", color = colors.ink3, fontSize = 12.sp)
-        Text("${o.response}${o.outcome?.let { " → $it" } ?: ""}", color = colors.ink, fontSize = 14.sp)
-        o.explanation?.let { Text("Your interpretation in the entry: “$it”", color = colors.ink3,
-            fontStyle = FontStyle.Italic, fontSize = 12.sp) }
-        o.citations.forEach { citation ->
-            Text("“${citation.text}”", color = colors.ink2, fontStyle = FontStyle.Italic, fontSize = 12.sp)
-            if (citation.sourceType == "reflection") TextButton(onClick = {
-                onNavigate("journal?entry=${Uri.encode(citation.entryId)}")
-            }) { Text("Open entry") }
-        }
-    }
+private fun insightKind(kind: String) = when (kind) {
+    "function_and_tradeoff" -> "A possible function and tradeoff"
+    "contextual_difference" -> "Different responses in one context"
+    "shared_concern" -> "A possible shared concern"
+    else -> kind
 }
 
 @Composable
-internal fun ContrastCard(d: Difference, range: String, onNavigate: (String) -> Unit,
-                          enabled: Boolean, error: String?, onJudge: (Difference, String?, String?) -> Unit) {
+internal fun PersonalInsightCard(insight: PersonalInsight, range: String,
+    onNavigate: (String) -> Unit, enabled: Boolean, error: String?,
+    onJudge: (PersonalInsight, String?, String?) -> Unit, initiallyExpanded: Boolean = false) {
     val colors = LocalIrisColors.current
-    var expanded by rememberSaveable(range, d.patternId, d.otherId) { mutableStateOf(false) }
-    var request by rememberSaveable(range, d.patternId, d.otherId) { mutableIntStateOf(0) }
-    var detail by remember(range, d.patternId, d.otherId, d.snapshot) {
-        mutableStateOf<Loadable<DifferenceDetail>>(Loadable.Loading)
+    var expanded by rememberSaveable(range, insight.id) { mutableStateOf(initiallyExpanded) }
+    var request by rememberSaveable(range, insight.id) { mutableIntStateOf(0) }
+    var detail by remember(range, insight.id, insight.snapshot) {
+        mutableStateOf<Loadable<InsightDetail>>(Loadable.Loading)
     }
-    LaunchedEffect(expanded, range, d.patternId, d.otherId, d.snapshot, request) {
+    LaunchedEffect(expanded, range, insight.id, insight.snapshot, request) {
         if (expanded) {
             detail = Loadable.Loading
             try {
                 detail = Loadable.Ready(IrisLink.api().send("GET",
-                    "/differences/${Uri.encode(d.patternId)}/${Uri.encode(d.otherId)}?range=$range",
-                    null, DifferenceDetail.serializer()))
+                    "/personal-insights/${Uri.encode(insight.id)}?range=$range", null, InsightDetail.serializer()))
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { detail = Loadable.Failed(e.message ?: "Evidence unavailable.") }
+            catch (e: Exception) { detail = Loadable.Failed(e.message ?: "Current evidence unavailable.") }
         }
     }
-    IrisCard(Modifier.fillMaxWidth().alpha(if (d.dismissed) 0.65f else 1f)) {
-        Text("${d.otherName} was labelled more often among ${d.patternName} accounts read as " +
-            if (d.worseRate > d.betterRate) "worse." else "better.",
-            fontFamily = Serif, fontSize = 18.sp, color = colors.ink)
-        Text("Read as worse: ${d.worse}/${d.worseTotal} (${(d.worseRate * 100).toInt()}%). " +
-            "Read as better: ${d.better}/${d.betterTotal} (${(d.betterRate * 100).toInt()}%).",
-            color = colors.ink2, fontSize = 13.sp)
-        Text("Exploratory · ${d.coverage.entryCount} entries. Not labelled with ${d.otherName} " +
-            "does not mean it was absent.", color = colors.ink3, fontSize = 12.sp)
-        TextButton(onClick = { onNavigate(patternRoute(d.patternId, range)) }) { Text(d.patternName) }
-        TextButton(onClick = { onNavigate(patternRoute(d.otherId, range)) }) { Text(d.otherName) }
-        TextButton(onClick = { onNavigate(coLabelDiscussionRoute(d, range)) }) { Text("Explore with Iris") }
-        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide evidence" else "See the evidence") }
+    IrisCard(Modifier.fillMaxWidth()) {
+        Kicker(insightKind(insight.kind))
+        Text(insight.title, fontFamily = Serif, fontSize = 18.sp, color = colors.ink)
+        ClauseText("What you wrote", insight.observation)
+        Kicker("One possible explanation")
+        Text(insight.possibleMeaning.text, color = colors.ink2)
+        Kicker("Another possibility")
+        Text(insight.alternative.text, color = colors.ink2)
+        ClauseText("Immediate return", insight.immediateReturn)
+        ClauseText("Later cost", insight.laterCost)
+        if (insight.kind == "contextual_difference") Text(
+            "${insight.leftLabel}: ${insight.leftGroupIds?.size ?: 0} groups · " +
+            "${insight.rightLabel}: ${insight.rightGroupIds?.size ?: 0} groups", color = colors.ink3)
+        Text(insight.question, color = colors.ink)
+        if (!initiallyExpanded) TextButton(onClick = { onNavigate(insightRoute(insight.id, range)) }) {
+            Text("Open insight detail")
+        }
+        insight.dynamicIds.forEach { id ->
+            TextButton(onClick = { onNavigate(patternRoute(id, range)) }) { Text("Open involved pattern") }
+        }
+        TextButton(onClick = { onNavigate(insightDiscussionRoute(insight, range)) }) { Text("Explore with Iris") }
+        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide evidence" else "See complete evidence") }
         if (expanded) when (val loaded = detail) {
-            is Loadable.Loading -> LoadingState("Opening contributing accounts…")
+            is Loadable.Loading -> LoadingState("Opening source accounts…")
             is Loadable.Failed -> ErrorState(loaded.message, onRetry = { request++ })
             is Loadable.Ready -> {
-                for (group in listOf("betterWith", "betterWithout", "worseWith", "worseWithout")) {
-                    val accounts = loaded.value.groups[group].orEmpty()
-                    var shown by rememberSaveable(range, d.patternId, d.otherId, group) { mutableIntStateOf(5) }
-                    Kicker("$group · ${accounts.size}")
-                    accounts.take(shown).forEach { SourceAccount(it, onNavigate) }
-                    if (shown < accounts.size) TextButton(onClick = { shown += 5 }) { Text("Show more") }
+                val data = loaded.value
+                data.insight.dynamicIds.forEach { dynamicId ->
+                    Kicker("Pattern ${data.insight.dynamicIds.indexOf(dynamicId) + 1} · source groups")
+                    data.groups[dynamicId].orEmpty().forEach { group ->
+                        Text("${group.role} · ${if (group.independentlyCountable) "independent" else "independence uncertain"}",
+                            color = colors.ink3, fontSize = 12.sp)
+                        group.accountIds.forEach { accountId ->
+                            data.accounts[accountId]?.let { AccountExcerpt(it, onNavigate) }
+                        }
+                    }
+                    data.memberships[dynamicId].orEmpty().filter { member ->
+                        data.groups[dynamicId].orEmpty().none { member.accountId in it.accountIds }
+                    }.forEach { member ->
+                        Text("${member.role}${if (member.excluded) " · your correction" else ""}", color = colors.ink3)
+                        data.accounts[member.accountId]?.let { AccountExcerpt(it, onNavigate) }
+                    }
                 }
-                Text("${loaded.value.mixedExcluded} mixed accounts excluded from both denominators.",
-                    color = colors.ink3, fontSize = 12.sp)
+                val visible = data.memberships.values.flatten().map { it.accountId }.toSet()
+                data.insight.unknownAccountIds.filterNot { it in visible }.forEach { accountId ->
+                    data.accounts[accountId]?.let {
+                        Kicker("Unclear account")
+                        AccountExcerpt(it, onNavigate)
+                    }
+                }
             }
         }
-        FeedbackForm("co/${d.patternId}/${d.otherId}", PATTERN_VERDICTS, d.verdict?.verdict,
-            d.verdict?.note, enabled, error) { verdict, note -> onJudge(d, verdict, note) }
-    }
-}
-
-@Composable
-internal fun PairCard(pair: OutcomePair, range: String, onNavigate: (String) -> Unit,
-                      enabled: Boolean, error: String?, onJudge: (OutcomePair, String?, String?) -> Unit) {
-    val colors = LocalIrisColors.current
-    IrisCard(Modifier.fillMaxWidth()) {
-        Kicker("two recorded situations to compare · ${pair.patternName}")
-        Kicker("read as better")
-        SourceAccount(pair.better, onNavigate)
-        Kicker("read as worse")
-        SourceAccount(pair.worse, onNavigate)
-        Text("What do you make of the difference between these situations?",
-            fontFamily = Serif, fontSize = 18.sp, color = colors.ink)
-        Text("${pair.betterTotal} better · ${pair.worseTotal} worse · ${pair.mixedTotal} mixed. " +
-            "The response did not necessarily cause the outcome.", color = colors.ink3, fontSize = 12.sp)
-        TextButton(onClick = { onNavigate(patternRoute(pair.patternId, range)) }) { Text("See the evidence") }
-        TextButton(onClick = { onNavigate(pairDiscussionRoute(pair, range)) }) { Text("Explore with Iris") }
-        FeedbackForm("pair/${pair.patternId}", PATTERN_VERDICTS, pair.verdict?.verdict,
-            pair.verdict?.note, enabled, error) { verdict, note -> onJudge(pair, verdict, note) }
+        if (insight.feedback?.needsReview == true) Text("Saved opinion needs review: evidence changed.", color = colors.ink3)
+        FeedbackForm("insight/${insight.id}", PATTERN_VERDICTS, insight.feedback?.verdict,
+            insight.feedback?.note, enabled, error) { verdict, note -> onJudge(insight, verdict, note) }
     }
 }
 
 @Composable
 internal fun MeasuredCard(d: DayDifference, range: String, onNavigate: (String) -> Unit,
-                          enabled: Boolean, error: String?, onJudge: (DayDifference, String?, String?) -> Unit) {
+    enabled: Boolean, error: String?, onJudge: (DayDifference, String?, String?) -> Unit) {
     val colors = LocalIrisColors.current
     var expanded by rememberSaveable(range, d.outcome, d.split) { mutableStateOf(false) }
     var request by rememberSaveable(range, d.outcome, d.split) { mutableIntStateOf(0) }
@@ -169,9 +159,7 @@ internal fun MeasuredCard(d: DayDifference, range: String, onNavigate: (String) 
                     days.take(shown).forEach { day ->
                         Text("${day.day} · score ${day.value} · measured ${day.splitValue}", color = colors.ink2)
                         day.entryIds.forEach { id ->
-                            TextButton(onClick = { onNavigate("journal?entry=${Uri.encode(id)}") }) {
-                                Text("Open check-in")
-                            }
+                            TextButton(onClick = { onNavigate("journal?entry=${Uri.encode(id)}") }) { Text("Open check-in") }
                         }
                     }
                     if (shown < days.size) TextButton(onClick = { shown += 5 }) { Text("Show more days") }

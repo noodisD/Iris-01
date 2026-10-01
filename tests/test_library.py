@@ -1,199 +1,58 @@
-"""A library of patterns, and why it is checked rather than trusted.
-
-Asking a model to name the circumstances in an archive failed twice, in
-opposite directions. Concrete, it named the one corner of a life with enough
-repetition to clear "recurs three times" — the owner read about their whole
-archive and got a report about one activity. Abstract, it produced sentences
-that matched nothing: eight of twelve were found in no account at all when each
-account was put to them individually.
-
-So the patterns are written once, in words that fit any area, and the library
-is validated on load. A pattern that advises, explains a cause, or does not say
-what would *not* show it is a lens that decides what it finds.
-"""
+"""Editorial lenses have explicit process requirements and bounded provenance."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import FrozenInstanceError
 
 import pytest
 
-from agent.library import LIBRARY_PATH, Pattern, load
+from agent.library import LIBRARY_PATH, Lens, library_hash, load
 
 
-def _write(tmp_path, patterns):
+def _catalogue(tmp_path, mutate):
+    document = json.loads(LIBRARY_PATH.read_text())
+    mutate(document)
     path = tmp_path / "library.json"
-    path.write_text(json.dumps({"version": 1, "patterns": patterns}))
+    path.write_text(json.dumps(document))
     return path
 
 
-GOOD = {
-    "id": "waiting-for-an-answer",
-    "name": "An answer was wanted immediately",
-    "statement": "Someone was waiting while the decision was made.",
-    "holds_when": ["another person was present and waiting"],
-    "not_when": ["there was time to consider it alone"],
-    "question": "Was there an occasion when nobody was waiting and you still decided at once?",
-    "retiring_answer": "An account of deciding at once with nobody waiting",
-}
+def test_library_loads_with_two_requirements_and_source_scopes():
+    lenses = load()
+    assert len(lenses) == 24
+    assert all(isinstance(lens, Lens) and len(lens.requires) == 2 for lens in lenses)
+    assert len({lens.id for lens in lenses}) == len(lenses)
+    assert {lens.family for lens in lenses} == {
+        "belonging", "uncertainty", "self_worth", "emotional_protection", "capacity", "agency"
+    }
+    assert all(lens.sources and all("personal match" in source.scope for source in lens.sources)
+               for lens in lenses)
+    with pytest.raises(FrozenInstanceError):
+        lenses[0].name = "a personal verdict"
 
 
-# --- the library that ships --------------------------------------------------------
-
-def test_the_library_loads_and_is_general():
-    patterns = load()
-
-    assert len(patterns) >= 6
-    assert all(isinstance(p, Pattern) for p in patterns)
-    assert len({p.id for p in patterns}) == len(patterns)
-
-
-def test_every_pattern_says_what_would_not_show_it():
-    """A pattern with only positive markers finds itself everywhere."""
-    for pattern in load():
-        assert pattern.not_when, pattern.id
-        assert pattern.question.endswith("?"), pattern.id
-        assert pattern.retiring_answer, pattern.id
+@pytest.mark.parametrize("mutate", [
+    lambda doc: doc.update(version=3),
+    lambda doc: doc["lenses"].append(doc["lenses"][0]),
+    lambda doc: doc["lenses"][0].update(extra="unsupported"),
+    lambda doc: doc["lenses"][0].update(family="diagnosis"),
+    lambda doc: doc["lenses"][0].update(requires=["behaviour only"]),
+    lambda doc: doc["lenses"][0].update(sourceIds=["missing"]),
+    lambda doc: doc["lenses"][0].update(question="This is your problem."),
+    lambda doc: doc["sources"]["case_formulation"].update(kind="proof"),
+])
+def test_invalid_catalogue_fails_whole_load(tmp_path, mutate):
+    with pytest.raises(ValueError):
+        load(_catalogue(tmp_path, mutate))
 
 
-def test_no_pattern_names_an_activity():
-    """The point of the library is that a pattern is recognisable in a lesson,
-    a conversation or a piece of work — not only where the owner writes most."""
-    activities = ("trad", "market", "chess", "yoga", "driving", "money", "portfolio")
-    for pattern in load():
-        text = f"{pattern.name} {pattern.statement}".lower()
-        assert not any(word in text for word in activities), pattern.id
-
-
-# --- what a library may not contain ------------------------------------------------
-
-def test_a_pattern_that_explains_or_advises_is_refused(tmp_path):
-    for bad in ({**GOOD, "statement": "Waiting causes the decision to be rushed."},
-                {**GOOD, "question": "Should you ask for more time?"},
-                {**GOOD, "holds_when": ["the pressure means they cannot think"]}):
-        with pytest.raises(ValueError):
-            load(_write(tmp_path, [bad]))
-
-
-def test_a_pattern_missing_its_parts_is_refused(tmp_path):
-    for field in ("statement", "not_when", "question", "retiring_answer"):
-        with pytest.raises(ValueError, match="missing"):
-            load(_write(tmp_path, [{**GOOD, field: "" if field != "not_when" else []}]))
-
-
-def test_the_same_pattern_twice_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="twice"):
-        load(_write(tmp_path, [GOOD, GOOD]))
-
-
-def test_an_empty_library_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="empty"):
-        load(_write(tmp_path, []))
-
-
-def test_the_markers_carry_both_sides():
-    pattern = load()[0]
-
-    assert "It holds when:" in pattern.markers
-    assert "It does not hold when:" in pattern.markers
-
-
-def test_the_library_lives_in_the_repository_and_holds_no_ones_writing():
-    """General knowledge, kept apart from personal evidence: the library is a
-    lens the owner can read, and contains nothing about them."""
-    import re
-
-    text = LIBRARY_PATH.read_text().lower()
-
-    assert "patterns" in text
-    # Whole words: "CI crossing zero" is a confidence interval, not a pronoun.
-    for private in (r"\bi\b", r"\bmy\b", r"\bme\b", r"\bmine\b"):
-        assert not re.search(private, text), private
-
-
-# --- phenomena, not labels ---------------------------------------------------------
-
-def test_no_pattern_names_a_condition(tmp_path):
-    """The library may describe what the clinical literatures describe. It may
-    not name what they name: count the matches on a pattern called by the name
-    of a condition and the owner reads a verdict about themselves out of their
-    own journal. A journal cannot diagnose, and this does not try."""
-    for named in ("Attention deficit while handling something new",
-                  "An autistic response to a change of plan",
-                  "A depressive stretch with nothing finished",
-                  "Executive dysfunction before a deadline"):
-        with pytest.raises(ValueError, match="names a condition"):
-            load(_write(tmp_path, [{**GOOD, "name": named}]))
-
-
-def test_the_basis_may_not_smuggle_a_label_back_in(tmp_path):
-    with pytest.raises(ValueError, match="names a condition"):
-        load(_write(tmp_path, [{**GOOD, "basis": "Described in the ADHD literature."}]))
-
-
-def test_the_shipped_library_names_none_of_them():
-    for pattern in load():
-        text = f"{pattern.name} {pattern.statement} {pattern.basis}".lower()
-        for label in ("adhd", "autis", "disorder", "diagnos", "symptom", "trauma"):
-            assert label not in text, f"{pattern.id}: {label}"
-
-
-def test_a_pattern_may_say_where_the_idea_comes_from():
-    """Plain words, not a citation, and never a claim that the literature
-    establishes anything about this person."""
-    with_basis = [p for p in load() if p.basis]
-
-    assert len(with_basis) >= 8
-    # Long enough to say what the idea is and how it stood up, short enough to
-    # read: these are notes, not a literature review.
-    assert all(len(p.basis) < 320 for p in with_basis), max(with_basis, key=lambda p: len(p.basis)).id
-
-
-def test_the_library_covers_more_than_one_kind_of_occasion():
-    """Attention, starting, avoidance, repetition, environment, other people:
-    an archive weighted towards one activity should still meet patterns that
-    are not about it."""
-    ids = {p.id for p in load()}
-
-    assert len(ids) >= 15
-    for expected in ("started-when-it-was-urgent", "interrupted-routine",
-                     "avoided-then-relieved", "went-over-it-repeatedly",
-                     "environment-mattered", "acted-on-what-was-said"):
-        assert expected in ids
-
-
-# --- what the evidence behind a pattern is worth ------------------------------------
-
-def test_a_graded_pattern_says_how_well_the_idea_has_held_up():
-    """A finding replicated across hundreds of studies and one whose headline
-    effect vanished in a multi-lab replication are both worth looking for. Put
-    side by side with no note of which is which, the second is laundered into
-    somebody's self-understanding."""
-    from agent.library import EVIDENCE
-
-    graded = [p for p in load() if p.evidence]
-
-    assert len(graded) >= 10
-    assert all(p.evidence in EVIDENCE for p in graded)
-    assert any(p.evidence == "contested" for p in graded), (
-        "a library with nothing contested in it has not looked")
-
-
-def test_a_source_without_a_grade_is_refused(tmp_path):
-    """Citing a paper and saying nothing about how it stood up is the move this
-    is meant to prevent."""
-    with pytest.raises(ValueError, match="without grading"):
-        load(_write(tmp_path, [{**GOOD, "source": "https://example.org/paper"}]))
-
-
-def test_an_invented_grade_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="unknown evidence grade"):
-        load(_write(tmp_path, [{**GOOD, "evidence": "obviously true"}]))
-
-
-def test_what_is_graded_is_the_idea_and_never_the_owner():
-    """The grade belongs to the account of why something happens. The owner's
-    own occasions are not graded by anyone."""
-    for pattern in load():
-        assert pattern.evidence in ("", *__import__("agent.library", fromlist=["EVIDENCE"]).EVIDENCE)
-        assert "you " not in pattern.basis.lower(), pattern.id
+def test_hash_changes_for_requirements_and_bibliographic_scope(tmp_path):
+    original = library_hash(load())
+    assert original == library_hash(load())
+    changed_requirement = _catalogue(tmp_path, lambda doc: doc["lenses"][0]["requires"].__setitem__(
+        0, "Agreement happens before asking about availability"))
+    assert library_hash(load(changed_requirement)) != original
+    changed_source = _catalogue(tmp_path, lambda doc: doc["sources"]["case_formulation"].update(
+        scope="This source is only a hypothetical framework, never proof of a personal match."))
+    assert library_hash(load(changed_source)) != original

@@ -152,6 +152,13 @@ def _fail(item_id: int, attempts: int, error: str, generation: int) -> int | Non
                    WHERE id = %s AND generation = %s""",
                 (error[:2000], delay, item_id, generation),
             )
+        if cur.rowcount:
+            cur.execute("""UPDATE discovery_state SET stage = 'failed',
+                          error_kind = %s, updated_at = NOW()
+                          WHERE user_id = (SELECT user_id FROM processing_queue
+                                            WHERE id = %s AND source_type = 'personal_dynamics')""",
+                        (error if error.isidentifier() and len(error) <= 64
+                         else "synthesis_failure", item_id))
         conn.commit()
     return delay
 
@@ -184,8 +191,25 @@ def _run(source_type: str, source_id: int) -> None:
         return
     if source_type == "discovery":
         from .discovery_worker import process_reflection
+        from .episodes import ReadUnavailable
 
-        process_reflection(source_id)
+        try:
+            process_reflection(source_id)
+        except ReadUnavailable:
+            raise
+        except Exception:
+            raise ReadUnavailable("invalid_read_store") from None
+        return
+    if source_type == "personal_dynamics":
+        from .discovery import process_user
+        from .episodes import ReadUnavailable
+
+        try:
+            process_user(source_id)
+        except ReadUnavailable:
+            raise
+        except Exception:
+            raise ReadUnavailable("synthesis_failure") from None
         return
     run_processing_pipeline(source_type, source_id)
 
@@ -194,6 +218,9 @@ def process_due(limit: int = 20) -> tuple[int, int]:
     """Process items whose retry time has arrived. Returns (succeeded, failed)."""
     global _current
     succeeded = failed = 0
+    from .discovery import ensure_pending
+
+    ensure_pending()
     with obs.suppressed():
         claimed = _claim_due(limit)
     for item in claimed:

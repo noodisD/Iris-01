@@ -1,30 +1,14 @@
 #!/usr/bin/env python3
-"""Read the archive once for accounts of occasions, and report counts.
+"""Read eligible journal sources into a local, neutral v4 diagnostic cache.
 
-This answers the question that decides whether comparing episodes is worth
-building: how many of the owner's entries contain an occasion at all — a
-situation, what it demanded, what came in, what they did, what followed — and
-how many of those are their own, actually happened, and have every part stated.
-Two accounts are needed before any shape can be shared; if the count comes back
-in single figures, a comparison pass has nothing to compare.
+    uv run python scripts/read_episodes.py --dry-run
+    uv run python scripts/read_episodes.py --reuse
+    uv run python scripts/read_episodes.py --limit 40
 
-It prints counts, never an account and never a quote. The accounts themselves
-are written only to the local cache described below.
-
-It sends entries to the model, exactly as discovery does, so it runs when the
-owner asks and at no other time.
-
-The accounts are kept in data/ — gitignored, on this machine, never sent
-anywhere — so the archive is read once and every later experiment runs against
-that reading instead of paying for another. The cache records the extraction
-version; a change to the frame or the prompt makes an old cache unusable rather
-than silently mixed with a new one.
-
-    uv run python scripts/read_episodes.py --dry-run      # what would be read
-    uv run python scripts/read_episodes.py                # one pass, cached
-    uv run python scripts/read_episodes.py --reuse        # counts from the cache, free
-    uv run python scripts/read_episodes.py --no-staged   # importable source revisions
-    uv run python scripts/read_episodes.py --limit 40     # a cheaper first look
+This cache is diagnostic, never imported into the live discovery tables.
+Only eligible original reflections are included; unaccepted staged/import-only
+material is excluded. The prior data/episodes.json is historical and untouched.
+Counts print to the terminal, never accounts or passages.
 """
 
 from __future__ import annotations
@@ -32,111 +16,121 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
+from pathlib import Path
 
-# The reader logs what it refuses, and what it refuses is the owner's writing.
-if __name__ == "__main__":  # only the CLI run; an importer keeps its capture
+if __name__ == "__main__":
     logging.disable(logging.CRITICAL)
 
-from pathlib import Path  # noqa: E402
+from agent.config import settings
+from agent.database import db
+from agent.discovery_worker import verify_reading
+from agent.episodes import EXTRACTION_VERSION, Episode, EpisodeReader, ReadUnavailable, tally
+from agent.intelligence import Intelligence
+from agent.observations import chunk_entries, interleave
+from agent.reading_version import VERIFIED_READER_VERSION
 
-from agent.database import db  # noqa: E402
-from agent.episodes import EXTRACTION_VERSION, Episode, EpisodeReader, ReadUnavailable, tally  # noqa: E402
-from agent.intelligence import Intelligence  # noqa: E402
-from agent.observations import chunk_entries, interleave  # noqa: E402
+DEFAULT_CACHE = "data/episodes-v4.json"
+HISTORICAL_CACHE = Path("data/episodes.json").resolve()
 
 
-def main() -> int:
+def load_cache(path: Path, user_id: int) -> tuple[list[Episode], dict]:
+    body = json.loads(path.read_text())
+    if (not isinstance(body, dict) or body.get("version") != EXTRACTION_VERSION or
+            body.get("readerVersion") != VERIFIED_READER_VERSION or
+            body.get("includesStaged") is not False or
+            body.get("user") != user_id or
+            not isinstance(body.get("episodes"), list) or
+            not isinstance(body.get("sourceRevisions"), dict) or
+            any(not key.isdigit() or type(value) is not int or value < 1
+                for key, value in body["sourceRevisions"].items())):
+        raise ValueError("cache is not a neutral current v4 reading for this owner")
+    episodes = [Episode.from_dict(row) for row in body["episodes"]]
+    if (not isinstance(body.get("entriesRead"), int) or
+            body["entriesRead"] != len(body["sourceRevisions"]) or
+            any(str(c.entry_id) not in body["sourceRevisions"]
+                for episode in episodes for c in episode.citations)):
+        raise ValueError("cached accounts do not match the recorded source manifest")
+    return episodes, body
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--user", type=int, default=1)
     ap.add_argument("--limit", type=int, default=100_000,
-                    help="how many entries to read, newest first")
-    ap.add_argument("--no-staged", action="store_true",
-                    help="skip undated recordings, which can describe an occasion "
-                         "but can never say when it happened")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="report what would be read and how many passes it takes, "
-                         "without sending anything to the model")
-    ap.add_argument("--reuse", action="store_true",
-                    help="read the cached accounts instead of the archive")
-    ap.add_argument("--cache", default="data/episodes.json",
-                    help="where the accounts are kept; gitignored and local")
+                    help="eligible original entries to read, newest first")
+    ap.add_argument("--dry-run", action="store_true", help="count without contacting a provider")
+    ap.add_argument("--reuse", action="store_true", help="validate and count an existing v4 cache")
+    ap.add_argument("--cache", default=DEFAULT_CACHE, help="new local owner-only cache")
     ap.add_argument("--readable", default="data/readable.json",
-                    help="punctuated reading copies, if they have been made; the "
-                         "model reads these and quotes still resolve to the original")
-    args = ap.parse_args()
-
+                    help="optional punctuated copies; citations resolve against original entries")
+    args = ap.parse_args(argv)
+    if args.limit <= 0 or args.user <= 0 or (args.dry_run and args.reuse):
+        print("Select a positive owner/limit and at most one of --dry-run or --reuse.")
+        return 1
     cache = Path(args.cache)
     if args.reuse:
-        if not cache.exists():
-            print(f"no cache at {cache}: run without --reuse first.")
+        try:
+            episodes, body = load_cache(cache, args.user)
+        except (OSError, ValueError, KeyError, TypeError):
+            print("No usable current v4 cache; read eligible sources into a new cache.")
             return 1
-        body = json.loads(cache.read_text())
-        if body.get("version") != EXTRACTION_VERSION:
-            print(f"cache was made by extraction version {body.get('version')}, "
-                  f"this is {EXTRACTION_VERSION}: read again.")
-            return 1
-        episodes = [Episode.from_dict(e) for e in body["episodes"]]
         print(json.dumps({**tally(episodes), "from_cache": str(cache),
                           "read_at": body.get("readAt")}, indent=1))
         return 0
 
-    entries = list(db.get_entries_for_reading(args.user, limit=args.limit))
-    source_revisions = {str(entry["id"]): entry["discovery_revision"] for entry in entries}
-    if not args.no_staged:
-        from agent.constants import OBSERVATION_MIN_STAGED_CHARS
-        entries += db.get_staged_for_reading(args.user, OBSERVATION_MIN_STAGED_CHARS)
-
+    entries = db.get_entries_for_reading(args.user, limit=args.limit)
+    source_revisions = {str(row["id"]): row["discovery_revision"] for row in entries}
     chunks = chunk_entries(interleave(entries))
-    print(f"entries: {len(entries)}  passes: {len(chunks)}")
+    print(f"eligible entries: {len(entries)}  passes: {len(chunks)}")
     if args.dry_run:
-        print("dry run: nothing was sent to the model.")
+        print("dry run: no provider call or cache write.")
         return 0
-
+    if cache.resolve() == HISTORICAL_CACHE or cache.exists():
+        print("Refusing to overwrite an old or existing cache; choose a new --cache path.")
+        return 1
     copies = {}
-    readable_path = Path(args.readable)
-    if readable_path.exists():
-        body = json.loads(readable_path.read_text())
+    readable = Path(args.readable)
+    if readable.exists():
+        body = json.loads(readable.read_text())
         copies = body.get("copies", {})
-        print(f"reading copies available for {len(copies)} entries")
+        if not isinstance(copies, dict):
+            raise ValueError("invalid readable copy format")
 
     started = time.time()
-    reader = EpisodeReader(args.user, intelligence=Intelligence())
+    model = Intelligence(model=settings.OPENAI_WORKER_MODEL) if entries else None
+    reader = EpisodeReader(args.user, intelligence=model)
     try:
-        episodes = reader.read(entries, copies)
-    except ReadUnavailable:
-        print("reading unavailable: the existing cache was not changed.", file=sys.stderr)
+        extracted = reader.read(entries, copies)
+        episodes, dropped, omitted = verify_reading(extracted, model)
+    except (ReadUnavailable, ValueError):
+        print("reading unavailable: no diagnostic cache was written.", file=sys.stderr)
         return 1
     counts = tally(episodes)
-    counts["entries_read"] = len(entries)
-    counts["passes"] = len(chunks)
-    counts["seconds"] = round(time.time() - started)
-    counts["omitted_accounts"] = reader.omitted_accounts
-    # Which entries yielded one, as a count of entries rather than of episodes:
-    # a single long entry can carry several, and "half the archive describes
-    # occasions" is a different fact from "there are eighty episodes".
-    counts["entries_with_an_episode"] = len(
-        {c.key for e in episodes for c in e.citations})
-
+    counts.update({
+        "entries_read": len(entries), "passes": len(chunks),
+        "seconds": round(time.time() - started),
+        "omitted_accounts": reader.omitted_accounts + dropped,
+        "omitted_fields": reader.omitted_fields + omitted,
+        "entries_with_an_account": len({c.entry_id for e in episodes for c in e.citations}),
+    })
+    payload = {"version": EXTRACTION_VERSION, "readerVersion": VERIFIED_READER_VERSION,
+               "readAt": time.strftime("%Y-%m-%dT%H:%M:%S"), "user": args.user,
+               "entriesRead": len(entries), "sourceRevisions": source_revisions,
+               "includesStaged": False, "omittedAccounts": counts["omitted_accounts"],
+               "omittedFields": counts["omitted_fields"],
+               "episodes": [e.as_dict() for e in episodes]}
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps({
-        "version": EXTRACTION_VERSION,
-        "readAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "user": args.user,
-        "entriesRead": len(entries),
-        "sourceRevisions": source_revisions,
-        "includesStaged": not args.no_staged,
-        "omittedAccounts": reader.omitted_accounts,
-        "episodes": [e.as_dict() for e in episodes],
-    }, indent=1))
-    counts["cached_at"] = str(cache)
-
-    print(json.dumps(counts, indent=1))
-    if counts["comparable"] < 2:
-        print("\nFewer than two comparable occasions: there is nothing to compare "
-              "shapes between yet. The honest surface is the account itself and "
-              "the owner's own connection to it.")
+    try:
+        fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(payload, output, indent=1)
+    except FileExistsError:
+        print("Another cache was written first; refusing to overwrite it.")
+        return 1
+    print(json.dumps({**counts, "cached_at": str(cache)}, indent=1))
     return 0
 
 

@@ -1,7 +1,10 @@
 # ADR-0023: An insight is a difference in outcome
 
 ## Status
-Accepted — 2026-09-25 · Threshold and reading lifecycle amended by [ADR-0027](ADR-0027-source-backed-patterns-and-selected-evidence.md)
+Historical decision — superseded for writing-derived Insights by the
+process-first personal-dynamics cutover in
+[ADR-0027](ADR-0027-source-backed-patterns-and-selected-evidence.md#current-cutover-process-first-personal-dynamics).
+Measured-day comparisons remain governed by ADR-0024.
 
 ## Context
 The Insights screen showed the old analytical engine's findings: theme

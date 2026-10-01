@@ -5,8 +5,8 @@ import { useUser } from '@/hooks/useData';
 import { ReplyFailed } from '@/api/chat';
 import { parseEvidenceRef } from '@/lib/evidence';
 import { LoadingState, ErrorState } from '@/components/states';
-import type { ChatMessage, DayDifferenceDetail, DifferenceDetail, EvidenceRef, Occasion,
-  OutcomePair, PatternDetail } from '@/types/api';
+import type { ChatMessage, DayDifferenceDetail, EvidenceRef, InsightDetail,
+  PatternDetail, PersonalAccount } from '@/types/api';
 import { Mic } from 'lucide-react';
 import { TalkIntro, TalkMode } from '@/components/TalkMode';
 import { useTalk } from '@/hooks/useTalk';
@@ -43,35 +43,72 @@ function Bubble({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function EvidenceAccount({ account }: { account: Occasion }) {
+function EvidenceAccount({ account }: { account: PersonalAccount }) {
   return <article className={styles.sourceAccount}>
-    <p>Recorded {account.recordedOn ?? 'date unknown'} · provisional {account.tone}</p>
-    <p>{account.response}{account.outcome && <> → {account.outcome}</>}</p>
-    {account.citations.slice(0, 2).map((citation, index) =>
+    <p>Recorded {account.recordedOn ?? 'date unknown'} · {account.recordKind.replace('_', ' ')}</p>
+    <p>{account.situation} {account.response} {account.selfReport}</p>
+    {account.explanation && <p>You wrote: {account.explanation}</p>}
+    {account.citations.map((citation, index) =>
       <blockquote key={index}>{citation.text}{' '}
-        {citation.sourceType === 'reflection' && <Link to={`/journal?entry=${citation.entryId}`}>Open entry</Link>}
+        {citation.sourceType === 'reflection' && <Link
+          to={`/journal?entry=${encodeURIComponent(String(citation.entryId))}`}>Open entry</Link>}
       </blockquote>)}
   </article>;
 }
 
+/** A corrected account stays in detail under Your corrections, not ordinary chat evidence. */
+function previewGroups(detail: PatternDetail | InsightDetail) {
+  return Object.entries(detail.groups).flatMap(([dynamicId, groups]) => {
+    const included = new Map<string, Set<string>>();
+    for (const row of detail.memberships[dynamicId] ?? []) {
+      if (row.excluded || row.ownerVerdict === 'no' || row.groupId === null) continue;
+      if (!included.has(row.groupId)) included.set(row.groupId, new Set());
+      included.get(row.groupId)!.add(row.accountId);
+    }
+    return groups.map(group => ({
+      ...group, dynamicId,
+      accountIds: group.accountIds.filter(id => included.get(group.id)?.has(id) && detail.accounts[id]),
+    })).filter(group => group.accountIds.length > 0);
+  });
+}
+
 function EvidencePreview({ reference, evidence }: {
-  reference: EvidenceRef; evidence: PatternDetail | OutcomePair | DifferenceDetail | DayDifferenceDetail;
+  reference: EvidenceRef; evidence: PatternDetail | InsightDetail | DayDifferenceDetail;
 }) {
-  if (reference.kind === 'pattern') {
+  if (reference.kind === 'dynamic') {
     const detail = evidence as PatternDetail;
-    return <div>{detail.occasions.filter(o => o.ownerVerdict !== 'no').slice(0, 4)
-      .map(o => <EvidenceAccount key={o.id} account={o} />)}</div>;
+    const p = detail.pattern;
+    const groups = previewGroups(detail);
+    const contrary = groups.find(group => group.role === 'exception');
+    const selected = [...(contrary ? [contrary] : []), ...groups.filter(group => group !== contrary)].slice(0, 4);
+    return <div>
+      <p>{p.context.text} → {p.response.text}</p>
+      {p.ownerMeanings.map((meaning, index) => <p key={index}>You wrote: {meaning.text}</p>)}
+      <p>One possible explanation (not established): {p.possibleMeaning?.text ?? 'Not recorded'}</p>
+      <p>Another possibility: {p.alternative?.text ?? 'Not recorded'}</p>
+      <p>{groups.length} checked groups; {p.unknownAccountCount} unclear accounts.
+        Previewing {selected.length} groups; see detail for the complete record.</p>
+      {selected.map(group => <section key={`${group.dynamicId}/${group.id}`}><h3>{group.role.replace('_', ' ')}</h3>
+        {group.accountIds.map(id =>
+          <EvidenceAccount key={id} account={detail.accounts[id]} />)}</section>)}
+    </div>;
   }
-  if (reference.kind === 'outcome_pair') {
-    const pair = evidence as OutcomePair;
-    return <div><EvidenceAccount account={pair.better} /><EvidenceAccount account={pair.worse} /></div>;
-  }
-  if (reference.kind === 'co_label') {
-    const contrast = evidence as DifferenceDetail;
-    return <div>{Object.entries(contrast.groups).map(([group, accounts]) =>
-      <section key={group}><h3>{group} ({accounts.length})</h3>
-        {accounts[0] && <EvidenceAccount account={accounts[0]} />}
-      </section>)}</div>;
+  if (reference.kind === 'personal_insight') {
+    const detail = evidence as InsightDetail;
+    const insight = detail.insight;
+    const groups = previewGroups(detail);
+    const contrary = groups.find(group => insight.contraryGroups.includes(group.id));
+    const selected = [...(contrary ? [contrary] : []), ...groups.filter(group => group !== contrary)].slice(0, 4);
+    return <div>
+      <p>{insight.observation.text}</p>
+      <p>One possible explanation (not established): {insight.possibleMeaning.text}</p>
+      <p>Another possibility: {insight.alternative.text}</p>
+      <p>{groups.length} checked groups; {insight.unknownAccountIds.length} unclear accounts.
+        Previewing {selected.length} groups; see detail for the complete record.</p>
+      {selected.map(group => <section key={`${group.dynamicId}/${group.id}`}><h3>{group.role.replace('_', ' ')}</h3>
+        {group.accountIds.map(id =>
+          <EvidenceAccount key={id} account={detail.accounts[id]} />)}</section>)}
+    </div>;
   }
   const days = evidence as DayDifferenceDetail;
   return <div>
@@ -105,11 +142,11 @@ export function ChatScreen() {
   const draftTouched = React.useRef(savedDraft.current !== null);
   const seeded = React.useRef(savedDraft.current !== null);
   React.useEffect(() => {
-    if (preview.data && !seeded.current && !draftTouched.current) {
+    if (preview.data && !preview.isFetching && !seeded.current && !draftTouched.current) {
       seeded.current = true;
       setDraft(preview.data.question);
     }
-  }, [preview.data]);
+  }, [preview.data, preview.isFetching]);
   const [failure, setFailure] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
@@ -129,7 +166,8 @@ export function ChatScreen() {
   const submit = (text = draft) => {
     const t = text.trim();
     const draftKey = reference && discussionDraftKey(reference);
-    if (!t || invalidReference || (reference && (!preview.data || preview.data.changed))) return;
+    if (!t || invalidReference || (reference &&
+      (preview.isFetching || preview.isError || !preview.data || preview.data.changed))) return;
     const submittedDraft = draftKey ? sessionStorage.getItem(draftKey) : null;
     setDraft('');
     setFailure(null);
@@ -200,7 +238,7 @@ export function ChatScreen() {
               }}>Remove</Button>
             </div>
             {invalidReference ? <p role="alert">That evidence link is invalid. Return to Patterns or Insights.</p>
-              : preview.isPending ? <p>Opening current evidence…</p>
+              : preview.isPending || preview.isFetching ? <p>Opening current evidence…</p>
               : preview.isError || !preview.data ? <>
                 <p role="alert">Selected evidence is unavailable or no longer qualifies.</p>
                 <Button size="sm" onClick={() => void preview.refetch()}>Retry preview</Button>
@@ -217,8 +255,8 @@ export function ChatScreen() {
                   }}>Use updated evidence</Button>
                 </div>}
               </>}
-            {reference && <Link to={reference.kind === 'pattern'
-              ? `/patterns/${encodeURIComponent(reference.patternId)}?range=${reference.range}`
+            {reference && <Link to={reference.kind === 'dynamic'
+              ? `/patterns/${encodeURIComponent(reference.dynamicId)}?range=${reference.range}`
               : `/insights?range=${reference.range}`}>Back to source</Link>}
           </section>}
           {talkStage === 'asking' && (
@@ -243,7 +281,8 @@ export function ChatScreen() {
             <Button variant="quiet" icon={<Mic aria-hidden />} onClick={() => setTalkStage('asking')}
               disabled={send.isPending || Boolean(reference) || invalidReference}>Talk</Button>
             <Button variant="primary" onClick={() => submit()}
-              disabled={send.isPending || invalidReference || Boolean(reference && (!preview.data || preview.data.changed))}>Send</Button>
+              disabled={send.isPending || invalidReference || Boolean(reference &&
+                (preview.isFetching || preview.isError || !preview.data || preview.data.changed))}>Send</Button>
           </div>
           {(reference || invalidReference) && <p className={styles.meta}>
             Selected evidence is for typed discussion. Remove it to start Talk.</p>}

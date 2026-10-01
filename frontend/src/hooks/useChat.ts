@@ -32,6 +32,8 @@ export function useEvidencePreview(ref: EvidenceRef | null) {
     queryFn: () => chatApi.getDiscussionPreview(ref!),
     enabled: ref !== null,
     retry: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 }
 

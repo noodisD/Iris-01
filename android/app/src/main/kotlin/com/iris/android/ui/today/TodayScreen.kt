@@ -32,7 +32,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.iris.android.api.HabitsTodayResponse
-import com.iris.android.api.PatternSummary
+import com.iris.android.api.PersonalPattern
 import com.iris.android.api.PatternsResponse
 import com.iris.android.api.nextPattern
 import com.iris.android.api.IrisLink
@@ -56,7 +56,7 @@ import kotlinx.coroutines.supervisorScope
 class TodayViewModel : ViewModel() {
     private val _habits = MutableStateFlow<Loadable<HabitsTodayResponse>>(Loadable.Loading)
     val habits = _habits.asStateFlow()
-    private val _patterns = MutableStateFlow<Loadable<List<PatternSummary>>>(Loadable.Loading)
+    private val _patterns = MutableStateFlow<Loadable<List<PersonalPattern>>>(Loadable.Loading)
     val patterns = _patterns.asStateFlow()
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
@@ -93,7 +93,8 @@ class TodayViewModel : ViewModel() {
         val version = ++patternsVersion
         try {
             val result = IrisLink.api().send("GET", "/patterns", null, PatternsResponse.serializer())
-            if (version == patternsVersion) _patterns.value = Loadable.Ready(result.patterns)
+            if (version == patternsVersion) _patterns.value = if (result.status.stage == "ready")
+                Loadable.Ready(result.patterns) else Loadable.Failed("Personal discovery is ${result.status.stage}.")
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { if (version == patternsVersion) _patterns.value = Loadable.Failed(e.message ?: "Patterns didn't load.") }
     }
@@ -127,15 +128,19 @@ fun TodayScreen(onNavigate: (String) -> Unit) {
                     // A pattern waiting for the owner's verdict, offered as a question.
                     val featured = (patterns as? Loadable.Ready)?.value?.let(::nextPattern)
                     if (featured != null) item {
-                        val open = { onNavigate("patterns/${Uri.encode(featured.id)}") }
+                        val open = { onNavigate("patterns/${Uri.encode(featured.id)}?range=all") }
                         IrisCard(Modifier.fillMaxWidth(), onClick = open) {
                             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
                                 IrisOrb()
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Kicker("pattern · ${featured.occasions} occasions · does it ring true?")
-                                    Text(featured.name, fontFamily = Serif, fontStyle = FontStyle.Italic,
+                                    Kicker("pattern · ${featured.evidenceState.replace('_', ' ')} · does it ring true?")
+                                    Text(featured.title, fontFamily = Serif, fontStyle = FontStyle.Italic,
                                         fontSize = 22.sp, color = colors.ink, lineHeight = 29.sp)
-                                    Text(featured.statement, fontSize = 13.sp, color = colors.ink3)
+                                    Text("${featured.context.text} → ${featured.response.text}", fontSize = 13.sp, color = colors.ink3)
+                                    Text("At least ${featured.independentGroupCount} distinct occasions identified",
+                                        fontSize = 12.sp, color = colors.ink3)
+                                    if (featured.feedback?.needsReview == true)
+                                        Text("Saved opinion needs review", fontSize = 12.sp, color = colors.ink3)
                                 }
                                 TextButton(onClick = open) { Text("↗ open") }
                             }

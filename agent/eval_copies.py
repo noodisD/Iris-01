@@ -11,7 +11,8 @@ so nothing learnt from the archive can leak in by another route:
 - the imported entries themselves, their import records, and their embeddings
   for memory search;
 - quotes on ideas, and ideas left with no quote at all;
-- pattern occasions that cite an imported entry, with their labels;
+- personal-dynamics views, drafts, imported account passages and their archived
+  feedback; no formulation from the complete archive survives in the direct copy;
 - topic clusters' samples and occurrences from those entries, and topics left
   empty;
 - the older engines' stored findings, which were computed over everything;
@@ -45,10 +46,18 @@ def prune_to_direct(cur: Any) -> dict[str, int]:
     run("topic occurrences", "DELETE FROM theme_occurrences WHERE source_type = 'reflection' AND source_id IN (SELECT id FROM historical)")
     run("topic samples", """DELETE FROM theme_prototypes WHERE source_type = 'import_item'
                               OR (source_type = 'reflection' AND source_id IN (SELECT id FROM historical))""")
-    run("pattern occasions", """DELETE FROM occasions o WHERE EXISTS (
-                                  SELECT 1 FROM jsonb_array_elements(o.citations) c
-                                   WHERE c->>'sourceType' = 'reflection'
-                                     AND (c->>'entryId')::int IN (SELECT id FROM historical))""")
+    # An archive-wide formulation can cite imported entries even if a card's
+    # primary example came from a direct entry. Remove it before its sources.
+    run("discovery views", "DELETE FROM discovery_views")
+    run("discovery drafts", "DELETE FROM discovery_drafts")
+    run("discovery feedback", "DELETE FROM discovery_feedback")
+    run("discovery membership feedback", "DELETE FROM discovery_membership_feedback")
+    run("discovery legacy feedback", "DELETE FROM discovery_legacy_feedback")
+    run("imported accounts", "DELETE FROM discovery_accounts WHERE reflection_id IN (SELECT id FROM historical)")
+    run("imported reads", "DELETE FROM discovery_reads WHERE reflection_id IN (SELECT id FROM historical)")
+    run("discovery state", """UPDATE discovery_state
+                              SET source_generation = source_generation + 1,
+                                  stage = 'reading', error_kind = NULL, updated_at = NOW()""")
     run("import records", "DELETE FROM import_items")
     run("imports", "DELETE FROM import_batches")
     # Quotes on ideas go with their entries (ON DELETE CASCADE).

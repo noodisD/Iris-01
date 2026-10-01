@@ -1,178 +1,49 @@
-"""Whether a field of an account is stated by the writing it cites.
+"""Diagnostic adapter for the exact contextual field check used by live discovery.
 
-The reader proves a quote appears in the entry it names. It never proved the
-*account* follows from that quote, and a check of ten accounts found where that
-gap lands: `outcome` wrong on five of the six checked accounts that enter
-comparison, `response` wrong or partial on five of ten.
-
-The mechanism is selection, not carelessness. `outcome` is the only part of the
-frame ever absent — across 97 accounts, `situation` is missing 0 times,
-`response` 0 times, `outcome` 26 — and `has_shape` requires it. So an account
-earns its way into the comparison set by having an outcome, which makes
-supplying one the way in. Omitting it honestly, as the prompt asks, is what
-gets an account excluded.
-
-This closes that by asking of a field what `check_support` asks of a claim: not
-"is this plausible" but "does this passage say it". Four answers, and the
-fourth matters as much as the others:
-
-    supported     the quotes state it
-    not_stated    the quotes do not say it, either way
-    contradicted  the quotes say something else happened
-    unavailable   the model could not be asked
-
-`unavailable` is a provider failure, not a verdict. Collapsing it into
-`not_stated` would turn an exhausted API key into "the journal records no
-outcome", which is the same mistake this codebase has now made twice and is
-the reason the reading copies and the pattern labels both count what they could
-not ask separately from what came back empty.
-
-Nothing here edits an account. A field that fails is recorded as failing; the
-account stays whole and the analyses that need that field exclude it. Deciding
-what an account says is the owner's, and a second model agreeing is a check,
-not a proof.
-
-This deliberately does not borrow `check_support`'s recurrence thresholds. Two
-entries are required there because a *pattern* claimed across an archive needs
-more than one occasion behind it. One occasion needs one occasion.
-
-MEASURED, AND NOT YET FIT TO GATE ANYTHING
-------------------------------------------
-Run against the ten accounts the owner checked by hand (22 September 2026):
-
-    response   10 supported, 0 not_stated, 0 contradicted
-    outcome     5 supported, 2 not_stated, 0 contradicted
-
-    agreed with the owner on 7 of 13 scorable verdicts (54%)
-    caught 1 of the 6 errors they found
-    rejected 1 field they had confirmed as right
-
-Asked whether a passage says a thing, the model says yes. It reproduces the
-extractor's own judgement rather than testing it, which is the failure the
-design was warned about and did not avoid: a second model agreeing is not
-evidence, and here it agrees almost always.
-
-So this must not be used to admit or exclude an account. What it is good for is
-the shape around it — stable keys, `unavailable` kept apart from `not_stated`,
-results versioned beside an untouched cache. The judgement in the middle needs
-replacing, not tuning. Two candidates, neither tried yet:
-
-- make the model *select* rather than assess: ask which passage states the
-  field, mechanically verify that the passage it names is real and contains
-  what it claims, and treat "none" as not_stated. A citation that must be
-  produced is harder to hand-wave than a yes.
-- ask for a calibrated probability from a model built to return one, and put
-  the threshold where the owner's own verdicts say it belongs.
+The original source-selecting checker is in connections.check_account_fields.
+This module adds only unavailable verdicts for evaluation when that semantic
+request fails; unavailable is never not_stated or a successful empty read.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 
-from .constants import OBSERVATION_MAX_TOKENS
-from .observations import _strip_fence
+from .connections import check_account_fields
+from .dynamics import validate_field_checks
+from .episodes import Episode, GROUNDED_FIELDS, ReadUnavailable
+from .reading_version import VERIFIED_READER_VERSION
 from .reference_evaluation import CHECKED
-from .reference_evaluation import (
-    account_key as account_key,  # noqa: PLC0414 -- legacy public export
-)
 
 logger = logging.getLogger(__name__)
-
-#: Bumped when the prompt, verdicts, or parsing rules change. Version 2 keeps
-#: malformed JSON shapes and duplicate fields unavailable instead of crashing
-#: or silently taking the last value. The judgment prompt is unchanged.
-VERIFICATION_VERSION = 2
-
-#: Unavailability is an operational failure, not a semantic verdict.
-VERDICTS = ("supported", "not_stated", "contradicted", "unavailable")
-
-SYSTEM_PROMPT = """You are checking one statement about an occasion against the passages it was drawn from.
-
-The passages are real: each was found word for word in the writing. You are not judging whether the statement is plausible, or whether it sounds like something that happens. You are judging whether these passages say it.
-
-Answer for each statement given:
-- "supported" — the passages state this, about this person, on this occasion.
-- "not_stated" — the passages do not say it. They may be about the same occasion and simply not mention this.
-- "contradicted" — the passages say something that cannot be true alongside it.
-
-Two things make a statement NOT supported even when it seems right:
-- it is about a different person than the one the passages describe;
-- it is something intended, feared or imagined, reported as something that happened.
-
-"not_stated" is the correct and expected answer when the writing simply does not say. It is not a failure to find something.
-
-Do not restate the statement. Give only the verdict for each one.
-
-Return JSON only, in exactly this form:
-{"verdicts": [{"field": "<the field name you were given>", "verdict": "supported" | "not_stated" | "contradicted"}]}"""
+VERIFICATION_VERSION = VERIFIED_READER_VERSION
+VERDICTS = ("supported", "not_stated", "contradicted", "unclear", "unavailable")
 
 
-def _asked(episode: dict) -> tuple[str, dict[str, str]]:
-    """What to send, and the fields it covers."""
-    fields = {f: episode[f] for f in CHECKED
-              if isinstance(episode.get(f), str) and episode[f].strip()}
-    quotes = "\n".join(f"- {c.get('text')}" for c in episode.get("citations", []))
-    said = (f"The passages, as the writing has them:\n{quotes}\n\n"
-            f"The occasion is described as: {episode.get('modality')}, "
-            f"by: {episode.get('actor')}.\n\n"
-            "The statements to check:\n"
-            + "\n".join(f"- {name}: {text}" for name, text in fields.items()))
-    return said, fields
-
-
-def _parse_verdicts(reply: str, fields: dict[str, str]) -> dict[str, str]:
-    try:
-        answer = json.loads(_strip_fence(reply))
-    except (ValueError, AttributeError, TypeError):
-        # An unreadable answer is not a judgement about the field either.
-        return dict.fromkeys(fields, "unavailable")
-    if not isinstance(answer, dict) or not isinstance(answer.get("verdicts"), list):
-        return dict.fromkeys(fields, "unavailable")
-    # Keyed by field name rather than positionally, and read from an explicit
-    # "verdicts" list: asking for {"response": ...} invited the model to put the
-    # restated statement under that key, because "response" names a field here
-    # and an answer everywhere else. Two accounts came back that way and were
-    # counted as provider failures.
-    given = {}
-    duplicates = set()
-    for item in answer["verdicts"]:
-        if not isinstance(item, dict) or not isinstance(item.get("field"), str):
-            continue
-        name = item["field"]
-        if name in given:
-            duplicates.add(name)
-        given[name] = item.get("verdict")
-    for name in duplicates:
-        given.pop(name)
-    return {name: (given.get(name) if given.get(name) in VERDICTS[:3] else "unavailable")
-            for name in fields}
-
-
-def check(episode: dict, intelligence) -> dict[str, str]:
-    """A verdict per populated field; provider/response failures are unavailable."""
-    said, fields = _asked(episode)
+def check(episode: dict | Episode, intelligence) -> dict[str, str]:
+    """Use production source selection; keep operational failure separate."""
+    account = Episode.from_dict(episode) if isinstance(episode, dict) else episode
+    if not isinstance(account, Episode):
+        raise ValueError("invalid v4 account")
+    fields = {field for field in GROUNDED_FIELDS if getattr(account, field) is not None}
     if not fields:
         return {}
     if intelligence is None:
         return dict.fromkeys(fields, "unavailable")
     try:
-        reply = intelligence.chat(messages=[{"role": "user", "content": said}],
-                                  system_prompt=SYSTEM_PROMPT,
-                                  max_tokens=OBSERVATION_MAX_TOKENS)
-    except Exception as e:
-        # An exception can contain source text or credentials. Its type is
-        # enough to diagnose the failure category without logging the payload.
-        logger.error("Field support could not be asked (%s)", type(e).__name__)
+        result = check_account_fields(account, intelligence)
+        validate_field_checks(account, result)
+    except (ReadUnavailable, ValueError) as exc:
+        logger.error("Field support unavailable (%s)", type(exc).__name__)
         return dict.fromkeys(fields, "unavailable")
-    return _parse_verdicts(reply, fields)
+    return {row.field: row.verdict for row in result.checks}
 
 
-def tally(results: list[dict]) -> dict:
-    """Counts by field and verdict, with what could not be asked kept apart."""
-    counts: dict[str, dict[str, int]] = {f: dict.fromkeys(VERDICTS, 0) for f in CHECKED}
-    for row in results:
-        for field, verdict in (row.get("verdicts") or {}).items():
-            if field in counts:
-                counts[field][verdict] = counts[field].get(verdict, 0) + 1
+def tally(results: list[dict]) -> dict[str, dict[str, int]]:
+    counts = {field: dict.fromkeys(VERDICTS, 0) for field in CHECKED}
+    for result in results:
+        for field, verdict in result["verdicts"].items():
+            if field not in counts or verdict not in VERDICTS:
+                raise ValueError("invalid diagnostic field verdict")
+            counts[field][verdict] += 1
     return counts

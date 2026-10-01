@@ -1,61 +1,36 @@
 #!/usr/bin/env python3
-"""Pick a handful of accounts to check by hand, and lay them out for checking.
+"""Build a source-linked manual review sheet for v4 account extraction.
 
-Every count above the extraction inherits one unverified claim: that an account
-says what the writing it cites says. The reader proves a quote appears word for
-word in the entry it names. It does not prove the account *follows* from that
-quote — that the actor is right, that it happened rather than being planned,
-that two accounts are two occasions rather than one told twice.
+    uv run python scripts/spot_check.py --count 10
 
-So this takes no view on whether the extraction is good. It chooses the sample
-most likely to expose an error and writes it out beside the writing it came
-from, with a blank verdict against each question, for the owner to fill in.
-
-The sample is stratified rather than random, because the rare cases are where
-the errors would be: the single account attributed to anyone else is worth more
-than twenty ordinary ones, and an undated account is where a date could have
-been filled in from the wrong place.
-
-The sheet ends with pairs that share a shape. Those are retrieved, not decided:
-two occasions can have the same situation, response and outcome and still be
-two occasions — comparing them is the point of the rest of this work — so a
-shared shape only earns the pair a question. Whether it is one occasion told
-twice is the owner's answer.
-
-Counts to the terminal; the sheet itself is written to data/, gitignored, and
-holds the owner's own writing.
-
-    uv run python scripts/spot_check.py            # ten accounts
-    uv run python scripts/spot_check.py --count 20
+The v4 cache must have the current reader hash and contain only accepted,
+eligible journal sources. The sheet is owner-only and never overwrites an
+earlier spot-check or the historical v3 cache.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import re
 import sys
 from pathlib import Path
 
-#: What is being asked of each account, and why it can be wrong despite a quote
-#: that verifies. These are the questions a verified citation does not answer.
-QUESTIONS = (
-    ("actor", "Is this the owner's own occasion, or someone else's?"),
-    ("modality", "Did it happen, or was it planned, imagined or feared?"),
-    ("identity", "Is this one occasion, or the same one told again elsewhere?"),
-    ("situation", "Does the situation follow from the quotes, without additions?"),
-    ("response", "Is the response what they actually did?"),
-    ("outcome", "Is the outcome stated in the writing, not inferred?"),
-    ("date", "Did the occasion happen on this day, or is this the day it was written?"),
-    ("reading", "Does situation, demand, information, response or outcome add "
-                "anything the writing does not say?"),
-    ("explanation", "If there is an explanation: is it the writer's own, or "
-                    "one the reader supplied?"),
-)
+from scripts.read_episodes import DEFAULT_CACHE, load_cache
 
-#: Words too common in anyone's writing to mean two accounts are the same
-#: occasion. Kept small deliberately: a longer list starts removing the words
-#: that carry the meaning.
+QUESTIONS = (
+    ("actor", "Whose words and action does the original passage describe?"),
+    ("recordKind", "Did it happen, was it a general self-description, or only intended/imagined?"),
+    ("identity", "Is this a separate event, or the same one retold in another entry?"),
+    ("situation", "Is this particular situation stated for this actor and occasion?"),
+    ("response", "Is this what they actually did, not what they meant to do?"),
+    ("immediateOutcome", "Is an immediate result explicitly stated for this same occasion?"),
+    ("laterOutcome", "Is a separate later result explicitly stated, not inferred from a later entry date?"),
+    ("feeling", "Is the feeling theirs and explicitly stated?"),
+    ("concern", "Is this stated as their want, worry, value or stake?"),
+    ("explanation", "If supplied, is this what the owner wrote, rather than Iris's hypothesis?"),
+    ("recordedOn", "Does this date record the entry, without asserting when the event happened?"),
+)
 _COMMON = frozenset(
     "a an and as at be been but by for from had has have he her his i if in is "
     "it its me my not of on or she so that the their them then there they this "
@@ -63,182 +38,156 @@ _COMMON = frozenset(
 
 
 def strata(episodes: list[dict]) -> list[tuple[str, list[int]]]:
-    """Groups worth sampling from, rarest first.
-
-    Order matters: `choose` takes one from each in turn, so the rarest kinds are
-    reached before the sample is full and ordinary dated accounts fill whatever
-    is left. An account can belong to several of these; it is checked once, and
-    listed under the first kind that claimed it.
-    """
-    def where(test) -> list[int]:
-        return [i for i, e in enumerate(episodes) if test(e)]
+    """Choose rare epistemic boundaries before ordinary dated self-events."""
+    def where(predicate) -> list[int]:
+        return [index for index, row in enumerate(episodes) if predicate(row)]
 
     return [
-        ("attributed to someone else", where(lambda e: e.get("actor") != "self")),
-        ("planned, not done", where(lambda e: e.get("modality") == "planned")),
-        ("undated", where(lambda e: not e.get("occurredOn"))),
-        ("carries an explanation", where(lambda e: e.get("explanation"))),
-        ("cites more than one entry", where(
-            lambda e: len({c.get("entryId") for c in e.get("citations", [])}) > 1)),
-        ("ordinary, dated", where(
-            lambda e: e.get("occurredOn") and e.get("modality") == "happened")),
+        ("other or unclear actor", where(lambda e: e["actor"] != "self")),
+        ("intended or imagined", where(lambda e: e["recordKind"] in {"intention", "hypothetical"})),
+        ("general owner report", where(lambda e: e["recordKind"] == "self_report")),
+        ("undated writing", where(lambda e: e["recordedOn"] is None)),
+        ("no stated outcome", where(lambda e: e["immediateOutcome"] is None
+                                    and e["laterOutcome"] is None)),
+        ("owner explanation", where(lambda e: e["explanation"] is not None)),
+        ("dated self-event", where(lambda e: e["actor"] == "self"
+                                  and e["recordKind"] == "event"
+                                  and e["recordedOn"] is not None)),
     ]
 
 
-def _shape_words(e: dict) -> set[str]:
-    """The words that carry an account's shape, minus the ones everyone uses."""
-    text = " ".join((e.get(f) or "") for f in ("situation", "response", "outcome"))
-    return {w for w in re.findall(r"[a-z']+", text.lower())
-            if w not in _COMMON and len(w) > 2}
+def _shape_words(account: dict) -> set[str]:
+    text = " ".join(account.get(name) or "" for name in (
+        "situation", "response", "immediateOutcome", "laterOutcome"))
+    return {word for word in re.findall(r"[a-z']+", text.lower())
+            if word not in _COMMON and len(word) > 2}
 
 
 def retellings(episodes: list[dict], limit: int = 3,
                threshold: float = 0.5) -> list[tuple[float, int, int]]:
-    """Pairs worth asking about, found by shape and settled by the owner.
-
-    Shared structure retrieves candidates; it decides nothing. Two occasions
-    can have the same shape and still be two occasions — that is the whole
-    premise of comparing across areas, so treating similarity as sameness here
-    would delete the recurrence the rest of this is looking for.
-
-    So nothing is merged, dropped or marked. The pair goes in front of the
-    owner with both dates and both sources, and whether it is one occasion told
-    twice is their answer, not this function's.
-    """
-    words = [_shape_words(e) for e in episodes]
-    scored: list[tuple[float, int, int]] = []
-    for i in range(len(episodes)):
-        if len(words[i]) < 4:
+    """Retrieve possible retellings; shared words are not event identity."""
+    words = [_shape_words(row) for row in episodes]
+    scored = []
+    for left in range(len(words)):
+        if len(words[left]) < 4:
             continue
-        for j in range(i + 1, len(episodes)):
-            if len(words[j]) < 4:
+        for right in range(left + 1, len(words)):
+            if len(words[right]) < 4:
                 continue
-            shared = words[i] & words[j]
-            overlap = len(shared) / min(len(words[i]), len(words[j]))
+            overlap = len(words[left] & words[right]) / min(len(words[left]), len(words[right]))
             if overlap >= threshold:
-                scored.append((round(overlap, 2), i, j))
+                scored.append((round(overlap, 2), left, right))
     scored.sort(reverse=True)
     return scored[:limit]
 
 
 def choose(episodes: list[dict], count: int) -> list[tuple[int, str]]:
-    """Indices to check, each with the reason it was chosen."""
-    picked: dict[int, str] = {}
-    pools = [(label, list(members)) for label, members in strata(episodes)]
-    # One from each kind in turn, rarest first, rather than draining the first
-    # pool: filling greedily gave nine planned accounts and nothing undated,
-    # which is a sample of one question rather than of the extraction.
-    while len(picked) < count and any(members for _, members in pools):
-        for label, members in pools:
-            while members:
-                i = members.pop(0)
-                if i not in picked:
-                    picked[i] = label
+    selected: dict[int, str] = {}
+    pools = [(label, list(indices)) for label, indices in strata(episodes)]
+    while len(selected) < count and any(indices for _, indices in pools):
+        for label, indices in pools:
+            while indices:
+                index = indices.pop(0)
+                if index not in selected:
+                    selected[index] = label
                     break
-            if len(picked) >= count:
+            if len(selected) >= count:
                 break
-    return sorted(picked.items())
+    return sorted(selected.items())
 
 
 def sheet(episodes: list[dict], chosen: list[tuple[int, str]]) -> str:
     lines = [
-        "# Spot-check of extracted accounts",
+        "# Manual spot-check of neutral v4 accounts",
         "",
-        "Ten accounts is a diagnostic, not a validation of all of them. Where a",
-        "field is wrong, say so and the check widens to the rest of that kind.",
-        "",
-        "Write `ok`, `wrong`, or `unsure` after each question. `unsure` is a real",
-        "answer and more useful than a guess.",
+        "This sample does not validate all writing. Mark each question ok, wrong",
+        "or unsure; a located passage is not proof of who acted or what resulted.",
         "",
     ]
-    for n, (i, reason) in enumerate(chosen, 1):
-        e = episodes[i]
+    for number, (index, reason) in enumerate(chosen, 1):
+        account = episodes[index]
         lines += [
-            f"## {n}. account #{i} — chosen as: {reason}",
+            f"## {number}. account #{index} — {reason}",
             "",
-            f"- actor: **{e.get('actor')}**    modality: **{e.get('modality')}**"
-            f"    domain: {e.get('domain') or '—'}",
-            f"- occurred on: **{e.get('occurredOn') or 'undated'}**",
+            f"- actor: **{account['actor']}** · record kind: **{account['recordKind']}**"
+            f" · domain: {account['domain'] or '—'}",
+            f"- written on: **{account['recordedOn'] or 'undated'}** (not event time)",
             "",
-            "| field | what the account says |",
+            "| field | extracted original wording |",
             "|---|---|",
         ]
-        for field in ("situation", "demand", "information", "response",
-                      "outcome", "explanation"):
-            value = (e.get(field) or "—").replace("|", "\\|")
+        for field in ("situation", "demand", "information", "response", "feeling", "concern",
+                      "immediateOutcome", "laterOutcome", "explanation", "selfReport"):
+            value = (account[field] or "Not recorded").replace("|", "\\|")
             lines.append(f"| {field} | {value} |")
-        lines += ["", "What it cites, as the entry has it:", ""]
-        for c in e.get("citations", []):
-            where = f"{c.get('sourceType', 'reflection')} {c.get('entryId')}"
-            when = c.get("entryDate") or "undated"
-            lines.append(f"> {c.get('text')}")
-            lines.append(">")
-            lines.append(f"> — {where}, written {when}")
-            lines.append("")
-        lines += ["", "| question | | verdict |", "|---|---|---|"]
-        for key, question in QUESTIONS:
-            lines.append(f"| {key} | {question} | |")
+        lines += ["", "Original cited context:", ""]
+        for citation in account["citations"]:
+            lines.extend(f"> {line}" for line in citation["text"].splitlines())
+            lines += [">", f"> — {citation['sourceType']} {citation['entryId']}, "
+                      f"written {citation['entryDate'] or 'undated'}", ""]
+        lines += ["| question | verdict (ok / wrong / unsure) |", "|---|---|"]
+        lines += [f"| {key}: {question} | |" for key, question in QUESTIONS]
         lines += ["", "Notes:", "", "---", ""]
 
     pairs = retellings(episodes)
     if pairs:
-        lines += [
-            "# Pairs that share a shape",
-            "",
-            "Retrieved because they use the same words about what happened, what",
-            "was done and what followed. That is a reason to look, not a finding:",
-            "two occasions can share a shape and still be two occasions, which is",
-            "what the comparison work is for. Nothing has been merged or dropped.",
-            "",
-            "For each pair: same occasion told twice, or two occasions?",
-            "",
-        ]
-        for overlap, i, j in pairs:
-            lines += [f"## accounts #{i} and #{j} — {overlap:.0%} of their words in common", ""]
-            for k in (i, j):
-                e = episodes[k]
+        lines += ["# Possible retellings, not merged or counted as one event",
+                  "", "For each pair, ask whether both passages describe one event, two, or are unclear.", ""]
+        for overlap, left, right in pairs:
+            lines += [f"## accounts #{left} and #{right} — {overlap:.0%} words in common", ""]
+            for index in (left, right):
+                row = episodes[index]
                 sources = ", ".join(
-                    f"{c.get('sourceType', 'reflection')} {c.get('entryId')}"
-                    f" ({c.get('entryDate') or 'undated'})"
-                    for c in e.get("citations", []))
+                    f"{c['sourceType']} {c['entryId']} ({c['entryDate'] or 'undated'})"
+                    for c in row["citations"])
                 lines += [
-                    f"**#{k}** — {e.get('occurredOn') or 'undated'} — {sources}",
+                    f"**#{index}** — recorded {row['recordedOn'] or 'undated'} — {sources}",
                     "",
-                    f"- situation: {e.get('situation') or '—'}",
-                    f"- response: {e.get('response') or '—'}",
-                    f"- outcome: {e.get('outcome') or '—'}",
+                    f"- situation: {row['situation'] or 'Not recorded'}",
+                    f"- response: {row['response'] or 'Not recorded'}",
+                    f"- immediate outcome: {row['immediateOutcome'] or 'Not recorded'}",
+                    f"- later outcome: {row['laterOutcome'] or 'Not recorded'}",
                     "",
                 ]
-            lines += ["Verdict (one occasion / two occasions / unsure):", "",
-                      "---", ""]
+            lines += ["Verdict (one event / two events / unsure):", "", "---", ""]
     return "\n".join(lines)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--cache", default="data/episodes.json")
-    ap.add_argument("--count", type=int, default=10)
-    ap.add_argument("--out", default="")
-    args = ap.parse_args()
-
-    cache = Path(args.cache)
-    if not cache.exists():
-        print(f"no accounts at {cache}: run read_episodes.py first.")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cache", default=DEFAULT_CACHE)
+    parser.add_argument("--user", type=int, default=1)
+    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--out", default="")
+    args = parser.parse_args(argv)
+    if args.count <= 0 or args.user <= 0:
+        print("Select a positive owner and count.")
         return 1
-    episodes = json.loads(cache.read_text())["episodes"]
-
-    chosen = choose(episodes, args.count)
-    out = Path(args.out) if args.out else cache.parent / "spot-check.md"
-    out.write_text(sheet(episodes, chosen))
-
-    print(f"{len(episodes)} accounts, {len(chosen)} chosen")
-    for label, members in strata(episodes):
-        taken = sum(1 for i, r in chosen if r == label)
-        print(f"  {label:<28} {len(members):>3} available, {taken} chosen")
-    pairs = retellings(episodes)
-    print(f"  {'pairs sharing a shape':<28} {len(pairs):>3} put up for comparison")
-    print(f"\nwritten to {out}")
-    print("Nothing was sent anywhere, and no account was changed.")
+    cache = Path(args.cache)
+    try:
+        rows, _ = load_cache(cache, args.user)
+    except (OSError, ValueError, KeyError, TypeError):
+        print("No current neutral v4 cache; run read_episodes.py first.")
+        return 1
+    accounts = [episode.as_dict() for episode in rows]
+    selected = choose(accounts, args.count)
+    out = Path(args.out) if args.out else cache.parent / "spot-check-v4.md"
+    if out.exists() or out.resolve() == cache.resolve():
+        print("Refusing to overwrite a cache or earlier owner review.")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(sheet(accounts, selected))
+    except FileExistsError:
+        print("Another review sheet was written first; refusing to overwrite it.")
+        return 1
+    print(f"{len(accounts)} accounts, {len(selected)} chosen")
+    for label, indices in strata(accounts):
+        print(f"  {label:<28} {len(indices):>3} available")
+    print(f"  {len(retellings(accounts))} possible retelling pairs offered for review")
+    print(f"written to {out}")
     return 0
 
 

@@ -10,16 +10,25 @@ while the Gemini SDK it depended on reached end of support in November 2025.
 import json
 import logging
 from collections.abc import Iterator
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 from openai import BadRequestError, OpenAI
+from pydantic import BaseModel
 
 from .observability.content import MAX_TEXT, json_attr
 from .observability.llm import LlmCall
 from .config import settings
 
 logger = logging.getLogger(__name__)
+
+@cache
+def json_response_format(shape: type[BaseModel]) -> dict[str, Any]:
+    """Constrain structured provider replies without replacing local evidence checks."""
+    return {"type": "json_schema",
+            "json_schema": {"name": shape.__name__.lstrip("_"), "strict": True,
+                            "schema": shape.model_json_schema()}}
 
 class _LearnedModels(set[str]):
     """Model names learned from the API's own errors, kept across restarts.
@@ -150,6 +159,7 @@ class Intelligence:
         temperature: float | None = 0.7,
         max_tokens: int = 1000,
         model: str | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """Send a conversation to OpenAI and return the reply text.
 
@@ -160,6 +170,7 @@ class Intelligence:
             temperature: Creativity level (0-1)
             max_tokens: Max response length
             model: Optional model override
+            response_format: Native JSON schema for a structured reply
 
         Returns:
             Response text from the model
@@ -171,7 +182,8 @@ class Intelligence:
                     system_prompt=system_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    tools=tools
+                    tools=tools,
+                    response_format=response_format
                 )
             else:
                 raise RuntimeError("No LLM client is configured")
@@ -278,6 +290,7 @@ class Intelligence:
         temperature: float | None = 0.7,
         max_tokens: int = 1000,
         tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """Call OpenAI API (fallback)
 
@@ -313,6 +326,8 @@ class Intelligence:
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
+            if response_format is not None:
+                kwargs["response_format"] = response_format
 
             try:
                 response = self._create_chat(kwargs)

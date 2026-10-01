@@ -12,42 +12,44 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.SavedStateHandle
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.iris.android.api.ACCOUNT_VERDICTS
+import com.iris.android.api.DISCOVERY_RANGES
+import com.iris.android.api.GroundedClause
 import com.iris.android.api.IrisLink
-import com.iris.android.api.OCCASION_VERDICTS
-import com.iris.android.api.Occasion
 import com.iris.android.api.Ok
 import com.iris.android.api.PATTERN_VERDICTS
 import com.iris.android.api.PatternDetail
-import com.iris.android.api.PatternSummary
+import com.iris.android.api.PatternMembership
 import com.iris.android.api.PatternsResponse
-import com.iris.android.api.DISCOVERY_RANGES
-import com.iris.android.api.patternRoute
+import com.iris.android.api.PersonalPattern
+import com.iris.android.api.SavedFeedback
+import com.iris.android.api.SourceAccount
+import com.iris.android.api.SourceCitation
 import com.iris.android.api.patternDiscussionRoute
+import com.iris.android.api.patternRoute
 import com.iris.android.ui.Loadable
 import com.iris.android.ui.components.ErrorState
 import com.iris.android.ui.components.IrisCard
@@ -66,55 +68,29 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/*
- * Discovery, as on the web: general patterns from a library, and the occasions
- * in the owner's writing that are instances of them. A difference between the
- * sides is shown as a difference, never as a cause or advice. Both verdicts are
- * the owner's: whether an occasion belongs, and whether the pattern rings true.
- */
-
-private val RANGE_OPTIONS = listOf(
-    "all" to "All available writing", "30d" to "30d", "90d" to "90d",
-)
-private val TONE_OPTIONS = listOf("better" to "better", "worse" to "worse", "mixed" to "mixed")
+private val RANGE_OPTIONS = listOf("all" to "All available writing", "30d" to "30d", "90d" to "90d")
 
 class PatternsViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
     val range = savedStateHandle.getStateFlow("range", "all")
-    private val _patterns = MutableStateFlow<Loadable<List<PatternSummary>>>(Loadable.Loading)
+    private val _patterns = MutableStateFlow<Loadable<PatternsResponse>>(Loadable.Loading)
     val patterns = _patterns.asStateFlow()
-    private val _all = MutableStateFlow<List<PatternSummary>>(emptyList())
-    val all = _all.asStateFlow()
-    private val _unfound = MutableStateFlow(0)
-    val unfound = _unfound.asStateFlow()
     private val _refreshing = MutableStateFlow(false)
     val refreshing = _refreshing.asStateFlow()
     private var generation = 0
-
 
     fun refresh() {
         val version = ++generation
         val selected = range.value
         viewModelScope.launch {
             _refreshing.value = true
-            if (selected !in DISCOVERY_RANGES) {
-                _patterns.value = Loadable.Failed("Unknown reading range: $selected")
-                _refreshing.value = false
-                return@launch
-            }
             try {
+                require(selected in DISCOVERY_RANGES)
                 val result = IrisLink.api().send("GET", "/patterns?range=$selected", null, PatternsResponse.serializer())
-                if (version == generation) {
-                    _all.value = result.patterns
-                    val found = result.patterns.filter { it.occasions > 0 && it.verdict?.verdict != "does_not" }
-                    _unfound.value = result.patterns.count { it.occasions == 0 && it.rejected == 0 }
-                    _patterns.value = Loadable.Ready(found)
-                }
+                if (version == generation) _patterns.value = Loadable.Ready(result)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (version == generation) _patterns.value = Loadable.Failed(e.message ?: "Iris couldn't reach your data just now.")
-            } finally {
-                if (version == generation) _refreshing.value = false
-            }
+                if (version == generation) _patterns.value = Loadable.Failed(e.message ?: "Patterns unavailable.")
+            } finally { if (version == generation) _refreshing.value = false }
         }
     }
 }
@@ -123,10 +99,8 @@ class PatternsViewModel(private val savedStateHandle: SavedStateHandle) : ViewMo
 fun PatternsScreen(onNavigate: (String) -> Unit) {
     val vm: PatternsViewModel = viewModel()
     val state by vm.patterns.collectAsState()
-    val all by vm.all.collectAsState()
     val range by vm.range.collectAsState()
     val refreshing by vm.refreshing.collectAsState()
-    val unfound by vm.unfound.collectAsState()
     val colors = LocalIrisColors.current
     RefreshOnReturn(range, vm::refresh)
     IrisScaffold(title = "Patterns", kicker = "from your writing") { padding ->
@@ -139,66 +113,47 @@ fun PatternsScreen(onNavigate: (String) -> Unit) {
                     DiscoveryStatusStrip(onCompletion = vm::refresh)
                 }
                 when (val s = state) {
-                    is Loadable.Loading -> item { LoadingState("Iris is opening the library…") }
+                    is Loadable.Loading -> item { LoadingState("Opening your writing…") }
                     is Loadable.Failed -> item { ErrorState(s.message, onRetry = vm::refresh) }
                     is Loadable.Ready -> {
-                        if (s.value.isEmpty()) item {
-                            Column {
-                                Text("No source-backed accounts in this reading.", color = colors.ink3)
-                                if (range != "all") TextButton(onClick = { onNavigate("patterns?range=all") }) {
-                                    Text("All available writing")
-                                } else TextButton(onClick = { onNavigate("journal") }) { Text("Open Journal") }
-                            }
-                        }
-                        if (s.value.isNotEmpty()) item { Kicker("worth looking at") }
-                        items(s.value.take(3), key = { "featured-${it.id}" }) { p ->
-                            PatternPreview(p, range, onNavigate)
-                        }
-                        if (s.value.size > 3) {
-                            item { Kicker("all found situations") }
-                            items(s.value.drop(3), key = { "more-${it.id}" }) { p ->
-                                PatternPreview(p, range, onNavigate)
-                            }
-                        }
-                        val dismissed = all.filter { it.verdict?.verdict == "does_not" || (it.occasions == 0 && it.rejected > 0) }
-                        if (dismissed.isNotEmpty()) {
-                            item {
-                                var open by rememberSaveable { mutableStateOf(false) }
-                                TextButton(onClick = { open = !open }) { Text("Dismissed (${dismissed.size})") }
-                                if (open) dismissed.forEach { p ->
-                                    TextButton(onClick = { onNavigate(patternRoute(p.id, range)) }) {
-                                        Text("${p.name} · ${p.rejected} rejected · review or restore")
-                                    }
-                                }
-                            }
+                        if (s.value.status.stage != "ready") item {
+                            Text("Personal discovery is ${s.value.status.stage}. The current view is unavailable.", color = colors.ink3)
+                        } else if (s.value.patterns.isEmpty()) item {
+                            Text("No checked recurring dynamic was found in this range of writing. This does not mean you have none.", color = colors.ink3)
+                        } else {
+                            items(s.value.patterns, key = { it.id }) { PatternPreview(it, range, onNavigate) }
                         }
                     }
-                }
-                if (unfound > 0) item {
-                    Text("$unfound more library lenses not found in this writing",
-                        style = IrisType.mono, color = colors.ink4)
                 }
             }
         }
     }
 }
 
+internal fun evidenceLabel(state: String) = when (state) {
+    "owner_described" -> "You described this"
+    "emerging" -> "Emerging in your writing"
+    "recurring" -> "Recurring in your writing"
+    else -> state
+}
+
 @Composable
-private fun PatternPreview(p: PatternSummary, range: String, onNavigate: (String) -> Unit) {
+private fun PatternPreview(p: PersonalPattern, range: String, onNavigate: (String) -> Unit) {
     val colors = LocalIrisColors.current
     IrisCard(Modifier.fillMaxWidth()) {
-        Kicker(if (p.occasions == 1) "one recorded entry · possible lens, not recurrence"
-            else "${p.occasions} accounts across ${p.entryCount} entries")
-        p.examples.forEach { example ->
-            Text(example.response, fontSize = 14.sp, color = colors.ink)
-            example.outcome?.let { Text("Then: $it", fontSize = 13.sp, color = colors.ink2) }
-            Text("Recorded ${example.recordedOn ?: "date unknown"} · provisionally read as ${example.tone}",
-                color = colors.ink3, fontSize = 12.sp)
-        }
-        Text(p.name, fontFamily = Serif, fontSize = 19.sp, color = colors.ink)
-        Text("A library lens, not a measure of how often this happens in life.",
+        Kicker(evidenceLabel(p.evidenceState))
+        Text(p.title, fontFamily = Serif, fontSize = 19.sp, color = colors.ink)
+        Text("${p.context.text} → ${p.response.text}", fontSize = 14.sp, color = colors.ink2)
+        Text("At least ${p.independentGroupCount} distinct occasions identified / ${p.accountCount} accounts",
             color = colors.ink3, fontSize = 12.sp)
-        TextButton(onClick = { onNavigate(patternRoute(p.id, range)) }) { Text("See examples") }
+        Text("Recorded ${p.recordedFrom ?: "date unknown"} – ${p.recordedTo ?: "date unknown"}",
+            color = colors.ink3, fontSize = 12.sp)
+        p.example?.let { example ->
+            Text("“${example.citation.text}”", color = colors.ink2, fontStyle = FontStyle.Italic, fontSize = 13.sp)
+            CitationLink(example.citation, onNavigate)
+        }
+        if (p.feedback?.needsReview == true) Text("Saved opinion needs review: evidence changed.", color = colors.ink3)
+        TextButton(onClick = { onNavigate(patternRoute(p.id, range)) }) { Text("What you wrote") }
         TextButton(onClick = { onNavigate(patternDiscussionRoute(p, range)) }) { Text("Explore with Iris") }
     }
 }
@@ -214,57 +169,49 @@ class PatternDetailViewModel(private val savedStateHandle: SavedStateHandle) : V
     private var loadedId: String? = null
     private var generation = 0
 
-
     fun refresh(id: String) {
         val version = ++generation
         val selected = range.value
         if (loadedId != id) { loadedId = id; _detail.value = Loadable.Loading }
         viewModelScope.launch {
-            if (selected !in DISCOVERY_RANGES) {
-                _detail.value = Loadable.Failed("Unknown reading range: $selected")
-                return@launch
-            }
             try {
-                val result = IrisLink.api().send(
-                    "GET", "/patterns/${Uri.encode(id)}?range=$selected", null, PatternDetail.serializer())
+                require(selected in DISCOVERY_RANGES)
+                val result = IrisLink.api().send("GET", "/patterns/${Uri.encode(id)}?range=$selected",
+                    null, PatternDetail.serializer())
                 if (version == generation) _detail.value = Loadable.Ready(result)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (version == generation) _detail.value = Loadable.Failed(e.message ?: "Iris couldn't reach your data just now.")
+                if (version == generation) _detail.value = Loadable.Failed(e.message ?: "Current evidence unavailable. Return to Patterns.")
             }
         }
     }
 
     fun setPatternVerdict(id: String, verdict: String?, note: String?) =
-        save(id, "pattern", "/patterns/${Uri.encode(id)}/verdict", verdict, note)
+        save(id, "pattern", "/patterns/${Uri.encode(id)}/verdict", verdict, note, false)
 
-    fun setOccasionFeedback(id: String, occasion: Occasion, verdict: String?, note: String?, ownerTone: String?) =
-        save(id, occasion.id, "/patterns/${Uri.encode(id)}/occasions/${Uri.encode(occasion.id)}",
-            verdict, note, ownerTone, includeTone = true)
+    fun setAccountFeedback(id: String, accountId: String, verdict: String?, note: String?) =
+        save(id, accountId, "/patterns/${Uri.encode(id)}/accounts/${Uri.encode(accountId)}", verdict, note, true)
 
-    private fun save(
-        id: String, key: String, path: String, verdict: String?, note: String?,
-        ownerTone: String? = null, includeTone: Boolean = false,
-    ) {
+    private fun save(id: String, key: String, path: String, verdict: String?, note: String?, account: Boolean) {
         viewModelScope.launch {
             if (_saving.value) return@launch
+            val current = (_detail.value as? Loadable.Ready)?.value ?: return@launch
             _saving.value = true
             _error.value = null
-            // Invalidate any read started before this save, even if it completes while PUT is in flight.
             generation++
             try {
-                IrisLink.api().send("PUT", path, buildJsonObject {
-                    put("verdict", verdict)
-                    put("note", note)
-                    if (includeTone) put("ownerTone", ownerTone)
-                }.toString(), Ok.serializer())
+                val body = buildJsonObject {
+                    put("range", range.value); put("snapshot", current.snapshot)
+                    put("verdict", verdict); put("note", note)
+                }.toString()
+                if (account) IrisLink.api().send("PUT", path, body, Ok.serializer())
+                else IrisLink.api().send("PUT", path, body, SavedFeedback.serializer())
                 refresh(id)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                _error.value = key to (e.message ?: "That didn't save. Try again.")
-            } finally {
-                _saving.value = false
-            }
+                _error.value = key to (e.message ?: "That didn't save. Review current evidence and retry.")
+                refresh(id)
+            } finally { _saving.value = false }
         }
     }
 }
@@ -277,99 +224,123 @@ fun PatternDetailScreen(id: String, onNavigate: (String) -> Unit, onBack: () -> 
     val saving by vm.saving.collectAsState()
     val error by vm.error.collectAsState()
     val colors = LocalIrisColors.current
-    val uriHandler = LocalUriHandler.current
     RefreshOnReturn("$id/$range") { vm.refresh(id) }
     val detail = (state as? Loadable.Ready)?.value
-    IrisScaffold(title = detail?.pattern?.name ?: "Pattern", kicker = "your recorded situations",
-        onBack = onBack) { padding ->
+    IrisScaffold(title = detail?.pattern?.title ?: "Pattern", kicker = "your recorded situations", onBack = onBack) { padding ->
         LazyColumn(Modifier.fillMaxWidth().padding(padding),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { DiscoveryStatusStrip(onCompletion = { vm.refresh(id) }) }
             when (val s = state) {
-                is Loadable.Loading -> item { LoadingState("Iris is gathering the occasions…") }
-                is Loadable.Failed -> item { ErrorState(s.message, onRetry = { vm.refresh(id) }) }
+                is Loadable.Loading -> item { LoadingState("Opening source accounts…") }
+                is Loadable.Failed -> item {
+                    ErrorState(s.message, onRetry = { vm.refresh(id) })
+                    TextButton(onClick = { onNavigate("patterns?range=$range") }) { Text("Current patterns") }
+                }
                 is Loadable.Ready -> {
                     val d = s.value
+                    val p = d.pattern
+                    val members = d.memberships[id].orEmpty()
                     item {
                         RangeChoices(range) { onNavigate(patternRoute(id, it)) }
-                        Text("${d.coverage.accountCount} recorded accounts across ${d.coverage.entryCount} entries" +
-                            if (d.coverage.undatedAccountCount > 0) " · ${d.coverage.undatedAccountCount} undated" else "",
+                        Kicker(evidenceLabel(p.evidenceState))
+                        Text("At least ${p.independentGroupCount} distinct occasions identified / ${p.accountCount} accounts",
+                            color = colors.ink2)
+                        Text("Recorded ${p.recordedFrom ?: "date unknown"} – ${p.recordedTo ?: "date unknown"}", color = colors.ink3)
+                        Text("${d.coverage.accountCount} accounts considered in this range; ${d.coverage.undatedAccountCount} undated",
                             color = colors.ink3, fontSize = 12.sp)
                     }
-                    if (d.occasions.isEmpty()) item {
-                        Column {
-                            Text("No source-backed example in this reading. This is only a general library lens.",
-                                color = colors.ink3, fontSize = 13.sp)
-                            if (range != "all") TextButton(onClick = { onNavigate(patternRoute(id, "all")) }) {
-                                Text("All available writing")
+                    item {
+                        Kicker("What you wrote")
+                        ClauseText("Context", p.context)
+                        ClauseText("Response", p.response)
+                        p.ownerMeanings.forEach { ClauseText("You wrote", it) }
+                        Kicker(if (p.evidenceState == "owner_described") "You described this"
+                            else "What seems to recur")
+                        Text(if (p.evidenceState == "owner_described")
+                            "You described a context–response relationship; separate recurring events are not established."
+                            else "At least ${p.independentGroupCount} distinct occasions identified; ${p.exceptionCount} recorded exceptions. " +
+                                "Entry dates are writing dates, not event dates.", color = colors.ink2)
+                        Kicker("One possible explanation")
+                        Text(p.possibleMeaning?.text ?: "Not recorded enough to suggest one.", color = colors.ink2)
+                        Kicker("Another possibility")
+                        Text(p.alternative?.text ?: "Not recorded enough to distinguish another explanation.", color = colors.ink2)
+                        Kicker("When it was different")
+                        Text(if (p.exceptionGroupIds.isEmpty()) "No exception recorded in the checked writing"
+                            else "${p.exceptionGroupIds.size} exception group(s); ${p.responseElsewhereGroupIds.size} response-elsewhere group(s).",
+                            color = colors.ink2)
+                        Text("${d.checks.checked} accounts checked; ${d.checks.unclear} unclear; " +
+                            "${d.checks.omittedAccounts} accounts and ${d.checks.omittedFields} fields omitted. " +
+                            (if (d.checks.exceptionSearchComplete) "Exception search completed in the checked writing."
+                            else "Exception search is not complete."), color = colors.ink3, fontSize = 12.sp)
+                        Kicker("What is not recorded")
+                        ClauseText("Immediate return", p.immediateReturn)
+                        ClauseText("Later cost", p.laterCost)
+                        Text(p.openQuestion, color = colors.ink)
+                    }
+                    d.groups[id].orEmpty().forEach { group ->
+                        val grouped = members.filter { it.groupId == group.id && !it.excluded && it.ownerVerdict != "no" }
+                        if (grouped.isNotEmpty()) {
+                            item(key = "group-${group.id}") {
+                                Kicker("${group.role.replace('_', ' ')} · ${grouped.size} accounts" +
+                                    if (group.independenceUncertain) " · independence uncertain"
+                                    else if (group.independentlyCountable) " · independently identified"
+                                    else " · not independently counted")
                             }
-                        }
-                    } else {
-                        val counted = d.occasions.filter { it.ownerVerdict != "no" }
-                        for ((tone, title) in listOf("better" to "read as better", "worse" to "read as worse", "mixed" to "mixed")) {
-                            val side = counted.filter { it.tone == tone }
-                            if (side.isEmpty() && tone == "mixed") continue
-                            item(key = "side-$tone") { Kicker("$title · ${side.size}") }
-                            items(side, key = { "o-${it.id}" }) { o ->
-                                OccasionCard(o, !saving, onNavigate, error?.takeIf { it.first == o.id }?.second) { verdict, note, ownerTone ->
-                                    vm.setOccasionFeedback(id, o, verdict, note, ownerTone)
-                                }
-                            }
-                        }
-                        if (counted.none { it.tone == "better" } || counted.none { it.tone == "worse" }) item {
-                            Text("No differently classified account in this reading.", color = colors.ink3, fontSize = 12.sp)
-                        }
-                        if (d.distinctive.isNotEmpty()) item {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Kicker("what else differed between the sides")
-                                d.distinctive.forEach { other ->
-                                    TextButton(onClick = { onNavigate(patternRoute(other.patternId, range)) }) {
-                                        Text("${other.name} · worse ${other.worse}/${other.worseTotal} · " +
-                                            "better ${other.better}/${other.betterTotal}", color = colors.ink)
+                            items(grouped, key = { "member-${it.accountId}" }) { member ->
+                                d.accounts[member.accountId]?.let { account ->
+                                    AccountCard(account, member, !saving, onNavigate,
+                                        error?.takeIf { it.first == account.id }?.second) { verdict, note ->
+                                        vm.setAccountFeedback(id, account.id, verdict, note)
                                     }
                                 }
-                                Text("At least three accounts on each side, a two-account gap and a 25-point " +
-                                    "rate gap. Provisional co-labels, not causes or advice.",
-                                    fontSize = 11.sp, color = colors.ink4)
                             }
                         }
-                        val rejected = d.occasions.filter { it.ownerVerdict == "no" }
-                        if (rejected.isNotEmpty()) {
-                            item(key = "side-rejected") { Kicker("you said: not this pattern · ${rejected.size}") }
-                            items(rejected, key = { "r-${it.id}" }) { o ->
-                                Column(Modifier.alpha(0.6f)) {
-                                    OccasionCard(o, !saving, onNavigate, error?.takeIf { it.first == o.id }?.second) { verdict, note, ownerTone ->
-                                        vm.setOccasionFeedback(id, o, verdict, note, ownerTone)
-                                    }
+                    }
+                    val groupedIds = d.groups[id].orEmpty().flatMap { it.accountIds }.toSet()
+                    val ungrouped = members.filter { it.accountId !in groupedIds && !it.excluded && it.ownerVerdict != "no" }
+                    if (ungrouped.isNotEmpty()) item { Kicker("Other checked accounts") }
+                    items(ungrouped, key = { "other-${it.accountId}" }) { member ->
+                        d.accounts[member.accountId]?.let { account ->
+                            AccountCard(account, member, !saving, onNavigate,
+                                error?.takeIf { it.first == account.id }?.second) { verdict, note ->
+                                vm.setAccountFeedback(id, account.id, verdict, note)
+                            }
+                        }
+                    }
+                    if (members.any { it.excluded || it.ownerVerdict == "no" }) {
+                        item { Kicker("Your corrections") }
+                        items(members.filter { it.excluded || it.ownerVerdict == "no" }, key = { "excluded-${it.accountId}" }) { member ->
+                            d.accounts[member.accountId]?.let { account ->
+                                AccountCard(account, member, !saving, onNavigate,
+                                    error?.takeIf { it.first == account.id }?.second) { verdict, note ->
+                                    vm.setAccountFeedback(id, account.id, verdict, note)
                                 }
                             }
-                        }
-                        val labelledBy = d.occasions.mapNotNull { it.labelledBy }.distinct()
-                        if (labelledBy.isNotEmpty()) item {
-                            Text("labelled by: ${labelledBy.joinToString(", ")}", style = IrisType.mono, color = colors.ink4)
                         }
                     }
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Kicker("a question to consider")
-                            Text(d.pattern.question, fontSize = 16.sp, color = colors.ink)
-                            Kicker("why this lens?")
-                            Text(d.pattern.statement, fontSize = 14.sp, color = colors.ink2)
-                            if (d.pattern.holdsWhen.isNotEmpty()) Text("It may fit when: ${d.pattern.holdsWhen.joinToString("; ")}",
-                                color = colors.ink3, fontSize = 13.sp)
-                            if (d.pattern.notWhen.isNotEmpty()) Text("It may not fit when: ${d.pattern.notWhen.joinToString("; ")}",
-                                color = colors.ink3, fontSize = 13.sp)
-                            d.pattern.basis?.let { Text("General research basis: $it", color = colors.ink3, fontSize = 13.sp) }
-                            d.pattern.evidence?.let { Text("Library evidence: $it", color = colors.ink3, fontSize = 13.sp) }
-                            d.pattern.source?.let { TextButton(onClick = { uriHandler.openUri(it) }) {
-                                Text("Library source")
-                            } }
-                            Kicker("does it ring true?")
-                            FeedbackForm("pattern", PATTERN_VERDICTS, d.verdict?.verdict, d.verdict?.note,
-                                !saving, error?.takeIf { it.first == "pattern" }?.second) { verdict, note ->
-                                vm.setPatternVerdict(id, verdict, note)
+                        if (p.lensMatches.isNotEmpty()) {
+                            var open by rememberSaveable(id) { mutableStateOf(false) }
+                            TextButton(onClick = { open = !open }) { Text("A way to understand this (${p.lensMatches.size})") }
+                            if (open) p.lensMatches.forEach { match ->
+                                d.lenses.find { it.id == match.lensId }?.let { lens ->
+                                    Kicker(lens.name)
+                                    Text(lens.sequence, color = colors.ink2)
+                                    Text("A possible function: ${lens.possibleFunction}", color = colors.ink3)
+                                    Text("Another account: ${lens.alternative}", color = colors.ink3)
+                                    Text(lens.question, color = colors.ink3)
+                                    Text("An explanatory framework, not a classification of you.", color = colors.ink3, fontSize = 12.sp)
+                                }
                             }
                         }
+                        if (p.feedback?.needsReview == true) Text("Your saved opinion needs review: the evidence changed.", color = colors.ink2)
+                        Kicker("Does this ring true?")
+                        FeedbackForm(id, PATTERN_VERDICTS, p.feedback?.verdict, p.feedback?.note,
+                            !saving, error?.takeIf { it.first == "pattern" }?.second) { verdict, note ->
+                            vm.setPatternVerdict(id, verdict, note)
+                        }
+                        TextButton(onClick = { onNavigate(patternDiscussionRoute(p, range)) }) { Text("Explore with Iris") }
                     }
                 }
             }
@@ -378,62 +349,52 @@ fun PatternDetailScreen(id: String, onNavigate: (String) -> Unit, onBack: () -> 
 }
 
 @Composable
-private fun OccasionCard(
-    o: Occasion, enabled: Boolean, onNavigate: (String) -> Unit, error: String?,
-    onFeedback: (String?, String?, String?) -> Unit,
-) {
+internal fun ClauseText(label: String, clause: GroundedClause?) {
+    val colors = LocalIrisColors.current
+    Text("$label: ${clause?.text ?: "Not recorded"}", color = colors.ink2, fontSize = 14.sp)
+}
+
+@Composable
+internal fun CitationLink(citation: SourceCitation, onNavigate: (String) -> Unit) {
+    if (citation.sourceType == "reflection") TextButton(onClick = {
+        onNavigate("journal?entry=${Uri.encode(citation.entryId)}")
+    }) { Text("Open exact entry") }
+}
+
+@Composable
+internal fun AccountExcerpt(account: SourceAccount, onNavigate: (String) -> Unit) {
+    val colors = LocalIrisColors.current
+    Text(account.recordedOn?.let { "Recorded ${formatEventDate(it)}" } ?: "Recorded date unknown",
+        color = colors.ink3, fontSize = 12.sp)
+    account.situation?.let { Text("Situation: $it", color = colors.ink2) }
+    account.response?.let { Text("Response: $it", color = colors.ink2) }
+    account.selfReport?.let { Text("You described: $it", color = colors.ink2) }
+    account.immediateOutcome?.let { Text("Immediate: $it", color = colors.ink2) }
+    account.laterOutcome?.let { Text("Later: $it", color = colors.ink2) }
+    account.explanation?.let { Text("Your explanation: $it", color = colors.ink3, fontStyle = FontStyle.Italic) }
+    account.citations.forEach { citation ->
+        Text("“${citation.text}”", color = colors.ink3, fontStyle = FontStyle.Italic, fontSize = 13.sp)
+        CitationLink(citation, onNavigate)
+    }
+}
+
+@Composable
+private fun AccountCard(account: SourceAccount, membership: PatternMembership,
+                        enabled: Boolean, onNavigate: (String) -> Unit, error: String?,
+                        onFeedback: (String?, String?) -> Unit) {
     val colors = LocalIrisColors.current
     IrisCard(Modifier.fillMaxWidth()) {
-        Kicker(o.recordedOn?.let { "recorded ${formatEventDate(it)}" } ?: "recorded date unknown")
-        Text(o.situation, fontSize = 14.sp, color = colors.ink)
-        Text(o.response, fontSize = 13.sp, color = colors.ink2)
-        o.outcome?.let { Text("→ $it", fontSize = 13.sp, color = colors.ink3) }
-        o.explanation?.let { Text("Your interpretation in the entry: “$it”", fontSize = 13.sp,
-            fontStyle = FontStyle.Italic, color = colors.ink3) }
-        o.citations.forEach { c ->
-            Text("“${c.text}”", fontSize = 13.sp, fontStyle = FontStyle.Italic, color = colors.ink3)
-            if (c.sourceType == "reflection") {
-                TextButton(onClick = { onNavigate("journal?entry=${Uri.encode(c.entryId)}") }) {
-                    Text("open entry", color = colors.sage)
-                }
-            }
-        }
-        var draftNote by rememberSaveable(o.id) { mutableStateOf(o.verdictNote.orEmpty()) }
-        var draftVerdict by rememberSaveable(o.id) { mutableStateOf(o.ownerVerdict) }
-        var draftTone by rememberSaveable(o.id) { mutableStateOf(o.ownerTone) }
-        var serverNote by rememberSaveable(o.id) { mutableStateOf(o.verdictNote) }
-        var serverVerdict by rememberSaveable(o.id) { mutableStateOf(o.ownerVerdict) }
-        var serverTone by rememberSaveable(o.id) { mutableStateOf(o.ownerTone) }
-        LaunchedEffect(o.verdictNote, o.ownerVerdict, o.ownerTone) {
-            if (draftNote == serverNote.orEmpty()) draftNote = o.verdictNote.orEmpty()
-            if (draftVerdict == serverVerdict) draftVerdict = o.ownerVerdict
-            if (draftTone == serverTone) draftTone = o.ownerTone
-            serverNote = o.verdictNote
-            serverVerdict = o.ownerVerdict
-            serverTone = o.ownerTone
-        }
-        Kicker("Does this account fit?")
-        Choices(OCCASION_VERDICTS, draftVerdict, enabled) {
-            draftVerdict = if (draftVerdict == it) null else it
-            onFeedback(draftVerdict, draftNote, draftTone)
-        }
-        Text("Read as ${o.tone} · suggested ${o.suggestedTone}", color = colors.ink3, fontSize = 12.sp)
-        Choices(TONE_OPTIONS,
-            draftTone, enabled) {
-            draftTone = if (draftTone == it) null else it
-            onFeedback(draftVerdict, draftNote, draftTone)
-        }
-        OutlinedTextField(value = draftNote, onValueChange = { draftNote = it }, label = { Text("Your note") },
-            enabled = enabled, modifier = Modifier.fillMaxWidth())
-        TextButton(onClick = { onFeedback(draftVerdict, draftNote, draftTone) }, enabled = enabled) { Text("Save note") }
-        error?.let { Text(it, color = colors.rose, style = IrisType.mono) }
+        Kicker(if (membership.excluded) "Excluded by your correction" else "${membership.role} · checked account")
+        AccountExcerpt(account, onNavigate)
+        FeedbackForm(account.id, ACCOUNT_VERDICTS, membership.ownerVerdict, membership.verdictNote,
+            enabled, error, onFeedback)
+        Text("This judges classification, not the words in your entry.", color = colors.ink3, fontSize = 12.sp)
     }
 }
 
 @Composable
 internal fun RangeChoices(range: String, onSelect: (String) -> Unit) {
-    Choices(RANGE_OPTIONS,
-        range, true) { if (it != range) onSelect(it) }
+    Choices(RANGE_OPTIONS, range, true) { if (it != range) onSelect(it) }
 }
 
 @Composable
@@ -451,10 +412,8 @@ internal fun RefreshOnReturn(key: String, refresh: () -> Unit) {
 }
 
 @Composable
-internal fun FeedbackForm(
-    id: String, options: List<Pair<String, String>>, verdict: String?, note: String?,
-    enabled: Boolean, error: String?, onSave: (String?, String?) -> Unit,
-) {
+internal fun FeedbackForm(id: String, options: List<Pair<String, String>>, verdict: String?, note: String?,
+                          enabled: Boolean, error: String?, onSave: (String?, String?) -> Unit) {
     val colors = LocalIrisColors.current
     var draftNote by rememberSaveable(id) { mutableStateOf(note.orEmpty()) }
     var draftVerdict by rememberSaveable(id) { mutableStateOf(verdict) }
@@ -470,21 +429,19 @@ internal fun FeedbackForm(
         draftVerdict = if (draftVerdict == it) null else it
         onSave(draftVerdict, draftNote)
     }
-    OutlinedTextField(value = draftNote, onValueChange = { draftNote = it }, label = { Text("Your note") },
-        enabled = enabled, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value = draftNote, onValueChange = { draftNote = it.take(1000) },
+        label = { Text("Your note") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
     TextButton(onClick = { onSave(draftVerdict, draftNote) }, enabled = enabled) { Text("Save note") }
     error?.let { Text(it, color = colors.rose, style = IrisType.mono) }
 }
 
 @Composable
-internal fun Choices(options: List<Pair<String, String>>, current: String?, enabled: Boolean, onPick: (String) -> Unit) {
+internal fun Choices(options: List<Pair<String, String>>, current: String?, enabled: Boolean,
+                     onPick: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
-            if (value == current) {
-                FilledTonalButton(onClick = { onPick(value) }, enabled = enabled) { Text(label) }
-            } else {
-                OutlinedButton(onClick = { onPick(value) }, enabled = enabled) { Text(label) }
-            }
+            if (value == current) FilledTonalButton(onClick = { onPick(value) }, enabled = enabled) { Text(label) }
+            else OutlinedButton(onClick = { onPick(value) }, enabled = enabled) { Text(label) }
         }
     }
 }

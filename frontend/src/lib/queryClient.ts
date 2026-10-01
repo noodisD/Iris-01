@@ -38,9 +38,8 @@ export const qk = {
   patterns: ['patterns'] as const,
   pattern: (id: string, period: DiscoveryRange = 'all') => ['patterns', 'detail', id, period] as const,
   summaries: (period: DiscoveryRange) => ['patterns', 'summaries', period] as const,
-  differences: (period: DiscoveryRange) => ['patterns', 'differences', period] as const,
-  differenceDetail: (patternId: string, otherId: string, period: DiscoveryRange, snapshot: string) =>
-    ['patterns', 'difference-detail', patternId, otherId, period, snapshot] as const,
+  insights: (period: DiscoveryRange) => ['patterns', 'insights', period] as const,
+  insight: (id: string, period: DiscoveryRange) => ['patterns', 'insight', id, period] as const,
   discoveryStatus: ['patterns', 'status'] as const,
   dayDifferencesRoot: ['day-differences'] as const,
   dayDifferences: (period: DiscoveryRange) => ['day-differences', period] as const,

@@ -6,34 +6,27 @@ import hashlib
 import json
 import re
 
-CHECKED = ("response", "outcome")
+CHECKED = ("situation", "response", "demand", "information", "feeling", "concern",
+           "immediate_outcome", "later_outcome", "explanation", "self_report")
 FAILING = ("not_stated", "contradicted", "wrong_modality", "wrong_actor")
 REFERENCE_VERDICTS = ("supported", *FAILING, "unsure")
-CHECKER_VERDICTS = ("supported", "not_stated", "contradicted", "unavailable")
+CHECKER_VERDICTS = ("supported", "not_stated", "contradicted", "unclear", "unavailable")
 
-
-def account_key(episode: dict) -> str:
-    """Legacy account locator, NOT a version of its claims or evidence."""
-    parts = [(episode.get("situation") or ""), (episode.get("response") or "")]
-    parts += sorted(f"{c.get('sourceType', 'reflection')}:{c.get('entryId')}"
-                    for c in episode.get("citations", []))
-    return hashlib.sha1("\u0000".join(parts).encode()).hexdigest()[:12]
 
 
 def account_fingerprint(episode: dict) -> str:
-    """Bind judgments to all cached account content, independent of citation order.
+    """Full v4 account identity; citation order is not evidence order.
 
-    Keep the locator separate: outcome, actor and modality edits do not change
-    its legacy key. They MUST invalidate the associated judgments. Including
-    every field also covers evidence dates and future extraction metadata.
+    A revised source is checked separately. Identical grounded content can
+    reactivate an owner's correction without copying it to a changed claim.
     """
-    def canonical(value: object) -> str:
-        return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    from .episodes import Episode
 
-    content = {key: value for key, value in episode.items() if key != "citations"}
-    content["citations"] = sorted(episode.get("citations", []), key=canonical)
-    payload = {"fingerprint_version": 1, "account": content}
-    return hashlib.sha256(canonical(payload).encode()).hexdigest()
+    Episode.from_dict(episode)
+    canonical = lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                         separators=(",", ":"))
+    content = {**episode, "citations": sorted(episode["citations"], key=canonical)}
+    return hashlib.sha256(canonical({"fingerprintVersion": 2, "account": content}).encode()).hexdigest()
 
 
 def _class_counts() -> dict:
@@ -43,9 +36,10 @@ def _class_counts() -> dict:
 
 def _index_results(reference: dict, results: list[dict]) -> tuple[dict, dict]:
     """Reject stale or ambiguous results before scoring; count unjudged output."""
-    for ref in reference.values():
+    for key, ref in reference.items():
         fingerprint = ref.get("fingerprint")
-        if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        if (not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+                or fingerprint != key):
             raise ValueError("Reference content fingerprint is missing or malformed.")
     indexed = {}
     missing = {"accounts": 0, "fields": 0}

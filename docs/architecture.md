@@ -41,6 +41,15 @@ flowchart TB
         OR[("observation_runs")]
     end
 
+    subgraph personal["Personal dynamics — separate queue-backed evidence path"]
+        DR["discovery_worker<br/><i>neutral v4 reading, original paragraphs</i>"]
+        FC["contextual field checks<br/><i>omissions and failure remain visible</i>"]
+        DM["connections.discover_dynamics<br/><i>archive-wide membership, exceptions, event identity</i>"]
+        PC["personal_claims + personal_insights<br/><i>grounded observation, tentative meaning and rival</i>"]
+        PL["24 optional process lenses<br/><i>annotate only after discovery</i>"]
+        DV[("discovery_reads · drafts · views<br/><i>source revisions + owner feedback</i>")]
+    end
+
     subgraph engines["canonical_pipeline — six engines"]
         EN["trajectory · tension · resolution<br/>leverage (pairs) · decision_impact (live) · lifelong"]
     end
@@ -55,7 +64,7 @@ flowchart TB
 
     subgraph surfaces["Surfaces"]
         CHAT["Chat<br/><i>select: one per pattern, max_items</i>"]
-        INS["Insights<br/><i>every admitted finding, as cards</i>"]
+        INS["Historical six-engine endpoint<br/><i>not writing-derived Insights UI</i>"]
         LET["Weekly letter<br/><i>facts + admitted findings,<br/>firewall, quotes verified</i>"]
         REV["Constructs review"]
     end
@@ -78,6 +87,12 @@ flowchart TB
     CONF --> T
     CONF --> TO
 
+
+    W --> DR --> FC --> DM --> PC --> DV
+    PL --> PC
+    DV --> PP["Patterns: sources, groups and corrections"]
+    DV --> PI["Insights: tentative writing claims"]
+    DV --> CHAT
     T --> EN
     TO --> EN
     EN --> G0 --> G1 --> G2 --> G3 --> G4
@@ -86,12 +101,13 @@ flowchart TB
     G4 --> LET
 ```
 
-The dashed edges are what is read but never counted: chat (ADR-0003) and undated
-transcripts. The candidate store reaches the review surface and nothing else.
-
-*Verified against `agent/pipeline_orchestrator.py` (`canonical_pipeline`, `admit`),
-`agent/core.py`, `agent/insights_service.py`, `agent/observations.py`,
-`agent/review_letter.py`, `agent/database.py::_queue`, migrations 0012–0014.*
+The dashed edges are what the observation reader may read but never count:
+chat and staged undated transcripts (ADR-0003). Neutral personal-dynamics
+reading only accepts eligible original reflections, with its own queue and
+source-revision guard. The old analytical engines still exist for internal
+admitted context; the writing-derived Insights UI uses checked dynamics.
+Measured-day comparisons have a separate confirmed-measurement path
+(ADR-0024), not an edge from the journal-dynamics pipeline.
 
 ---
 

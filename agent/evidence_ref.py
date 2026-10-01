@@ -14,15 +14,14 @@ class _Reference(BaseModel):
     snapshot: Snapshot
 
 
-class PatternRef(_Reference):
-    kind: Literal["pattern", "outcome_pair"]
-    patternId: str = Field(min_length=1)
+class DynamicRef(_Reference):
+    kind: Literal["dynamic"]
+    dynamicId: str = Field(pattern=r"^d_[0-9a-f]{64}$")
 
 
-class CoLabelRef(_Reference):
-    kind: Literal["co_label"]
-    patternId: str = Field(min_length=1)
-    otherId: str = Field(min_length=1)
+class InsightRef(_Reference):
+    kind: Literal["personal_insight"]
+    insightId: str = Field(pattern=r"^i_[0-9a-f]{64}$")
 
 
 class DayRef(_Reference):
@@ -31,11 +30,11 @@ class DayRef(_Reference):
     split: Literal["office_home", "commute", "steps", "screen_time", "social_share", "sleep"]
 
 
-EvidenceRef = Annotated[PatternRef | CoLabelRef | DayRef, Field(discriminator="kind")]
+EvidenceRef = Annotated[DynamicRef | InsightRef | DayRef, Field(discriminator="kind")]
 _adapter = TypeAdapter(EvidenceRef)
 
 
-def parse_ref(value: str | dict) -> PatternRef | CoLabelRef | DayRef:
+def parse_ref(value: str | dict) -> DynamicRef | InsightRef | DayRef:
     return _adapter.validate_json(value) if isinstance(value, str) else _adapter.validate_python(value)
 
 

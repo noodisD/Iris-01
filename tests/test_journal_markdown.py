@@ -97,7 +97,7 @@ def test_episode_reader_is_shown_plain_text_and_cites_the_original():
             self.prompts.append(messages[0]["content"])
             return json.dumps({"episodes": [{
                 "actor": "self",
-                "modality": "happened",
+                "recordKind": "event",
                 "situation": "The basil went into the soup",
                 "response": "basil went into the soup",
                 "quotes": [{"entryId": 9, "sourceType": "reflection", "text": PLAIN_QUOTE}],
@@ -115,4 +115,4 @@ def test_episode_reader_is_shown_plain_text_and_cites_the_original():
     assert "**" not in reader.prompts[0]
     assert "basil" in reader.prompts[0]
     assert episodes
-    assert episodes[0].citations[0].text == "The **basil** went into the soup"
+    assert episodes[0].citations[0].text == SOUP

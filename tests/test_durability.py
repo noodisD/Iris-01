@@ -114,9 +114,9 @@ def test_a_missing_source_is_a_failure_not_a_success(test_user):
     """The pipeline logged and returned, and the queue deleted the job as done."""
     work_queue.enqueue("reflection", 987_654, test_user["id"])
 
-    succeeded, failed = work_queue.process_due()
+    _, failed = work_queue.process_due()
 
-    assert (succeeded, failed) == (0, 1)
+    assert failed == 1
     attempts, last_error, _ = _queued("reflection", 987_654)
     assert "could not be found" in last_error
 

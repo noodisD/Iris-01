@@ -1,504 +1,319 @@
 {
-  "version": 3,
-  "note": "General patterns, written to be recognisable in any area of life, before any archive is read. They describe what can be observed in an account \u2014 a circumstance and what followed \u2014 and nothing about the person. Several are drawn from what clinical and behavioural literatures describe, but no pattern names a condition and no count of matches is evidence of one: a journal cannot diagnose, and this does not try. A pattern is a question asked of an account, never a label attached to its author.",
-  "patterns": [
+  "version": 4,
+  "sources": {
+    "case_formulation": {
+      "title": "Mumma, Marshall & Mauer (2018), Person-specific validation and testing of functional relations in cognitive-behavioural case formulation: Guidelines and options",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/29791045/",
+      "kind": "research_article",
+      "scope": "Distinguishes a person-specific functional hypothesis from established validity and describes testing its relations. Journals do not provide the repeated controlled assessment described there; IRIS remains hypothesis-generating, not causal, diagnostic or a clinical formulation service. This article informs the framework and does not validate a lens or a personal match."
+    },
+    "basic_needs": {
+      "title": "Basic Psychological Needs",
+      "url": "https://selfdeterminationtheory.org/topics/application-basic-psychological-needs/",
+      "kind": "theoretical_overview",
+      "scope": "Terminology for autonomy, competence and relatedness, including the distinction between low satisfaction and active frustration. This overview does not validate IRIS's families, equate competence with self-worth, or justify inferring a frustrated need from missing positive statements; it does not validate a lens or a personal match."
+    },
+    "regulatory_flexibility": {
+      "title": "Bonanno & Burton (2013), Regulatory Flexibility: An Individual Differences Perspective on Coping and Emotion Regulation",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/26173226/",
+      "kind": "research_article",
+      "scope": "A heuristic framework challenging the idea that a coping response is uniformly helpful or harmful; fit depends on context, repertoire and feedback. This article informs the framework and does not validate an individual lens or personal match."
+    },
+    "repetitive_thought": {
+      "title": "Watkins (2008), Constructive and unconstructive repetitive thought",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/18298268/",
+      "kind": "research_article",
+      "scope": "Repetitive thought can be constructive or unconstructive depending on content, context and processing. Repetition alone does not support IRIS's unproductive-thinking lens. This article informs the framework and does not validate a lens or a personal match."
+    }
+  },
+  "lenses": [
     {
-      "id": "attention-taken",
-      "name": "Attention taken by the unfamiliar",
-      "statement": "Something not yet automatic was taking their attention while information arrived.",
-      "holds_when": [
-        "the person was managing something they had not done often",
-        "something was said, shown or signalled while they were occupied with it",
-        "they acted on part of what arrived, or asked for it again"
-      ],
-      "not_when": [
-        "the information was never delivered",
-        "they took it in fully and chose to ignore it",
-        "the task was familiar and required no deliberate handling"
-      ],
-      "question": "Was there an occasion when you were handling something unfamiliar and still took in everything that arrived?",
-      "retiring_answer": "An account of handling something unfamiliar with nothing missed"
+      "id": "yes-before-capacity", "family": "belonging", "name": "Saying yes before checking capacity",
+      "sequence": "A request arrives → agreement comes before checking what is available → the load is felt later.",
+      "requires": ["Agreement precedes a capacity check", "the writing records competing commitments or later strain."],
+      "possibleFunction": "Keeping connection or avoiding the discomfort of disappointing someone.",
+      "immediateReturn": "The request is settled and the interaction stays easy.",
+      "possibleLaterCost": "Personal time, resentment or an obligation that is hard to sustain.",
+      "notWhen": "The commitment was freely chosen after considering capacity, including a deliberate short-term sacrifice.",
+      "alternative": "There was real urgency or a responsibility the person could not reasonably decline.",
+      "question": "Was it hard to say no, or did this genuinely matter enough to make room for it?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "incomplete-information",
-      "name": "Acting before the information was complete",
-      "statement": "A response was made while something needed to judge it was still missing.",
-      "holds_when": [
-        "they knew a detail was absent or unclear when they acted",
-        "the missing part arrived later and changed the picture",
-        "they acted rather than waited or asked"
-      ],
-      "not_when": [
-        "everything needed was present and was read",
-        "the missing part turned out not to matter and they knew that",
-        "they deliberately waited until it arrived"
-      ],
-      "question": "Was there an occasion when you waited for the missing part instead of acting, and what made that possible?",
-      "retiring_answer": "An account of routinely waiting for the missing part"
+      "id": "needs-left-unsaid", "family": "belonging", "name": "Hoping a need will be noticed",
+      "sequence": "Something is wanted from another person → the need stays unspoken or indirect → disappointment remains.",
+      "requires": ["A particular need or preference and an expectation that the other person would notice it are stated", "the writing says the need was withheld or only hinted at."],
+      "possibleFunction": "Protecting connection or avoiding exposure to a refusal.",
+      "immediateReturn": "The person does not have to risk a direct request.",
+      "possibleLaterCost": "The need remains unmet and the other person may not know it exists.",
+      "notWhen": "The need was clearly communicated, or speaking directly would be unsafe.",
+      "alternative": "The other person already knew, or the setting left no reasonable opportunity to ask.",
+      "question": "Did you expect them to notice, or was there a reason not to tell them?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "settled-in-advance",
-      "name": "Settled in advance, or worked out in the moment",
-      "statement": "What to do was decided before the occasion rather than during it, leaving less to work out while it was happening.",
-      "holds_when": [
-        "a rule, plan or choice existed before the occasion began",
-        "during the occasion they applied it rather than deliberating",
-        "what remained to judge was narrower than it would have been"
-      ],
-      "not_when": [
-        "the plan was made during the occasion",
-        "a plan existed and was abandoned as it began",
-        "nothing had to be decided either way"
-      ],
-      "question": "Was there an occasion where deciding beforehand made no difference, or made things worse?",
-      "retiring_answer": "An account where deciding in advance changed nothing",
-      "basis": "Plans that fix when and where to act \u2014 if-then plans \u2014 were found to raise goal attainment over holding the goal alone in a meta-analysis of 94 tests, d=0.65.",
-      "evidence": "well replicated",
-      "source": "https://psycnet.apa.org/record/2007-19538-002"
+      "id": "taking-over-to-feel-secure", "family": "belonging", "name": "Taking over when relying on someone feels uncertain",
+      "sequence": "Shared work or reliance becomes uncertain → the person takes control or does the extra work → responsibility narrows onto them.",
+      "requires": ["Shared responsibility and uncertainty about relying on the other person are stated", "the writing records taking over rather than relying on or renegotiating with them."],
+      "possibleFunction": "Protecting reliability, avoiding let-down or keeping a sense of usefulness.",
+      "immediateReturn": "More direct control over what gets done.",
+      "possibleLaterCost": "Extra load and less room to discover whether support would have been available.",
+      "notWhen": "The role explicitly belongs to this person or the other person cannot safely do it.",
+      "alternative": "The workload or skill distribution made taking over the practical choice.",
+      "question": "What felt uncertain about leaving your part of this with someone else?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "more-than-can-be-taken-back",
-      "name": "Committed more than could be taken back",
-      "statement": "More was committed \u2014 of what they had, of their time, attention or word \u2014 than could be withdrawn without a cost.",
-      "holds_when": [
-        "withdrawing would have cost something real",
-        "the size of the commitment was noticed at the time or afterwards",
-        "less room was left to respond to what happened next"
-      ],
-      "not_when": [
-        "the commitment could be undone freely",
-        "it was large but within what they could set aside",
-        "the size was decided by someone else"
-      ],
-      "question": "What size of commitment leaves you able to change your mind without it costing you?",
-      "retiring_answer": "An account where a large commitment left full freedom to respond"
+      "id": "clear-ask-or-limit", "family": "belonging", "name": "Making a need or limit clear",
+      "sequence": "A need or limit is noticed → it is communicated directly → the other person has something concrete to respond to.",
+      "requires": ["The person names a specific need or limit", "the writing records communicating it rather than only planning to."],
+      "possibleFunction": "Protecting both connection and personal capacity.",
+      "immediateReturn": "Less ambiguity about what is being asked or offered.",
+      "possibleLaterCost": "Discomfort, disagreement or the loss of an arrangement that depended on silence.",
+      "notWhen": "The limit is only imagined, or the communication is a threat intended to control someone else.",
+      "alternative": "The outcome may reflect the other person's availability rather than the wording of the request.",
+      "question": "What became clearer after you said it, even if the answer was not what you wanted?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "continuing-after-a-setback",
-      "name": "Continuing in the same direction after a setback",
-      "statement": "Something went against them, and they carried on in the same direction rather than stopping or changing it.",
-      "holds_when": [
-        "a loss, refusal or failure had already happened",
-        "the next action continued the same course",
-        "stopping or changing course was available"
-      ],
-      "not_when": [
-        "the setback had not happened yet",
-        "they stopped, paused or changed approach",
-        "continuing was the only option available"
-      ],
-      "question": "Was there an occasion when you stopped after a setback, and what made stopping possible then?",
-      "retiring_answer": "An account of stopping after a setback as a matter of course"
+      "id": "certainty-before-action", "family": "uncertainty", "name": "Needing certainty before moving",
+      "sequence": "A choice stays uncertain → more information is sought before acting → the decision remains open.",
+      "requires": ["The writing identifies an unresolved choice", "further certainty-seeking delays a step the person otherwise describes as available."],
+      "possibleFunction": "Avoiding regret or the feeling of making an exposed choice.",
+      "immediateReturn": "A decision and its possible error can be postponed.",
+      "possibleLaterCost": "Delay, attention spent keeping the choice open or a missed opportunity.",
+      "notWhen": "Essential information is genuinely missing or the decision is high-stakes and not readily reversible.",
+      "alternative": "The person may not actually want either available option.",
+      "question": "What information would have been enough, and was that information realistically obtainable?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "relief-now-cost-later",
-      "name": "Ease now against a cost later",
-      "statement": "They took the option that was easier at the time.",
-      "holds_when": [
-        "one option was easier right then",
-        "they took it",
-        "the account says what followed later"
-      ],
-      "not_when": [
-        "the easier option was also better later",
-        "the later cost is not described",
-        "there was no easier option"
-      ],
-      "question": "Was there an occasion when the easier option turned out to be the better one?",
-      "retiring_answer": "An account where taking the easier option cost nothing later"
+      "id": "reassurance-that-expires", "family": "uncertainty", "name": "Checking for reassurance that does not last",
+      "sequence": "Doubt appears → checking or reassurance brings relief → the same doubt returns without a new relevant event.",
+      "requires": ["Checking or reassurance and some relief are described", "the same doubt returns without new relevant information."],
+      "possibleFunction": "Restoring a sense of safety or confidence.",
+      "immediateReturn": "Temporary relief or permission to continue.",
+      "possibleLaterCost": "More checking without a lasting change in confidence.",
+      "notWhen": "A new risk or meaningful new information reasonably calls for another check.",
+      "alternative": "The first answer was ambiguous or did not address the real question.",
+      "question": "Did the second check answer something new, or was the first answer no longer reassuring?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "finishing-while-depleted",
-      "name": "Doing the demanding thing while depleted",
-      "statement": "They did something demanding while tired, foggy or unwilling.",
-      "holds_when": [
-        "they describe being tired, foggy, unwilling or overwhelmed",
-        "they did the demanding thing anyway",
-        "the account says what followed"
-      ],
-      "not_when": [
-        "they were rested and willing",
-        "they did not do it",
-        "the demand was trivial"
-      ],
-      "question": "Was there an occasion when doing it while depleted made things worse rather than better?",
-      "retiring_answer": "An account where pushing through while depleted went badly",
-      "basis": "The occasion is observable; the popular account of it is not settled. The resource-depletion explanation failed a 23-lab preregistered replication, d=0.04, CI crossing zero.",
-      "evidence": "contested",
-      "source": "https://pubmed.ncbi.nlm.nih.gov/27474142/"
+      "id": "preparing-instead-of-starting", "family": "uncertainty", "name": "Staying in preparation when the work becomes exposed",
+      "sequence": "Work approaches a visible first attempt → tools, plans or research expand → the attempt is deferred.",
+      "requires": ["Preparation substitutes for a specific available first attempt", "the writing states concern about exposing that attempt to judgment."],
+      "possibleFunction": "Staying competent or protected while the result is not yet open to judgment.",
+      "immediateReturn": "A sense of progress without the exposure of a rough attempt.",
+      "possibleLaterCost": "Less time to learn from doing and a larger-feeling first step.",
+      "notWhen": "Setup is a necessary dependency, safety requirement or explicit part of the deliverable.",
+      "alternative": "The task is underspecified or the person lacks a required resource.",
+      "question": "What could an imperfect attempt have shown that another round of preparation could not?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "signal-acted-on",
-      "name": "A signal arrived and was acted on, or was not",
-      "statement": "Something they could see or feel said what to do.",
-      "holds_when": [
-        "a sign, rule or bodily cue was noticed at the time",
-        "the account says whether it was followed or set aside",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the sign was noticed only in hindsight",
-        "no sign is described",
-        "there was nothing to act on"
-      ],
-      "question": "What makes the difference between a signal you act on and one you set aside?",
-      "retiring_answer": "An account where acting on signals made no difference either way"
+      "id": "small-reversible-step", "family": "uncertainty", "name": "Moving with a small, reversible step",
+      "sequence": "Uncertainty remains → a limited action is chosen → experience supplies information without requiring total commitment.",
+      "requires": ["The person acts while acknowledging unresolved uncertainty", "the action is deliberately limited or reversible."],
+      "possibleFunction": "Preserving agency while allowing learning.",
+      "immediateReturn": "Movement and feedback without an all-or-nothing decision.",
+      "possibleLaterCost": "A small step may not resolve a decision that eventually requires a larger commitment.",
+      "notWhen": "The action is irreversible or its stakes are merely being minimised in the description.",
+      "alternative": "Acting may have been forced by a deadline rather than chosen as an experiment.",
+      "question": "What did trying a little reveal that thinking alone had not?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "started-when-it-was-urgent",
-      "name": "Begun only once it could not be put off",
-      "statement": "The thing was started when there was no room left to delay it.",
-      "holds_when": [
-        "it had been available to start for a while",
-        "the start came close to a deadline, a departure or a consequence",
-        "the account says what the finished thing was like"
-      ],
-      "not_when": [
-        "it was started as soon as it arrived",
-        "nothing forced the timing",
-        "there was no earlier opportunity to begin"
-      ],
-      "question": "Was there something you began long before you had to, and what was different that time?",
-      "retiring_answer": "An account of beginning something with no pressure to",
-      "basis": "Described in work on delay and deadline-driven starting."
+      "id": "moving-finish-line", "family": "self_worth", "name": "Moving the finish line",
+      "sequence": "Work meets an intended standard → a new standard is added → completion or satisfaction moves further away.",
+      "requires": ["An earlier intended finish or sufficient standard is identifiable", "the person raises it after approaching or meeting it."],
+      "possibleFunction": "Protecting a sense of competence or avoiding exposure to criticism.",
+      "immediateReturn": "The work can remain under the person's control a little longer.",
+      "possibleLaterCost": "Difficulty finishing, recognising progress or recovering.",
+      "notWhen": "Requirements materially changed or a newly discovered error makes the old standard inadequate.",
+      "alternative": "The person discovered a genuinely more meaningful goal while doing the work.",
+      "question": "Did the work need more, or did reaching the original finish stop feeling sufficient?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "absorbed-without-noticing-time",
-      "name": "Absorbed, with time passing unnoticed",
-      "statement": "They were taken up in something and noticed afterwards how long had passed.",
-      "holds_when": [
-        "the account mentions losing track of time or looking up late",
-        "the absorption was in one activity",
-        "what followed is described"
-      ],
-      "not_when": [
-        "they were watching the clock throughout",
-        "the time was scheduled and kept",
-        "they were interrupted early"
-      ],
-      "question": "What was present in the occasions where you stayed absorbed and still stopped on time?",
-      "retiring_answer": "An account of deep absorption with the time kept",
-      "basis": "Described in work on sustained attention and immersion."
+      "id": "rest-must-be-earned", "family": "self_worth", "name": "Treating rest as something to earn",
+      "sequence": "Tiredness or a wish to stop appears → permission to rest depends on achievement → recovery is postponed.",
+      "requires": ["A need or wish for rest is stated", "permission to take it is tied to finishing, deserving or proving enough."],
+      "possibleFunction": "Preserving worth, duty or a sense of being a reliable person.",
+      "immediateReturn": "Less guilt about continuing and a clear rule for what counts as enough.",
+      "possibleLaterCost": "Recovery depends on a workload that may never become empty.",
+      "notWhen": "A short, unavoidable responsibility temporarily takes priority over rest.",
+      "alternative": "Material constraints, rather than self-worth, make stopping difficult.",
+      "question": "What made finishing feel necessary before resting?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "interrupted-routine",
-      "name": "A routine broke and the day changed shape",
-      "statement": "Something that usually happens did not, and the rest of the day went differently.",
-      "holds_when": [
-        "a regular part of the day was missed, moved or blocked",
-        "the account connects it to how the rest went",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the routine held",
-        "the change was planned and prepared for",
-        "nothing about the day is described"
-      ],
-      "question": "Was there a day a routine broke and the rest of it went as usual?",
-      "retiring_answer": "An account of a broken routine with no difference after it",
-      "basis": "Described in work on routine, transitions and the cost of switching."
+      "id": "comparison-becomes-verdict", "family": "self_worth", "name": "Turning comparison into a verdict on yourself",
+      "sequence": "Someone else's progress becomes salient → it is used to judge personal adequacy → the person's own reference point recedes.",
+      "requires": ["A comparison with another person is explicit", "the writing turns that comparison into a broad conclusion about personal worth or adequacy."],
+      "possibleFunction": "Finding orientation, reassurance or a standard for belonging.",
+      "immediateReturn": "A simple answer to the question of where one stands.",
+      "possibleLaterCost": "Discounting different circumstances or progress against a personally meaningful aim.",
+      "notWhen": "The comparison is specific feedback on a skill and is not generalised to the whole person.",
+      "alternative": "A real inequality or unfair treatment, not distorted self-evaluation, is the important issue.",
+      "question": "Were you comparing one result, or deciding what kind of person that result made you?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "switching-cost",
-      "name": "Moving between things took longer than the things",
-      "statement": "Getting from one activity to the next took time or effort of its own.",
-      "holds_when": [
-        "the account mentions the gap between two activities",
-        "the difficulty was in starting the next rather than doing it",
-        "what followed is described"
-      ],
-      "not_when": [
-        "one thing followed another without comment",
-        "the difficulty was in the activity itself",
-        "there was only one activity"
-      ],
-      "question": "Was there a day you moved between things easily, and what was different about it?",
-      "retiring_answer": "An account of moving between activities with no friction",
-      "basis": "Described in work on task switching and transitions."
+      "id": "repair-without-self-verdict", "family": "self_worth", "name": "Repairing a mistake without making it your identity",
+      "sequence": "A mistake or setback is acknowledged → a specific repair or adjustment follows → the whole self is not made the problem.",
+      "requires": ["The person acknowledges a particular mistake or limit", "a specific repair is recorded alongside an explicit distinction between that mistake and overall personal worth or identity."],
+      "possibleFunction": "Preserving responsibility and the ability to keep learning.",
+      "immediateReturn": "A concrete next response rather than an argument about personal worth.",
+      "possibleLaterCost": "Focusing on repair can miss a feeling that also needs acknowledgement.",
+      "notWhen": "The person dismisses harm or avoids accountability while calling it self-acceptance.",
+      "alternative": "This may simply have been a lower-stakes mistake.",
+      "question": "What let this remain a problem to respond to rather than a verdict on you?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "environment-mattered",
-      "name": "The surroundings made the difference",
-      "statement": "Noise, light, crowding or quiet is given as part of how the occasion went.",
-      "holds_when": [
-        "the account names something about the surroundings",
-        "it is connected to how the occasion went",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the surroundings are mentioned only as scene-setting",
-        "nothing about the setting is given",
-        "the setting was chosen and had no effect described"
-      ],
-      "question": "Was there an occasion in the same surroundings that went the other way?",
-      "retiring_answer": "An account where the same setting produced the opposite outcome",
-      "basis": "Described in work on sensory environment and performance."
+      "id": "relief-with-an-open-loop", "family": "emotional_protection", "name": "Getting relief while the difficult thing stays open",
+      "sequence": "A difficult task or interaction is present → disengaging brings relief → the original demand remains or returns.",
+      "requires": ["Disengagement is followed by explicitly described relief", "the same unresolved demand is still present or later returns."],
+      "possibleFunction": "Reducing immediate emotional load.",
+      "immediateReturn": "Breathing room or a drop in discomfort.",
+      "possibleLaterCost": "The unresolved demand may return with less time or more dread.",
+      "notWhen": "A deliberate pause restores capacity and the task is then resumed, or disengaging ends a harmful situation.",
+      "alternative": "Rest or a change of priorities may have been needed more than completion.",
+      "question": "Did stepping away make room to return, or mainly make the demand disappear for a while?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "avoided-then-relieved",
-      "name": "Put off, and the relief was immediate",
-      "statement": "Something was avoided and the account says the relief came at once.",
-      "holds_when": [
-        "there was a thing they meant to do or face",
-        "they did not do it",
-        "the account describes feeling better straight away, or worse later"
-      ],
-      "not_when": [
-        "the thing was done",
-        "it was dropped deliberately and stayed dropped",
-        "no relief or later cost is described"
-      ],
-      "question": "Was there something you put off that cost you nothing at all?",
-      "retiring_answer": "An account of avoidance with no later cost",
-      "basis": "Described in behavioural accounts of avoidance and short-term relief."
+      "id": "thinking-without-new-information", "family": "emotional_protection", "name": "Returning to the thought without getting further",
+      "sequence": "A concern is revisited → similar questions repeat without new information or a concrete next step → the concern remains active.",
+      "requires": ["The same concern is revisited", "the writing describes repetition without a new distinction, decision or useful action."],
+      "possibleFunction": "Seeking understanding, control or protection against another mistake.",
+      "immediateReturn": "A feeling of still working on something important.",
+      "possibleLaterCost": "Attention and emotion remain occupied without a clearer response.",
+      "notWhen": "Reflection produces new detail, a plan, emotional integration or a useful decision.",
+      "alternative": "The situation is still changing, or grief and meaning-making genuinely require repeated attention.",
+      "question": "What was different at the end of thinking about it this time?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "repetitive_thought"]
     },
     {
-      "id": "faced-and-it-shrank",
-      "name": "Faced, and it was smaller than expected",
-      "statement": "Something anticipated as hard was approached, and the account says how it compared.",
-      "holds_when": [
-        "the account gives an expectation beforehand",
-        "they went ahead",
-        "the account compares it with what was expected"
-      ],
-      "not_when": [
-        "no expectation is described",
-        "they did not go ahead",
-        "the comparison is absent"
-      ],
-      "question": "Was there something that turned out exactly as hard as you expected, or worse?",
-      "retiring_answer": "An account of something facing up to being as bad as feared",
-      "basis": "Described in work on exposure and expectancy."
+      "id": "distance-after-hurt", "family": "emotional_protection", "name": "Taking distance when connection feels exposing",
+      "sequence": "An interaction feels hurtful or exposing → contact or openness is reduced → protection and disconnection may coexist.",
+      "requires": ["Hurt or exposure is described in connection with an interaction", "withdrawal or reduced openness follows in the account."],
+      "possibleFunction": "Protecting dignity or reducing the chance of further hurt.",
+      "immediateReturn": "Less exposure to the difficult interaction.",
+      "possibleLaterCost": "Less opportunity for repair or for the other person to understand what happened.",
+      "notWhen": "Distance is a considered safety boundary or ordinary solitude not linked to interpersonal hurt.",
+      "alternative": "The relationship may genuinely be unresponsive or unsafe, rather than the distance being the problem.",
+      "question": "Was the distance protecting a boundary, giving you time, or leaving something important unsaid?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "went-over-it-repeatedly",
-      "name": "Gone over repeatedly without anything new",
-      "statement": "The same occasion was thought about again and again without new information arriving.",
-      "holds_when": [
-        "the account says they kept returning to it",
-        "nothing new was learned between the returns",
-        "what followed is described"
-      ],
-      "not_when": [
-        "each return brought something new",
-        "it was thought about once and set down",
-        "they were working out a decision with fresh material"
-      ],
-      "question": "What was present on the occasions you thought something through once and let it go?",
-      "retiring_answer": "An account of returning to something repeatedly and reaching something new",
-      "basis": "Response-styles work describes repetitive dwelling without new information. It predicts onset of low mood more consistently than duration, and effects attenuate when baseline mood is controlled.",
-      "evidence": "mixed",
-      "source": "https://journals.sagepub.com/doi/10.1111/j.1745-6924.2008.00088.x"
+      "id": "noticing-before-responding", "family": "emotional_protection", "name": "Noticing a feeling before choosing a response",
+      "sequence": "An emotion or urge is noticed → a pause or naming makes it explicit → a response is chosen rather than immediately enacted.",
+      "requires": ["A specific feeling or urge is explicitly noticed", "the writing describes pausing or considering it before choosing a response."],
+      "possibleFunction": "Allowing both the feeling and the person's priorities to matter.",
+      "immediateReturn": "More room between an urge and an action.",
+      "possibleLaterCost": "Pausing can become delay if a time-sensitive response is needed.",
+      "notWhen": "The feeling is merely suppressed or analysed without a described choice.",
+      "alternative": "The situation may have been less intense or allowed more time than the contrasting occasions.",
+      "question": "What did noticing the feeling make possible in how you responded?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "paid-off-sometimes",
-      "name": "It worked often enough to keep doing it",
-      "statement": "The same approach went well on some occasions and badly on others, and both are recorded.",
-      "holds_when": [
-        "the account describes an approach used more than once",
-        "at least one occasion went well",
-        "at least one went badly"
-      ],
-      "not_when": [
-        "it went the same way every time",
-        "only one occasion is described",
-        "the approach differed each time"
-      ],
-      "question": "What would the run of these occasions have to look like for you to stop?",
-      "retiring_answer": "An account where the approach never once paid",
-      "basis": "Reinforcement that arrives on some occasions and not others is long established in behaviour analysis as producing responding that persists.",
-      "evidence": "well replicated"
+      "id": "sprint-then-empty", "family": "capacity", "name": "Using a burst of effort that leaves little afterwards",
+      "sequence": "A demanding or exciting period draws sustained effort → stopping points are passed → reduced capacity is reported afterwards.",
+      "requires": ["A period of unusually sustained effort is described", "the writing explicitly connects it in time with later depletion or reduced capacity."],
+      "possibleFunction": "Meeting a demand, keeping momentum or making the most of engagement.",
+      "immediateReturn": "Progress, absorption or a task brought over the line.",
+      "possibleLaterCost": "Less available capacity for what follows.",
+      "notWhen": "Later tiredness is not stated, or ordinary effort is followed by ordinary recovery.",
+      "alternative": "Illness, sleep loss or another demand may account for the later low capacity.",
+      "question": "What do you think contributed to the lower capacity afterwards?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "recovered-alone-after-company",
-      "name": "Time alone after time among people",
-      "statement": "A stretch among people was followed by a need for quiet, or by its absence.",
-      "holds_when": [
-        "the account describes extended company",
-        "it says what they needed or did afterwards",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the company was brief and unremarked",
-        "nothing about afterwards is given",
-        "they were alone throughout"
-      ],
-      "question": "Was there a long stretch of company that left you with energy rather than needing quiet?",
-      "retiring_answer": "An account of extended company followed by no need for recovery",
-      "basis": "Described in work on social load and recovery."
+      "id": "too-many-open-commitments", "family": "capacity", "name": "Keeping more commitments open than attention can hold",
+      "sequence": "Several personally relevant commitments remain active → attention repeatedly shifts between them → progress or rest feels fragmented.",
+      "requires": ["More than one open commitment is explicitly described", "the writing describes competition for attention, switching or difficulty disengaging."],
+      "possibleFunction": "Preserving options or avoiding letting an important responsibility go.",
+      "immediateReturn": "Nothing important has to be explicitly dropped.",
+      "possibleLaterCost": "Fragmented work and difficulty feeling finished.",
+      "notWhen": "Several commitments are present but handled without a reported conflict in attention or capacity.",
+      "alternative": "Interruptions imposed by the environment may matter more than the number of commitments.",
+      "question": "Which commitment was hard to put down even when you were working on another?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "acted-on-what-was-said",
-      "name": "What someone said changed the course",
-      "statement": "Another person said something and the account says what was done about it.",
-      "holds_when": [
-        "someone else's words are reported",
-        "the account says whether they were taken up or set aside",
-        "what followed is described"
-      ],
-      "not_when": [
-        "nobody else features",
-        "the words were noted with no action either way",
-        "what followed is absent"
-      ],
-      "question": "What decides whether you act on what someone tells you?",
-      "retiring_answer": "An account where what was said made no difference either way",
-      "basis": "Described in work on feedback and its uptake."
+      "id": "capacity-signals-overruled", "family": "capacity", "name": "Continuing after noticing a capacity limit",
+      "sequence": "A signal of tiredness or overload is noticed → it is overruled → the person continues beyond the noticed limit.",
+      "requires": ["A capacity signal is stated before or during the action", "the person explicitly continues despite noticing it."],
+      "possibleFunction": "Protecting reliability, momentum or a feared consequence of stopping.",
+      "immediateReturn": "The demand can keep being met for the moment.",
+      "possibleLaterCost": "Errors, resentment or depletion, only when subsequently recorded.",
+      "notWhen": "The signal was noticed only afterwards or continuing was the only safe response.",
+      "alternative": "A brief chosen push may have been proportionate to the stakes.",
+      "question": "What mattered more than the signal at that moment?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "kept-going-because-of-what-was-already-in",
-      "name": "Carried on partly because of what had already gone in",
-      "statement": "What had already been put in was part of why they continued.",
-      "holds_when": [
-        "time, money or effort had already gone in and could not be recovered",
-        "the account connects that to carrying on",
-        "stopping was available"
-      ],
-      "not_when": [
-        "the reason given for continuing is about what is ahead",
-        "nothing had been put in yet",
-        "they stopped"
-      ],
-      "question": "Was there an occasion you stopped despite what had already gone in, and what made that possible?",
-      "retiring_answer": "An account of walking away from something already paid for",
-      "basis": "Described as the sunk cost effect: more had been invested, more was committed to continuing, across repeated experiments.",
-      "evidence": "well replicated",
-      "source": "https://www.sciencedirect.com/science/article/abs/pii/0749597885900494"
+      "id": "recovery-before-empty", "family": "capacity", "name": "Making room for recovery before reaching empty",
+      "sequence": "A capacity limit is anticipated or noticed → the person adjusts a demand or takes recovery → subsequent capacity can be observed.",
+      "requires": ["A specific limit or recovery need is acknowledged", "the writing records a concrete adjustment before complete depletion."],
+      "possibleFunction": "Protecting sustainable engagement rather than only surviving the immediate demand.",
+      "immediateReturn": "A demand is reduced or recovery becomes possible.",
+      "possibleLaterCost": "Something may be delayed, declined or left incomplete.",
+      "notWhen": "Rest happens only after exhaustion, or is described as an intention rather than an action.",
+      "alternative": "A lighter workload or support from others may explain any later improvement.",
+      "question": "What, if anything, changed after you made room for recovery?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility"]
     },
     {
-      "id": "repeated-in-the-same-setting",
-      "name": "Done again in the same setting",
-      "statement": "The same action happened again in the same place or after the same daily marker.",
-      "holds_when": [
-        "the account names a place, time of day or preceding act",
-        "the same action has happened there before",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the setting differed each time",
-        "it was a first occasion",
-        "no setting is described"
-      ],
-      "question": "Which of the things you repeat still take deliberate effort, however often you have done them?",
-      "retiring_answer": "An account of repetition in one setting that never became easier",
-      "basis": "Repetition in a stable context is how an action becomes automatic. Time to automaticity varied from 18 to over 250 days in the study most often cited for it, and half the participants did not get there.",
-      "evidence": "mixed",
-      "source": "https://onlinelibrary.wiley.com/doi/10.1002/ejsp.674"
+      "id": "borrowed-standard-own-goal", "family": "agency", "name": "Pursuing a goal by someone else's standard",
+      "sequence": "An external expectation becomes the reference point → effort follows it despite a stated personal mismatch → ambivalence or disconnection persists.",
+      "requires": ["An external standard or expectation is identified", "the writing records pursuing it despite an explicitly stated mismatch with what the person wants or values."],
+      "possibleFunction": "Keeping approval, belonging or a clear definition of success.",
+      "immediateReturn": "Direction and a socially recognisable target.",
+      "possibleLaterCost": "Progress that does not feel personally meaningful.",
+      "notWhen": "The person freely endorses the shared standard; cooperation is not automatically a loss of autonomy.",
+      "alternative": "Material obligations may constrain the goal even when the person's values are clear.",
+      "question": "Which part of this aim feels chosen by you, and which part feels inherited?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "short-sleep-before",
-      "name": "Little sleep before it",
-      "statement": "They had slept badly or briefly before the occasion.",
-      "holds_when": [
-        "the account mentions poor or short sleep beforehand",
-        "the occasion followed within a day",
-        "what followed is described"
-      ],
-      "not_when": [
-        "sleep is not mentioned",
-        "they had slept well",
-        "the occasion was days later"
-      ],
-      "question": "Was there an occasion after little sleep that went as well as your rested ones?",
-      "retiring_answer": "An account of a short-sleep day that went entirely well",
-      "basis": "Sleep loss reliably lowers positive mood and weakens inhibitory control; its effect on risk-taking is less consistent across studies.",
-      "evidence": "mixed",
-      "source": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8193556/"
+      "id": "commitment-outlives-purpose", "family": "agency", "name": "Continuing after the original reason has changed",
+      "sequence": "A commitment loses its original fit or purpose → prior investment or identity keeps it active → the mismatch continues.",
+      "requires": ["The writing states that the original reason or fit has changed", "prior investment, duty or identity is given as a reason to continue."],
+      "possibleFunction": "Preserving coherence, loyalty or the meaning of past effort.",
+      "immediateReturn": "Avoiding a difficult ending or an apparent admission of wasted effort.",
+      "possibleLaterCost": "Less room for a more current priority.",
+      "notWhen": "Current benefits or responsibilities still justify continuing independently of past investment.",
+      "alternative": "The new direction may be temporarily obscured rather than the commitment having lost its purpose.",
+      "question": "If the earlier investment were not there, what would make this worth choosing now?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "what-came-of-it-came-at-once",
-      "name": "What came of it arrived immediately",
-      "statement": "What they got from the action arrived at once rather than later.",
-      "holds_when": [
-        "the account describes something gained or felt straight away",
-        "any later consequence is separate from it",
-        "what followed is described"
-      ],
-      "not_when": [
-        "everything about it arrived later",
-        "nothing is described as gained",
-        "the timing is not given"
-      ],
-      "question": "What is present on the occasions you took the slower reward over the immediate one?",
-      "retiring_answer": "An account of routinely choosing the later return",
-      "basis": "A reward available now is weighed more heavily than the same reward later, and the discount is steep at short delays.",
-      "evidence": "well replicated"
+      "id": "waiting-for-right-feeling", "family": "agency", "name": "Waiting to feel ready for something that matters",
+      "sequence": "A personally endorsed intention remains → action is made conditional on feeling ready or motivated → the valued activity stays deferred.",
+      "requires": ["The person states that the activity matters to them", "the writing ties not starting to readiness or motivation rather than a practical blocker."],
+      "possibleFunction": "Avoiding discomfort, forcing or an attempt that might disappoint.",
+      "immediateReturn": "The person does not have to act against the current feeling.",
+      "possibleLaterCost": "A meaningful part of life remains in intention rather than experience.",
+      "notWhen": "Capacity, safety or a concrete dependency is genuinely missing.",
+      "alternative": "The activity may be an inherited obligation rather than something the person currently wants.",
+      "question": "Were you waiting for capacity, confidence, interest, or permission to begin imperfectly?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     },
     {
-      "id": "said-in-advance-to-someone",
-      "name": "Said out loud beforehand what they would do",
-      "statement": "Another person was told in advance what they intended to do.",
-      "holds_when": [
-        "the intention was stated to someone before the occasion",
-        "the account says whether it was carried out",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the intention stayed private",
-        "it was described only afterwards",
-        "nobody else features"
-      ],
-      "question": "Was there something you told nobody about and did anyway?",
-      "retiring_answer": "An account of carrying out something never mentioned to anyone",
-      "basis": "Commitments made to others, and stakes attached to them, are associated with following through, with effects that vary by how the commitment is arranged.",
-      "evidence": "mixed"
-    },
-    {
-      "id": "changed-the-surroundings-first",
-      "name": "Changed something in the surroundings before acting",
-      "statement": "Something in the setting was arranged or removed before the occasion began.",
-      "holds_when": [
-        "the account describes a change made beforehand",
-        "the change was to the surroundings rather than to the plan",
-        "what followed is described"
-      ],
-      "not_when": [
-        "nothing was changed",
-        "the change was made during the occasion",
-        "the change is not connected to what followed"
-      ],
-      "question": "Was there an occasion where arranging the surroundings made no difference?",
-      "retiring_answer": "An account where preparing the setting changed nothing",
-      "basis": "Small changes in how easy or hard an action is to take are associated with how often it is taken, though the size varies widely with the setting.",
-      "evidence": "mixed"
-    },
-    {
-      "id": "measured-against-someone-else",
-      "name": "Measured against how someone else was doing",
-      "statement": "How it went was compared with how another person was doing.",
-      "holds_when": [
-        "another person's progress or result features in the account",
-        "the comparison is to their own",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the comparison is with their own earlier result",
-        "no other person features",
-        "what followed is absent"
-      ],
-      "question": "What is present on the occasions you judged something without reference to anyone else?",
-      "retiring_answer": "An account judged entirely on its own terms",
-      "basis": "People judge their own standing partly by comparison with others, and the direction of the comparison is associated with different reactions.",
-      "evidence": "mixed"
-    },
-    {
-      "id": "stopped-to-notice-first",
-      "name": "Stopped to notice before responding",
-      "statement": "There was a pause to take in what was happening before they responded.",
-      "holds_when": [
-        "the account describes noticing, naming or waiting before acting",
-        "a response followed",
-        "what followed is described"
-      ],
-      "not_when": [
-        "the response was immediate",
-        "the pause was imposed from outside",
-        "nothing was noticed"
-      ],
-      "question": "Was there an occasion where pausing first made things worse?",
-      "retiring_answer": "An account where stopping to notice cost them the occasion",
-      "basis": "Training in attending to the present before responding is associated with moderate changes in distress across trials, with quality of trials varying.",
-      "evidence": "mixed"
+      "id": "own-reason-concrete-step", "family": "agency", "name": "Letting a personally meaningful reason shape the next step",
+      "sequence": "A personal value or reason is named → a concrete action expresses it → the action need not wait for approval or a perfect feeling.",
+      "requires": ["The person explicitly names their own reason or value", "the writing records a particular action aligned with it."],
+      "possibleFunction": "Preserving agency and coherence with what matters.",
+      "immediateReturn": "A connection between an abstract priority and something actually done.",
+      "possibleLaterCost": "Choosing one value may leave another legitimate value or demand unmet.",
+      "notWhen": "The value is inferred solely from the action, or the account contains only an aspiration.",
+      "alternative": "External structure or support may have made the action possible alongside its personal meaning.",
+      "question": "What made this step feel like yours, and what else did you have to weigh?",
+      "sourceIds": ["case_formulation", "regulatory_flexibility", "basic_needs"]
     }
   ]
 }

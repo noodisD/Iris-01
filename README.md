@@ -16,6 +16,18 @@ Chat does not create analytical evidence. The companion currently receives
 context automatically; this does not give it callable tools, continuous
 monitoring, or alerts outside chat.
 
+Patterns now derive context–response dynamics from source-checked, eligible
+writing, with independent-event lower bounds and owner corrections. A
+separate 24-item process-lens library is optional interpretation, **not**
+a classification of the owner. Writing-derived Insights are tentative
+function/tradeoff, contextual-difference or shared-concern claims with
+supporting, contrary and unknown accounts; measured-day comparisons remain
+independent. Selected chat discussions verify a current range/snapshot and
+show source evidence before sending. See [current domain contracts](CONTEXT.md)
+and [reference and deployment gates](docs/reference-evaluation.md). Until
+independent holdout review and a backed-up live archive read finish, these
+surfaces must not be described as validated for the owner's full archive.
+
 ---
 
 ## What it is, concretely
@@ -43,12 +55,13 @@ One Python process and one PostgreSQL database. That's the whole system.
 - **One datastore.** pgvector is a PostgreSQL extension, so 1536-dimension
   embeddings live in ordinary rows next to everything else and a similarity
   search is a normal SQL query with a `WHERE user_id = …` on it.
-- **OpenAI** for chat (`gpt-5.5`, set with `OPENAI_MODEL`) and embeddings
-  (`text-embedding-3-small`). The chat model is a one-line change; the embedding
-  model is not — the vector column is fixed at 1536 dimensions and the IVFFlat
-  indexes are built for it, so changing it means a migration and re-embedding
-  everything.
-  Nothing else leaves the machine.
+- **OpenAI** for chat (`gpt-5.5`, set with `OPENAI_MODEL`),
+  source-checked personal-dynamics reading (`OPENAI_WORKER_MODEL`) and embeddings
+  (`text-embedding-3-small`). A change of chat/worker model affects provider
+  output and can invalidate a checked reading; the embedding model also fixes
+  the vector column at 1536 dimensions and changing it requires migration and
+  re-embedding. Eligible journal passages are sent to the configured worker
+  provider during reading, not during the provider-free cost preflight.
 
 ## Requirements
 

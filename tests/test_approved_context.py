@@ -6,15 +6,17 @@ Every idea, occasion, decision and reading here is invented.
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 from agent import approved_context as approved
 from agent import decisions, discovery
 from agent.database import db
-from tests.test_api_patterns import SETBACK, X, import_reading, reading_for
-from tests.test_ideas_meaning import GARDEN, KITCHEN, SHARED, framework  # noqa: F401 - fixture
+from tests.test_ideas_meaning import GARDEN, KITCHEN, SHARED
+
+pytest_plugins = ("tests.test_api_personal", "tests.test_ideas_meaning")
 
 
-def test_accepted_ideas_and_their_accepted_links_are_in_the_block(framework):  # noqa: F811
+def test_accepted_ideas_and_their_accepted_links_are_in_the_block(framework):
     client, script, ids = framework
     script.pairs = [{"a": ids[GARDEN], "b": ids[KITCHEN], "kind": "same_meaning", "rationale": SHARED}]
     client.post("/api/ideas/meanings/discover")
@@ -33,23 +35,45 @@ def _user(client) -> int:
     return app.dependency_overrides[get_current_user_id]()
 
 
-def test_only_insights_and_patterns_that_ring_true_are_in_the_block(test_user):
-    import_reading(test_user["id"], *reading_for(test_user["id"]))
-    block = approved.approved_context(test_user["id"])
-    assert "## Current comparisons with an owner's saved rings-true opinion" in block
-    assert "None yet." in block
+def test_only_current_approved_personal_observation_enters_background(served, monkeypatch):
+    client, owner, _ = served
+    card = client.get("/api/patterns").json()["patterns"][0]
+    initial = approved.approved_context(owner)
+    assert "## Personal dynamics the owner said ring true" in initial
+    assert "None yet." in initial
+    path = f"/api/patterns/{card['id']}/verdict"
+    note_only = {"range": "all", "snapshot": card["snapshot"], "verdict": None,
+                 "note": "Need to think about this"}
+    changed = client.put(path, json=note_only).json()
+    assert "None yet." in approved._patterns(owner)
+    opinion = {"range": "all", "snapshot": changed["snapshot"], "verdict": "rings_true",
+               "note": note_only["note"]}
+    assert client.put(path, json=opinion).status_code == 200
+    approved_rows = approved._patterns(owner)
+    assert "I agreed before checking my capacity" in "\n".join(approved_rows)
+    assert "not Iris's suggested explanation" in "\n".join(approved_rows)
+    current = discovery.patterns(owner)[0][0]
+    discovery.set_membership_feedback(owner, current.id,
+                                      next(iter(discovery.pattern(owner, current.id)["accounts"])),
+                                      "all", current.snapshot, "no", "Not part of this")
+    discovery.process_user(owner)
+    assert "None yet." in approved._patterns(owner)
 
-    discovery.set_difference_verdict(test_user["id"], X, SETBACK, "rings_true")
-    discovery.set_pattern_verdict(test_user["id"], X, "rings_true")
-    block = approved.approved_context(test_user["id"])
-    assert "3/3 read as worse and 0/3 read as better" in block
-    assert "has not independently verified each account" in block
-    discovery.set_pattern_verdict(test_user["id"], SETBACK, "does_not")
-    block = approved.approved_context(test_user["id"])
-    differences = block.split("## Current comparisons with an owner's saved rings-true opinion")[1].split("## ")[0]
-    assert "None yet." in differences
-    patterns = block.split("## Patterns they said ring true")[1].split("## ")[0]
-    assert patterns.count("\n- ") == 1
+    accepted = SimpleNamespace(
+        title="A situational distinction",
+        observation=SimpleNamespace(text="I answered differently when I had room"),
+        possible_meaning=SimpleNamespace(text="One possibility is that time mattered"),
+        alternative=SimpleNamespace(text="Another possibility is that the task was smaller"),
+        feedback=SimpleNamespace(verdict="rings_true", needs_review=False))
+    rejected = SimpleNamespace(**{**vars(accepted),
+                                  "feedback": SimpleNamespace(verdict="does_not", needs_review=False)})
+    stale = SimpleNamespace(**{**vars(accepted),
+                               "feedback": SimpleNamespace(verdict="rings_true", needs_review=True)})
+    monkeypatch.setattr(discovery, "insights", lambda *_args, **_kw: ([accepted, rejected, stale], None))
+    insight_rows = approved._insights(owner)
+    assert len(insight_rows) == 2
+    assert "Owner-endorsed possibility, not an established cause" in insight_rows[1]
+    assert "Materially different rival:" in insight_rows[1]
 
 
 def test_decisions_are_in_the_block_with_their_outcome(test_user):

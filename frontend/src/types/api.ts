@@ -132,19 +132,13 @@ export interface JournalListResponse {
   recurringPhrases?: { phrase: string; count: number }[];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Patterns — discovery: library patterns, the occasions that are instances of them
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** How an occasion turned out, as the labelling pass read it. */
-export type OccasionTone = 'better' | 'worse' | 'mixed';
-export type OccasionVerdictValue = 'yes' | 'no' | 'unsure';
+// Writing-derived personal dynamics. Dates are dates of recording, not event dates.
+export type AccountVerdictValue = 'yes' | 'no' | 'unsure';
 export type PatternVerdictValue = 'rings_true' | 'does_not' | 'unsure';
 export type DiscoveryRange = 'all' | '30d' | '90d';
-/** The URL carries only typed IDs, a recorded range and a change token; never passages. */
 export type EvidenceRef =
-  | { kind: 'pattern' | 'outcome_pair'; patternId: string; range: DiscoveryRange; snapshot: string }
-  | { kind: 'co_label'; patternId: string; otherId: string; range: DiscoveryRange; snapshot: string }
+  | { kind: 'dynamic'; dynamicId: string; range: DiscoveryRange; snapshot: string }
+  | { kind: 'personal_insight'; insightId: string; range: DiscoveryRange; snapshot: string }
   | { kind: 'day'; outcome: DayDifference['outcome']; split: DayDifference['split'];
       range: DiscoveryRange; snapshot: string };
 
@@ -152,10 +146,9 @@ export interface DiscussionPreview {
   ref: EvidenceRef;
   title: string;
   question: string;
-  evidence: PatternDetail | OutcomePair | DifferenceDetail | DayDifferenceDetail;
+  evidence: PatternDetail | InsightDetail | DayDifferenceDetail;
   changed: boolean;
 }
-
 
 export interface Coverage {
   range: DiscoveryRange;
@@ -167,17 +160,27 @@ export interface Coverage {
   undatedAccountCount: number;
 }
 
-/** A saved opinion, not a source-verification or causal finding. */
 export interface Feedback<V> {
   verdict: V | null;
   note: string | null;
 }
-
-export interface OccasionFeedback extends Feedback<OccasionVerdictValue> {
-  ownerTone?: OccasionTone | null;
+export type PatternVerdict = Feedback<PatternVerdictValue>;
+export interface SavedFeedback<V> extends Feedback<V> {
+  updatedAt: ISODateTime;
+  needsReview: boolean;
+}
+export interface FeedbackRequest<V> extends Feedback<V> {
+  range: DiscoveryRange;
+  snapshot: string;
 }
 
 export interface DiscoveryStatus {
+  readerVersion: string;
+  discoveryVersion: string;
+  interpretationVersion: string;
+  libraryVersion: string | null;
+  model: string;
+  stage: 'reading' | 'discovering' | 'checking' | 'interpreting' | 'ready' | 'failed';
   eligibleEntries: number;
   currentEntries: number;
   unreadEntries: number;
@@ -185,128 +188,158 @@ export interface DiscoveryStatus {
   failedEntries: number;
   excludedEntries: number;
   omittedAccounts: number;
+  omittedFields: number;
+  synthesisPending: boolean;
+  synthesisFailed: boolean;
   lastCompletedAt: ISODateTime | null;
-  model: string;
-  estimatedRequests: number;
-  estimate: string;
+  estimate: { readingRequests: number; synthesisRequests: number; tokensIn: number;
+    tokensOut: number; costText: string; approximate: true };
 }
 
-
-export interface PatternInfo {
+export interface QuoteRef { accountId: string; field: string; citationIndex: number }
+export interface GroundedClause { text: string; refs: QuoteRef[] }
+export interface Hypothesis {
+  text: string;
+  premises: GroundedClause[];
+  scopeGroupIds: string[];
+  ownerReportIds: string[];
+}
+export interface AccountCitation {
+  entryId: ID;
+  sourceType: string;
+  entryDate: ISODate | null;
+  text: string;
+}
+export interface PersonalAccount {
   id: string;
-  name: string;
-  statement: string;
-  holdsWhen: string[];
-  notWhen: string[];
-  question: string;
-  basis: string | null;
-  /** How well the idea behind it has held up: 'well replicated' | 'mixed' | 'contested'. */
-  evidence: string | null;
-  source: string | null;
+  actor: 'self' | 'other' | 'unclear';
+  recordKind: 'event' | 'self_report' | 'intention' | 'hypothetical';
+  situation: string | null;
+  response: string | null;
+  demand: string | null;
+  information: string | null;
+  feeling: string | null;
+  concern: string | null;
+  immediateOutcome: string | null;
+  laterOutcome: string | null;
+  explanation: string | null;
+  selfReport: string | null;
+  domain: string | null;
+  recordedOn: ISODate | null;
+  citations: AccountCitation[];
 }
-
-export type PatternVerdict = Feedback<PatternVerdictValue>;
-
-export interface PatternSummary extends PatternInfo {
-  /** Occasions, not counting any you said are not this pattern. */
-  occasions: number;
+export interface Membership {
+  dynamicId: string;
+  accountId: string;
+  groupId: string | null;
+  role: 'support' | 'exception' | 'response_elsewhere' | 'unrelated' | 'unclear' | 'mixed';
+  contextDecision: 'present' | 'absent' | 'unclear';
+  responseDecision: 'present' | 'absent' | 'unclear';
+  relationDecision: 'linked' | 'contradicted' | 'unclear';
+  refs: QuoteRef[];
+  ownerVerdict: AccountVerdictValue | null;
+  verdictNote: string | null;
+  excluded: boolean;
+}
+export interface EventGroup {
+  id: string;
+  accountIds: string[];
+  role: Membership['role'];
+  independentlyCountable: boolean;
+  independenceUncertain: boolean;
+}
+export interface ProcessLens {
+  id: string;
+  family: 'belonging' | 'uncertainty' | 'self_worth' | 'emotional_protection' | 'capacity' | 'agency';
+  name: string;
+  sequence: string;
+  possibleFunction: string;
+  immediateReturn: string;
+  possibleLaterCost: string;
+  requires: [string, string];
+  notWhen: string;
+  alternative: string;
+  question: string;
+  sourceIds: string[];
+  sources: { id: string; title: string; url: string;
+    kind: 'research_article' | 'theoretical_overview'; scope: string }[];
+}
+export interface PersonalPattern {
+  id: string;
+  title: string;
+  context: GroundedClause;
+  response: GroundedClause;
+  evidenceState: 'owner_described' | 'emerging' | 'recurring';
+  ownerMeanings: GroundedClause[];
+  immediateReturn: GroundedClause | null;
+  laterCost: GroundedClause | null;
+  possibleMeaning: Hypothesis | null;
+  alternative: Hypothesis | null;
+  openQuestion: string;
+  lensMatches: { lensId: string; qualifyingGroupIds: string[]; selfReportIds: string[];
+    requirementRefs: QuoteRef[]; excludedGroupIds: string[] }[];
+  exceptionGroupIds: string[];
+  responseElsewhereGroupIds: string[];
+  independentGroupCount: number;
+  accountCount: number;
   entryCount: number;
   recordedFrom: ISODate | null;
   recordedTo: ISODate | null;
   undatedAccountCount: number;
-  examples: Occasion[];
-  coverage: Coverage;
+  exceptionCount: number;
+  unknownAccountCount: number;
+  example: { accountId: string; recordedOn: ISODate | null; citation: AccountCitation } | null;
+  range: DiscoveryRange;
+  asOf: ISODate;
+  claimHash: string;
   snapshot: string;
-  tones: Record<OccasionTone, number>;
-  reviewed: number;
-  rejected: number;
-  /** What produced the labels. Labellers miss some occasions and include some that do not belong. */
-  labelledBy: string[];
-  verdict: PatternVerdict | null;
+  feedback: SavedFeedback<PatternVerdictValue> | null;
 }
-
-export interface OccasionCitation {
-  entryId: ID;
-  sourceType: string;
-  entryDate: string | null;
-  text: string;
-}
-
-export interface Occasion {
-  id: ID;
-  recordedOn: ISODate | null;
-  domain: string | null;
-  situation: string;
-  response: string;
-  outcome: string | null;
-  explanation: string | null;
-  citations: OccasionCitation[];
-  tone: OccasionTone;
-  suggestedTone: OccasionTone;
-  ownerTone: OccasionTone | null;
-  size: string | null;
-  labelledBy: string | null;
-  ownerVerdict: OccasionVerdictValue | null;
-  verdictNote: string | null;
-}
-
 export interface PatternDetail {
-  pattern: PatternInfo;
-  occasions: Occasion[];
-  /** Same denominator-aware comparisons as the Insights page. */
-  distinctive: { patternId: string; name: string; better: number; worse: number;
-    betterTotal: number; worseTotal: number; betterRate: number; worseRate: number }[];
+  pattern: PersonalPattern;
+  accounts: Record<string, PersonalAccount>;
+  memberships: Record<string, Membership[]>;
+  groups: Record<string, EventGroup[]>;
+  lenses: ProcessLens[];
+  checks: { checked: number; unclear: number; omittedAccounts: number;
+    omittedFields: number; exceptionSearchComplete: boolean };
   coverage: Coverage;
+  status: DiscoveryStatus;
   snapshot: string;
-  verdict: PatternVerdict | null;
 }
-
-/**
- * An insight: a difference in outcome. Among a pattern's occasions, another
- * pattern that was there more often when it went one way than the other.
- * A difference between two sets of occasions, not a cause; the owner judges it.
- */
-export interface Difference {
-  patternId: string;
-  patternName: string;
-  otherId: string;
-  otherName: string;
-  /** The other pattern was there on `worse` of the `worseTotal` occasions that went worse. */
-  worse: number;
-  worseTotal: number;
-  better: number;
-  betterTotal: number;
-  verdict: PatternVerdict | null;
-  /** The owner's verdict on the pattern itself, if any. */
-  patternVerdict: PatternVerdict | null;
-  betterRate: number;
-  worseRate: number;
-  rateGap: number;
-  coverage: Coverage;
-  snapshot: string;
-  sampleLabel: 'exploratory';
-  dismissed: boolean;
-}
-
-export interface OutcomePair {
-  kind: 'outcome_pair';
-  patternId: string;
-  patternName: string;
+export type InsightKind = 'function_and_tradeoff' | 'contextual_difference' | 'shared_concern';
+export interface PersonalInsight {
+  id: string;
+  kind: InsightKind;
+  dynamicIds: string[];
+  title: string;
+  observation: GroundedClause;
+  possibleMeaning: Hypothesis;
+  alternative: Hypothesis;
+  immediateReturn: GroundedClause | null;
+  laterCost: GroundedClause | null;
+  supportingGroups: string[];
+  contraryGroups: string[];
+  unknownAccountIds: string[];
   question: string;
-  better: Occasion;
-  worse: Occasion;
-  betterTotal: number;
-  worseTotal: number;
-  mixedTotal: number;
-  verdict: PatternVerdict | null;
-  coverage: Coverage;
+  leftLabel: string | null;
+  rightLabel: string | null;
+  leftGroupIds: string[] | null;
+  rightGroupIds: string[] | null;
+  range: DiscoveryRange;
+  asOf: ISODate;
+  claimHash: string;
   snapshot: string;
+  feedback: SavedFeedback<PatternVerdictValue> | null;
 }
-
-export interface DifferenceDetail {
-  difference: Difference;
-  groups: Record<'betterWith' | 'betterWithout' | 'worseWith' | 'worseWithout', Occasion[]>;
-  mixedExcluded: number;
+export interface InsightDetail {
+  insight: PersonalInsight;
+  accounts: Record<string, PersonalAccount>;
+  memberships: Record<string, Membership[]>;
+  groups: Record<string, EventGroup[]>;
+  coverage: Coverage;
+  status: DiscoveryStatus;
+  snapshot: string;
 }
 
 export interface DayCoverage {

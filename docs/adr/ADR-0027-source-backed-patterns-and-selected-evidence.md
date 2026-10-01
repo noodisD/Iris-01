@@ -1,7 +1,8 @@
 # ADR-0027: Patterns and selected conversations remain source-backed
 
 ## Status
-Accepted — 2026-09-29
+Superseded for writing-derived Patterns and Insights by the process-first
+personal-dynamics cutover below. ADR-0024 still governs measured days.
 
 ## Context
 The prototype discovery pass could show plausible accounts without making it
@@ -56,3 +57,33 @@ explicit review instead of silently discussing stale evidence. This amends
 the client-facing threshold and reading lifecycle in ADR-0023; the old
 observation reader's on-request-only rule in ADR-0015 remains specific to
 observations, not queue-backed discovery.
+
+## Current cutover: process-first personal dynamics
+
+The prior catalogue pattern labels, outcome-pair and co-label insight
+pipelines were removed rather than adapted. Extraction keeps actor, record
+kind, situation, response and independent immediate/later outcomes separate;
+original cited paragraphs are necessary but insufficient until a contextual
+field checker confirms each populated field. Failed checking is unavailable,
+not an empty reading. Discovery proposes context–response dynamics without
+seeing the process-lens library, checks memberships across the full eligible
+archive, and treats retellings or unclear event identity conservatively.
+
+Two independently identifiable self-events from two entries can establish
+an emerging dynamic, three a recurring dynamic; a general self-report
+remains owner-described, not an occurrence count. The 24 process lenses
+annotate only after discovery, with source-grounded requirements and exclusions
+and at most two matches. Insights distinguish sourced observation, the
+owner's meaning, tentative possible meaning, rival explanation, contrary
+accounts and unknowns; an outcome never follows from a later writing date.
+
+The web and Android Patterns/Insights views use the same range, revision
+and snapshot contracts. They offer account corrections and verdicts without
+silently approving a note. Only typed current `dynamic`, `personal_insight`
+and independent `day` references can enter discussion. Source revisions,
+eligibility changes and corrections invalidate the derived view; a historical
+provider response is never used as a current finding. The owner-only
+diagnostic/reference process and separate provider-release gates are in
+[`docs/reference-evaluation.md`](../reference-evaluation.md). Until the
+independently reviewed holdout and backed-up archive cutover complete, this
+decision describes the implementation, not verified archive coverage.
