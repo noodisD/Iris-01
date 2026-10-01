@@ -11,8 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .constants import (OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS,
-                        OBSERVATION_MAX_TOKENS)
+from . import discovery_memo as memo
+from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
 from .dynamics import GroundedClause, Hypothesis, Membership, QuoteRef, validate_refs
 from .episodes import Episode, ReadUnavailable
 from .intelligence import json_response_format
@@ -137,9 +137,8 @@ def assess(clauses: list[GroundedClause], hypotheses: list[Hypothesis],
     if len(content) + len(SYSTEM_PROMPT) > OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN:
         raise ReadUnavailable("source_too_large")
     try:
-        reply = intelligence.chat(messages=[{"role": "user", "content": content}],
-                                  system_prompt=SYSTEM_PROMPT, max_tokens=OBSERVATION_MAX_TOKENS,
-                                  response_format=json_response_format(_Reply))
+        reply = memo.chat(intelligence, SYSTEM_PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
+                          response_format=json_response_format(_Reply))
     except Exception as exc:
         raise ReadUnavailable("provider_failure") from exc
     try:

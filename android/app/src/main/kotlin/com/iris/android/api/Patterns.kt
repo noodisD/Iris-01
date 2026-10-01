@@ -14,7 +14,7 @@ data class Coverage(val range: String, val asOf: String, val recordedFrom: Strin
 
 val DISCOVERY_RANGES = listOf("all", "30d", "90d")
 fun discoveryRange(range: String): String = range.also { require(it in DISCOVERY_RANGES) }
-private fun pathId(id: String) = java.net.URLEncoder.encode(id, Charsets.UTF_8).replace("+", "%20")
+private fun pathId(id: String) = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20")
 fun patternRoute(id: String, range: String) = "patterns/${pathId(id)}?range=${discoveryRange(range)}"
 fun insightRoute(id: String, range: String) = "insights/${pathId(id)}?range=${discoveryRange(range)}"
 fun patternDiscussionRoute(pattern: PersonalPattern, range: String) =

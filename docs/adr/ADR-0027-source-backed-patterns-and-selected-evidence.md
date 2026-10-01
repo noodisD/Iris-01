@@ -87,3 +87,35 @@ diagnostic/reference process and separate provider-release gates are in
 [`docs/reference-evaluation.md`](../reference-evaluation.md). Until the
 independently reviewed holdout and backed-up archive cutover complete, this
 decision describes the implementation, not verified archive coverage.
+
+### Cost: ask each question once (2026-10-01)
+
+As first built, a synthesis run re-proposed definitions from the whole archive
+and re-asked every definition × account check and every account pair. The
+model worded definitions slightly differently each time, so nothing could be
+reused. By the code's own estimate the first run cost about $12, and every new
+or edited entry about $11 again, growing with the archive.
+
+The method and its gates are unchanged; the questions are asked once:
+
+- **Remembered verdicts** (`agent/discovery_memo.py`, migration 0046). A
+  membership, identity or equivalence verdict is kept under a hash of exactly
+  what was asked: prompt and schema version, model, the definition's wording
+  and the accounts' content fingerprints. It is kept only after validation. A
+  changed source has a new fingerprint and is asked afresh, so this never
+  turns a historical response into a current finding: it reuses the answer to
+  the identical question about the identical text. Whole replies for the
+  remaining stages (proposal, specificity, refinement, interpretation, claim
+  checks, lens matching) are reused only for a byte-identical request, and a
+  run that fails forgets the replies it kept.
+- **Definitions carry forward.** The last draft from the same discovery
+  version and model seeds the next run. Only accounts it never saw are read
+  for new proposals, and every carried and new definition is still checked
+  against every account.
+- **Each account is shown once per request**, with up to 12 definitions to
+  check against it, or with several accounts and the pairs among them in
+  blocks, instead of once per row.
+
+Estimated on the owner's archive (184 entries): the first run is at most
+about $6. After that, a new entry costs about $0.05, and up to about $0.36
+when it changes a dynamic's members and the interpretation is asked again.

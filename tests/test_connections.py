@@ -47,21 +47,24 @@ class ScriptedDecisions:
             return json.dumps({"discriminating": True, "contextMarker": "someone waiting",
                                "concreteResponse": "agreeing without a capacity check"})
         if system_prompt == MEMBERSHIP_PROMPT:
+            # One account, shown once, after the definitions to check against it.
             rows = [{"definitionIndex": int(index), "accountId": id_, "context": "present",
                      "response": "present", "relation": "linked",
                      "refs": [{"accountId": id_, "field": "situation", "citationIndex": 0}]}
-                    for index, id_ in re.findall(
-                        r"definitionIndex=(\d+).*?\naccountId=(a[1-9]\d*)\b", content)]
+                    for id_ in ids
+                    for index in re.findall(r"^definitionIndex=(\d+)\b", content, re.M)]
             if self.bad_id and rows:
                 rows[0]["accountId"] = "a999"
             return json.dumps({"decisions": rows[:-1] if self.missing else rows})
         if system_prompt == IDENTITY_PROMPT:
+            requested = re.findall(r"^leftAccountId=(a[1-9]\d*) rightAccountId=(a[1-9]\d*)$",
+                                   content, re.M)
             return json.dumps({"pairs": [{
-                "leftAccountId": ids[i], "rightAccountId": ids[i + 1],
+                "leftAccountId": left, "rightAccountId": right,
                 "decision": "distinct_events",
                 "refs": [{"accountId": id_, "field": "situation", "citationIndex": 0}
-                         for id_ in (ids[i], ids[i + 1])]}
-                for i in range(0, len(ids), 2)]})
+                         for id_ in (left, right)]}
+                for left, right in requested]})
         raise AssertionError("Unexpected semantic stage")
 
 

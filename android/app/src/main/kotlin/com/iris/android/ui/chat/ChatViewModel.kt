@@ -106,7 +106,7 @@ class ChatViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel(
         viewModelScope.launch {
             try {
                 val path = "/discovery/discussion?ref=" +
-                    java.net.URLEncoder.encode(json.encodeToString(EvidenceRef.serializer(), ref), Charsets.UTF_8)
+                    java.net.URLEncoder.encode(json.encodeToString(EvidenceRef.serializer(), ref), "UTF-8")
                 val loaded = IrisLink.api().send("GET", path, null, DiscussionPreview.serializer())
                 if (_reference.value != ref) return@launch
                 _preview.value = Loadable.Ready(loaded)

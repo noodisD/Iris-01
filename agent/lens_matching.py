@@ -12,10 +12,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .constants import (OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS,
-                        OBSERVATION_MAX_TOKENS)
+from . import discovery_memo as memo
+from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
 from .dynamics import DiscoveryDraft, LensMatch, QuoteRef, definition_key, validate_refs
-from .episodes import Episode, GROUNDED_FIELDS, ReadUnavailable
+from .episodes import GROUNDED_FIELDS, Episode, ReadUnavailable
 from .intelligence import json_response_format
 from .library import Lens
 from .observations import _strip_fence
@@ -165,9 +165,8 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
             return
         content = "\n".join(render(lens, uid) for lens, uid in batch)
         try:
-            text = intelligence.chat(messages=[{"role": "user", "content": content}],
-                                     system_prompt=MATCH_PROMPT, max_tokens=OBSERVATION_MAX_TOKENS,
-                                     response_format=json_response_format(_Reply))
+            text = memo.chat(intelligence, MATCH_PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
+                             response_format=json_response_format(_Reply))
         except Exception as exc:
             raise ReadUnavailable("provider_failure") from exc
         try:

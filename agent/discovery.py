@@ -12,13 +12,24 @@ from math import ceil
 
 from psycopg2.extras import Json
 
+from . import discovery_memo
 from .config import settings
-from .connections import (DISCOVERY_VERSION, MAX_PAIRS_PER_REPLY,
-                          discover_dynamics, interpret_view)
+from .connections import (DISCOVERY_VERSION, MAX_PAIRS_PER_REPLY, MAX_ROWS_PER_REPLY, discover_dynamics,
+                          interpret_view)
 from .database import db
-from .dynamics import (DiscoveryDraft, DiscoveryView, Feedback, PersonalInsight,
-                       PersonalPattern, canonical_hash, claim_hash, definition_key,
-                       dynamic_id, project_range, snapshot_hash)
+from .dynamics import (
+    DiscoveryDraft,
+    DiscoveryView,
+    Feedback,
+    PersonalInsight,
+    PersonalPattern,
+    canonical_hash,
+    claim_hash,
+    definition_key,
+    dynamic_id,
+    project_range,
+    snapshot_hash,
+)
 from .episodes import EXTRACTION_VERSION, Episode, ReadUnavailable
 from .intelligence import Intelligence
 from .interpretation_version import INTERPRETATION_VERSION
@@ -259,7 +270,11 @@ def _captured(user_id: int):
     model = settings.OPENAI_WORKER_MODEL
     draft = (DiscoveryDraft.from_dict(cached[4]) if cached and
              cached[:4] == (source_gen, digest, DISCOVERY_VERSION, model) else None)
-    return source_gen, review_gen, manifest, digest, accounts, draft, corrections, model
+    # The last draft from the same discovery version and model seeds the next:
+    # its definitions carry forward, so only unseen accounts need proposals.
+    previous = (DiscoveryDraft.from_dict(cached[4]) if draft is None and cached and
+                cached[2:4] == (DISCOVERY_VERSION, model) else None)
+    return source_gen, review_gen, manifest, digest, accounts, draft, previous, corrections, model
 
 
 def _set_stage(user_id: int, source_generation: int, review_generation: int,
@@ -287,80 +302,84 @@ def process_user(user_id: int) -> None:
             captured = _captured(user_id)
             if captured is None:
                 return
-            source_gen, review_gen, manifest, digest, accounts, cached, feedback, model_name = captured
+            (source_gen, review_gen, manifest, digest, accounts, cached, previous,
+             feedback, model_name) = captured
             _set_stage(user_id, source_gen, review_gen,
                        "interpreting" if cached is not None else "discovering")
             episodes = [Episode.from_dict(raw) for raw in accounts.values()]
             usable = any(e.actor == "self" and e.record_kind in {"event", "self_report"}
                          for e in episodes)
             intelligence = Intelligence(model=model_name) if usable and accounts else None
-            if cached is None:
-                proposed = discover_dynamics(episodes, intelligence)
-                draft = DiscoveryDraft.from_dict({**proposed.as_dict(), "userId": user_id})
-            else:
-                draft = cached
-            _set_stage(user_id, source_gen, review_gen, "interpreting")
-            id_to_key = {dynamic_id(user_id, d): definition_key(d) for d in draft.definitions}
-            corrections = {(id_to_key[dynamic_id_value], aid): verdict
-                           for dynamic_id_value, aid, verdict, _ in feedback
-                           if dynamic_id_value in id_to_key and aid in accounts}
-            notes = {(id_to_key[dynamic_id_value], aid): note
-                     for dynamic_id_value, aid, _, note in feedback
-                     if dynamic_id_value in id_to_key and aid in accounts}
-            lenses = load()
-            lens_digest = library_hash(lenses)
-            views = [
-                _finalize(interpret_view(draft, period, period_bounds(period)[1], lenses,
-                                         intelligence, corrections=corrections,
-                                         correction_notes=notes),
-                          draft, manifest, source_gen, review_gen, lens_digest, model_name)
-                for period in RANGES]
-            with db.connection() as conn, conn.cursor() as cur:
-                current_gen, current_review, _, _ = _state(cur, user_id, lock="UPDATE")
-                complete = _complete(cur, user_id)
-                if (complete is None or current_gen != source_gen or
-                        current_review != review_gen or canonical_hash(complete[0]) != digest or
-                        library_hash(load()) != lens_digest or
-                        model_name != settings.OPENAI_WORKER_MODEL or
-                        any(period_bounds(v.range)[1] != v.as_of for v in views)):
-                    conn.commit()
-                    return
+            # Verdicts already paid for are reused; a failed run forgets its new replies.
+            with discovery_memo.remembering(user_id):
                 if cached is None:
-                    cur.execute("""INSERT INTO discovery_drafts
-                                   (user_id, source_generation, manifest_hash, source_manifest,
-                                    discovery_version, model, payload, completed_at)
-                                   VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                                   ON CONFLICT (user_id) DO UPDATE SET
-                                     source_generation = EXCLUDED.source_generation,
-                                     manifest_hash = EXCLUDED.manifest_hash,
-                                     source_manifest = EXCLUDED.source_manifest,
-                                     discovery_version = EXCLUDED.discovery_version,
-                                     model = EXCLUDED.model, payload = EXCLUDED.payload,
-                                     completed_at = EXCLUDED.completed_at""",
-                                (user_id, source_gen, digest, Json(manifest),
-                                 DISCOVERY_VERSION, model_name, Json(draft.as_dict())))
-                for view in views:
-                    cur.execute("""INSERT INTO discovery_views
-                                   (user_id, range, source_generation, review_generation,
-                                    manifest_hash, as_of, interpretation_version, library_hash,
-                                    model, payload, completed_at)
-                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                                   ON CONFLICT (user_id, range) DO UPDATE SET
-                                     source_generation = EXCLUDED.source_generation,
-                                     review_generation = EXCLUDED.review_generation,
-                                     manifest_hash = EXCLUDED.manifest_hash,
-                                     as_of = EXCLUDED.as_of,
-                                     interpretation_version = EXCLUDED.interpretation_version,
-                                     library_hash = EXCLUDED.library_hash,
-                                     model = EXCLUDED.model,
-                                     payload = EXCLUDED.payload,
-                                     completed_at = EXCLUDED.completed_at""",
-                                (user_id, view.range, source_gen, review_gen, digest,
-                                 view.as_of, INTERPRETATION_VERSION, lens_digest, model_name,
-                                 Json(view.as_dict())))
-                cur.execute("""UPDATE discovery_state SET stage = 'ready', error_kind = NULL,
-                              updated_at = NOW() WHERE user_id = %s""", (user_id,))
-                conn.commit()
+                    proposed = discover_dynamics(episodes, intelligence, previous=previous)
+                    draft = DiscoveryDraft.from_dict({**proposed.as_dict(), "userId": user_id})
+                else:
+                    draft = cached
+                _set_stage(user_id, source_gen, review_gen, "interpreting")
+                id_to_key = {dynamic_id(user_id, d): definition_key(d) for d in draft.definitions}
+                corrections = {(id_to_key[dynamic_id_value], aid): verdict
+                               for dynamic_id_value, aid, verdict, _ in feedback
+                               if dynamic_id_value in id_to_key and aid in accounts}
+                notes = {(id_to_key[dynamic_id_value], aid): note
+                         for dynamic_id_value, aid, _, note in feedback
+                         if dynamic_id_value in id_to_key and aid in accounts}
+                lenses = load()
+                lens_digest = library_hash(lenses)
+                views = [
+                    _finalize(interpret_view(draft, period, period_bounds(period)[1], lenses,
+                                             intelligence, corrections=corrections,
+                                             correction_notes=notes),
+                              draft, manifest, source_gen, review_gen, lens_digest, model_name)
+                    for period in RANGES]
+                with db.connection() as conn, conn.cursor() as cur:
+                    current_gen, current_review, _, _ = _state(cur, user_id, lock="UPDATE")
+                    complete = _complete(cur, user_id)
+                    if (complete is None or current_gen != source_gen or
+                            current_review != review_gen or canonical_hash(complete[0]) != digest or
+                            library_hash(load()) != lens_digest or
+                            model_name != settings.OPENAI_WORKER_MODEL or
+                            any(period_bounds(v.range)[1] != v.as_of for v in views)):
+                        conn.commit()
+                        return
+                    if cached is None:
+                        cur.execute("""INSERT INTO discovery_drafts
+                                       (user_id, source_generation, manifest_hash, source_manifest,
+                                        discovery_version, model, payload, completed_at)
+                                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                                       ON CONFLICT (user_id) DO UPDATE SET
+                                         source_generation = EXCLUDED.source_generation,
+                                         manifest_hash = EXCLUDED.manifest_hash,
+                                         source_manifest = EXCLUDED.source_manifest,
+                                         discovery_version = EXCLUDED.discovery_version,
+                                         model = EXCLUDED.model, payload = EXCLUDED.payload,
+                                         completed_at = EXCLUDED.completed_at""",
+                                    (user_id, source_gen, digest, Json(manifest),
+                                     DISCOVERY_VERSION, model_name, Json(draft.as_dict())))
+                    for view in views:
+                        cur.execute("""INSERT INTO discovery_views
+                                       (user_id, range, source_generation, review_generation,
+                                        manifest_hash, as_of, interpretation_version, library_hash,
+                                        model, payload, completed_at)
+                                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                       ON CONFLICT (user_id, range) DO UPDATE SET
+                                         source_generation = EXCLUDED.source_generation,
+                                         review_generation = EXCLUDED.review_generation,
+                                         manifest_hash = EXCLUDED.manifest_hash,
+                                         as_of = EXCLUDED.as_of,
+                                         interpretation_version = EXCLUDED.interpretation_version,
+                                         library_hash = EXCLUDED.library_hash,
+                                         model = EXCLUDED.model,
+                                         payload = EXCLUDED.payload,
+                                         completed_at = EXCLUDED.completed_at""",
+                                    (user_id, view.range, source_gen, review_gen, digest,
+                                     view.as_of, INTERPRETATION_VERSION, lens_digest, model_name,
+                                     Json(view.as_dict())))
+                    cur.execute("""UPDATE discovery_state SET stage = 'ready', error_kind = NULL,
+                                  updated_at = NOW() WHERE user_id = %s""", (user_id,))
+                    conn.commit()
+            discovery_memo.prune(user_id)
         finally:
             with lock_conn.cursor() as cur:
                 cur.execute("SELECT pg_advisory_unlock(73104, %s)", (user_id,))
@@ -611,9 +630,9 @@ def insight(user_id: int, insight_id_value: str, period: str = "all") -> dict:
 def resolve_discussion(user_id: int, ref: str | dict, *,
                        require_snapshot: bool = False) -> dict:
     """Resolve typed, owner-scoped evidence again before saving a chat turn."""
-    from .evidence_ref import (DayRef, DynamicRef, EvidenceChanged as DiscussionChanged,
-                               EvidenceNotCurrent, EvidenceNotFound as DiscussionNotFound,
-                               InsightRef, parse_ref)
+    from .evidence_ref import DayRef, DynamicRef, EvidenceNotCurrent, InsightRef, parse_ref
+    from .evidence_ref import EvidenceChanged as DiscussionChanged
+    from .evidence_ref import EvidenceNotFound as DiscussionNotFound
 
     pointer = parse_ref(ref)
     try:
@@ -756,24 +775,38 @@ def _inventory(cur, user_id: int) -> dict:
                 (user_id, READER_VERSION, EXTRACTION_VERSION, READER_VERSION))
     estimated_accounts = cur.fetchone()[0] + len(stale)
     reading_requests = 2 * len(stale)
+    # The last draft's definitions carry forward and every verdict already
+    # made is reused, so a run asks only about accounts it has not seen and
+    # any definitions they add. Pairs are counted as if every account joined a
+    # dynamic, so this is an upper bound.
+    cur.execute("""SELECT jsonb_array_length(payload->'definitions'),
+                          (SELECT count(*) FROM jsonb_object_keys(payload->'episodes'))
+                     FROM discovery_drafts
+                    WHERE user_id = %s AND discovery_version = %s AND model = %s""",
+                (user_id, DISCOVERY_VERSION, settings.OPENAI_WORKER_MODEL))
+    seeded = cur.fetchone()
+    known_definitions, known_accounts = (int(seeded[0] or 0), int(seeded[1] or 0)) if seeded else (0, 0)
     if ready or not estimated_accounts:
         synthesis_requests = 0
     else:
-        definitions = min(24, max(1, ceil(estimated_accounts / 6)))
-        pairs = estimated_accounts * (estimated_accounts - 1) // 2
-        # Full account×definition and event×event matrices dominate archive
-        # work. Two likely publishable definitions across all three ranges give
-        # a planning allowance for process-lens batches and claim checks.
+        unseen = max(0, estimated_accounts - known_accounts)
+        added = min(24 - min(known_definitions, 24), ceil(unseen / 6)) if unseen else 0
+        definitions = max(1, min(24, known_definitions + added))
+        per_request = MAX_ROWS_PER_REPLY
+        membership = (ceil(definitions / per_request) * unseen +
+                      ceil(added * (estimated_accounts - unseen) / per_request))
+        new_pairs = (unseen * (unseen - 1) // 2) + unseen * (estimated_accounts - unseen)
         synthesis_requests = (
-            1 + ceil(definitions * (definitions - 1) / 2 / MAX_PAIRS_PER_REPLY)
-            + definitions + ceil(definitions * estimated_accounts / MAX_PAIRS_PER_REPLY)
-            + ceil(pairs / MAX_PAIRS_PER_REPLY)
+            ceil(unseen / 20) + (ceil(added * definitions / MAX_PAIRS_PER_REPLY) if added else 0)
+            + added + membership + ceil(new_pairs / per_request)
             + 3 * min(2, definitions) *
             (2 + ceil(24 * min(estimated_accounts, 3) / MAX_LENS_ROWS)))
     source_chars = missing_chars + sum(len(r[1]) for r in current)
     average_chars = source_chars // max(1, len(selected))
+    # A request shows one account with its definitions, or a few accounts with
+    # the pairs among them, so about two accounts' worth of source per request.
     tokens_in = (missing_chars // 4 * 2 + 1800 * reading_requests +
-                 synthesis_requests * (1500 + min(6, estimated_accounts) * average_chars // 4))
+                 synthesis_requests * (1500 + min(2, estimated_accounts) * average_chars // 4))
     tokens_out = reading_requests * 1100 + synthesis_requests * 1700
     stage = ("failed" if failed or synthesis_job and synthesis_job[0] >= MAX_ATTEMPTS else
              "reading" if stale else

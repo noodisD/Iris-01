@@ -39,5 +39,5 @@ data class DiscussionPreview(val ref: EvidenceRef, val title: String, val questi
 
 fun evidenceRoute(ref: EvidenceRef): String {
     require(ref.valid()) { "Invalid evidence reference" }
-    return "chat?evidence=${java.net.URLEncoder.encode(json.encodeToString(EvidenceRef.serializer(), ref), Charsets.UTF_8)}"
+    return "chat?evidence=${java.net.URLEncoder.encode(json.encodeToString(EvidenceRef.serializer(), ref), "UTF-8")}"
 }

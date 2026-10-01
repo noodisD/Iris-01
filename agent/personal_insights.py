@@ -17,10 +17,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import claim_checks
+from . import discovery_memo as memo
 from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
-from .dynamics import (DiscoveryDraft, EventGroup, GroundedClause, Hypothesis,
-                       PersonalInsight, PersonalPattern, claim_hash, definition_key,
-                       insight_id, mutually_independent, snapshot_hash, validate_refs)
+from .dynamics import (
+    DiscoveryDraft,
+    EventGroup,
+    GroundedClause,
+    Hypothesis,
+    PersonalInsight,
+    PersonalPattern,
+    claim_hash,
+    definition_key,
+    insight_id,
+    mutually_independent,
+    snapshot_hash,
+    validate_refs,
+)
 from .episodes import Episode, ReadUnavailable
 from .intelligence import json_response_format
 from .observations import _strip_fence
@@ -183,9 +195,8 @@ def _ask(intelligence, content: str, indexes: list[int]) -> list[_Proposal | Non
     if len(content) + len(PROMPT) > _BUDGET:
         raise ReadUnavailable("source_too_large")
     try:
-        text = intelligence.chat(messages=[{"role": "user", "content": content}],
-                                 system_prompt=PROMPT, max_tokens=OBSERVATION_MAX_TOKENS,
-                                 response_format=json_response_format(_Reply))
+        text = memo.chat(intelligence, PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
+                         response_format=json_response_format(_Reply))
     except Exception as exc:
         raise ReadUnavailable("provider_failure") from exc
     try:

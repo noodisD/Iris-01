@@ -504,6 +504,38 @@
         "type": "text"
       }
     },
+    "discovery_memo": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "key": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "kind": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "used_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "value": {
+        "default": null,
+        "nullable": "NO",
+        "type": "jsonb"
+      }
+    },
     "discovery_reads": {
       "completed_at": {
         "default": null,
@@ -3098,6 +3130,40 @@
         "type": "c"
       }
     },
+    "discovery_memo": {
+      "discovery_memo_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "discovery_memo_key_not_null": {
+        "definition": "NOT NULL key",
+        "type": "n"
+      },
+      "discovery_memo_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "discovery_memo_pkey": {
+        "definition": "PRIMARY KEY (user_id, key)",
+        "type": "p"
+      },
+      "discovery_memo_used_at_not_null": {
+        "definition": "NOT NULL used_at",
+        "type": "n"
+      },
+      "discovery_memo_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "discovery_memo_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "discovery_memo_value_not_null": {
+        "definition": "NOT NULL value",
+        "type": "n"
+      }
+    },
     "discovery_reads": {
       "discovery_reads_completed_at_not_null": {
         "definition": "NOT NULL completed_at",
@@ -4683,6 +4749,10 @@
     },
     "discovery_membership_feedback": {
       "discovery_membership_feedback_pkey": "CREATE UNIQUE INDEX discovery_membership_feedback_pkey ON public.discovery_membership_feedback USING btree (user_id, dynamic_id, account_id)"
+    },
+    "discovery_memo": {
+      "discovery_memo_pkey": "CREATE UNIQUE INDEX discovery_memo_pkey ON public.discovery_memo USING btree (user_id, key)",
+      "discovery_memo_used": "CREATE INDEX discovery_memo_used ON public.discovery_memo USING btree (user_id, used_at)"
     },
     "discovery_reads": {
       "discovery_reads_pkey": "CREATE UNIQUE INDEX discovery_reads_pkey ON public.discovery_reads USING btree (reflection_id)"
