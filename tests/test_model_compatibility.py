@@ -170,3 +170,91 @@ def test_token_budgets_leave_room_for_reasoning():
                     f"{module.__name__} caps a call at {budget} tokens; a reasoning "
                     "model can spend that before producing any output"
                 )
+
+
+def _capacity_unavailable():
+    """The 429 Flex returns when OpenAI has no spare capacity; it is not charged."""
+    import httpx
+    from openai import RateLimitError
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(429, request=request, json={"error": {"message": "Resource Unavailable"}})
+    return RateLimitError("Resource Unavailable", response=response,
+                          body={"error": {"message": "Resource Unavailable"}})
+
+
+@pytest.fixture
+def flex(monkeypatch):
+    monkeypatch.setattr("agent.config.settings.OPENAI_API_KEY", "sk-test-not-used")
+    model = Intelligence(api_key="sk-test-not-used", model="test-model", service_tier="flex")
+    # with_options returns a copy of the client; keep the one the test patches.
+    monkeypatch.setattr(model.openai_client, "with_options", lambda **_: model.openai_client)
+    return model
+
+
+def test_background_work_asks_for_flex(flex, monkeypatch):
+    seen = {}
+
+    def fake(**kwargs):
+        seen.update(kwargs)
+        return _Response("hello")
+
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", fake)
+    assert flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s") == "hello"
+    assert seen["service_tier"] == "flex"
+
+
+def test_flex_waits_out_unavailable_capacity_and_sends_again(flex, monkeypatch):
+    calls, pauses = [], []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        if len(calls) < 3:
+            raise _capacity_unavailable()
+        return _Response("hello")
+
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", fake)
+    monkeypatch.setattr("agent.intelligence.time.sleep", pauses.append)
+    assert flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s") == "hello"
+    assert len(calls) == 3
+    assert pauses == [15, 60]
+
+
+def test_flex_gives_up_after_the_last_pause_so_the_queue_retries_later(flex, monkeypatch):
+    from openai import RateLimitError
+
+    calls = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        raise _capacity_unavailable()
+
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", fake)
+    monkeypatch.setattr("agent.intelligence.time.sleep", lambda _: None)
+    with pytest.raises(RateLimitError):
+        flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
+    assert len(calls) == 4
+
+
+def test_a_standard_request_is_not_held_back(iris, monkeypatch):
+    from openai import RateLimitError
+
+    calls = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        raise _capacity_unavailable()
+
+    monkeypatch.setattr(iris.openai_client.chat.completions, "create", fake)
+    monkeypatch.setattr("agent.intelligence.time.sleep", lambda _: pytest.fail("standard requests do not pause"))
+    with pytest.raises(RateLimitError):
+        iris.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
+    assert len(calls) == 1
+    assert "service_tier" not in calls[0]
+
+
+def test_an_estimate_on_flex_is_half_the_standard_price():
+    assert Intelligence.estimate("gpt-6-luna", 2_000_000, 1_000_000) == \
+        "2000k tokens in on gpt-6-luna, about $0.70"
+    assert Intelligence.estimate("gpt-6-luna", 2_000_000, 1_000_000, service_tier="flex") == \
+        "2000k tokens in on gpt-6-luna on Flex, about $0.35"

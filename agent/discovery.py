@@ -309,7 +309,8 @@ def process_user(user_id: int) -> None:
             episodes = [Episode.from_dict(raw) for raw in accounts.values()]
             usable = any(e.actor == "self" and e.record_kind in {"event", "self_report"}
                          for e in episodes)
-            intelligence = Intelligence(model=model_name) if usable and accounts else None
+            intelligence = (Intelligence(model=model_name, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
+                            if usable and accounts else None)
             # Verdicts already paid for are reused; a failed run forgets its new replies.
             with discovery_memo.remembering(user_id):
                 if cached is None:
@@ -832,8 +833,9 @@ def _inventory(cur, user_id: int) -> dict:
         "estimate": {
             "readingRequests": reading_requests, "synthesisRequests": synthesis_requests,
             "tokensIn": tokens_in, "tokensOut": tokens_out,
-            "costText": Intelligence.estimate(settings.OPENAI_WORKER_MODEL,
-                                             tokens_in, tokens_out),
+            "costText": Intelligence.estimate(
+                settings.OPENAI_WORKER_MODEL, tokens_in, tokens_out,
+                service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None),
             "approximate": True}}
 
 

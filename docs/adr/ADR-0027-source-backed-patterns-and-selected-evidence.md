@@ -119,3 +119,18 @@ The method and its gates are unchanged; the questions are asked once:
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.
+
+### Model and tier (2026-10-02)
+
+The worker passes run on `gpt-6-luna` on OpenAI's Flex tier
+(`OPENAI_WORKER_MODEL`, `OPENAI_WORKER_SERVICE_TIER`). The owner chose this over
+OpenRouter's cheaper open models: those would have saved well under a dollar
+once, while sending the journal to a router and a third-party host. Flex is
+the same model at half price. It is slower, and sometimes answers 429
+"capacity unavailable", which is not charged; the client pauses and sends the
+request again (15 s, 60 s, 180 s), then fails so the work queue retries later.
+Thinking is left at the model's default, because quality comes first. On the
+owner's archive, the first run is at most about $1.30, then about $0.01 to
+$0.08 for each new entry. In IRIS's earlier labelling test (2026-09-25),
+gpt-5.6-terra was more conservative than luna and no more accurate, so a
+larger model is not the quality lever here; the owner's verdicts are.

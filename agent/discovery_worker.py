@@ -63,7 +63,8 @@ def process_reflection(reflection_id: int) -> None:
     entry = {"id": reflection_id, "date": recorded, "content": content,
              "content_format": content_format, "source_type": "reflection"}
     try:
-        model = Intelligence(model=settings.OPENAI_WORKER_MODEL)
+        model = Intelligence(model=settings.OPENAI_WORKER_MODEL,
+                             service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
     except Exception:
         raise ReadUnavailable("no_provider") from None
     reader = EpisodeReader(user_id, intelligence=model)

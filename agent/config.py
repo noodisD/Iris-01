@@ -32,8 +32,13 @@ class Settings(BaseSettings):
     # saying where a dictated sentence ends. Classification and routing, where
     # a cheap model is the intended tool rather than a compromise — and where
     # the work is checked by construction or by counting, not taken on trust.
-    # luna is a tenth of terra's input price and a twenty-fifth of sol's.
-    OPENAI_WORKER_MODEL: str = Field(default="gpt-5.6-luna")
+    # gpt-6-luna is OpenAI's model for focused, high-volume work: half the input
+    # and under half the output price of gpt-5.6-luna, a fortieth of sol's.
+    OPENAI_WORKER_MODEL: str = Field(default="gpt-6-luna")
+    # The worker's passes run in the background, so they use Flex: the same
+    # model at half price, slower, sometimes asked to come back later. Empty
+    # means the standard tier.
+    OPENAI_WORKER_SERVICE_TIER: str = Field(default="flex")
     # Any OpenAI-compatible endpoint: Ollama, llama.cpp's server, vLLM, or
     # another provider. Empty means OpenAI itself. The reason to set it is not
     # price — the counting passes already cost pennies — but that a local

@@ -9,12 +9,13 @@ while the Gemini SDK it depended on reached end of support in November 2025.
 
 import json
 import logging
+import time
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from openai import BadRequestError, OpenAI
+from openai import BadRequestError, OpenAI, RateLimitError
 from pydantic import BaseModel
 
 from .observability.content import MAX_TEXT, json_attr
@@ -91,19 +92,34 @@ class _LearnedModels(set[str]):
 #: says so, rather than sending a value that is silently ignored.
 _REJECTS_TEMPERATURE = _LearnedModels("rejects_temperature")
 
+#: Flex replies can take longer than the SDK's ten-minute default.
+FLEX_TIMEOUT_SECONDS = 900
+#: Pauses before sending a Flex request again after "capacity unavailable".
+FLEX_RETRY_PAUSES = (15, 60, 180)
+
 
 class Intelligence:
     """Thin wrapper over the OpenAI chat completions API."""
 
+    #: "flex" for background work that can wait; None is the standard tier.
+    service_tier: str | None = None
+
     #: Dollars per million tokens, input and output, from OpenAI's pricing page
-    #: as read on 21 September 2026. Here so a run can say what it is about to
-    #: spend before it spends it; wrong the moment prices move, which is why
-    #: anything not listed is reported as tokens alone rather than guessed at.
+    #: as read on 2 October 2026 (gpt-5.6-sol had fallen from $5/$30). Here so
+    #: a run can say what it is about to spend before it spends it; wrong the
+    #: moment prices move, which is why anything not listed is reported as
+    #: tokens alone rather than guessed at.
     PRICE_PER_MTOK = {
+        "gpt-6-luna": (0.10, 0.50),
         "gpt-5.6-luna": (0.20, 1.20),
         "gpt-5.6-terra": (2.00, 12.00),
-        "gpt-5.6-sol": (5.00, 30.00),
+        "gpt-5.6-sol": (4.00, 20.00),
     }
+
+    #: Flex and Batch are the same models at half the standard rate, on the
+    #: same page. Flex is slower and sometimes refuses with "capacity
+    #: unavailable", which is not charged; background work can wait.
+    TIER_PRICE_FACTOR = {"flex": 0.5, "batch": 0.5}
 
     #: Dollars per minute of audio heard or spoken, from the same page and date.
     AUDIO_PRICE_PER_MINUTE = {
@@ -113,16 +129,19 @@ class Intelligence:
     }
 
     @classmethod
-    def estimate(cls, model: str, tokens_in: int, tokens_out: int = 0) -> str:
+    def estimate(cls, model: str, tokens_in: int, tokens_out: int = 0,
+                 service_tier: str | None = None) -> str:
         """What a run of this size would cost, said in words rather than hidden."""
         price = cls.PRICE_PER_MTOK.get(model)
+        where = f"{model} on {service_tier.capitalize()}" if service_tier in cls.TIER_PRICE_FACTOR else model
         if price is None:
-            return f"{tokens_in // 1000}k tokens in on {model} (price unknown here)"
-        dollars = tokens_in / 1_000_000 * price[0] + tokens_out / 1_000_000 * price[1]
-        return f"{tokens_in // 1000}k tokens in on {model}, about ${dollars:.2f}"
+            return f"{tokens_in // 1000}k tokens in on {where} (price unknown here)"
+        factor = cls.TIER_PRICE_FACTOR.get(service_tier or "", 1.0)
+        dollars = (tokens_in / 1_000_000 * price[0] + tokens_out / 1_000_000 * price[1]) * factor
+        return f"{tokens_in // 1000}k tokens in on {where}, about ${dollars:.2f}"
 
     def __init__(self, api_key: str | None = None, model: str = None,
-                 base_url: str | None = None):
+                 base_url: str | None = None, service_tier: str | None = None):
         """Initialise the OpenAI client for this session.
 
         `base_url` points at anything speaking the same protocol — a local
@@ -132,6 +151,7 @@ class Intelligence:
         """
         self.openai_client = None
         self.model = model or settings.OPENAI_MODEL
+        self.service_tier = service_tier or None
         self.base_url = base_url or settings.OPENAI_BASE_URL or None
 
         # Initialize OpenAI first (primary)
@@ -274,14 +294,32 @@ class Intelligence:
 
 
     def _create_chat(self, kwargs: dict[str, Any]) -> Any:
-        """One non-streaming completion, including its prompt, usage and reply."""
-        with LlmCall(
-            "chat", kwargs["model"], prompt=json_attr(kwargs["messages"], MAX_TEXT),
-        ) as call:
-            response = self.openai_client.chat.completions.create(**kwargs)
-            call.usage(getattr(response, "usage", None))
-            call.output(response.choices[0].message.content)
-            return response
+        """One non-streaming completion, including its prompt, usage and reply.
+
+        On Flex, a 429 means OpenAI has no spare capacity just now; it is not
+        charged, and the same request is sent again after a pause. Only after
+        the last pause does it fail, and the work queue tries again later.
+        Flex is also slower, so it gets a longer timeout.
+        """
+        flex = kwargs.get("service_tier") == "flex"
+        client = self.openai_client.with_options(timeout=FLEX_TIMEOUT_SECONDS) if flex else self.openai_client
+        pauses = FLEX_RETRY_PAUSES if flex else ()
+        for attempt in range(len(pauses) + 1):
+            try:
+                with LlmCall(
+                    "chat", kwargs["model"], prompt=json_attr(kwargs["messages"], MAX_TEXT),
+                ) as call:
+                    response = client.chat.completions.create(**kwargs)
+                    call.usage(getattr(response, "usage", None))
+                    call.output(response.choices[0].message.content)
+                    return response
+            except RateLimitError:
+                if attempt == len(pauses):
+                    raise
+                logger.info(f"Flex capacity unavailable for {kwargs['model']}; "
+                            f"trying again in {pauses[attempt]}s")
+                time.sleep(pauses[attempt])
+        raise AssertionError("unreachable")
 
     def _chat_openai(
         self,
@@ -321,6 +359,8 @@ class Intelligence:
             }
             if temperature is not None and self.model not in _REJECTS_TEMPERATURE:
                 kwargs["temperature"] = temperature
+            if self.service_tier:
+                kwargs["service_tier"] = self.service_tier
 
             # Add tools if provided
             if tools:

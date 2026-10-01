@@ -36,7 +36,7 @@ def _run_checks(episodes: list, wanted: list[int]) -> tuple[list[dict], dict]:
     from agent.config import settings
     from agent.intelligence import Intelligence
 
-    model = Intelligence(model=settings.OPENAI_WORKER_MODEL)
+    model = Intelligence(model=settings.OPENAI_WORKER_MODEL, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
     disabled = logging.root.manager.disable
     try:
         results = []

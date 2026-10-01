@@ -155,7 +155,8 @@ def estimate(fixture: dict, split: str) -> dict:
     tokens_out = reading * 1100 + synthesis * 1700
     return {"readingRequests": reading, "synthesisRequests": synthesis,
             "tokensIn": tokens_in, "tokensOut": tokens_out,
-            "costText": Intelligence.estimate(settings.OPENAI_WORKER_MODEL, tokens_in, tokens_out),
+            "costText": Intelligence.estimate(settings.OPENAI_WORKER_MODEL, tokens_in, tokens_out,
+                                              service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None),
             "approximate": True}
 
 
@@ -231,7 +232,7 @@ def run_live(fixture: dict, split: str) -> dict:
     from agent.library import load
 
     lenses = load()
-    model = Intelligence(model=settings.OPENAI_WORKER_MODEL)
+    model = Intelligence(model=settings.OPENAI_WORKER_MODEL, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
     results = [_run_case(case, lenses, model) for case in cohort(fixture, split)
                if case["entries"]]
     # Lens pairs are independent contextual source units. A near miss never

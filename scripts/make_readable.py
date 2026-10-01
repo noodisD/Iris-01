@@ -80,7 +80,7 @@ def main() -> int:
                                      "copies": done}, indent=1))
 
     started = time.time()
-    model = Intelligence(model=model_name)
+    model = Intelligence(model=model_name, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
     why: dict[str, int] = {}
     for entry in todo:
         copy, reason = readable(entry["content"], model)

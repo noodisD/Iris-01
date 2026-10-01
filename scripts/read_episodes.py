@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("invalid readable copy format")
 
     started = time.time()
-    model = Intelligence(model=settings.OPENAI_WORKER_MODEL) if entries else None
+    model = Intelligence(model=settings.OPENAI_WORKER_MODEL, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None) if entries else None
     reader = EpisodeReader(args.user, intelligence=model)
     try:
         extracted = reader.read(entries, copies)
