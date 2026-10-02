@@ -204,3 +204,33 @@ entry. Reading all 184 entries took 1,139 requests, about $0.21 and just
 under two hours. In IRIS's earlier labelling test (2026-09-25),
 gpt-5.6-terra was more conservative than luna and no more accurate, so a
 larger model is not the quality lever here; the owner's verdicts are.
+
+### Proposals must recur (2026-10-02)
+
+The first full run published 7 patterns, all owner-described from a single
+entry, with no insights. A comparison on 480 membership checks found that
+the model was not the cause: gpt-5.6-terra agreed with gpt-6-luna on 479.
+The checks were not too strict either: they confirmed 23 of the 24 examples
+the proposer had named. The cause was the proposals. Each definition was
+proposed from one event and worded around that occasion, so nothing else
+could match it, and nothing recurred.
+
+Each proposal request had shown accounts with their full source passages.
+Long voice entries cite whole entries, about 21,000 characters each, so a
+request held only a few entries and could not see anything recur.
+
+- **Proposals are read from extracted fields** (situation, response, stated
+  feeling, concern, explanation, outcomes, self-report), not from the
+  passages. A request holds about half the archive across time. Every
+  candidate is still checked against complete passages afterwards.
+- **A candidate must recur.** It must name at least two events from
+  different entries, or an explicit owner self-report of the general
+  relationship. A candidate seen once is dropped before it costs a check.
+- **Events and self-reports are proposed in separate passes.** Read
+  together, self-reports (which state a habit outright) crowded out the
+  events.
+- **A new entry is read with the earlier accounts beside it.** A new
+  candidate must name at least one new account.
+
+Tried on the archive, proposal alone: 23 candidates, 8 of them recurring
+across 2 to 5 entries' events, against none before.
