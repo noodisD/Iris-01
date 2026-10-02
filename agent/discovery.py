@@ -727,6 +727,53 @@ def set_membership_feedback(user_id: int, dynamic_id_value: str, account_id: str
         conn.commit()
 
 
+#: Tokens in and out per request, by synthesis step. Measured on gpt-6-luna
+#: on 2 October 2026 for proposals; the others are generous allowances for
+#: one account with its definitions, or a few accounts with their pairs.
+STEP_TOKENS = {
+    "propose": (17_000, 1_700),
+    "merge": (900, 700),
+    "specific": (2_500, 600),
+    "membership": (1_500, 1_100),
+    "identity": (3_500, 1_100),
+    "interpret": (4_000, 1_500),
+}
+
+
+def synthesis_steps(*, accounts: int, events: int, eligible: int, known_accounts: int = 0,
+                    known_events: int = 0, known_definitions: int = 0) -> dict[str, int]:
+    """Requests per step for the next synthesis run: an upper bound.
+
+    `accounts` is every account; `events` only the owner's grounded events, the
+    only accounts compared in pairs; `eligible` the accounts read for
+    proposals (events and self-reports). With a seed (the last draft's
+    definitions and accounts) only what is new is asked: everything else is
+    a remembered verdict.
+    """
+    seeded = known_definitions > 0
+    unseen_accounts = max(0, accounts - known_accounts) if seeded else accounts
+    unseen_events = max(0, events - known_events) if seeded else events
+    unseen_eligible = (ceil(eligible * unseen_accounts / accounts) if accounts else 0)
+    propose = ceil(unseen_eligible / 20) if unseen_eligible else 0
+    proposals = 6 * propose  # at most six definitions per proposal request
+    merge_pairs = proposals * (proposals - 1) // 2 + proposals * known_definitions
+    definitions = min(24, known_definitions + proposals)
+    added = max(0, definitions - known_definitions)
+    membership = (ceil(definitions / MAX_ROWS_PER_REPLY) * unseen_accounts +
+                  ceil(added * (accounts - unseen_accounts) / MAX_ROWS_PER_REPLY))
+    identity_pairs = (unseen_events * (unseen_events - 1) // 2 +
+                      unseen_events * (events - unseen_events))
+    return {
+        "propose": propose,
+        "merge": ceil(merge_pairs / MAX_PAIRS_PER_REPLY),
+        "specific": added,
+        "membership": membership,
+        "identity": ceil(identity_pairs / MAX_ROWS_PER_REPLY),
+        "interpret": (3 * min(2, definitions) * (2 + ceil(24 * min(accounts, 3) / MAX_LENS_ROWS))
+                      if definitions else 0),
+    }
+
+
 def _inventory(cur, user_id: int) -> dict:
     """Status and bounded approximate work in the caller's evidence transaction."""
     from .work_queue import MAX_ATTEMPTS
@@ -761,54 +808,57 @@ def _inventory(cur, user_id: int) -> dict:
     completion = cur.fetchone()
     ready = _view(cur, user_id, "all") is not None
     missing_chars = sum(len(r[1]) for r in stale)
-    # Pending reads may yield zero or several accounts each. Estimate one per
-    # unread reflection; current accounts are counted from the checked cache.
-    cur.execute("""SELECT count(*) FROM discovery_accounts a
-                    JOIN discovery_reads d ON d.reflection_id = a.reflection_id
-                    JOIN reflections r ON r.id = a.reflection_id AND r.user_id = a.user_id
-                   WHERE a.user_id = %s AND a.is_current
-                     AND r.evidence_eligible AND r.content IS NOT NULL
-                     AND length(btrim(r.content)) > 0
-                     AND a.source_revision = r.discovery_revision
-                     AND a.reader_version = %s
-                     AND d.source_revision = r.discovery_revision
-                     AND d.extraction_version = %s AND d.reader_version = %s""",
+    # Accounts already read are counted by kind: every account is checked
+    # against every definition, only the owner's grounded events are compared
+    # in pairs, and proposals are read from events and self-reports. Entries
+    # not yet read are assumed to hold accounts like the ones that have been.
+    cur.execute("""SELECT count(*),
+                          count(*) FILTER (WHERE a.data->>'actor' = 'self'
+                                           AND a.data->>'recordKind' = 'event'
+                                           AND coalesce(a.data->>'situation', '') <> ''
+                                           AND coalesce(a.data->>'response', '') <> ''),
+                          count(*) FILTER (WHERE a.data->>'actor' = 'self'
+                                           AND a.data->>'recordKind' IN ('event', 'self_report'))
+                     FROM discovery_accounts a
+                     JOIN discovery_reads d ON d.reflection_id = a.reflection_id
+                     JOIN reflections r ON r.id = a.reflection_id AND r.user_id = a.user_id
+                    WHERE a.user_id = %s AND a.is_current
+                      AND r.evidence_eligible AND r.content IS NOT NULL
+                      AND length(btrim(r.content)) > 0
+                      AND a.source_revision = r.discovery_revision
+                      AND a.reader_version = %s
+                      AND d.source_revision = r.discovery_revision
+                      AND d.extraction_version = %s AND d.reader_version = %s""",
                 (user_id, READER_VERSION, EXTRACTION_VERSION, READER_VERSION))
-    estimated_accounts = cur.fetchone()[0] + len(stale)
+    read_accounts, read_events, read_eligible = cur.fetchone()
+    per_entry = (read_accounts / len(current)) if current else 1.0
+    def scaled(count: int) -> int:
+        return count + ceil(len(stale) * (count / len(current) if current else per_entry))
+    accounts, events, eligible = scaled(read_accounts), scaled(read_events), scaled(read_eligible)
     reading_requests = 2 * len(stale)
-    # The last draft's definitions carry forward and every verdict already
-    # made is reused, so a run asks only about accounts it has not seen and
-    # any definitions they add. Pairs are counted as if every account joined a
-    # dynamic, so this is an upper bound.
     cur.execute("""SELECT jsonb_array_length(payload->'definitions'),
-                          (SELECT count(*) FROM jsonb_object_keys(payload->'episodes'))
+                          (SELECT count(*) FROM jsonb_object_keys(payload->'episodes')),
+                          (SELECT count(*) FROM jsonb_each(payload->'episodes') AS e(id, episode)
+                            WHERE episode->>'actor' = 'self' AND episode->>'recordKind' = 'event'
+                              AND coalesce(episode->>'situation', '') <> ''
+                              AND coalesce(episode->>'response', '') <> '')
                      FROM discovery_drafts
                     WHERE user_id = %s AND discovery_version = %s AND model = %s""",
                 (user_id, DISCOVERY_VERSION, settings.OPENAI_WORKER_MODEL))
     seeded = cur.fetchone()
-    known_definitions, known_accounts = (int(seeded[0] or 0), int(seeded[1] or 0)) if seeded else (0, 0)
-    if ready or not estimated_accounts:
-        synthesis_requests = 0
+    known_definitions, known_accounts, known_events = (
+        (int(seeded[0] or 0), int(seeded[1] or 0), int(seeded[2] or 0)) if seeded else (0, 0, 0))
+    if ready or not accounts:
+        synthesis_requests, synthesis_in, synthesis_out = 0, 0, 0
     else:
-        unseen = max(0, estimated_accounts - known_accounts)
-        added = min(24 - min(known_definitions, 24), ceil(unseen / 6)) if unseen else 0
-        definitions = max(1, min(24, known_definitions + added))
-        per_request = MAX_ROWS_PER_REPLY
-        membership = (ceil(definitions / per_request) * unseen +
-                      ceil(added * (estimated_accounts - unseen) / per_request))
-        new_pairs = (unseen * (unseen - 1) // 2) + unseen * (estimated_accounts - unseen)
-        synthesis_requests = (
-            ceil(unseen / 20) + (ceil(added * definitions / MAX_PAIRS_PER_REPLY) if added else 0)
-            + added + membership + ceil(new_pairs / per_request)
-            + 3 * min(2, definitions) *
-            (2 + ceil(24 * min(estimated_accounts, 3) / MAX_LENS_ROWS)))
-    source_chars = missing_chars + sum(len(r[1]) for r in current)
-    average_chars = source_chars // max(1, len(selected))
-    # A request shows one account with its definitions, or a few accounts with
-    # the pairs among them, so about two accounts' worth of source per request.
-    tokens_in = (missing_chars // 4 * 2 + 1800 * reading_requests +
-                 synthesis_requests * (1500 + min(2, estimated_accounts) * average_chars // 4))
-    tokens_out = reading_requests * 1100 + synthesis_requests * 1700
+        steps = synthesis_steps(accounts=accounts, events=events, eligible=eligible,
+                                known_accounts=known_accounts, known_events=known_events,
+                                known_definitions=known_definitions)
+        synthesis_requests = sum(steps.values())
+        synthesis_in = sum(n * STEP_TOKENS[step][0] for step, n in steps.items())
+        synthesis_out = sum(n * STEP_TOKENS[step][1] for step, n in steps.items())
+    tokens_in = missing_chars // 4 * 2 + 1800 * reading_requests + synthesis_in
+    tokens_out = reading_requests * 1100 + synthesis_out
     stage = ("failed" if failed or synthesis_job and synthesis_job[0] >= MAX_ATTEMPTS else
              "reading" if stale else
              "ready" if ready else

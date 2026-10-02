@@ -102,3 +102,17 @@ def test_a_failed_run_forgets_the_whole_replies_it_kept(test_user):
     with memo.remembering(test_user["id"]):
         memo.chat(Model(), "a prompt", "a request")
     assert _kept(test_user["id"]) == {"reply": 1}
+
+
+def test_the_estimate_compares_only_events_and_asks_only_about_what_is_new():
+    from agent.discovery import synthesis_steps
+
+    first = synthesis_steps(accounts=870, events=161, eligible=354)
+    # Pairs are only the owner's grounded events: 161, not all 870 accounts.
+    assert first["identity"] == -(-(161 * 160 // 2) // 12)
+    assert first["membership"] == 2 * 870  # 24 definitions, 12 per request
+    later = synthesis_steps(accounts=875, events=162, eligible=356,
+                            known_accounts=870, known_events=161, known_definitions=24)
+    assert later["membership"] == 2 * 5
+    assert later["identity"] == -(-161 // 12)  # the one new event against the rest
+    assert sum(later.values()) < sum(first.values()) / 20

@@ -130,7 +130,9 @@ the same model at half price. It is slower, and sometimes answers 429
 "capacity unavailable", which is not charged; the client pauses and sends the
 request again (15 s, 60 s, 180 s), then fails so the work queue retries later.
 Thinking is left at the model's default, because quality comes first. On the
-owner's archive, the first run is at most about $1.30, then about $0.01 to
-$0.08 for each new entry. In IRIS's earlier labelling test (2026-09-25),
+owner's archive (184 entries, 870 accounts, 161 of them comparable events),
+the first run is at most about $1.40, then at most about $0.09 for each new
+entry. Reading all 184 entries took 1,139 requests, about $0.21 and just
+under two hours. In IRIS's earlier labelling test (2026-09-25),
 gpt-5.6-terra was more conservative than luna and no more accurate, so a
 larger model is not the quality lever here; the owner's verdicts are.

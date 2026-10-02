@@ -67,7 +67,9 @@ def test_a_busy_day_counts_once(test_user):
     """Counting pairs rather than days would let a single dense day dominate —
     the same error that inflated leverage's probabilities."""
     user_id = test_user["id"]
-    now = utc_now()
+    # Noon, so the four occurrences a few hours apart share one day whenever
+    # the suite runs; from utc_now() it failed every night after midnight UTC.
+    now = utc_now().replace(hour=12, minute=0, second=0, microsecond=0)
     a = db.create_theme(user_id, [0.5] * 1536, "Dense A",
                             (now - timedelta(days=10)).isoformat(), now.isoformat(), 0)
     b = db.create_theme(user_id, [0.6] * 1536, "Dense B",
