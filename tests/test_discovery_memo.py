@@ -183,3 +183,45 @@ def test_the_estimate_compares_only_events_and_asks_only_about_what_is_new():
     assert later["membership"] == 2 * 5
     assert later["identity"] == -(-161 // 12)  # the one new event against the rest
     assert sum(later.values()) < sum(first.values()) / 20
+
+
+def _row(definition_key, account_id, context="unclear", response="unclear", relation="unclear"):
+    from agent.dynamics import Membership, derive_role
+
+    return Membership(dynamic_id=definition_key, account_id=account_id, context_decision=context,
+                      response_decision=response, relation_decision=relation,
+                      role=derive_role(context, response, relation), refs=[])
+
+
+def test_a_row_unclear_on_everything_is_not_sent_as_evidence():
+    from agent.dynamics import informative
+
+    assert not informative(_row("d", "a"))
+    assert informative(_row("d", "a", context="present"))
+    assert informative(_row("d", "a", "present", "present", "linked"))
+
+
+def test_refinement_sends_only_rows_that_say_something_and_skips_what_will_not_fit(monkeypatch):
+    from agent import connections
+    from agent.dynamics import Definition, definition_key
+
+    episodes = {f"acc{i}": _event(i) for i in range(1, 29)}
+    definition = Definition(context_predicate="Someone waited for my answer",
+                            response_predicate="I agreed before checking capacity", title="t",
+                            proposed_account_ids=["acc1"], owner_report_ids=[])
+    key = definition_key(definition)
+    rows = [_row(key, "acc1", "present", "unclear", "unclear")] + [_row(key, f"acc{i}") for i in range(2, 29)]
+    sent = []
+
+    def fake_ask(intelligence, prompt, content, shape, **_):
+        sent.append(content)
+        return shape(narrowerContext=None, reason=None)
+
+    monkeypatch.setattr(connections, "_ask", fake_ask)
+    assert connections._refine(definition, rows, episodes, object()) is None
+    assert len(sent) == 1 and sent[0].count("checkedRole=") == 1, "27 all-unclear rows are not sent"
+
+    sent.clear()
+    monkeypatch.setattr(connections, "BUDGET", 100)
+    assert connections._refine(definition, rows, episodes, object()) is None
+    assert sent == [], "too much to send skips the optional refinement instead of failing"

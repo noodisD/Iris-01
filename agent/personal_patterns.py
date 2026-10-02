@@ -11,9 +11,22 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .claim_checks import assess
-from .dynamics import (Definition, DiscoveryDraft, Example, GroundedClause,
-                       Hypothesis, PersonalPattern, QuoteRef, claim_hash, definition_key,
-                       dynamic_id, evidence_state, snapshot_hash, validate_refs)
+from .dynamics import (
+    Definition,
+    DiscoveryDraft,
+    Example,
+    GroundedClause,
+    Hypothesis,
+    PersonalPattern,
+    QuoteRef,
+    claim_hash,
+    definition_key,
+    dynamic_id,
+    evidence_state,
+    informative,
+    snapshot_hash,
+    validate_refs,
+)
 from .episodes import Episode, ReadUnavailable
 
 
@@ -61,9 +74,11 @@ def _slice(definition: Definition, projected: DiscoveryDraft):
                        accounts[row.account_id].actor == "self" and
                        accounts[row.account_id].record_kind == "self_report"}
     support_ids.update(support_reports)
-    relevant_rows = [row for row in projected.memberships if row.dynamic_id == key]
     # Include ALL in-range owner explanations, exceptions and contrary accounts
     # in the independent check; not only the generator's favourite premises.
+    # A row unclear on everything is none of those: the account does not speak
+    # to this definition, and on a full archive that is nearly every account.
+    relevant_rows = [row for row in projected.memberships if row.dynamic_id == key and informative(row)]
     relevant_accounts = {row.account_id: accounts[row.account_id] for row in relevant_rows
                          if row.account_id in accounts and accounts[row.account_id].actor == "self"}
     contrary = [row for row in relevant_rows if row.account_id in relevant_accounts and
@@ -80,7 +95,7 @@ def _render_narrative(definition: Definition, support_ids: set[str],
              "Groups: " + "; ".join(
                  f"{group_handles[g.id]}:{g.role}:{[handles[aid] for aid in g.account_ids]}"
                  for g in groups),
-             "Every in-range checked row: " + "; ".join(
+             "Every in-range checked row that is not unclear on everything: " + "; ".join(
                  f"{handles[r.account_id]}:context={r.context_decision},response={r.response_decision},"
                  f"relation={r.relation_decision},role={r.role},excluded={r.excluded}" for r in rows),
              "Original complete source context:"]
@@ -151,7 +166,8 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
         ids_by_handle = {handle: aid for aid, handle in handles.items()}
         group_handles = {g.id: f"g{index}" for index, g in enumerate(groups, 1)}
         groups_by_handle = {handle: gid for gid, handle in group_handles.items()}
-        source_text = _render_narrative(definition, support_ids, source_cohort, rows, groups,
+        source_text = _render_narrative(definition, support_ids, source_cohort,
+                                        [r for r in rows if informative(r)], groups,
                                         handles, group_handles)
         raw = _ask(intelligence, SYSTEM_PROMPT, source_text, _Narrative)
         try:

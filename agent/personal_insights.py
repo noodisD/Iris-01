@@ -28,6 +28,7 @@ from .dynamics import (
     PersonalPattern,
     claim_hash,
     definition_key,
+    informative,
     insight_id,
     mutually_independent,
     snapshot_hash,
@@ -298,7 +299,7 @@ def _publish(candidate: _Candidate, proposal: _Proposal, draft: DiscoveryDraft,
     contrary_rows = [row for row in projected.memberships if row.dynamic_id in candidate.keys
                      and (row.role in {"exception", "response_elsewhere", "mixed"} or row.excluded)]
     relevant_accounts = {row.account_id: accounts[row.account_id] for row in projected.memberships
-                         if row.dynamic_id in candidate.keys}
+                         if row.dynamic_id in candidate.keys and informative(row)}
     checked = claim_checks.assess(clauses, [proposal.possibleMeaning, proposal.alternative],
                                   [proposal.alternative, proposal.possibleMeaning],
                                   [proposal.question, proposal.question], relevant_accounts,

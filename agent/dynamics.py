@@ -391,6 +391,21 @@ def validate_refs(refs, accounts: dict[str, Episode | dict]) -> None:
             raise ValueError("quote reference does not locate its passage")
 
 
+def informative(row: Membership) -> bool:
+    """A membership row that says something about its definition.
+
+    The matrix checks every account against every definition, and on a real
+    archive nearly every row is unclear on context, response and relation:
+    the account does not speak to that definition. Such a row is still a
+    checked decision, but it is not contrary evidence or a premise. Sent as
+    source context it made one request hold every account the owner has
+    written.
+    """
+    return (row.role in {"support", "exception", "response_elsewhere", "mixed"} or
+            (row.context_decision, row.response_decision, row.relation_decision)
+            != ("unclear", "unclear", "unclear"))
+
+
 def derive_role(context: str, response: str, relation: str) -> str:
     """Silence is unclear; only explicit linked contrary content defines a contrast."""
     if relation == "linked":

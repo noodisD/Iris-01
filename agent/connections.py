@@ -27,6 +27,7 @@ from .dynamics import (
     count_independent,
     definition_key,
     derive_role,
+    informative,
     partition_events,
     validate_matrix,
 )
@@ -608,10 +609,17 @@ def _assemble(definitions, memberships, pairs, accounts):
 
 def _refine(definition: Definition, memberships: list[Membership],
             accounts: dict[str, Episode], intelligence) -> Definition | None:
-    relevant = [row for row in memberships if row.role in ("support", "exception", "unclear")]
+    # Rows that are unclear on everything say nothing about this definition;
+    # on a full archive they are nearly all of them.
+    relevant = [row for row in memberships if row.role in ("support", "exception", "unclear")
+                and informative(row)]
     content = (f"context={definition.context_predicate}; response={definition.response_predicate}\n" +
                "\n".join(f"checkedRole={row.role}\n" + _render(row.account_id, accounts[row.account_id])
                          for row in relevant))
+    if len(content) + len(REFINE_PROMPT) > BUDGET:
+        # Refinement is one optional narrowing; without it the definition stays
+        # as checked. Too much to send is not a reason to fail the run.
+        return None
     reply = _ask(intelligence, REFINE_PROMPT, content, _RefinementIn)
     if not reply.narrowerContext:
         return None

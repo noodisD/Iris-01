@@ -125,6 +125,17 @@ The method and its gates are unchanged; the questions are asked once:
   A failed check forgets only the whole reply that failed. An outage forgets
   nothing.
 
+- **A row unclear on everything is not sent as evidence.** The matrix
+  checks every account against every definition. On the owner's archive,
+  869 of 870 rows for one definition were unclear on context, response and
+  relation: the account does not speak to it. Refinement, the pattern
+  write-up and insight claim checks sent all of them as source context,
+  about 1.2 million characters in one request, so the run could not finish.
+  They now send only rows that say something (support, exception, response
+  elsewhere, mixed, or any non-unclear judgment). These rows are still
+  checked, counted and stored. A refinement that still will not fit is
+  skipped, and the definition stays as checked.
+
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.
