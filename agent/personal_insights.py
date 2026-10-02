@@ -165,7 +165,10 @@ def _candidates(draft: DiscoveryDraft, projected: DiscoveryDraft,
 
 def _render(candidate: _Candidate, projected: DiscoveryDraft,
             accounts: dict[str, Episode], index: int) -> str:
-    related = [row for row in projected.memberships if row.dynamic_id in candidate.keys]
+    # Rows unclear on everything say nothing about either definition; on a full
+    # archive they are nearly every account, which no request can hold.
+    related = [row for row in projected.memberships
+               if row.dynamic_id in candidate.keys and informative(row)]
     source_ids = {row.account_id for row in related}
     lines = [f"candidateIndex={index} kind={candidate.kind} dynamicIds={candidate.dynamic_ids}",
              f"supportGroupIds={[g.id for g in candidate.supporting]} ",
