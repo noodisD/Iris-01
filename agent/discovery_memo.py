@@ -10,8 +10,8 @@ added. Anything changed is asked afresh.
 
 Per-check verdicts are kept only after the caller has validated them. Whole
 replies are kept as they arrive and checked by their caller before the next
-request, so when a run fails, the reply it kept last is the one that failed:
-that one is discarded and never replayed. The replies before it passed their
+request, so when a run fails a check, the reply it kept last is the one that
+failed: that one is discarded and never replayed. The replies before it passed their
 checks and are kept, so a retry proposes the same definitions and reuses the
 verdicts already paid for. Outside `remembering(user_id)` nothing is read or
 kept.
@@ -34,19 +34,26 @@ from .database import db
 #: most of them unreachable long before.
 KEEP_DAYS = 120
 
+#: Failures that mean the last reply did not pass its check.
+_FAILED_CHECKS = frozenset({"invalid_schema", "invalid_matrix", "invalid_selector",
+                            "invalid_partition", "invalid_refinement", "invalid_lens_matrix"})
+
 _user: ContextVar[int | None] = ContextVar("discovery_memo_user", default=None)
 _fresh: ContextVar[list[str] | None] = ContextVar("discovery_memo_fresh", default=None)
 
 
 @contextmanager
 def remembering(user_id: int) -> Iterator[None]:
-    """Read and keep verdicts for this user; a failed run forgets its last reply."""
+    """Read and keep verdicts for this user; a reply that failed its check is forgotten."""
     user_token = _user.set(user_id)
     fresh_token = _fresh.set([])
     try:
         yield
-    except BaseException:
-        _forget(user_id, (_fresh.get() or [])[-1:])
+    except BaseException as exc:
+        # Only a reply that failed validation is suspect. A provider outage or
+        # an interruption says nothing against the replies already kept.
+        if str(exc) in _FAILED_CHECKS:
+            _forget(user_id, (_fresh.get() or [])[-1:])
         raise
     finally:
         _fresh.reset(fresh_token)

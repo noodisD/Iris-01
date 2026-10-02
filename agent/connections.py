@@ -274,15 +274,12 @@ def _propose(accounts: dict[str, Episode], handles: dict[str, str],
 
 def _equivalence_rows(reply: _EquivalenceIn,
                       batch: list[tuple[int, int]]) -> dict[tuple[int, int], _EquivalentIn]:
-    """Validated equivalence verdicts, exactly one for each requested pair."""
+    """The requested pairs this reply answered, each once; anything else is ignored."""
     received: dict[tuple[int, int], _EquivalentIn] = {}
     for item in reply.pairs:
         pair = (item.a, item.b)
-        if pair not in batch or pair in received:
-            raise ReadUnavailable("invalid_matrix")
-        received[pair] = item
-    if any(pair not in received for pair in batch):
-        raise ReadUnavailable("invalid_matrix")
+        if pair in batch and pair not in received:
+            received[pair] = item
     return received
 
 
@@ -324,11 +321,15 @@ def _merge(proposed: list[Definition], intelligence) -> list[Definition]:
         return (f"[{a}] context={proposed[a].context_predicate}; response={proposed[a].response_predicate}\n"
                 f"[{b}] context={proposed[b].context_predicate}; response={proposed[b].response_predicate}\n")
     for batch in _batch([pair for pair in pairs if pair not in decisions], render, EQUIVALENCE_PROMPT):
-        content = "\n".join(render(pair) for pair in batch)
-        received = _asked_until_valid(lambda content=content, batch=batch: _equivalence_rows(
-            _ask(intelligence, EQUIVALENCE_PROMPT, content, _EquivalenceIn, remember=False), batch))
+        received, unanswered = _answered(
+            lambda items: _ask(intelligence, EQUIVALENCE_PROMPT,
+                               "\n".join(render(pair) for pair in items), _EquivalenceIn,
+                               remember=False),
+            _equivalence_rows, batch)
         memo.keep("equivalence", {keys[pair]: item.model_dump(exclude={"a", "b"})
                                   for pair, item in received.items()})
+        if unanswered:
+            raise ReadUnavailable("invalid_matrix")
         decisions.update(received)
     parent = list(range(len(proposed)))
     def find(value):
@@ -392,24 +393,27 @@ def _membership_key(definition: Definition, account_id: str, model: str) -> str:
 def _membership_rows(reply: _MembershipIn, id_: str, batch: list[int],
                      accounts_by_handle: dict[str, Episode],
                      ids_by_handle: dict[str, str]) -> dict[int, dict]:
-    """One account's validated decisions, by definition index, exactly as requested."""
+    """The requested definitions this reply decided validly for the account.
+
+    A row for another account or definition, a repeated row, or a decision
+    without a valid selector is left out, to be asked again.
+    """
     received: dict[int, dict] = {}
     for item in reply.decisions:
-        if item.accountId not in ids_by_handle:
-            raise ReadUnavailable("invalid_matrix")
-        if (ids_by_handle[item.accountId] != id_ or item.definitionIndex not in batch or
+        if (ids_by_handle.get(item.accountId) != id_ or item.definitionIndex not in batch or
                 item.definitionIndex in received):
-            raise ReadUnavailable("invalid_matrix")
-        refs = _bind_refs(_valid_refs(item.refs, accounts_by_handle, {item.accountId}),
-                          ids_by_handle)
-        if ((item.context != "unclear" or item.response != "unclear" or
-             item.relation != "unclear") and not refs):
-            raise ReadUnavailable("invalid_selector")
+            continue
+        try:
+            refs = _bind_refs(_valid_refs(item.refs, accounts_by_handle, {item.accountId}),
+                              ids_by_handle)
+        except ReadUnavailable:
+            continue
+        if (item.context != "unclear" or item.response != "unclear" or
+                item.relation != "unclear") and not refs:
+            continue
         received[item.definitionIndex] = {
             "context": item.context, "response": item.response, "relation": item.relation,
             "refs": [{"field": ref.field, "citationIndex": ref.citation_index} for ref in refs]}
-    if set(received) != set(batch):
-        raise ReadUnavailable("invalid_matrix")
     return received
 
 
@@ -441,11 +445,15 @@ def _check_membership(definitions: list[Definition], accounts: dict[str, Episode
     for id_ in sorted(waiting):
         for start in range(0, len(waiting[id_]), MAX_ROWS_PER_REPLY):
             batch = waiting[id_][start:start + MAX_ROWS_PER_REPLY]
-            received = _asked_until_valid(lambda id_=id_, batch=batch: _membership_rows(
-                _ask(intelligence, MEMBERSHIP_PROMPT, render(id_, batch), _MembershipIn,
-                     remember=False),
-                id_, batch, accounts_by_handle, ids_by_handle))
+            received, unanswered = _answered(
+                lambda items, id_=id_: _ask(intelligence, MEMBERSHIP_PROMPT, render(id_, items),
+                                            _MembershipIn, remember=False),
+                lambda reply, items, id_=id_: _membership_rows(reply, id_, items,
+                                                               accounts_by_handle, ids_by_handle),
+                batch)
             memo.keep("membership", {keys[(index, id_)]: value for index, value in received.items()})
+            if unanswered:
+                raise ReadUnavailable("invalid_matrix")
             decided.update({(index, id_): value for index, value in received.items()})
 
     rows = []
@@ -508,23 +516,24 @@ def _pair_batches(pairs: list[tuple[str, str]],
 def _pair_rows(reply: _PairsIn, batch: list[tuple[str, str]],
                accounts_by_handle: dict[str, Episode],
                ids_by_handle: dict[str, str]) -> dict[tuple[str, str], PairDecision]:
-    """Validated identity decisions, exactly one for each requested pair."""
+    """The requested pairs this reply decided validly; anything else is left out."""
     received: dict[tuple[str, str], PairDecision] = {}
     for item in reply.pairs:
         if item.leftAccountId not in ids_by_handle or item.rightAccountId not in ids_by_handle:
-            raise ReadUnavailable("invalid_partition")
+            continue
         pair = (ids_by_handle[item.leftAccountId], ids_by_handle[item.rightAccountId])
         if pair not in batch or pair in received:
-            raise ReadUnavailable("invalid_partition")
-        refs = _bind_refs(_valid_refs(item.refs, accounts_by_handle,
-                                      {item.leftAccountId, item.rightAccountId}),
-                          ids_by_handle)
+            continue
+        try:
+            refs = _bind_refs(_valid_refs(item.refs, accounts_by_handle,
+                                          {item.leftAccountId, item.rightAccountId}),
+                              ids_by_handle)
+        except ReadUnavailable:
+            continue
         if item.decision != "unclear" and {ref.account_id for ref in refs} != set(pair):
-            raise ReadUnavailable("invalid_selector")
+            continue
         received[pair] = PairDecision(left_account_id=pair[0], right_account_id=pair[1],
                                       decision=item.decision, refs=refs)
-    if set(received) != set(batch):
-        raise ReadUnavailable("invalid_partition")
     return received
 
 
@@ -553,14 +562,20 @@ def _identity_pairs(rows: list[Membership], accounts: dict[str, Episode], intell
     rendered = {id_: _render(handles[id_], accounts[id_]) for id_ in included}
 
     for batch in _pair_batches([pair for pair in wanted if pair not in previous], rendered):
-        members = sorted({id_ for pair in batch for id_ in pair})
-        content = ("Accounts:\n" + "".join(rendered[id_] for id_ in members) +
-                   "\nRequested pairs:\n" +
-                   "".join(f"leftAccountId={handles[a]} rightAccountId={handles[b]}\n" for a, b in batch))
-        received = _asked_until_valid(lambda content=content, batch=batch: _pair_rows(
-            _ask(intelligence, IDENTITY_PROMPT, content, _PairsIn, remember=False),
-            batch, accounts_by_handle, ids_by_handle))
+        def content(items: list[tuple[str, str]]) -> str:
+            members = sorted({id_ for pair in items for id_ in pair})
+            return ("Accounts:\n" + "".join(rendered[id_] for id_ in members) +
+                    "\nRequested pairs:\n" +
+                    "".join(f"leftAccountId={handles[a]} rightAccountId={handles[b]}\n"
+                            for a, b in items))
+        received, unanswered = _answered(
+            lambda items, content=content: _ask(intelligence, IDENTITY_PROMPT, content(items),
+                                                _PairsIn, remember=False),
+            lambda reply, items: _pair_rows(reply, items, accounts_by_handle, ids_by_handle),
+            batch)
         memo.keep("identity", {keys[pair]: decision.as_dict() for pair, decision in received.items()})
+        if unanswered:
+            raise ReadUnavailable("invalid_partition")
         decisions.extend(received[pair] for pair in batch)
     # Sorted, so reused and freshly asked decisions give the same draft.
     return sorted(decisions, key=lambda p: (p.left_account_id, p.right_account_id))
@@ -609,22 +624,37 @@ def _refine(definition: Definition, memberships: list[Membership],
                       owner_report_ids=definition.owner_report_ids)
 
 
-#: How often one batch is asked before its stage fails. A run asks well over a
-#: thousand batches, so a reply with one row missing or extra must not fail
-#: the whole run; asked again, the model almost always answers in full.
+#: How often the rows of one batch are asked for within a run. A run asks well
+#: over a thousand batches, and a model sometimes leaves a row out, repeatably
+#: for one account in one batch. The rows it answered validly are kept, and
+#: only the rest are asked again, on their own. A row still unanswered fails
+#: the stage: unchecked is unavailable, never "not a member". Everything kept
+#: is reused, so the retry asks only for that row.
 BATCH_ATTEMPTS = 3
 _MALFORMED = frozenset({"invalid_schema", "invalid_matrix", "invalid_selector", "invalid_partition"})
 
 
-def _asked_until_valid(ask, attempts: int = BATCH_ATTEMPTS):
-    """`ask()` again when its reply fails validation; anything else fails at once."""
-    for attempt in range(attempts):
+def _answered(ask, parse, wanted: list, attempts: int = BATCH_ATTEMPTS) -> tuple[dict, list]:
+    """Valid answers for `wanted`, asking again only for what is still missing.
+
+    `ask(items)` returns a reply for those items; `parse(reply, items)` returns
+    only the items it answered validly. A reply that cannot be read at all is
+    asked again too. Returns the answers and the items never answered.
+    """
+    answers: dict = {}
+    missing = list(wanted)
+    for _ in range(attempts):
+        if not missing:
+            break
         try:
-            return ask()
+            reply = ask(missing)
         except ReadUnavailable as exc:
-            if str(exc) not in _MALFORMED or attempt == attempts - 1:
+            if str(exc) not in _MALFORMED:
                 raise
-    raise AssertionError("unreachable")
+            continue
+        answers.update(parse(reply, missing))
+        missing = [item for item in wanted if item not in answers]
+    return answers, missing
 
 
 def _carried(previous: DiscoveryDraft, accounts: dict[str, Episode]) -> list[Definition]:

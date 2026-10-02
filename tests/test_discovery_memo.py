@@ -79,11 +79,36 @@ def test_without_a_previous_draft_every_account_is_still_checked(test_user):
     assert len(draft.memberships) == 3
 
 
-def test_an_incomplete_reply_is_not_kept(test_user):
+def test_rows_answered_before_a_failure_are_kept_and_only_the_rest_asked_again(test_user):
     episodes = [_event(i) for i in (1, 2, 3)]
-    with pytest.raises(ReadUnavailable), memo.remembering(test_user["id"]):
+    with pytest.raises(ReadUnavailable, match="invalid_matrix"), memo.remembering(test_user["id"]):
         discover_dynamics(episodes, ScriptedDecisions(episodes, missing=True))
+    # Each account's one row was left out every time, so nothing was answered;
+    # unchecked stays unavailable rather than becoming "not a member".
     assert "membership" not in _kept(test_user["id"])
+
+
+class LeavesOutTheLast(ScriptedDecisions):
+    """Always leaves the last definition out of a request for several, but
+    answers it when asked on its own: the model quirk seen on the archive."""
+
+    def chat(self, *, messages, system_prompt, **kwargs):
+        text = super().chat(messages=messages, system_prompt=system_prompt, **kwargs)
+        if system_prompt == MEMBERSHIP_PROMPT:
+            rows = json.loads(text)["decisions"]
+            if len(rows) > 1:
+                return json.dumps({"decisions": rows[:-1]})
+        return text
+
+
+def test_a_row_left_out_of_every_full_request_is_answered_when_asked_alone(test_user):
+    episodes = [_event(i) for i in (1, 2, 3)]
+    model = LeavesOutTheLast(episodes)
+    with memo.remembering(test_user["id"]):
+        draft = discover_dynamics(episodes, model)
+    key = next(iter(draft.independent_group_ids))
+    assert len(draft.independent_group_ids[key]) == 3
+    assert len(draft.memberships) == 3
 
 
 def test_a_failed_run_forgets_only_the_reply_that_failed(test_user):
@@ -96,11 +121,16 @@ def test_a_failed_run_forgets_only_the_reply_that_failed(test_user):
             return json.dumps({"ok": messages[0]["content"]})
 
     with pytest.raises(RuntimeError), memo.remembering(test_user["id"]):
+        memo.chat(Model(), "a prompt", "asked before an outage")
+        memo.chat(Model(), "a prompt", "asked just before an outage")
+        raise RuntimeError("an outage, not a failed check")
+    assert _kept(test_user["id"]) == {"reply": 2}, "an outage says nothing against the replies"
+
+    with pytest.raises(ReadUnavailable), memo.remembering(test_user["id"]):
         memo.chat(Model(), "a prompt", "the first request")
         memo.chat(Model(), "a prompt", "the request whose reply failed")
-        assert _kept(test_user["id"]) == {"reply": 2}
-        raise RuntimeError("a later check rejected the last reply")
-    assert _kept(test_user["id"]) == {"reply": 1}
+        raise ReadUnavailable("invalid_schema")
+    assert _kept(test_user["id"]) == {"reply": 3}, "only the reply that failed is forgotten"
 
     calls = []
 

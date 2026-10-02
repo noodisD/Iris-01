@@ -115,13 +115,15 @@ The method and its gates are unchanged; the questions are asked once:
 - **Each account is shown once per request**, with up to 12 definitions to
   check against it, or with several accounts and the pairs among them in
   blocks, instead of once per row.
-- **A malformed batch is asked again** (up to three times) before its stage
-  fails. A first run asks well over a thousand batches; on the owner's
-  archive the first attempt failed after 48 minutes on one reply with a row
-  missing, so failing on the first slip made a complete run unlikely. When a
-  run does fail, only its last whole reply (the one that failed) is
-  forgotten, so the retry proposes the same definitions and reuses the
-  verdicts already paid for.
+- **A row the model leaves out is asked again on its own.** A first run
+  asks well over a thousand batches. On the owner's archive, the model
+  repeatedly left one definition out of one account's 12-row request, and
+  answered every other account in full. A batch's valid rows are kept and
+  remembered; only the missing rows are asked again, alone, up to three
+  times. A row still unanswered fails the stage, because unchecked is
+  unavailable, never "not a member". The retry then asks only for that row.
+  A failed check forgets only the whole reply that failed. An outage forgets
+  nothing.
 
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
