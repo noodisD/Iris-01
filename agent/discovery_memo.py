@@ -9,9 +9,12 @@ never the request-local handles (`a1`, `a2`) that shift when an account is
 added. Anything changed is asked afresh.
 
 Per-check verdicts are kept only after the caller has validated them. Whole
-replies are kept as they arrive, so a run that fails discards every reply it
-kept: a reply that parsed but failed a later check is never replayed. Outside
-`remembering(user_id)` nothing is read or kept.
+replies are kept as they arrive and checked by their caller before the next
+request, so when a run fails, the reply it kept last is the one that failed:
+that one is discarded and never replayed. The replies before it passed their
+checks and are kept, so a retry proposes the same definitions and reuses the
+verdicts already paid for. Outside `remembering(user_id)` nothing is read or
+kept.
 """
 
 from __future__ import annotations
@@ -37,13 +40,13 @@ _fresh: ContextVar[list[str] | None] = ContextVar("discovery_memo_fresh", defaul
 
 @contextmanager
 def remembering(user_id: int) -> Iterator[None]:
-    """Read and keep verdicts for this user; a failed run forgets its new replies."""
+    """Read and keep verdicts for this user; a failed run forgets its last reply."""
     user_token = _user.set(user_id)
     fresh_token = _fresh.set([])
     try:
         yield
     except BaseException:
-        _forget(user_id, _fresh.get() or [])
+        _forget(user_id, (_fresh.get() or [])[-1:])
         raise
     finally:
         _fresh.reset(fresh_token)

@@ -86,22 +86,59 @@ def test_an_incomplete_reply_is_not_kept(test_user):
     assert "membership" not in _kept(test_user["id"])
 
 
-def test_a_failed_run_forgets_the_whole_replies_it_kept(test_user):
+def test_a_failed_run_forgets_only_the_reply_that_failed(test_user):
+    """Earlier replies passed their checks; keeping them lets a retry propose the
+    same definitions and reuse what was already paid for."""
     class Model:
         model = "scripted"
 
         def chat(self, *, messages, system_prompt, **_):
-            return json.dumps({"ok": True})
+            return json.dumps({"ok": messages[0]["content"]})
 
     with pytest.raises(RuntimeError), memo.remembering(test_user["id"]):
-        memo.chat(Model(), "a prompt", "a request")
-        assert _kept(test_user["id"]) == {"reply": 1}
-        raise RuntimeError("a later check rejected the reply")
-    assert _kept(test_user["id"]) == {}
+        memo.chat(Model(), "a prompt", "the first request")
+        memo.chat(Model(), "a prompt", "the request whose reply failed")
+        assert _kept(test_user["id"]) == {"reply": 2}
+        raise RuntimeError("a later check rejected the last reply")
+    assert _kept(test_user["id"]) == {"reply": 1}
+
+    calls = []
+
+    class Counting(Model):
+        def chat(self, *, messages, system_prompt, **kwargs):
+            calls.append(messages[0]["content"])
+            return super().chat(messages=messages, system_prompt=system_prompt, **kwargs)
 
     with memo.remembering(test_user["id"]):
-        memo.chat(Model(), "a prompt", "a request")
-    assert _kept(test_user["id"]) == {"reply": 1}
+        memo.chat(Counting(), "a prompt", "the first request")
+        memo.chat(Counting(), "a prompt", "the request whose reply failed")
+    assert calls == ["the request whose reply failed"]
+
+
+class SlipsOnce(ScriptedDecisions):
+    """Leaves one row out of its first membership reply, as a model sometimes does."""
+
+    def __init__(self, episodes):
+        super().__init__(episodes)
+        self.slipped = False
+
+    def chat(self, *, messages, system_prompt, **kwargs):
+        text = super().chat(messages=messages, system_prompt=system_prompt, **kwargs)
+        if system_prompt == MEMBERSHIP_PROMPT and not self.slipped:
+            self.slipped = True
+            reply = json.loads(text)
+            return json.dumps({"decisions": reply["decisions"][:-1]})
+        return text
+
+
+def test_a_batch_missing_a_row_is_asked_again_rather_than_failing_the_run(test_user):
+    episodes = [_event(i) for i in (1, 2, 3)]
+    model = SlipsOnce(episodes)
+    with memo.remembering(test_user["id"]):
+        draft = discover_dynamics(episodes, model)
+    assert model.calls.count(MEMBERSHIP_PROMPT) == 4, "three accounts, one asked twice"
+    key = next(iter(draft.independent_group_ids))
+    assert len(draft.independent_group_ids[key]) == 3
 
 
 def test_the_estimate_compares_only_events_and_asks_only_about_what_is_new():
