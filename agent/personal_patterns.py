@@ -148,6 +148,37 @@ def _grounded(clause: GroundedClause, accounts: dict[str, Episode],
     validate_refs(clause.refs, accounts)
 
 
+def _holds(clause: GroundedClause, accounts: dict[str, Episode], allowed: set[str],
+           fields: set[str] | None = None) -> bool:
+    try:
+        _grounded(clause, accounts, allowed, fields)
+    except ValueError:
+        return False
+    return True
+
+
+def _meaning_holds(raw, groups, reports, accounts: dict[str, Episode], allowed: set[str]) -> bool:
+    """A possible meaning and its rival both hold, or neither is published.
+
+    Each needs the supporting scope, a person-specific premise (a stated
+    concern, explanation or feeling) and premises grounded in the sources.
+    """
+    if raw.possibleMeaning is None and raw.alternative is None:
+        return True
+    if raw.possibleMeaning is None or raw.alternative is None:
+        return False
+    supporting = {g.id for g in groups if g.role == "support"}
+    for hypothesis in (raw.possibleMeaning, raw.alternative):
+        if (not set(hypothesis.scope_group_ids) <= supporting or
+                not set(hypothesis.owner_report_ids) <= reports or
+                not any(ref.field in ("concern", "explanation", "feeling")
+                        for clause in hypothesis.premises for ref in clause.refs)):
+            return False
+        if not all(_holds(premise, accounts, allowed) for premise in hypothesis.premises):
+            return False
+    return True
+
+
 def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
                    period: str, as_of: date, lenses: list, intelligence) -> list[PersonalPattern]:
     """Select checked lower-bound dynamics; independently check their claims."""
@@ -179,24 +210,19 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
                        budget=SINGLE_SUBJECT_CHARS)
             try:
                 raw = _bind_narrative(raw, ids_by_handle, groups_by_handle)
+                # The observed context and response are the pattern: they must hold.
                 _grounded(raw.context, source_cohort, support_ids)
                 _grounded(raw.response, source_cohort, support_ids)
-                for field, clause in (("immediate_outcome", raw.immediateReturn),
-                                      ("later_outcome", raw.laterCost)):
-                    if clause is not None:
-                        _grounded(clause, source_cohort, support_ids, {field})
-                if (raw.possibleMeaning is None) != (raw.alternative is None):
-                    raise ValueError("functional hypothesis needs a rival")
-                for hypothesis in (raw.possibleMeaning, raw.alternative):
-                    if hypothesis is None:
-                        continue
-                    if (not set(hypothesis.scope_group_ids) <= {g.id for g in groups if g.role == "support"}
-                            or not set(hypothesis.owner_report_ids) <= reports or
-                            not any(ref.field in ("concern", "explanation", "feeling")
-                                    for clause in hypothesis.premises for ref in clause.refs)):
-                        raise ValueError("hypothesis lacks person-specific premise and scope")
-                    for premise in hypothesis.premises:
-                        _grounded(premise, source_cohort, support_ids)
+                # A result clause or a meaning that does not hold is withheld, as
+                # the claim check withholds a failed hypothesis, rather than
+                # discarding the supported context and response with it.
+                for field, name in (("immediate_outcome", "immediateReturn"),
+                                    ("later_outcome", "laterCost")):
+                    clause = getattr(raw, name)
+                    if clause is not None and not _holds(clause, source_cohort, support_ids, {field}):
+                        raw = raw.model_copy(update={name: None})
+                if not _meaning_holds(raw, groups, reports, source_cohort, support_ids):
+                    raw = raw.model_copy(update={"possibleMeaning": None, "alternative": None})
                 question = raw.openQuestion.strip()
                 if question.count("?") != 1 or not question.endswith("?") or len(question) > 250:
                     raise ValueError("not one discriminating question")

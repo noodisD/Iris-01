@@ -162,6 +162,16 @@ The method and its gates are unchanged; the questions are asked once:
   the batching budget, and past the cap a request still fails rather than
   being cut.
 
+- **A claim that does not hold is withheld, not the pattern.** Three
+  write-ups for one pattern stated an immediate result and cited the
+  `immediate_outcome` field of a supporting self-report, which records only
+  `self_report`. The whole pattern was discarded each time. As the claim
+  check already withholds a failed hypothesis without discarding supported
+  facts, the write-up now withholds an ungrounded result clause, or an
+  ungrounded meaning together with its rival, and keeps the grounded
+  context and response. Those two and the open question still must hold.
+  Nothing ungrounded is published.
+
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.

@@ -122,3 +122,32 @@ def test_two_grounded_rivals_keep_stable_scope_and_source_citations():
     assert set(meaning.scope_group_ids + rival.scope_group_ids) <= groups
     assert {ref.account_id for proposal in (meaning, rival) for premise in proposal.premises
             for ref in premise.refs} <= set(bound.episodes)
+
+
+class UngroundedResult(NarrativeDecisions):
+    """States an immediate result citing a field the account does not record, as
+    the model did three times on the archive for a self-report."""
+
+    def chat(self, *, messages, system_prompt, **kwargs):
+        answer = super().chat(messages=messages, system_prompt=system_prompt, **kwargs)
+        if system_prompt == NARRATIVE_PROMPT:
+            parsed = json.loads(answer)
+            source = parsed["context"]["refs"][0]["accountId"]
+            parsed["immediateReturn"] = {"text": "It ended the wait at once.",
+                                         "refs": [{"accountId": source, "field": "immediate_outcome",
+                                                   "citationIndex": 0}]}
+            return json.dumps(parsed)
+        return answer
+
+
+def test_an_ungrounded_result_is_withheld_and_the_observed_pattern_still_published():
+    episodes = [_event(i) for i in (1, 2, 3)]
+    intelligence = UngroundedResult(episodes)
+    draft = discover_dynamics(episodes, intelligence)
+    bound = DiscoveryDraft.from_dict({**draft.as_dict(), "userId": 9})
+    projected = project_range(bound, "all", date(2026, 9, 30))
+    patterns = build_patterns(bound, projected, "all", date(2026, 9, 30), [], intelligence)
+    assert len(patterns) == 1
+    card = patterns[0]
+    assert card.immediate_return is None, "a result the sources do not record is not published"
+    assert card.context.refs and card.response.refs
