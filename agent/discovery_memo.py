@@ -36,10 +36,15 @@ KEEP_DAYS = 120
 
 #: Failures that mean the last reply did not pass its check.
 _FAILED_CHECKS = frozenset({"invalid_schema", "invalid_matrix", "invalid_selector",
-                            "invalid_partition", "invalid_refinement", "invalid_lens_matrix"})
+                            "invalid_partition", "invalid_refinement", "invalid_lens_matrix",
+                            "invalid_narrative", "invalid_proposal"})
+#: How often a request whose reply fails its check is asked within a run.
+ASK_ATTEMPTS = 3
 
 _user: ContextVar[int | None] = ContextVar("discovery_memo_user", default=None)
 _fresh: ContextVar[list[str] | None] = ContextVar("discovery_memo_fresh", default=None)
+#: The key of the reply most recently returned, kept or fresh.
+_last: ContextVar[str | None] = ContextVar("discovery_memo_last", default=None)
 
 
 @contextmanager
@@ -123,6 +128,7 @@ def chat(intelligence: Any, system_prompt: str, content: str, **options: Any) ->
         return str(intelligence.chat(messages=[{"role": "user", "content": content}],
                                      system_prompt=system_prompt, **options))
     item_key = key("reply", model_of(intelligence), system_prompt, content, options)
+    _last.set(item_key)
     kept = recall([item_key])
     if item_key in kept:
         return str(kept[item_key]["text"])
@@ -133,6 +139,33 @@ def chat(intelligence: Any, system_prompt: str, content: str, **options: Any) ->
     if fresh is not None:
         fresh.append(item_key)
     return text
+
+
+def forget_last_reply() -> None:
+    """Discard the reply most recently returned, so the same request is asked afresh."""
+    user_id, item_key = _user.get(), _last.get()
+    if user_id is None or item_key is None:
+        return
+    _forget(user_id, [item_key])
+    _last.set(None)
+
+
+def until_valid(attempt: Any, attempts: int = ASK_ATTEMPTS) -> Any:
+    """Run `attempt()` again when the reply it used fails its check.
+
+    One malformed reply among hundreds should not fail a run that takes hours.
+    The failed reply is discarded first, so asking again is not answered from
+    memory with the same reply. A failure still there after the last attempt
+    stands: unchecked is unavailable, never a finding.
+    """
+    for number in range(attempts):
+        try:
+            return attempt()
+        except Exception as exc:
+            if str(exc) not in _FAILED_CHECKS or number == attempts - 1:
+                raise
+            forget_last_reply()
+    raise AssertionError("unreachable")
 
 
 def prune(user_id: int) -> None:

@@ -74,6 +74,10 @@ def _render_account(account_id: str, episode: Episode) -> str:
             f"{fields}\n  validRefs: {valid_refs}\n{passages}\n")
 
 
+#: How often an undecided lens/unit pair is asked within a run.
+LENS_ATTEMPTS = 3
+
+
 def _refs(selectors: list[_Selector], allowed: set[str],
           accounts: dict[str, Episode], ids_by_handle: dict[str, str]) -> list[QuoteRef]:
     refs = []
@@ -160,47 +164,96 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
     batch: list[tuple[Lens, str]] = []
     size = 0
 
-    def check_batch() -> None:
-        if not batch:
-            return
-        content = "\n".join(render(lens, uid) for lens, uid in batch)
+    def ask(items: list[tuple[Lens, str]]) -> _Reply:
+        content = "\n".join(render(lens, uid) for lens, uid in items)
         try:
             text = memo.chat(intelligence, MATCH_PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
                              response_format=json_response_format(_Reply))
         except Exception as exc:
             raise ReadUnavailable("provider_failure") from exc
         try:
-            reply = _Reply.model_validate_json(_strip_fence(text), strict=True)
+            return _Reply.model_validate_json(_strip_fence(text), strict=True)
         except (ValidationError, ValueError, TypeError, AttributeError) as exc:
+            memo.forget_last_reply()
             raise ReadUnavailable("invalid_schema") from exc
-        requested = {(lens.id, uid) for lens, uid in batch}
-        seen = set()
+
+    problem = {"kind": "invalid_lens_matrix"}
+
+    def parse(reply: _Reply, items: list[tuple[Lens, str]]) -> dict:
+        """The requested lens/unit decisions this reply made validly.
+
+        A decision for something not asked, or one whose selectors do not hold,
+        is left out to be asked again. A pair decided twice is left out too: a
+        reply that contradicts itself is not a decision to choose from. A
+        flawed reply is not kept, so asking again is not answered from memory
+        with it.
+        """
+        requested = {(lens.id, uid) for lens, uid in items}
+        valid: dict[tuple[str, str], tuple[bool, bool, list[QuoteRef]]] = {}
+        repeated: set[tuple[str, str]] = set()
         for decision in reply.decisions:
-            if decision.unitId not in units_by_handle:
-                raise ReadUnavailable("invalid_lens_matrix")
-            uid = units_by_handle[decision.unitId]
+            uid = units_by_handle.get(decision.unitId)
             pair = (decision.lensId, uid)
-            if pair not in requested or pair in seen:
-                raise ReadUnavailable("invalid_lens_matrix")
-            seen.add(pair)
+            if uid is None or pair not in requested:
+                problem["kind"] = "invalid_lens_matrix"
+                continue
+            if pair in valid or pair in repeated:
+                repeated.add(pair)
+                problem["kind"] = "invalid_lens_matrix"
+                continue
             allowed = {handles[aid] for aid in unit_accounts[uid]}
-            first = _refs(decision.requirementOneRefs, allowed, accounts_by_handle, ids_by_handle)
-            second = _refs(decision.requirementTwoRefs, allowed, accounts_by_handle, ids_by_handle)
-            process = _refs(decision.processRefs, allowed, accounts_by_handle, ids_by_handle)
-            exclusion = _refs(decision.notWhenRefs, allowed, accounts_by_handle, ids_by_handle)
+            try:
+                first = _refs(decision.requirementOneRefs, allowed, accounts_by_handle, ids_by_handle)
+                second = _refs(decision.requirementTwoRefs, allowed, accounts_by_handle, ids_by_handle)
+                process = _refs(decision.processRefs, allowed, accounts_by_handle, ids_by_handle)
+                exclusion = _refs(decision.notWhenRefs, allowed, accounts_by_handle, ids_by_handle)
+            except ReadUnavailable as exc:
+                problem["kind"] = str(exc)
+                continue
             if ((decision.requirementOne == "present" and not first) or
                     (decision.requirementTwo == "present" and not second) or
                     (decision.process == "linked" and not process) or
                     (decision.notWhen == "present" and not exclusion)):
-                raise ReadUnavailable("invalid_selector")
-            excluded = decision.notWhen == "present"
+                problem["kind"] = "invalid_selector"
+                continue
             qualified = (decision.requirementOne == "present" and
                          decision.requirementTwo == "present" and decision.process == "linked"
                          and decision.notWhen == "absent")
-            checked.setdefault(decision.lensId, {})[uid] = (
-                qualified, excluded, list(dict.fromkeys(first + second + process)))
-        if seen != requested:
-            raise ReadUnavailable("invalid_lens_matrix")
+            valid[pair] = (qualified, decision.notWhen == "present",
+                           list(dict.fromkeys(first + second + process)))
+        for pair in repeated:
+            valid.pop(pair, None)
+        if len(valid) < len(requested):
+            memo.forget_last_reply()
+        return valid
+
+    def check_batch() -> None:
+        """Decide every lens/unit pair in the batch, asking again only for what is missing.
+
+        A pair still undecided after the last ask fails the stage with the last
+        problem seen: an unchecked lens is unavailable, never "does not apply".
+        """
+        if not batch:
+            return
+        lens_by_id = {lens.id: lens for lens, _ in batch}
+        missing = [(lens.id, uid) for lens, uid in batch]
+        for _ in range(LENS_ATTEMPTS):
+            if not missing:
+                break
+            items = [(lens_by_id[lens_id], uid) for lens_id, uid in missing]
+            try:
+                reply = ask(items)
+            except ReadUnavailable as exc:
+                if str(exc) != "invalid_schema":
+                    raise
+                problem["kind"] = "invalid_schema"
+                continue
+            for (lens_id, uid), value in parse(reply, items).items():
+                checked.setdefault(lens_id, {})[uid] = value
+            missing = [(lens_id, uid) for lens_id, uid in missing
+                       if uid not in checked.get(lens_id, {})]
+        if missing:
+            raise ReadUnavailable(problem["kind"])
 
     for lens, uid in requests:
         fragment = render(lens, uid)

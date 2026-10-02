@@ -381,14 +381,20 @@ def build_insights(draft: DiscoveryDraft, projected: DiscoveryDraft, patterns: l
     results: list[PersonalInsight] = []
     # No mock success when the provider or independent checker is unavailable.
     for indexes, body in batches:
-        for index, proposal in zip(indexes, _ask(intelligence, body, indexes), strict=True):
-            if proposal is None:
-                continue
-            result = _publish(candidate=candidates[index], proposal=proposal, draft=draft,
-                              projected=projected, period=period, as_of=as_of, accounts=accounts,
-                              intelligence=intelligence)
-            if result:
-                results.append(result)
+        def propose(indexes: list[int] = indexes, body: str = body) -> list[PersonalInsight]:
+            """One batch, proposed and checked; a batch whose reply fails is asked again."""
+            published = []
+            for index, proposal in zip(indexes, _ask(intelligence, body, indexes), strict=True):
+                if proposal is None:
+                    continue
+                result = _publish(candidate=candidates[index], proposal=proposal, draft=draft,
+                                  projected=projected, period=period, as_of=as_of,
+                                  accounts=accounts, intelligence=intelligence)
+                if result:
+                    published.append(result)
+            return published
+
+        results.extend(memo.until_valid(propose))
     unique = {insight.id: insight for insight in results}
     return sorted(unique.values(), key=lambda insight: (
         -len({(ref.account_id, ref.field, ref.citation_index)

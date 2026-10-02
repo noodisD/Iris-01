@@ -10,6 +10,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from . import discovery_memo as memo
 from .claim_checks import assess
 from .dynamics import (
     Definition,
@@ -169,34 +170,41 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
         source_text = _render_narrative(definition, support_ids, source_cohort,
                                         [r for r in rows if informative(r)], groups,
                                         handles, group_handles)
-        raw = _ask(intelligence, SYSTEM_PROMPT, source_text, _Narrative)
-        try:
-            raw = _bind_narrative(raw, ids_by_handle, groups_by_handle)
-            _grounded(raw.context, source_cohort, support_ids)
-            _grounded(raw.response, source_cohort, support_ids)
-            for field, clause in (("immediate_outcome", raw.immediateReturn),
-                                  ("later_outcome", raw.laterCost)):
-                if clause is not None:
-                    _grounded(clause, source_cohort, support_ids, {field})
-            if (raw.possibleMeaning is None) != (raw.alternative is None):
-                raise ValueError("functional hypothesis needs a rival")
-            for hypothesis in (raw.possibleMeaning, raw.alternative):
-                if hypothesis is None:
-                    continue
-                if (not set(hypothesis.scope_group_ids) <= {g.id for g in groups if g.role == "support"}
-                        or not set(hypothesis.owner_report_ids) <= reports or
-                        not any(ref.field in ("concern", "explanation", "feeling")
-                                for clause in hypothesis.premises for ref in clause.refs)):
-                    raise ValueError("hypothesis lacks person-specific premise and scope")
-                for premise in hypothesis.premises:
-                    _grounded(premise, source_cohort, support_ids)
-            question = raw.openQuestion.strip()
-            if question.count("?") != 1 or not question.endswith("?") or len(question) > 250:
-                raise ValueError("not one discriminating question")
-        except (KeyError, ValidationError, ValueError) as exc:
-            # A structurally invalid provider answer cannot be published as a
-            # plausible observed card. This is operational failure, not no match.
-            raise ReadUnavailable("invalid_narrative") from exc
+        def narrate(source_text: str = source_text, groups=groups, reports=reports,
+                    support_ids=support_ids, source_cohort=source_cohort,
+                    ids_by_handle=ids_by_handle, groups_by_handle=groups_by_handle):
+            """One write-up, checked; a write-up that fails is asked again."""
+            raw = _ask(intelligence, SYSTEM_PROMPT, source_text, _Narrative)
+            try:
+                raw = _bind_narrative(raw, ids_by_handle, groups_by_handle)
+                _grounded(raw.context, source_cohort, support_ids)
+                _grounded(raw.response, source_cohort, support_ids)
+                for field, clause in (("immediate_outcome", raw.immediateReturn),
+                                      ("later_outcome", raw.laterCost)):
+                    if clause is not None:
+                        _grounded(clause, source_cohort, support_ids, {field})
+                if (raw.possibleMeaning is None) != (raw.alternative is None):
+                    raise ValueError("functional hypothesis needs a rival")
+                for hypothesis in (raw.possibleMeaning, raw.alternative):
+                    if hypothesis is None:
+                        continue
+                    if (not set(hypothesis.scope_group_ids) <= {g.id for g in groups if g.role == "support"}
+                            or not set(hypothesis.owner_report_ids) <= reports or
+                            not any(ref.field in ("concern", "explanation", "feeling")
+                                    for clause in hypothesis.premises for ref in clause.refs)):
+                        raise ValueError("hypothesis lacks person-specific premise and scope")
+                    for premise in hypothesis.premises:
+                        _grounded(premise, source_cohort, support_ids)
+                question = raw.openQuestion.strip()
+                if question.count("?") != 1 or not question.endswith("?") or len(question) > 250:
+                    raise ValueError("not one discriminating question")
+            except (KeyError, ValidationError, ValueError) as exc:
+                # A structurally invalid provider answer cannot be published as a
+                # plausible observed card. This is operational failure, not no match.
+                raise ReadUnavailable("invalid_narrative") from exc
+            return raw, question
+
+        raw, question = memo.until_valid(narrate)
         meanings = []
         for account_id in sorted(support_ids):
             ep = accounts[account_id]

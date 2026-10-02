@@ -41,7 +41,7 @@ def test_a_second_run_over_the_same_archive_asks_nothing(test_user):
     first = ScriptedDecisions(episodes)
     with memo.remembering(test_user["id"]):
         draft = discover_dynamics(episodes, first)
-    assert first.calls.count(MEMBERSHIP_PROMPT) == 3, "one request per account, not per row"
+    assert first.calls.count(MEMBERSHIP_PROMPT) == 1, "three accounts, one definition: one request"
 
     again = ScriptedDecisions(episodes)
     with memo.remembering(test_user["id"]):
@@ -75,7 +75,7 @@ def test_without_a_previous_draft_every_account_is_still_checked(test_user):
         discover_dynamics(episodes, ScriptedDecisions(episodes))
     fresh = ScriptedDecisions(episodes)
     draft = discover_dynamics(episodes, fresh)  # outside a memo scope: nothing reused
-    assert fresh.calls.count(MEMBERSHIP_PROMPT) == 3
+    assert fresh.calls.count(MEMBERSHIP_PROMPT) == 1
     assert len(draft.memberships) == 3
 
 
@@ -83,9 +83,14 @@ def test_rows_answered_before_a_failure_are_kept_and_only_the_rest_asked_again(t
     episodes = [_event(i) for i in (1, 2, 3)]
     with pytest.raises(ReadUnavailable, match="invalid_matrix"), memo.remembering(test_user["id"]):
         discover_dynamics(episodes, ScriptedDecisions(episodes, missing=True))
-    # Each account's one row was left out every time, so nothing was answered;
-    # unchecked stays unavailable rather than becoming "not a member".
-    assert "membership" not in _kept(test_user["id"])
+    # The last row is left out every time, even asked alone: unchecked stays
+    # unavailable rather than "not a member". The two answered rows are kept.
+    assert _kept(test_user["id"]).get("membership") == 2
+
+    retry = ScriptedDecisions(episodes)
+    with memo.remembering(test_user["id"]):
+        discover_dynamics(episodes, retry)
+    assert retry.calls.count(MEMBERSHIP_PROMPT) == 1, "only the missing row is asked again"
 
 
 class LeavesOutTheLast(ScriptedDecisions):
@@ -166,7 +171,7 @@ def test_a_batch_missing_a_row_is_asked_again_rather_than_failing_the_run(test_u
     model = SlipsOnce(episodes)
     with memo.remembering(test_user["id"]):
         draft = discover_dynamics(episodes, model)
-    assert model.calls.count(MEMBERSHIP_PROMPT) == 4, "three accounts, one asked twice"
+    assert model.calls.count(MEMBERSHIP_PROMPT) == 2, "one request, then the missing row alone"
     key = next(iter(draft.independent_group_ids))
     assert len(draft.independent_group_ids[key]) == 3
 
@@ -225,3 +230,29 @@ def test_refinement_sends_only_rows_that_say_something_and_skips_what_will_not_f
     monkeypatch.setattr(connections, "BUDGET", 100)
     assert connections._refine(definition, rows, episodes, object()) is None
     assert sent == [], "too much to send skips the optional refinement instead of failing"
+
+
+def test_until_valid_asks_again_with_the_failed_reply_discarded(test_user):
+    class Model:
+        model = "scripted"
+
+        def __init__(self):
+            self.replies = iter(["malformed", "well formed"])
+
+        def chat(self, *, messages, system_prompt, **_):
+            return next(self.replies)
+
+    model = Model()
+    seen = []
+
+    def attempt():
+        text = memo.chat(model, "a prompt", "a request")
+        seen.append(text)
+        if text == "malformed":
+            raise ReadUnavailable("invalid_selector")
+        return text
+
+    with memo.remembering(test_user["id"]):
+        assert memo.until_valid(attempt) == "well formed"
+    assert seen == ["malformed", "well formed"], "the malformed reply was not replayed from memory"
+    assert _kept(test_user["id"]) == {"reply": 1}

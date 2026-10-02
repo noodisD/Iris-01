@@ -177,3 +177,28 @@ def test_over_budget_original_context_fails_instead_of_truncating():
     draft, key, _ = _draft([_account(1, text=text)])
     with pytest.raises(ReadUnavailable, match="source_too_large"):
         match_lenses(draft, key, [_lens()], "emerging", ScriptedLens({}))
+
+
+class SlipsOnceLens(ScriptedLens):
+    """Gives one row a selector that does not hold, once, as seen on the archive."""
+
+    def __init__(self, judgments):
+        super().__init__(judgments)
+        self.slipped = False
+
+    def chat(self, *, messages, system_prompt, **kwargs):
+        reply = json.loads(super().chat(messages=messages, system_prompt=system_prompt, **kwargs))
+        if not self.slipped and len(reply["decisions"]) > 1:
+            self.slipped = True
+            reply["decisions"][0]["requirementOneRefs"] = [
+                {"accountId": "foreign", "field": "situation", "citationIndex": 0}]
+        return json.dumps(reply)
+
+
+def test_one_bad_selector_is_asked_again_alone_instead_of_failing_the_stage():
+    draft, key, _ = _draft([_account(1), _account(2)])
+    provider = SlipsOnceLens({})
+    matches = match_lenses(draft, key, [_lens()], "emerging", provider)
+    assert [m.lens_id for m in matches] == ["quick-agreement"]
+    assert len(provider.calls) == 2, "the batch, then only the row whose selector failed"
+    assert provider.calls[1].count("lensId=") == 1

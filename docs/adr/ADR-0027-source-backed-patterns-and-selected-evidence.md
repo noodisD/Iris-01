@@ -137,6 +137,21 @@ The method and its gates are unchanged; the questions are asked once:
   checked, counted and stored. A refinement that still will not fit is
   skipped, and the definition stays as checked.
 
+- **Every step re-asks what fails its check instead of failing the run.**
+  Lens tagging keeps a batch's valid rows and asks again only for the rest;
+  the pattern write-up, claim check and insight proposals are asked again
+  whole. Before asking again, the failed reply is discarded, so it is not
+  replayed from memory. A row or pair answered twice in one reply counts as
+  unanswered, because a reply that contradicts itself is not a decision to
+  choose from. What is still unanswered after three asks fails with the last
+  problem seen, never as "no match".
+- **Membership requests share accounts.** A definition rechecked against the
+  whole archive after a refinement was asked one account per request: 870
+  requests per refined definition, 6,962 in one attempt. Requests now hold up
+  to 12 rows across accounts. The verdict key covers the rules for deciding
+  a pair, not how requests are laid out, so the change kept the 32,088
+  verdicts already paid for.
+
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.

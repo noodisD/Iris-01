@@ -47,12 +47,12 @@ class ScriptedDecisions:
             return json.dumps({"discriminating": True, "contextMarker": "someone waiting",
                                "concreteResponse": "agreeing without a capacity check"})
         if system_prompt == MEMBERSHIP_PROMPT:
-            # One account, shown once, after the definitions to check against it.
+            # Definitions and accounts are shown once; the pairs to decide are listed.
             rows = [{"definitionIndex": int(index), "accountId": id_, "context": "present",
                      "response": "present", "relation": "linked",
                      "refs": [{"accountId": id_, "field": "situation", "citationIndex": 0}]}
-                    for id_ in ids
-                    for index in re.findall(r"^definitionIndex=(\d+)\b", content, re.M)]
+                    for index, id_ in re.findall(
+                        r"^definitionIndex=(\d+) accountId=(a[1-9]\d*)$", content, re.M)]
             if self.bad_id and rows:
                 rows[0]["accountId"] = "a999"
             return json.dumps({"decisions": rows[:-1] if self.missing else rows})

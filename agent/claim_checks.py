@@ -136,31 +136,36 @@ def assess(clauses: list[GroundedClause], hypotheses: list[Hypothesis],
                          for i, hypothesis in enumerate(hypotheses)))
     if len(content) + len(SYSTEM_PROMPT) > OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN:
         raise ReadUnavailable("source_too_large")
-    try:
-        reply = memo.chat(intelligence, SYSTEM_PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
-                          response_format=json_response_format(_Reply))
-    except Exception as exc:
-        raise ReadUnavailable("provider_failure") from exc
-    try:
-        parsed = _Reply.model_validate_json(_strip_fence(reply), strict=True)
-    except (ValidationError, ValueError, TypeError, AttributeError) as exc:
-        raise ReadUnavailable("invalid_schema") from exc
-    if ([row.index for row in parsed.clauses] != list(range(len(clauses))) or
-            [row.index for row in parsed.hypotheses] != list(range(len(hypotheses)))):
-        raise ReadUnavailable("invalid_matrix")
-    for row in (*parsed.clauses, *parsed.hypotheses):
-        if any(ref.accountId not in ids_by_handle for ref in row.refs):
-            raise ReadUnavailable("invalid_selector")
-        refs = [QuoteRef(account_id=ids_by_handle[r.accountId], field=r.field,
-                         citation_index=r.citationIndex) for r in row.refs]
+    def ask_checked() -> _Reply:
+        """One reply, checked; a reply that fails is asked again by until_valid."""
         try:
-            validate_refs(refs, accounts)
-        except (ValueError, ValidationError) as exc:
-            raise ReadUnavailable("invalid_selector") from exc
-        if (isinstance(row, _ClauseReply) and row.verdict in ("supported", "contradicted") and not refs or
-                isinstance(row, _HypothesisReply) and row.relevance == "supported" and not refs or
-                isinstance(row, _HypothesisReply) and row.counterevidence == "found" and not refs):
-            raise ReadUnavailable("invalid_selector")
+            reply = memo.chat(intelligence, SYSTEM_PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
+                              response_format=json_response_format(_Reply))
+        except Exception as exc:
+            raise ReadUnavailable("provider_failure") from exc
+        try:
+            parsed = _Reply.model_validate_json(_strip_fence(reply), strict=True)
+        except (ValidationError, ValueError, TypeError, AttributeError) as exc:
+            raise ReadUnavailable("invalid_schema") from exc
+        if ([row.index for row in parsed.clauses] != list(range(len(clauses))) or
+                [row.index for row in parsed.hypotheses] != list(range(len(hypotheses)))):
+            raise ReadUnavailable("invalid_matrix")
+        for row in (*parsed.clauses, *parsed.hypotheses):
+            if any(ref.accountId not in ids_by_handle for ref in row.refs):
+                raise ReadUnavailable("invalid_selector")
+            refs = [QuoteRef(account_id=ids_by_handle[r.accountId], field=r.field,
+                             citation_index=r.citationIndex) for r in row.refs]
+            try:
+                validate_refs(refs, accounts)
+            except (ValueError, ValidationError) as exc:
+                raise ReadUnavailable("invalid_selector") from exc
+            if (isinstance(row, _ClauseReply) and row.verdict in ("supported", "contradicted") and not refs or
+                    isinstance(row, _HypothesisReply) and row.relevance == "supported" and not refs or
+                    isinstance(row, _HypothesisReply) and row.counterevidence == "found" and not refs):
+                raise ReadUnavailable("invalid_selector")
+        return parsed
+
+    parsed = memo.until_valid(ask_checked)
     return Assessment(
         clauses=tuple(row.verdict == "supported" for row in parsed.clauses),
         hypotheses=tuple(row.relevance == "supported" and row.counterevidence == "none_found" and
