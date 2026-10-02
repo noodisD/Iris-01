@@ -227,7 +227,7 @@ def test_refinement_sends_only_rows_that_say_something_and_skips_what_will_not_f
     assert len(sent) == 1 and sent[0].count("checkedRole=") == 1, "27 all-unclear rows are not sent"
 
     sent.clear()
-    monkeypatch.setattr(connections, "BUDGET", 100)
+    monkeypatch.setattr(connections, "SINGLE_SUBJECT_CHARS", 100)
     assert connections._refine(definition, rows, episodes, object()) is None
     assert sent == [], "too much to send skips the optional refinement instead of failing"
 

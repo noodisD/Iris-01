@@ -13,7 +13,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import discovery_memo as memo
-from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
+from .constants import (
+    OBSERVATION_CHARS_PER_TOKEN,
+    OBSERVATION_CHUNK_TOKENS,
+    OBSERVATION_MAX_TOKENS,
+    SINGLE_SUBJECT_CHARS,
+)
 from .dynamics import DiscoveryDraft, LensMatch, QuoteRef, definition_key, validate_refs
 from .episodes import GROUNDED_FIELDS, Episode, ReadUnavailable
 from .intelligence import json_response_format
@@ -257,7 +262,9 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
 
     for lens, uid in requests:
         fragment = render(lens, uid)
-        if len(fragment) + len(MATCH_PROMPT) > _BUDGET:
+        # One unit's complete sources may need more than the batching budget;
+        # such a fragment is asked on its own, up to the single-subject cap.
+        if len(fragment) + len(MATCH_PROMPT) > SINGLE_SUBJECT_CHARS:
             raise ReadUnavailable("source_too_large")
         if batch and (len(batch) >= _MAX_ROWS or size + len(fragment) + len(MATCH_PROMPT) > _BUDGET):
             check_batch()

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import discovery_memo as memo
 from .claim_checks import assess
+from .constants import SINGLE_SUBJECT_CHARS
 from .dynamics import (
     Definition,
     DiscoveryDraft,
@@ -174,7 +175,8 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
                     support_ids=support_ids, source_cohort=source_cohort,
                     ids_by_handle=ids_by_handle, groups_by_handle=groups_by_handle):
             """One write-up, checked; a write-up that fails is asked again."""
-            raw = _ask(intelligence, SYSTEM_PROMPT, source_text, _Narrative)
+            raw = _ask(intelligence, SYSTEM_PROMPT, source_text, _Narrative,
+                       budget=SINGLE_SUBJECT_CHARS)
             try:
                 raw = _bind_narrative(raw, ids_by_handle, groups_by_handle)
                 _grounded(raw.context, source_cohort, support_ids)

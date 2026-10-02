@@ -178,6 +178,13 @@ OBSERVATION_MEDIUM_ENTRIES = 3
 OBSERVATION_CHUNK_TOKENS = 20_000
 #: Rough chars-per-token, good enough for deciding where to cut a chunk.
 OBSERVATION_CHARS_PER_TOKEN = 4
+#: Cap for one request that holds a single subject's complete sources: one
+#: pattern, insight, definition or lens unit. Such a request cannot be split
+#: without truncating a source, and a long voice entry is cited whole (about
+#: 21,000 characters), so a few accounts pass the batching budget above.
+#: Several items are still packed within that budget; past this cap a request
+#: still fails rather than being cut.
+SINGLE_SUBJECT_CHARS = 4 * OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN
 # A staged recording below this is a near-empty clip, not writing. The real
 # batch has six at 22-165 characters and the next one up is 1,108: a clean
 # cliff, and nothing that short can carry a quote worth citing.

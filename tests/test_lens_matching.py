@@ -173,10 +173,20 @@ def test_incomplete_or_unavailable_check_cannot_become_no_match(failure, reason)
 
 
 def test_over_budget_original_context_fails_instead_of_truncating():
-    text = "a colleague waited for an answer. I agreed immediately. " + ("context " * 17000)
+    # Past the single-subject cap: one unit's sources are not cut to fit.
+    text = "a colleague waited for an answer. I agreed immediately. " + ("context " * 41000)
     draft, key, _ = _draft([_account(1, text=text)])
     with pytest.raises(ReadUnavailable, match="source_too_large"):
         match_lenses(draft, key, [_lens()], "emerging", ScriptedLens({}))
+
+
+def test_one_unit_longer_than_the_batching_budget_is_asked_on_its_own():
+    """A long voice entry is cited whole; its unit is asked alone, not refused."""
+    text = "a colleague waited for an answer. I agreed immediately. " + ("context " * 17000)
+    draft, key, _ = _draft([_account(1, text=text), _account(2)])
+    provider = ScriptedLens({})
+    match_lenses(draft, key, [_lens()], "emerging", provider)
+    assert len(provider.calls) == 2, "the long unit alone, the other unit separately"
 
 
 class SlipsOnceLens(ScriptedLens):

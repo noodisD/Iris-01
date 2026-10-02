@@ -152,6 +152,16 @@ The method and its gates are unchanged; the questions are asked once:
   a pair, not how requests are laid out, so the change kept the 32,088
   verdicts already paid for.
 
+- **One subject's complete sources may pass the batching budget.** A long
+  voice entry has no paragraph breaks, so its cited "paragraph" is the
+  whole entry, about 21,000 characters. One pattern with four such
+  supports needed 130,823 characters. A request holding a single subject
+  (one pattern write-up, claim check, insight, definition or lens unit) may
+  now go up to `SINGLE_SUBJECT_CHARS`, four times the batching budget and
+  far inside the model's context. Several items are still packed within
+  the batching budget, and past the cap a request still fails rather than
+  being cut.
+
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.

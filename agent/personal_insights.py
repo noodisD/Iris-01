@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import claim_checks
 from . import discovery_memo as memo
-from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
+from .constants import (
+    OBSERVATION_CHARS_PER_TOKEN,
+    OBSERVATION_CHUNK_TOKENS,
+    OBSERVATION_MAX_TOKENS,
+    SINGLE_SUBJECT_CHARS,
+)
 from .dynamics import (
     DiscoveryDraft,
     EventGroup,
@@ -196,7 +201,9 @@ def _render(candidate: _Candidate, projected: DiscoveryDraft,
 def _ask(intelligence, content: str, indexes: list[int]) -> list[_Proposal | None]:
     if intelligence is None:
         raise ReadUnavailable("no_provider")
-    if len(content) + len(PROMPT) > _BUDGET:
+    # Several candidates are packed within the batching budget; one candidate's
+    # complete sources may need more, up to the single-subject cap.
+    if len(content) + len(PROMPT) > (SINGLE_SUBJECT_CHARS if len(indexes) == 1 else _BUDGET):
         raise ReadUnavailable("source_too_large")
     try:
         text = memo.chat(intelligence, PROMPT, content, max_tokens=OBSERVATION_MAX_TOKENS,
@@ -370,7 +377,7 @@ def build_insights(draft: DiscoveryDraft, projected: DiscoveryDraft, patterns: l
     batches: list[tuple[list[int], str]] = []
     for index, candidate in enumerate(candidates):
         rendered = _render(candidate, projected, accounts, index)
-        if len(rendered) + len(PROMPT) > _BUDGET:
+        if len(rendered) + len(PROMPT) > SINGLE_SUBJECT_CHARS:
             raise ReadUnavailable("source_too_large")
         if batches and len(batches[-1][0]) < 4 and len(batches[-1][1]) + len(rendered) + len(PROMPT) < _BUDGET:
             ids, body = batches[-1]

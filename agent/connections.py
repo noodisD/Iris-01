@@ -15,7 +15,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import discovery_memo as memo
-from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
+from .constants import (
+    OBSERVATION_CHARS_PER_TOKEN,
+    OBSERVATION_CHUNK_TOKENS,
+    OBSERVATION_MAX_TOKENS,
+    SINGLE_SUBJECT_CHARS,
+)
 from .dynamics import (
     Definition,
     DiscoveryDraft,
@@ -163,12 +168,13 @@ DISCOVERY_VERSION = hashlib.sha256(
     }, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def _ask(intelligence, prompt: str, content: str, shape: type[_Strict], *, remember: bool = True):
+def _ask(intelligence, prompt: str, content: str, shape: type[_Strict], *, remember: bool = True,
+         budget: int | None = None):
     """One validated reply. `remember` reuses an identical earlier request's reply;
     the per-check stages keep their own verdicts instead, so they pass False."""
     if intelligence is None:
         raise ReadUnavailable("no_provider")
-    if len(content) + len(prompt) > BUDGET:
+    if len(content) + len(prompt) > (budget or BUDGET):
         raise ReadUnavailable("source_too_large")
     options = {"max_tokens": OBSERVATION_MAX_TOKENS, "response_format": json_response_format(shape)}
     try:
@@ -635,7 +641,7 @@ def _specific(definition: Definition, accounts: dict[str, Episode], intelligence
     ids = definition.proposed_account_ids + definition.owner_report_ids
     content = (f"context={definition.context_predicate}; response={definition.response_predicate}\n" +
                "\n".join(_render(id_, accounts[id_]) for id_ in ids))
-    reply = _ask(intelligence, SPECIFICITY_PROMPT, content, _SpecificityIn)
+    reply = _ask(intelligence, SPECIFICITY_PROMPT, content, _SpecificityIn, budget=SINGLE_SUBJECT_CHARS)
     return (reply.discriminating and bool(reply.contextMarker.strip()) and
             bool(reply.concreteResponse.strip()))
 
@@ -665,11 +671,11 @@ def _refine(definition: Definition, memberships: list[Membership],
     content = (f"context={definition.context_predicate}; response={definition.response_predicate}\n" +
                "\n".join(f"checkedRole={row.role}\n" + _render(row.account_id, accounts[row.account_id])
                          for row in relevant))
-    if len(content) + len(REFINE_PROMPT) > BUDGET:
+    if len(content) + len(REFINE_PROMPT) > SINGLE_SUBJECT_CHARS:
         # Refinement is one optional narrowing; without it the definition stays
         # as checked. Too much to send is not a reason to fail the run.
         return None
-    reply = _ask(intelligence, REFINE_PROMPT, content, _RefinementIn)
+    reply = _ask(intelligence, REFINE_PROMPT, content, _RefinementIn, budget=SINGLE_SUBJECT_CHARS)
     if not reply.narrowerContext:
         return None
     narrower = reply.narrowerContext.strip()

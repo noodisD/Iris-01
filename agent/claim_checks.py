@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import discovery_memo as memo
-from .constants import OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS, OBSERVATION_MAX_TOKENS
+from .constants import OBSERVATION_MAX_TOKENS, SINGLE_SUBJECT_CHARS
 from .dynamics import GroundedClause, Hypothesis, Membership, QuoteRef, validate_refs
 from .episodes import Episode, ReadUnavailable
 from .intelligence import json_response_format
@@ -134,7 +134,7 @@ def assess(clauses: list[GroundedClause], hypotheses: list[Hypothesis],
                "\n".join(f"[{i}] proposal={local_hypothesis(hypothesis)}; "
                          f"rival={local_hypothesis(rivals[i])}; question={questions[i]}"
                          for i, hypothesis in enumerate(hypotheses)))
-    if len(content) + len(SYSTEM_PROMPT) > OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN:
+    if len(content) + len(SYSTEM_PROMPT) > SINGLE_SUBJECT_CHARS:
         raise ReadUnavailable("source_too_large")
     def ask_checked() -> _Reply:
         """One reply, checked; a reply that fails is asked again by until_valid."""
