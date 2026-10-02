@@ -161,15 +161,27 @@ def test_bare_behavior_does_not_establish_linked_process():
     assert match_lenses(draft, key, [_lens()], "recurring", provider) == []
 
 
-@pytest.mark.parametrize("failure,reason", [("missing", "invalid_lens_matrix"),
-                                           ("duplicate", "invalid_lens_matrix"),
-                                           ("foreign", "invalid_selector"),
-                                           ("enum", "invalid_schema"),
+@pytest.mark.parametrize("failure,reason", [("enum", "invalid_schema"),
                                            ("provider", "provider_failure")])
-def test_incomplete_or_unavailable_check_cannot_become_no_match(failure, reason):
+def test_an_unreadable_or_unavailable_check_fails_the_stage(failure, reason):
     draft, key, _ = _draft([_account(1), _account(2)])
     with pytest.raises(ReadUnavailable, match=reason):
         match_lenses(draft, key, [_lens()], "emerging", ScriptedLens({}, bad=failure))
+
+
+@pytest.mark.parametrize("failure", ["missing", "duplicate", "foreign"])
+def test_a_check_never_decided_validly_withholds_the_lens_rather_than_matching(failure, monkeypatch):
+    """Asked three times and still incomplete, a repeated row or a selector that
+    does not hold: the lens is withheld for this pattern, never shown as
+    matching, and the rest of the run goes on."""
+    import agent.lens_matching as lens_matching
+
+    warned = []
+    monkeypatch.setattr(lens_matching.logger, "warning", lambda message, *args: warned.append(message))
+    draft, key, _ = _draft([_account(1), _account(2)])
+    provider = ScriptedLens({}, bad=failure)
+    assert match_lenses(draft, key, [_lens()], "emerging", provider) == []
+    assert any("Withheld 1 lens(es)" in message for message in warned)
 
 
 def test_over_budget_original_context_fails_instead_of_truncating():

@@ -172,6 +172,18 @@ The method and its gates are unchanged; the questions are asked once:
   context and response. Those two and the open question still must hold.
   Nothing ungrounded is published.
 
+- **A lens that cannot be decided validly is withheld for that pattern.**
+  Lens tags are optional editorial labels, and only positive matches are
+  shown. On the archive the model kept quoting a `self_report` field on an
+  event that records situation, response, feeling and concern. A lens/unit
+  pair still undecided after three asks no longer fails the run. That lens
+  is withheld for the pattern: it is never shown as matching, and no result
+  is built from partial checks. An unreadable reply or an unavailable
+  provider still fails the stage. This replaces omp's rule that any
+  incomplete lens check fails the run. Withholding keeps that rule's intent,
+  an incomplete check is never presented as a result, without letting one
+  label stop every pattern from being published.
+
 Estimated on the owner's archive (184 entries): the first run is at most
 about $6. After that, a new entry costs about $0.05, and up to about $0.36
 when it changes a dynamic's members and the interpretation is asked again.

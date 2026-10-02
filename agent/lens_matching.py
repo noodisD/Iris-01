@@ -8,6 +8,7 @@ and remain attached when callers render a matched lens ID.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -25,6 +26,7 @@ from .intelligence import json_response_format
 from .library import Lens
 from .observations import _strip_fence
 
+logger = logging.getLogger(__name__)
 _BUDGET = OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN
 _MAX_ROWS = 4
 
@@ -157,6 +159,9 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
     group_ids = set(projected.independent_group_ids[definition_key])
     requests = [(lens, unit_id) for lens in lenses for unit_id in unit_accounts]
     checked: dict[str, dict[str, tuple[bool, bool, list[QuoteRef]]]] = {}
+    #: Lenses that could not be decided validly for some unit; no result is
+    #: built for them from partial checks.
+    withheld: set[str] = set()
 
     def render(lens: Lens, unit_id: str) -> str:
         return (f"lensId={lens.id} unitId={unit_handles[unit_id]}\n"
@@ -257,8 +262,16 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
                 checked.setdefault(lens_id, {})[uid] = value
             missing = [(lens_id, uid) for lens_id, uid in missing
                        if uid not in checked.get(lens_id, {})]
+        if missing and problem["kind"] == "invalid_schema":
+            raise ReadUnavailable("invalid_schema")
         if missing:
-            raise ReadUnavailable(problem["kind"])
+            # The model would not decide these validly; on the archive it kept
+            # citing a field the account does not have. The lens is withheld
+            # for this pattern: never shown as matching, never as not applying.
+            logger.warning(f"Withheld {len({lens_id for lens_id, _ in missing})} lens(es) "
+                           f"after {LENS_ATTEMPTS} asks: {problem['kind']}")
+            for lens_id, _ in missing:
+                withheld.add(lens_id)
 
     for lens, uid in requests:
         fragment = render(lens, uid)
@@ -275,6 +288,8 @@ def match_lenses(projected: DiscoveryDraft, definition_key: str, lenses: list[Le
 
     matches = []
     for lens in lenses:
+        if lens.id in withheld:
+            continue
         decisions = checked[lens.id]
         qualified_groups = [gid for gid, _ in groups
                             if decisions.get("group:" + gid, (False, False, []))[0]]
