@@ -33,6 +33,7 @@ re-litigated by accident, only deliberately.
 | [0025](ADR-0025-talking-with-iris.md) | Talking with IRIS is chat with speech around it | Why voice wraps the ordinary chat turn instead of a realtime model, and why audio is never kept |
 | [0026](ADR-0026-idea-pages.md) | An idea has a page the owner writes, and wording the owner can change | Why ideas can be reworded, how `[[links]]` between notes survive a rename, and why notes are never evidence or sent to a model |
 | [0027](ADR-0027-source-backed-patterns-and-selected-evidence.md) | Source-backed Patterns and selected conversations; current process-first cutover | Neutral reading, whole-archive checks, owner corrections and typed current discussion; measured days stay separate |
+| [0028](ADR-0028-therapy-sessions.md) | A therapy session is the owner's evidence only where the owner speaks | Why sessions keep each turn's speaker, why only owner turns can be quoted, and why a session waits for the owner's click |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

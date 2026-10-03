@@ -28,6 +28,7 @@ from .pipeline import generate_embedding
 from .pipeline_orchestrator import admit
 from .preferences import UserPreferencesService
 from .prioritization import InsightPrioritizationEngine
+from .sessions import describe as describe_session, read as read_session
 
 # Handle both package and direct imports
 try:
@@ -44,6 +45,9 @@ CHECKIN_WORDS = (("mood", "mood"), ("sleep_quality", "sleep quality"),
                  ("stress", "stress"), ("focus", "focus"))
 ENTRY_CHARS_IN_CONTEXT = 1500
 MEMORY_CHARS_IN_CONTEXT = 300
+#: A recalled moment of a session is whole turns (sessions.PASSAGE_CHARS), so
+#: it is shown whole; this only bounds one unusually long turn.
+SESSION_PASSAGE_CHARS_IN_CONTEXT = 1000
 
 _WORD = re.compile(r"[a-z0-9']+")
 
@@ -467,6 +471,13 @@ class PersonalAICompanion:
                         recorded.append(f"{word} {item['value']}/10")
                 meta = f" ({', '.join(recorded)})" if recorded else ""
                 content = r["content"] or ""
+                session = read_session(content) if r.get("content_format") == "session" else None
+                if session is not None:
+                    # An hour of two people talking does not fit here, and its
+                    # opening minutes are the least of it. Said for what it is;
+                    # what was said is recalled by memory, speaker by speaker.
+                    content = (describe_session(session) + " What was said comes up under "
+                               "long-term memory, each turn with its speaker.")
                 if len(content) > ENTRY_CHARS_IN_CONTEXT:
                     content = content[:ENTRY_CHARS_IN_CONTEXT].rstrip() + " …"
                 # Every line indented, so a list inside an entry cannot pass for
@@ -512,6 +523,7 @@ class PersonalAICompanion:
 
             shown = {r["id"] for r in db.get_latest_reflections(self.user_id, RECENT_ENTRIES_IN_CONTEXT)}
             context_parts = []
+            from_session = False
             for r in results:
                 if r["source_type"] == "reflection" and r["source_id"] in shown:
                     continue
@@ -519,13 +531,29 @@ class PersonalAICompanion:
                 if not item:
                     continue
                 when = f"{item['date']:%Y-%m-%d}" if item["date"] else "undated"
-                words = _best_passage(item["text"], text, MEMORY_CHARS_IN_CONTEXT)
-                context_parts.append(f"- [{item['kind']}, {when}] {words}")
+                if r["source_type"] == "session_passage":
+                    # Whole turns, each naming its speaker: cutting a window out
+                    # of the middle could leave words without the person who
+                    # said them (ADR-0028).
+                    from_session = True
+                    turns = item["text"]
+                    if len(turns) > SESSION_PASSAGE_CHARS_IN_CONTEXT:
+                        turns = turns[:SESSION_PASSAGE_CHARS_IN_CONTEXT].rstrip() + " …"
+                    body = "\n".join(f"  {line}" for line in turns.splitlines())
+                    context_parts.append(f"- [{item['kind']}, {when}]\n{body}")
+                else:
+                    words = _best_passage(item["text"], text, MEMORY_CHARS_IN_CONTEXT)
+                    context_parts.append(f"- [{item['kind']}, {when}] {words}")
                 if len(context_parts) == n_results:
                     break
 
             if not context_parts:
                 return "No specific long-term memories found."
+            if from_session:
+                context_parts.append(
+                    "(In a therapy session passage only the turns marked owner are the owner's "
+                    "words. The therapist's turns are the therapist's, and a turn whose speaker "
+                    "is unclear may be either: never attribute those to the owner.)")
             return "\n".join(context_parts)
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")

@@ -30,6 +30,7 @@ export const qk = {
   importAdapters: ['import', 'adapters'] as const,
   importBatches: ['import', 'batches'] as const,
   importBatch: (id: string) => ['import', 'batches', id] as const,
+  sessionImports: ['sessions', 'imports'] as const,
   importEntries: (id: string) => ['import', 'batches', id, 'entries'] as const,
   sensorBatches: ['sensors', 'batches'] as const,
   sensorBatch: (id: number | string) => ['sensors', 'batches', String(id)] as const,

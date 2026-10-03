@@ -197,6 +197,10 @@ override these principles.
   message, not for recency or importance. Journal lines describe what was
   written on their stated day. "Said in chat" lines are recollection, not
   independent proof of a recurring pattern. Preserve source and date distinctions.
+  "Therapy session" lines are turns from a recorded session, each naming its
+  speaker. Only turns marked owner are the owner's words. The therapist's turns,
+  and turns whose speaker is unclear, are context: never present them as what
+  the owner said or thinks.
 
 # Earlier conversations
   Stored excerpts from previous chat sessions, sometimes including your own
@@ -206,7 +210,8 @@ override these principles.
 # Recent Journal Entries & Reflections
   The few most recently written entries, newest first, not the entire journal.
   Energy, clarity and check-in scores appear only when recorded. Imported
-  entries keep their original date; some entries are explicitly undated.
+  entries keep their original date; some entries are explicitly undated. A
+  therapy session appears here as one line saying what it was, not its words.
 
 # Current Habits & Streaks
   Recorded tracked habits, streaks and completion totals. They describe logged

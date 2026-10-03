@@ -7,12 +7,15 @@ import {
 } from '@/hooks/useImport';
 import { LoadingState, ErrorState } from '@/components/states';
 import { AudioRecorder } from '@/components/AudioRecorder';
+import { SessionImports } from '@/components/SessionImports';
+import { uploadSessionTranscript } from '@/api/sessions';
 import type { ImportBatch, ImportEntry } from '@/types/api';
 import { Badge, Button, Page, Section } from '@/ui';
 import styles from './ImportScreen.module.css';
 
 const TEXT_ACCEPT = '.zip,.md,.markdown,.txt,.json,.csv';
 const AUDIO_ACCEPT = '.m4a,.mp3,.wav,.webm,.ogg,.flac,.aac,.mp4';
+const SESSION_ACCEPT = '.md,.markdown,.txt';
 
 const badgeTone: Record<string, 'neutral' | 'confirmed' | 'worse' | 'action'> = {
   staged: 'neutral',
@@ -328,6 +331,22 @@ export function ImportScreen() {
     }
   };
 
+  /** A session transcript is staged and waits for the owner; nothing is sent (ADR-0028). */
+  const sendSession = async (files: FileList) => {
+    setError(undefined);
+    try {
+      for (const file of Array.from(files)) {
+        setProgress({ label: 'uploading', fraction: 0 });
+        await uploadSessionTranscript(file, { onProgress: (fraction) => setProgress({ label: 'uploading', fraction }) });
+      }
+      qc.invalidateQueries({ queryKey: qk.sessionImports });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The upload failed.');
+    } finally {
+      setProgress(undefined);
+    }
+  };
+
   /** A recording made here takes the same path as an uploaded one, and carries
    *  its own timestamp — so unlike an upload, it already knows its date. */
   const saveRecording = async (blob: Blob, filename: string, recordedAt: string) => {
@@ -389,7 +408,14 @@ export function ImportScreen() {
               />
               <AudioRecorder disabled={!!progress} onSave={saveRecording} />
             </div>
+            <DropZone
+              label="Therapy sessions" accept={SESSION_ACCEPT} busy={!!progress}
+              hint="A transcript with each turn marked by time and speaker. It waits here until you have said which speaker is you and when it was; nothing is sent before you import it."
+              onFiles={sendSession}
+            />
           </div>
+
+          <SessionImports />
 
           {(batches ?? []).length === 0 ? (
             <p className={styles.muted}>Nothing imported yet. Whatever you have written elsewhere can come in here, dated when you wrote it.</p>

@@ -2299,6 +2299,145 @@
         "type": "text"
       }
     },
+    "session_imports": {
+      "audio_path": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "audio_seconds": {
+        "default": null,
+        "nullable": "YES",
+        "type": "real"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "kind": {
+        "default": "'therapy'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "language": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "original_filename": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "original_transcript": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "owner_label": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "started_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp without time zone"
+      },
+      "status": {
+        "default": "'staged'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "therapist_label": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "transcript": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "transcript_hash": {
+        "default": null,
+        "nullable": "NO",
+        "type": "character"
+      },
+      "updated_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "voices_error": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "voices_report": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "voices_status": {
+        "default": "'none'::text",
+        "nullable": "NO",
+        "type": "text"
+      }
+    },
+    "session_passages": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "position": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "started_seconds": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "text": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "theme_occurrences": {
       "admission_basis": {
         "default": null,
@@ -4326,7 +4465,7 @@
         "type": "c"
       },
       "reflections_content_format_check": {
-        "definition": "CHECK (((content_format)::text = ANY ((ARRAY['plain'::character varying, 'markdown'::character varying])::text[])))",
+        "definition": "CHECK (((content_format)::text = ANY ((ARRAY['plain'::character varying, 'markdown'::character varying, 'session'::character varying])::text[])))",
         "type": "c"
       },
       "reflections_content_format_not_null": {
@@ -4358,7 +4497,7 @@
         "type": "p"
       },
       "reflections_source_check": {
-        "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying])::text[])))",
+        "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying, 'session'::character varying])::text[])))",
         "type": "c"
       },
       "reflections_source_not_null": {
@@ -4513,6 +4652,114 @@
       },
       "sensor_observations_source_type_not_null": {
         "definition": "NOT NULL source_type",
+        "type": "n"
+      }
+    },
+    "session_imports": {
+      "session_imports_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "session_imports_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "session_imports_kind_check": {
+        "definition": "CHECK ((kind = 'therapy'::text))",
+        "type": "c"
+      },
+      "session_imports_kind_not_null": {
+        "definition": "NOT NULL kind",
+        "type": "n"
+      },
+      "session_imports_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "session_imports_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "session_imports_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['staged'::text, 'importing'::text, 'imported'::text, 'discarded'::text])))",
+        "type": "c"
+      },
+      "session_imports_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "session_imports_transcript_hash_not_null": {
+        "definition": "NOT NULL transcript_hash",
+        "type": "n"
+      },
+      "session_imports_transcript_not_null": {
+        "definition": "NOT NULL transcript",
+        "type": "n"
+      },
+      "session_imports_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "session_imports_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "session_imports_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "session_imports_voices_status_check": {
+        "definition": "CHECK ((voices_status = ANY (ARRAY['none'::text, 'queued'::text, 'running'::text, 'done'::text, 'failed'::text])))",
+        "type": "c"
+      },
+      "session_imports_voices_status_not_null": {
+        "definition": "NOT NULL voices_status",
+        "type": "n"
+      }
+    },
+    "session_passages": {
+      "session_passages_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "session_passages_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "session_passages_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "session_passages_position_not_null": {
+        "definition": "NOT NULL \"position\"",
+        "type": "n"
+      },
+      "session_passages_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "session_passages_reflection_id_not_null": {
+        "definition": "NOT NULL reflection_id",
+        "type": "n"
+      },
+      "session_passages_reflection_id_position_key": {
+        "definition": "UNIQUE (reflection_id, \"position\")",
+        "type": "u"
+      },
+      "session_passages_started_seconds_not_null": {
+        "definition": "NOT NULL started_seconds",
+        "type": "n"
+      },
+      "session_passages_text_not_null": {
+        "definition": "NOT NULL text",
+        "type": "n"
+      },
+      "session_passages_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "session_passages_user_id_not_null": {
+        "definition": "NOT NULL user_id",
         "type": "n"
       }
     },
@@ -4903,6 +5150,15 @@
       "sensor_observations_occurred_date_idx": "CREATE INDEX sensor_observations_occurred_date_idx ON public.sensor_observations USING btree (occurred_date)",
       "sensor_observations_pkey": "CREATE UNIQUE INDEX sensor_observations_pkey ON public.sensor_observations USING btree (id)",
       "sensor_observations_source_occurred_idx": "CREATE INDEX sensor_observations_source_occurred_idx ON public.sensor_observations USING btree (source_type, occurred_at DESC NULLS LAST)"
+    },
+    "session_imports": {
+      "session_imports_pkey": "CREATE UNIQUE INDEX session_imports_pkey ON public.session_imports USING btree (id)",
+      "session_imports_user": "CREATE INDEX session_imports_user ON public.session_imports USING btree (user_id, created_at DESC)"
+    },
+    "session_passages": {
+      "session_passages_pkey": "CREATE UNIQUE INDEX session_passages_pkey ON public.session_passages USING btree (id)",
+      "session_passages_reflection_id_position_key": "CREATE UNIQUE INDEX session_passages_reflection_id_position_key ON public.session_passages USING btree (reflection_id, \"position\")",
+      "session_passages_user": "CREATE INDEX session_passages_user ON public.session_passages USING btree (user_id)"
     },
     "theme_occurrences": {
       "idx_occurrences_source": "CREATE INDEX idx_occurrences_source ON public.theme_occurrences USING btree (source_type, source_id)",

@@ -382,6 +382,30 @@ def verify_draft(quotes: list[QuoteIn], by_id: dict[tuple[str, int], dict[str, A
     return tuple(unique)
 
 
+def _quote_text(citation: Citation, by_id: dict[tuple[str, int], dict[str, Any]]) -> str:
+    from agent.markdown_text import for_model
+    entry = by_id[(citation.source_type, citation.entry_id)]
+    if entry.get("content_format") == "session":
+        # A session quote is already the owner's own span of one turn.
+        return citation.text
+    return for_model(citation.text, entry.get("content_format"))
+
+
+def _quote_context(citation: Citation, by_id: dict[tuple[str, int], dict[str, Any]]) -> str:
+    """The entry around a quote. For a session, the turns either side of it.
+
+    A whole session is an hour of two people talking; what decides whether
+    the owner stated a position is their turn and the question it answered,
+    labelled by speaker (ADR-0028).
+    """
+    from agent.markdown_text import for_model
+    from agent.sessions import around
+    entry = by_id[(citation.source_type, citation.entry_id)]
+    if entry.get("content_format") == "session":
+        return around(entry.get("content"), citation.text) or ""
+    return for_model(entry.get("content"), entry.get("content_format"))
+
+
 def check_stances(
     intelligence: Any,
     statement: str,
@@ -389,21 +413,14 @@ def check_stances(
     by_id: dict[tuple[str, int], dict[str, Any]],
 ) -> list[str]:
     """One verdict per surviving quote, or a failed check."""
-    from agent.markdown_text import for_model
     payload = {
         "proposition": statement,
         "quotes": [
             {
                 "i": index,
-                "text": for_model(
-                    citation.text,
-                    by_id[(citation.source_type, citation.entry_id)].get("content_format"),
-                ),
+                "text": _quote_text(citation, by_id),
                 "entryId": citation.entry_id,
-                "context": for_model(
-                    by_id[(citation.source_type, citation.entry_id)].get("content"),
-                    by_id[(citation.source_type, citation.entry_id)].get("content_format"),
-                ),
+                "context": _quote_context(citation, by_id),
             }
             for index, citation in enumerate(citations)
         ],

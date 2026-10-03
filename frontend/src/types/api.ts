@@ -99,7 +99,9 @@ export interface JournalEntry {
   lines: string[];
   /** The stored writing. Markdown when `format` is markdown. */
   text?: string;
-  format?: 'plain' | 'markdown';
+  format?: 'plain' | 'markdown' | 'session';
+  /** A therapy session's turns, read by the server (ADR-0028). */
+  session?: JournalSession | null;
   /** 1–10 self-rated energy at time of entry. */
   energy?: number;
   checkin?: JournalCheckin;
@@ -115,6 +117,73 @@ export interface JournalEntry {
   createdAt: ISODateTime | null;
   /** The recording this entry was transcribed from, where one was kept. */
   audioUrl?: string | null;
+}
+
+// Therapy sessions (ADR-0028). Only the owner's turns can become evidence; the
+// therapist's turns and those whose speaker is unclear are context.
+export type SessionRole = 'owner' | 'therapist' | 'unclear';
+
+export interface SessionTurn {
+  /** Seconds from the start of the recording. */
+  at: number;
+  label: string;
+  role: SessionRole;
+  text: string;
+}
+
+export interface JournalSession {
+  kind: 'therapy';
+  /** Local wall time as the owner gave it, "YYYY-MM-DDTHH:MM". */
+  startedAt: string | null;
+  language: string | null;
+  owner: string | null;
+  therapist: string | null;
+  durationSeconds: number | null;
+  turns: SessionTurn[];
+}
+
+export interface SessionImport {
+  id: ID;
+  status: 'staged' | 'importing' | 'imported' | 'discarded';
+  kind: 'therapy';
+  filename: string | null;
+  createdAt: ISODateTime;
+  startedAt: string | null;
+  language: string | null;
+  owner: string | null;
+  therapist: string | null;
+  speakers: { label: string; segments: number; words: number; role: SessionRole }[];
+  segments: number;
+  turns: number;
+  durationSeconds: number | null;
+  /** Lines before the first turn (the transcriber's title and notes), left out. */
+  leftOut: number;
+  /** What the owner still has to say before the session can be imported. */
+  missing: string[];
+  alreadyImported: { importId: ID; on: ISODate } | null;
+  estimate: { passages: number; indexingDollars: number; readingDollars: number | null; text: string } | null;
+  reflectionId: ID | null;
+  /** The optional pass that tells the speakers apart by voice; it sends the recording, so it has its own click. */
+  voices: {
+    status: 'none' | 'queued' | 'running' | 'done' | 'failed';
+    report: SessionVoicesReport | null;
+    error: string | null;
+    hasRecording: boolean;
+    estimate: { minutes: number; dollars: number; text: string } | null;
+  };
+}
+
+export interface SessionVoicesReport {
+  segments: number;
+  heard: number;
+  /** Lines the transcript labelled as you or the therapist, where a voice was heard. */
+  labelled: number;
+  agreed: number;
+  /** Labelled lines the voices clearly disagreed with, now marked unsure. */
+  contradicted: number;
+  /** Uncertain lines now given a speaker, by label. */
+  attributed: Record<string, number>;
+  doubtful: number;
 }
 
 export interface JournalWrite {

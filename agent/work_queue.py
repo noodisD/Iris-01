@@ -189,6 +189,13 @@ def _run(source_type: str, source_id: int) -> None:
 
         run_transcription_job(source_id)
         return
+    if source_type == "session_voices":
+        # A staged session's speakers, from its recording (ADR-0028). Its own
+        # failures are recorded for the owner and not retried here.
+        from .session_voices import run as sort_out_voices
+
+        sort_out_voices(source_id)
+        return
     if source_type == "discovery":
         from .discovery_worker import process_reflection
         from .episodes import ReadUnavailable

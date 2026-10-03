@@ -12,6 +12,7 @@ import { EditorToolbar } from '@/components/journal/EditorToolbar';
 // Also in MarkdownEditor, which is loaded lazily; kept here so the fallback needs no editor code.
 const JOURNAL_PLACEHOLDER = 'Write about your day…   **bold**  # heading  - list  - [ ] task  > quote';
 import { MarkdownView } from '@/components/journal/MarkdownView';
+import { SessionView } from '@/components/journal/SessionView';
 import { Badge, Button, Page, TabPanel, Tabs } from '@/ui';
 import styles from './JournalScreen.module.css';
 import { commandFor } from '@/components/journal/markdownCommands';
@@ -196,9 +197,11 @@ export function JournalScreen() {
                     {(entry.tags ?? []).map(tag => <Badge key={tag}>{tag}</Badge>)}
                   </header>
                   {recorded && <p className={styles.recorded}>{recorded}</p>}
-                  {entry.format === 'markdown'
-                    ? <div className={styles.text}><MarkdownView text={body} /></div>
-                    : <div className={styles.text}>{body}</div>}
+                  {entry.session
+                    ? <SessionView session={entry.session} />
+                    : entry.format === 'markdown'
+                      ? <div className={styles.text}><MarkdownView text={body} /></div>
+                      : <div className={styles.text}>{body}</div>}
                   {entry.audioUrl && (
                     <audio controls preload="none" src={entry.audioUrl} aria-label="the recording this was transcribed from"
                       className={styles.audio} />

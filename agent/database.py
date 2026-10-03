@@ -374,6 +374,37 @@ class Database:
                 logger.error(f"Failed to add embedding for {source_type} ID {source_id}: {e}")
                 raise
 
+    def replace_session_passages(self, user_id: int, reflection_id: int, model_name: str,
+                                 rows: list[tuple[int, int, str, list]]) -> None:
+        """A session's recall passages and their vectors, replacing the last cut.
+
+        `rows` are (position, started_seconds, text, vector). One transaction,
+        so chat never recalls half of an old cut beside half of a new one.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """DELETE FROM embeddings WHERE source_type = 'session_passage' AND source_id IN (
+                           SELECT id FROM session_passages WHERE reflection_id = %s);""",
+                    (reflection_id,))
+                cur.execute("DELETE FROM session_passages WHERE reflection_id = %s;", (reflection_id,))
+                for position, started, text, vector in rows:
+                    cur.execute(
+                        """INSERT INTO session_passages
+                               (reflection_id, user_id, position, started_seconds, text)
+                           VALUES (%s, %s, %s, %s, %s) RETURNING id;""",
+                        (reflection_id, user_id, position, started, text))
+                    passage_id = cur.fetchone()[0]
+                    cur.execute(
+                        """INSERT INTO embeddings (source_type, source_id, model_name, vector)
+                           VALUES ('session_passage', %s, %s, %s);""",
+                        (passage_id, model_name, vector))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to store passages for session {reflection_id}: {e}")
+                raise
+
     def search_similar_embeddings(self, user_id: int, query_vector: list, n_results: int = 5) -> list:
         """Searches for semantically similar embeddings using pgvector cosine distance."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -389,12 +420,14 @@ class Database:
                             SELECT id FROM conversation_messages WHERE user_id = %s AND role = 'user')) OR
                         (e.source_type = 'habit_completion' AND e.source_id IN (
                             SELECT hc.id FROM habit_completions hc
-                            JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s))
+                            JOIN habits h ON hc.habit_id = h.id WHERE h.user_id = %s)) OR
+                        (e.source_type = 'session_passage' AND e.source_id IN (
+                            SELECT id FROM session_passages WHERE user_id = %s))
                     )
                     ORDER BY distance ASC
                     LIMIT %s;
                     """,
-                    (query_vector, user_id, user_id, user_id, n_results)
+                    (query_vector, user_id, user_id, user_id, user_id, n_results)
                 )
                 rows = cur.fetchall()
                 return [
@@ -1632,7 +1665,8 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT id, reflection_date, content, mood, energy_level, clarity_level, metrics
+                """SELECT id, reflection_date, content, mood, energy_level, clarity_level, metrics,
+                          content_format
                    FROM reflections WHERE user_id = %s
                    -- NULLS LAST, explicitly: DESC puts them first in Postgres,
                    -- so "the most recent entries" began with the writing whose
@@ -1640,7 +1674,8 @@ class Database:
                    ORDER BY reflection_date DESC NULLS LAST, id DESC LIMIT %s;""",
                 (user_id, limit),
             )
-            keys = ("id", "reflection_date", "content", "mood", "energy_level", "clarity_level", "metrics")
+            keys = ("id", "reflection_date", "content", "mood", "energy_level", "clarity_level", "metrics",
+                    "content_format")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
     def get_memory_item(self, source_type: str, source_id: int) -> dict | None:
@@ -1654,6 +1689,12 @@ class Database:
         queries = {
             "reflection": ("journal", "SELECT content, reflection_date FROM reflections WHERE id = %s;"),
             "message": ("said in chat", "SELECT content, created_at::date FROM conversation_messages WHERE id = %s;"),
+            # Whole turns with their speakers named (ADR-0028): a recalled
+            # moment of a session always says who said it.
+            "session_passage": ("therapy session", """SELECT p.text, r.reflection_date
+                                                      FROM session_passages p
+                                                      JOIN reflections r ON r.id = p.reflection_id
+                                                     WHERE p.id = %s;"""),
             "habit_completion": ("habit", """SELECT CASE WHEN hc.is_skipped
                                                      THEN 'Skipped ' || h.name || COALESCE(': ' || hc.skip_reason, '')
                                                      ELSE 'Did ' || h.name || COALESCE(': ' || hc.notes, '') END,
@@ -3425,6 +3466,13 @@ class Database:
                 touched = {r[0] for r in cur.fetchall()}
                 cur.execute(
                     "DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s;",
+                    (reflection_id,)
+                )
+                # A session's passages go with it by foreign key; their vectors
+                # are keyed by (source_type, source_id) and are removed here.
+                cur.execute(
+                    """DELETE FROM embeddings WHERE source_type = 'session_passage' AND source_id IN (
+                           SELECT id FROM session_passages WHERE reflection_id = %s);""",
                     (reflection_id,)
                 )
                 # Its job goes too. A queued entry deleted before the worker

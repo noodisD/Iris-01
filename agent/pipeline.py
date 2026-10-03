@@ -114,6 +114,29 @@ def rebuild_themes(user_id: int) -> dict:
 
 
 @obs.traced("pipeline.run", "pipeline", args=("source_type", "source_id"))
+def _index_session(user_id: int, reflection_id: int) -> str:
+    """Embed a session's passages for recall, replacing any earlier cut.
+
+    Each passage is whole turns with their speakers named, so whatever chat
+    recalls says who said it. Read from the stored text, not the labelled copy
+    the pipeline embeds for an entry. Returns "superseded" when the session was
+    edited while it was being embedded: the re-queued run indexes the new text.
+    """
+    from .sessions import passages
+
+    model_name = "text-embedding-3-small"
+    stored = db.get_reflection(reflection_id) or {}
+    cut = passages(stored.get("content"))
+    vectors = [generate_embedding(passage.text, model=model_name) for passage in cut]
+    if not db.is_still_processing("reflection", reflection_id):
+        logger.info(f"Session {reflection_id} changed while being indexed; leaving it to the re-queued run")
+        return "superseded"
+    db.replace_session_passages(user_id, reflection_id, model_name,
+                                [(p.position, p.at, p.text, v) for p, v in zip(cut, vectors)])
+    obs.set_attributes({"iris.pipeline.session_passages": len(cut)})
+    return "complete"
+
+
 def run_processing_pipeline(source_type: str, source_id: int):
     """
     Runs the full processing pipeline for a given source item.
@@ -172,6 +195,17 @@ def run_processing_pipeline(source_type: str, source_id: int):
                 logger.info(f"Processing historical item from {dt_occ} (Backfill detected)")
         except Exception as e:
             logger.warning(f"Timestamp check failed: {e}")
+
+        if item_data.get("content_format") == "session" and source_type == "reflection":
+            # A session is recalled passage by passage, and it is not a theme
+            # occurrence: the theme engine reads an entry as the owner's
+            # writing, and much of a session is somebody else (ADR-0028).
+            outcome = _index_session(user_id, source_id)
+            obs.set_attributes({"iris.pipeline.outcome": outcome})
+            if outcome == "complete":
+                db.update_processing_status(source_type, source_id, 'complete')
+            obs.capture_output({"outcome": outcome})
+            return
 
         # 3. Generate embedding
         model_name = "text-embedding-3-small"

@@ -81,6 +81,21 @@ and UTC day occupies the cap; deletion restores an older approved reading
 when one exists. Unlinked readings stay raw and cannot form themes.
 Date-only step readings retain their calendar day in review.
 
+### Session
+A recorded therapy session, stored as one dated reflection (`content_format`
+`session`) whose text names the owner's and the therapist's speaker labels and
+keeps each **turn** — one speaker's uninterrupted stretch — apart. A turn's role
+comes from its label alone: exactly the owner's label is the owner, exactly the
+therapist's is the therapist, anything else is **unclear**. Only the owner's
+turns can be evidence: a source account, an idea quote or a letter quote must lie
+inside one owner turn, and an account that would join two of them is dropped.
+The therapist's and unclear turns are context, shown to readers with their
+speaker and never quoted as the owner's. A session waits on the Import screen,
+sent nowhere, until the owner has given its day and time and said which speaker
+they are; importing is the click that sends it to be indexed and read. It is
+recalled in chat by **passage** (whole turns, each naming its speaker) and is
+not a theme occurrence (ADR-0028).
+
 ### Trajectory
 Whether a theme's recent rate differs from its baseline:
 `TRAJECTORY_RECENT_DAYS` (14) against the prior `TRAJECTORY_BASELINE_DAYS` (60).

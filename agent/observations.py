@@ -678,7 +678,16 @@ def verify_citations(quotes: list, by_id: dict) -> tuple[Citation, ...] | None:
             logger.info("Citation too short to identify a passage, observation refused")
             return None
         original = entry.get("content") or ""
-        if entry.get("content_format") == "markdown":
+        if entry.get("content_format") == "session":
+            # Only the owner's own turns are evidence (ADR-0028): words the
+            # therapist said, or a turn whose speaker is unclear, are context.
+            from .sessions import owner_turn
+            held = owner_turn(original, quote)
+            if held is None:
+                logger.info(f"Quote not in the owner's own turns of {source_type} {entry_id}, observation refused")
+                return None
+            stored = held[1]
+        elif entry.get("content_format") == "markdown":
             # The model read the words without markers. The stored quote is
             # the owner's own span, markers included.
             from .readable import locate

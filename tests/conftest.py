@@ -303,9 +303,11 @@ def _purge_user(user_id: int) -> None:
              OR (source_type = 'message'       AND source_id IN (SELECT id FROM conversation_messages WHERE user_id = %s))
              OR (source_type IN ('habit', 'habit_completion') AND source_id IN (
                     SELECT c.id FROM habit_completions c
-                    JOIN habits h ON h.id = c.habit_id WHERE h.user_id = %s));
+                    JOIN habits h ON h.id = c.habit_id WHERE h.user_id = %s))
+             OR (source_type = 'session_passage' AND source_id IN (
+                    SELECT id FROM session_passages WHERE user_id = %s));
             """,
-            (user_id, user_id, user_id),
+            (user_id, user_id, user_id, user_id),
         )
 
         # Analytical caches keyed by pattern, not by user.

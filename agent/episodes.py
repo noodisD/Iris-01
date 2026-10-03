@@ -21,6 +21,7 @@ from .constants import (OBSERVATION_CHARS_PER_TOKEN, OBSERVATION_CHUNK_TOKENS,
 from .observations import (Citation, ObservationEngine, _normalized, _strip_fence,
                            chunk_entries, interleave)
 from .readable import locate
+from .sessions import owner_turn
 
 logger = logging.getLogger(__name__)
 EXTRACTION_VERSION = 4
@@ -170,10 +171,20 @@ def _citations(quotes: list[_QuoteIn], by_id: dict) -> tuple[Citation, ...] | No
         entry = by_id.get((quote.sourceType, quote.entryId))
         if entry is None or len(quote.text.strip()) < OBSERVATION_MIN_QUOTE_CHARS:
             return None
-        original = locate(entry["content"], quote.text)
-        if original is None:
-            return None
-        paragraph = _paragraph(entry["content"], original)
+        if entry.get("content_format") == "session":
+            # Only the owner's own turns are evidence (ADR-0028). The citation
+            # is the whole turn the quote sits in; a quote found only in the
+            # therapist's words, or in a turn whose speaker is unclear, sinks
+            # the account as an unfound quote does.
+            held = owner_turn(entry["content"], quote.text)
+            if held is None:
+                return None
+            paragraph = held[0].text
+        else:
+            original = locate(entry["content"], quote.text)
+            if original is None:
+                return None
+            paragraph = _paragraph(entry["content"], original)
         key = (quote.sourceType, quote.entryId, paragraph)
         if key not in seen:
             found.append(Citation(entry_id=quote.entryId, entry_date=entry.get("date"),
@@ -193,6 +204,14 @@ def _verified_episodes(raw: list, entries: list[dict]) -> tuple[list[Episode], i
             raise ReadUnavailable("invalid_schema") from exc
         citations = _citations(account.quotes, by_id)
         if not citations:
+            omitted_accounts += 1
+            continue
+        if len(citations) > 1 and any(
+                by_id.get((citation.source_type, citation.entry_id), {}).get("content_format") == "session"
+                for citation in citations):
+            # An account from a session rests on one uninterrupted stretch of
+            # the owner speaking. Joining two would need the words between
+            # them, which are someone else's.
             omitted_accounts += 1
             continue
         fields: dict[str, str | None] = {}

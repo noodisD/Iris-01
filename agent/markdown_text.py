@@ -57,8 +57,15 @@ def plain_text(md: str | None) -> str:
 
 
 def for_model(content: str | None, content_format: str | None) -> str:
-    """What a model or an embedding should read. Plain rows are unchanged."""
+    """What a model or an embedding should read. Plain rows are unchanged.
+
+    A session is read turn by turn with each speaker named (ADR-0028), so a
+    model never meets the therapist's words without being told whose they are.
+    """
     text = content or ""
     if content_format == "markdown":
         return plain_text(text)
+    if content_format == "session":
+        from .sessions import for_model as session_for_model
+        return session_for_model(text)
     return text

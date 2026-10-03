@@ -1083,6 +1083,30 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         # Present only for entries that came from a recording, so the journal
         # can offer the audio next to the words it produced.
         "audioUrl": f"/api/audio/{r['id']}" if r.get("audio_path") else None,
+        "session": _session_contract(content) if r.get("content_format") == "session" else None,
+    }
+
+
+def _session_contract(content: str) -> dict | None:
+    """A session's turns with their speakers and roles, read by the server.
+
+    The roles come from the same reading every engine uses (ADR-0028), so the
+    journal cannot show as the owner's a turn the engines treat as context.
+    """
+    from agent.sessions import read as read_session
+
+    session = read_session(content)
+    if session is None:
+        return None
+    return {
+        "kind": session.kind,
+        "startedAt": session.started,
+        "language": session.language,
+        "owner": session.owner,
+        "therapist": session.therapist,
+        "durationSeconds": session.duration,
+        "turns": [{"at": turn.at, "label": turn.label, "role": turn.role, "text": turn.text}
+                  for turn in session.turns],
     }
 
 
@@ -1697,6 +1721,116 @@ def bulk_update_import_entries(payload: ImportBulk,
     except ImportError_ as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"updated": updated}
+
+
+# --- therapy sessions (ADR-0028) ----------------------------------------------
+
+class SessionImportUpdate(BaseModel):
+    """What the owner sets before importing. Only the fields sent change."""
+    model_config = ConfigDict(extra="forbid")
+    startedAt: str | None = None
+    language: str | None = None
+    owner: str | None = None
+    therapist: str | None = None
+
+
+def _session_import_call(user_id: int, action: str, *args):
+    from agent.session_imports import SessionImportError, SessionImports
+    try:
+        return getattr(SessionImports(user_id), action)(*args)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except SessionImportError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/sessions/imports")
+def list_session_imports(user_id: int = Depends(get_current_user_id)):
+    """Sessions waiting for the owner, and the ones imported recently."""
+    return {"imports": _session_import_call(user_id, "list")}
+
+
+@app.post("/api/sessions/imports")
+async def stage_session_import(file: UploadFile = File(...),
+                               user_id: int = Depends(get_current_user_id)):
+    """Keep a session transcript for the owner to check. Nothing is sent anywhere."""
+    from agent.session_imports import MAX_TRANSCRIPT_BYTES
+
+    data = await file.read(MAX_TRANSCRIPT_BYTES + 1)
+    if len(data) > MAX_TRANSCRIPT_BYTES:
+        raise HTTPException(status_code=413, detail="That file is too large to be a session transcript.")
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="The transcript must be a UTF-8 text file.")
+    name = Path(file.filename or "").name or None
+    return await run_in_threadpool(_session_import_call, user_id, "stage", text, name)
+
+
+@app.get("/api/sessions/imports/{import_id}")
+def get_session_import(import_id: int, user_id: int = Depends(get_current_user_id)):
+    return _session_import_call(user_id, "get", import_id)
+
+
+@app.patch("/api/sessions/imports/{import_id}")
+def update_session_import(import_id: int, payload: SessionImportUpdate,
+                          user_id: int = Depends(get_current_user_id)):
+    return _session_import_call(user_id, "update", import_id, payload.model_dump(exclude_unset=True))
+
+
+@app.post("/api/sessions/imports/{import_id}/commit")
+def commit_session_import(import_id: int, user_id: int = Depends(get_current_user_id)):
+    """The owner's click: the session goes into the journal and out to be read."""
+    return _session_import_call(user_id, "commit", import_id)
+
+
+@app.post("/api/sessions/imports/{import_id}/undo")
+def undo_session_import(import_id: int, user_id: int = Depends(get_current_user_id)):
+    """Take an imported session out of the journal, back to waiting."""
+    return _session_import_call(user_id, "undo", import_id)
+
+
+@app.delete("/api/sessions/imports/{import_id}")
+def discard_session_import(import_id: int, user_id: int = Depends(get_current_user_id)):
+    return _session_import_call(user_id, "discard", import_id)
+
+
+@app.post("/api/sessions/imports/{import_id}/recording")
+async def keep_session_recording(import_id: int, file: UploadFile = File(...),
+                                 user_id: int = Depends(get_current_user_id)):
+    """Keep a staged session's recording for the voices pass. Nothing is sent."""
+    from agent.session_voices import AUDIO_SUFFIXES, MAX_RECORDING_BYTES
+
+    name = Path(file.filename or "recording").name
+    if Path(name).suffix.lower() not in AUDIO_SUFFIXES:
+        raise HTTPException(status_code=400,
+                            detail=f"{Path(name).suffix or 'That file'} is not an audio format IRIS can read.")
+    staging = Path(tempfile.mkdtemp(prefix="iris-session-audio-"))
+    destination = staging / name
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_RECORDING_BYTES:
+                    raise HTTPException(status_code=413, detail="That recording is too large.")
+                out.write(chunk)
+        return await run_in_threadpool(_session_import_call, user_id, "keep_recording",
+                                       import_id, destination, name)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+@app.post("/api/sessions/imports/{import_id}/voices")
+def start_session_voices(import_id: int, user_id: int = Depends(get_current_user_id)):
+    """The owner's click that sends the recording to tell the speakers apart."""
+    return _session_import_call(user_id, "start_voices", import_id)
+
+
+@app.post("/api/sessions/imports/{import_id}/voices/undo")
+def undo_session_voices(import_id: int, user_id: int = Depends(get_current_user_id)):
+    """Put the transcriber's own speaker labels back."""
+    return _session_import_call(user_id, "undo_voices", import_id)
 
 
 class ImportReparse(BaseModel):
@@ -2314,12 +2448,19 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     import agent.core as core_module
     from agent import review_letter
     from agent.narrative import NarrativeFormatter
+    from agent.sessions import owner_words
     from agent.pipeline_orchestrator import admit
     from agent.prioritization import InsightPrioritizationEngine
 
-    n = len(this_week)
-    facts = [f"You wrote {n} entr{'y' if n == 1 else 'ies'} on {len(written_on)} of the 7 days."
+    # A therapy session is not something the owner wrote (ADR-0028).
+    held = [r for r in this_week if r.get("content_format") == "session"]
+    written = [r for r in this_week if r.get("content_format") != "session"]
+    n = len(written)
+    days = {r["reflection_date"] for r in written} & set(written_on)
+    facts = [f"You wrote {n} entr{'y' if n == 1 else 'ies'} on {len(days)} of the 7 days."
              if n else "Nothing was written this week."]
+    if held:
+        facts.append(f"You had {len(held)} therapy session{'' if len(held) == 1 else 's'}.")
     if energy_avg is not None:
         facts.append(f"The energy you reported averaged {energy_avg}"
                      + (f", {abs(energy_delta)} {'higher' if energy_delta > 0 else 'lower'} than the week before."
@@ -2327,7 +2468,9 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     if habits_total:
         facts.append(f"You kept {habits_hit} of {habits_total} habits at least once.")
 
-    entries = [r["content"] for r in this_week]
+    # A session's quotes can only be the owner's turns (ADR-0028).
+    entries = [owner_words(r["content"]) if r.get("content_format") == "session" else r["content"]
+               for r in this_week]
     key = review_letter.letter_key(facts, entries, with_findings, date.today())
     kept = review_letter.kept_letter(user_id, key)
     if kept is not None:
@@ -2349,7 +2492,8 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
         intelligence = None
     letter, keep = review_letter.compose_letter(
         facts, findings, entries, intelligence,
-        [r.get("content_format") or "plain" for r in this_week],
+        ["plain" if r.get("content_format") == "session" else r.get("content_format") or "plain"
+         for r in this_week],
     )
     if keep:
         review_letter.keep_letter(user_id, key, letter)

@@ -130,7 +130,8 @@ def _silences(path: Path) -> list[float]:
 
 
 @obs.traced("import.ffmpeg_split", "import", result=lambda r: {"iris.transcribe.pieces": len(r)})
-def split(path: Path, workdir: Path, duration: float | None) -> list[Path]:
+def split(path: Path, workdir: Path, duration: float | None,
+          chunk_seconds: int | None = None) -> list[Path]:
     """Cut a long recording into transcribable pieces.
 
     Prefers a silence near each target boundary. A hard cut lands mid-word, and
@@ -140,17 +141,18 @@ def split(path: Path, workdir: Path, duration: float | None) -> list[Path]:
     """
     if not duration:
         duration = probe_duration(path) or 0.0
-    if duration <= CHUNK_SECONDS:
+    chunk_seconds = chunk_seconds or CHUNK_SECONDS
+    if duration <= chunk_seconds:
         return [path]
 
     candidates = _silences(path)
     cuts: list[float] = []
-    target = CHUNK_SECONDS
+    target = chunk_seconds
     while target < duration - 1:
         near = [s for s in candidates
                 if abs(s - target) <= CHUNK_SLACK_SECONDS and s > (cuts[-1] if cuts else 0) + 30]
         cuts.append(min(near, key=lambda s: abs(s - target)) if near else float(target))
-        target = cuts[-1] + CHUNK_SECONDS
+        target = cuts[-1] + chunk_seconds
 
     bounds = [0.0, *cuts, duration]
     pieces = []
