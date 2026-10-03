@@ -258,3 +258,22 @@ def test_an_estimate_on_flex_is_half_the_standard_price():
         "2000k tokens in on gpt-6-luna, about $0.70"
     assert Intelligence.estimate("gpt-6-luna", 2_000_000, 1_000_000, service_tier="flex") == \
         "2000k tokens in on gpt-6-luna on Flex, about $0.35"
+
+
+def test_a_background_request_that_never_returns_fails_at_its_deadline(flex, monkeypatch):
+    """One Flex request once held the patterns run for ten hours with no error."""
+    import threading
+
+    release = threading.Event()
+
+    def never(**kwargs):
+        release.wait(5)
+        return _Response("too late")
+
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", never)
+    monkeypatch.setattr("agent.intelligence.FLEX_DEADLINE_SECONDS", 0.2)
+    try:
+        with pytest.raises(TimeoutError, match="deadline"):
+            flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
+    finally:
+        release.set()

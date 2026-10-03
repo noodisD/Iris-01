@@ -10,6 +10,8 @@ while the Gemini SDK it depended on reached end of support in November 2025.
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as DeadlinePassed
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
@@ -96,6 +98,26 @@ _REJECTS_TEMPERATURE = _LearnedModels("rejects_temperature")
 FLEX_TIMEOUT_SECONDS = 900
 #: Pauses before sending a Flex request again after "capacity unavailable".
 FLEX_RETRY_PAUSES = (15, 60, 180)
+#: The longest one background request may take, retries included. A Flex
+#: request once never returned and held the patterns run for ten hours with
+#: no error; past this it fails, and the queue tries again later.
+FLEX_DEADLINE_SECONDS = 1200
+
+
+def _within_deadline(call, seconds: float):
+    """`call()`, or TimeoutError once `seconds` have passed.
+
+    A per-read socket timeout does not bound a request that keeps its
+    connection open, so the request runs on its own thread and is abandoned,
+    not waited for, when the deadline passes.
+    """
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-deadline")
+    try:
+        return executor.submit(call).result(timeout=seconds)
+    except DeadlinePassed:
+        raise TimeoutError(f"model request passed its {seconds:.0f}s deadline") from None
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 class Intelligence:
@@ -309,7 +331,11 @@ class Intelligence:
                 with LlmCall(
                     "chat", kwargs["model"], prompt=json_attr(kwargs["messages"], MAX_TEXT),
                 ) as call:
-                    response = client.chat.completions.create(**kwargs)
+                    if flex:
+                        response = _within_deadline(lambda: client.chat.completions.create(**kwargs),
+                                                    FLEX_DEADLINE_SECONDS)
+                    else:
+                        response = client.chat.completions.create(**kwargs)
                     call.usage(getattr(response, "usage", None))
                     call.output(response.choices[0].message.content)
                     return response
