@@ -161,7 +161,7 @@ export interface SessionImport {
   /** What the owner still has to say before the session can be imported. */
   missing: string[];
   alreadyImported: { importId: ID; on: ISODate } | null;
-  estimate: { passages: number; indexingDollars: number; readingDollars: number | null; text: string } | null;
+  estimate: { passages: number; indexingDollars: number; readingDollars: number | null; updateDollars?: number | null; text: string } | null;
   reflectionId: ID | null;
   /** The optional pass that tells the speakers apart by voice; it sends the recording, so it has its own click. */
   voices: {

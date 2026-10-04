@@ -7,8 +7,10 @@ Semantic model decisions are provisional; the deterministic gates live in
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from itertools import combinations
 from typing import Literal
 
@@ -513,6 +515,36 @@ def _membership_rows(reply: _MembershipIn, items: list[tuple[int, str]],
     return received
 
 
+#: Batches asked at once. Each is an independent request whose verdicts are
+#: kept as it lands, so asking several together changes the time a run takes,
+#: not what it costs or decides. On Flex one request takes 10-70 seconds, and
+#: one at a time a new definition's pass over the archive took about 20 minutes.
+CONCURRENT_REQUESTS = 6
+
+
+def _in_parallel(batches: list, decide) -> list:
+    """`decide(batch)` for every batch, a few at a time, results in batch order.
+
+    Each batch runs in a copy of the caller's context, so the memo scope and
+    tracing follow it into the worker thread. Every batch is let finish, so
+    what was paid for is kept, before the first failure is raised.
+    """
+    if len(batches) <= 1:
+        return [decide(batch) for batch in batches]
+    with ThreadPoolExecutor(max_workers=CONCURRENT_REQUESTS) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, decide, batch) for batch in batches]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append((future.result(), None))
+            except Exception as exc:
+                outcomes.append((None, exc))
+    for _, error in outcomes:
+        if error is not None:
+            raise error
+    return [result for result, _ in outcomes]
+
+
 def _check_membership(definitions: list[Definition], accounts: dict[str, Episode],
                       handles: dict[str, str], ids_by_handle: dict[str, str], intelligence):
     """Every definition against every account, each pair decided once.
@@ -559,13 +591,16 @@ def _check_membership(definitions: list[Definition], accounts: dict[str, Episode
     if current:
         batches.append(current)
 
-    for batch in batches:
+    def decide(batch: list[tuple[int, str]]) -> tuple[dict, list]:
         received, unanswered = _answered(
             lambda items: _ask(intelligence, MEMBERSHIP_PROMPT, render(items), _MembershipIn,
                                remember=False),
             lambda reply, items: _membership_rows(reply, items, accounts_by_handle, ids_by_handle),
             batch)
         memo.keep("membership", {keys[unit]: value for unit, value in received.items()})
+        return received, unanswered
+
+    for received, unanswered in _in_parallel(batches, decide):
         if unanswered:
             raise ReadUnavailable("invalid_matrix")
         decided.update(received)
@@ -681,19 +716,23 @@ def _identity_pairs(rows: list[Membership], accounts: dict[str, Episode], intell
     accounts_by_handle = {handle: accounts[id_] for id_, handle in handles.items()}
     rendered = {id_: _render(handles[id_], accounts[id_]) for id_ in included}
 
-    for batch in _pair_batches([pair for pair in wanted if pair not in previous], rendered):
-        def content(items: list[tuple[str, str]]) -> str:
-            members = sorted({id_ for pair in items for id_ in pair})
-            return ("Accounts:\n" + "".join(rendered[id_] for id_ in members) +
-                    "\nRequested pairs:\n" +
-                    "".join(f"leftAccountId={handles[a]} rightAccountId={handles[b]}\n"
-                            for a, b in items))
+    def content(items: list[tuple[str, str]]) -> str:
+        members = sorted({id_ for pair in items for id_ in pair})
+        return ("Accounts:\n" + "".join(rendered[id_] for id_ in members) +
+                "\nRequested pairs:\n" +
+                "".join(f"leftAccountId={handles[a]} rightAccountId={handles[b]}\n"
+                        for a, b in items))
+
+    def decide(batch: list[tuple[str, str]]) -> tuple[dict, list]:
         received, unanswered = _answered(
-            lambda items, content=content: _ask(intelligence, IDENTITY_PROMPT, content(items),
-                                                _PairsIn, remember=False),
+            lambda items: _ask(intelligence, IDENTITY_PROMPT, content(items), _PairsIn, remember=False),
             lambda reply, items: _pair_rows(reply, items, accounts_by_handle, ids_by_handle),
             batch)
         memo.keep("identity", {keys[pair]: decision.as_dict() for pair, decision in received.items()})
+        return received, unanswered
+
+    batches = _pair_batches([pair for pair in wanted if pair not in previous], rendered)
+    for batch, (received, unanswered) in zip(batches, _in_parallel(batches, decide)):
         if unanswered:
             raise ReadUnavailable("invalid_partition")
         decisions.extend(received[pair] for pair in batch)
@@ -784,6 +823,32 @@ def _answered(ask, parse, wanted: list, attempts: int = BATCH_ATTEMPTS) -> tuple
     return answers, missing
 
 
+#: Definitions a first run checks against the whole archive.
+MAX_DEFINITIONS = 24
+#: New definitions one update may add. Each is checked against every account
+#: in the archive, which is where an update's time and money go: one therapy
+#: session proposed 22 and its update ran for most of a day. The rest wait.
+MAX_NEW_DEFINITIONS = 5
+
+
+def _admit(merged: list[Definition], previous: DiscoveryDraft) -> list[Definition]:
+    """Which ranked definitions an update checks, in rank order.
+
+    A definition that had support last time keeps its place, so what the owner
+    sees does not change because one entry arrived. At most MAX_NEW_DEFINITIONS
+    new ones are added. Carried definitions without support fill what room is
+    left up to MAX_DEFINITIONS; the set grows past that only by the new ones.
+    """
+    supported = {row.dynamic_id for row in previous.memberships if row.role == "support"}
+    carried = {definition_key(definition) for definition in previous.definitions}
+    kept = [d for d in merged if definition_key(d) in supported]
+    new = [d for d in merged if definition_key(d) not in carried][:MAX_NEW_DEFINITIONS]
+    rest = [d for d in merged if definition_key(d) in carried and definition_key(d) not in supported]
+    room = max(MAX_DEFINITIONS, len(kept) + len(new))
+    chosen = {definition_key(d) for d in (kept + new + rest)[:room]}
+    return [d for d in merged if definition_key(d) in chosen]
+
+
 def _carried(previous: DiscoveryDraft, accounts: dict[str, Episode]) -> list[Definition]:
     """The previous run's definitions, limited to accounts that still exist."""
     carried = []
@@ -826,7 +891,7 @@ def discover_dynamics(episodes: list[Episode], intelligence,
     else:
         proposed = _propose(accounts, handles, ids_by_handle, intelligence)
     merged = _rank(_merge(proposed, intelligence), accounts)
-    definitions = merged[:24]
+    definitions = merged[:MAX_DEFINITIONS] if previous is None else _admit(merged, previous)
     not_examined = len(merged) - len(definitions)
     # A specificity decision must name a discriminating context and actual response.
     definitions = [definition for definition in definitions if _specific(definition, accounts, intelligence)]

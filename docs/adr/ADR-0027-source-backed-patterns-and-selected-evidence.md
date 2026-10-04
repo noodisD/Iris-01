@@ -234,3 +234,17 @@ request held only a few entries and could not see anything recur.
 
 Tried on the archive, proposal alone: 23 candidates, 8 of them recurring
 across 2 to 5 entries' events, against none before.
+
+## Bounded updates (2026-10-04)
+The first therapy session (ADR-0028) proposed 22 new definitions. Each was
+checked against all 885 accounts, one request at a time on Flex, and the update
+ran for most of a day. Two changes bound it:
+- An update adds at most five new definitions (`MAX_NEW_DEFINITIONS`).
+  Definitions that had support keep their place, so one entry cannot push the
+  owner's patterns out; carried definitions without support fill any room left
+  up to 24. The status and import estimates count the new definitions and their
+  one possible rewording.
+- Membership and identity batches are asked six at a time
+  (`CONCURRENT_REQUESTS`). Each is independent and kept as it lands, so this
+  changes how long an update takes, not what it costs or decides.
+

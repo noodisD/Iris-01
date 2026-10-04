@@ -14,7 +14,8 @@ from psycopg2.extras import Json
 
 from . import discovery_memo
 from .config import settings
-from .connections import (DISCOVERY_VERSION, MAX_PAIRS_PER_REPLY, MAX_ROWS_PER_REPLY, discover_dynamics,
+from .connections import (DISCOVERY_VERSION, MAX_DEFINITIONS, MAX_NEW_DEFINITIONS, MAX_PAIRS_PER_REPLY,
+                          MAX_ROWS_PER_REPLY, discover_dynamics,
                           interpret_view)
 from .database import db
 from .dynamics import (
@@ -737,6 +738,7 @@ STEP_TOKENS = {
     "membership": (1_500, 1_100),
     "identity": (3_500, 1_100),
     "interpret": (4_000, 1_500),
+    "refine": (1_500, 1_100),
 }
 
 
@@ -757,8 +759,10 @@ def synthesis_steps(*, accounts: int, events: int, eligible: int, known_accounts
     propose = ceil(unseen_eligible / 20) if unseen_eligible else 0
     proposals = 6 * propose  # at most six definitions per proposal request
     merge_pairs = proposals * (proposals - 1) // 2 + proposals * known_definitions
-    definitions = min(24, known_definitions + proposals)
-    added = max(0, definitions - known_definitions)
+    # An update adds new definitions next to the known ones, never more than
+    # MAX_NEW_DEFINITIONS; each is checked against every account, old or new.
+    added = min(MAX_NEW_DEFINITIONS, proposals) if seeded else min(MAX_DEFINITIONS, proposals)
+    definitions = known_definitions + added if seeded else added
     membership = (ceil(definitions / MAX_ROWS_PER_REPLY) * unseen_accounts +
                   ceil(added * (accounts - unseen_accounts) / MAX_ROWS_PER_REPLY))
     identity_pairs = (unseen_events * (unseen_events - 1) // 2 +
@@ -771,7 +775,35 @@ def synthesis_steps(*, accounts: int, events: int, eligible: int, known_accounts
         "identity": ceil(identity_pairs / MAX_ROWS_PER_REPLY),
         "interpret": (3 * min(2, definitions) * (2 + ceil(24 * min(accounts, 3) / MAX_LENS_ROWS))
                       if definitions else 0),
+        # A new definition without enough support may be reworded once, and the
+        # rewording is checked against the whole archive again.
+        "refine": added * (1 + ceil(accounts / MAX_ROWS_PER_REPLY)),
     }
+
+
+def update_estimate(user_id: int, new_accounts: int, new_events: int) -> tuple[int, int, int]:
+    """Requests and tokens, at most, for the update one new entry sets off.
+
+    Read before the entry is: the counts come from the last draft, plus the
+    accounts the entry is expected to add.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT jsonb_array_length(payload->'definitions'),
+                              (SELECT count(*) FROM jsonb_object_keys(payload->'episodes')),
+                              (SELECT count(*) FROM jsonb_each(payload->'episodes') AS e(id, episode)
+                                WHERE episode->>'actor' = 'self' AND episode->>'recordKind' = 'event'
+                                  AND coalesce(episode->>'situation', '') <> ''
+                                  AND coalesce(episode->>'response', '') <> '')
+                         FROM discovery_drafts
+                        WHERE user_id = %s AND discovery_version = %s AND model = %s""",
+                    (user_id, DISCOVERY_VERSION, settings.OPENAI_WORKER_MODEL))
+        seeded = cur.fetchone()
+    definitions, accounts, events = (int(v or 0) for v in seeded) if seeded else (0, 0, 0)
+    steps = synthesis_steps(accounts=accounts + new_accounts, events=events + new_events,
+                            eligible=accounts + new_accounts, known_accounts=accounts,
+                            known_events=events, known_definitions=definitions)
+    return (sum(steps.values()), sum(n * STEP_TOKENS[step][0] for step, n in steps.items()),
+            sum(n * STEP_TOKENS[step][1] for step, n in steps.items()))
 
 
 def _inventory(cur, user_id: int) -> dict:

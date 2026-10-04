@@ -53,7 +53,7 @@ def transcript_hash(text: str) -> str:
     return hashlib.sha256(_WHITESPACE.sub(" ", words.strip()).encode()).hexdigest()
 
 
-def estimate(content: str) -> dict:
+def estimate(content: str, user_id: int | None = None) -> dict:
     """What importing this session will cost, worked out without sending anything.
 
     Two things are sent: the passages, to be embedded for chat, and the whole
@@ -70,7 +70,9 @@ def estimate(content: str) -> dict:
     # Polish and other inflected languages run to more tokens per character
     # than English; three characters a token keeps the guess on the high side.
     indexing = sum(len(passage.text) for passage in cut) / 3 / 1_000_000 * EMBEDDING_PRICE_PER_MTOK
-    accounts = max(4, len(sessions.owner_words(content)) // 500)
+    # The first session gave one account per thousand characters the owner
+    # said; this counts one per 800 to stay on the high side.
+    accounts = max(4, len(sessions.owner_words(content)) // 800)
     tokens_in = (len(READ_PROMPT) + len(sessions.for_model(content))) // 3 \
         + accounts * (len(FIELD_PROMPT) + 1500) // 3
     tokens_out = 4000 + accounts * 400
@@ -80,13 +82,23 @@ def estimate(content: str) -> dict:
     reading = (tokens_in * price[0] + tokens_out * price[1]) / 1_000_000 * factor if price else None
     where = f"{model} on {tier.capitalize()}" if tier in Intelligence.TIER_PRICE_FACTOR else model
     read_text = f"about ${reading:.3f}" if reading is not None else "price unknown here"
+    # The update that follows is bounded by how many new patterns one entry may
+    # add, each checked against the whole archive (connections._admit).
+    update = None
+    if user_id is not None and price:
+        from .discovery import update_estimate
+        _, update_in, update_out = update_estimate(user_id, accounts, accounts // 2)
+        update = (update_in * price[0] + update_out * price[1]) / 1_000_000 * factor
+    update_text = (f" Updating your patterns afterwards costs at most about ${update:.2f}."
+                   if update is not None else "")
     return {
         "passages": len(cut),
         "indexingDollars": round(indexing, 5),
         "readingDollars": round(reading, 4) if reading is not None else None,
+        "updateDollars": round(update, 3) if update is not None else None,
         "text": (f"Importing sends the session to OpenAI: {len(cut)} passages indexed for chat "
-                 f"(about ${indexing:.4f}), and one reading for patterns with {where} ({read_text}). "
-                 "Updating your patterns afterwards usually adds a few cents."),
+                 f"(about ${indexing:.4f}), and one reading for patterns with {where} ({read_text})."
+                 + update_text),
     }
 
 
@@ -186,7 +198,7 @@ class SessionImports:
             "leftOut": preamble,
             "missing": self._missing(row, labels),
             "alreadyImported": earlier,
-            "estimate": estimate(self._content(row, found)) if found else None,
+            "estimate": estimate(self._content(row, found), self.user_id) if found else None,
             "reflectionId": str(row["reflection_id"]) if row["reflection_id"] else None,
             "voices": {"status": row["voices_status"], "report": row["voices_report"],
                        "error": row["voices_error"], "hasRecording": bool(row["audio_path"]),

@@ -185,9 +185,12 @@ def test_the_estimate_compares_only_events_and_asks_only_about_what_is_new():
     assert first["membership"] == 2 * 870  # 24 definitions, 12 per request
     later = synthesis_steps(accounts=875, events=162, eligible=356,
                             known_accounts=870, known_events=161, known_definitions=24)
-    assert later["membership"] == 2 * 5
+    # Up to five new definitions, each checked against the whole archive: the
+    # known ones only meet the five new accounts.
+    assert later["membership"] == 3 * 5 + -(-(5 * 870) // 12)
     assert later["identity"] == -(-161 // 12)  # the one new event against the rest
-    assert sum(later.values()) < sum(first.values()) / 20
+    assert later["refine"] == 5 * (1 + -(-875 // 12))
+    assert sum(later.values()) < sum(first.values()) / 2
 
 
 def _row(definition_key, account_id, context="unclear", response="unclear", relation="unclear"):
