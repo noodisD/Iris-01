@@ -248,3 +248,12 @@ ran for most of a day. Two changes bound it:
   (`CONCURRENT_REQUESTS`). Each is independent and kept as it lands, so this
   changes how long an update takes, not what it costs or decides.
 
+
+## Distinct occasions and withheld titles (2026-10-05)
+- The identity rule decides `distinct_events` from the details of each account
+  (a different situation, people, place, action, outcome or stated time), and
+  treats parts or retellings of one occasion as the same event across entries.
+  The earlier "details must exclude identity" left half of all event pairs
+  unclear, and an unclear pair never counts as a separate occasion.
+- A pattern whose draft title fails its claim check keeps its checked context
+  and response; the response stands in for the title.
