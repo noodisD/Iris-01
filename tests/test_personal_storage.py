@@ -197,3 +197,33 @@ def test_reader_requires_contextual_support_for_each_source_field(
         assert (omitted_accounts, omitted_fields) == (0, 1)
         assert len(rows) == 1
         assert rows[0][0]["immediateOutcome"] is None
+
+
+def test_a_run_that_crosses_midnight_keeps_its_draft_and_redoes_only_the_views(test_user, monkeypatch):
+    owner = test_user["id"]
+    source = db.create_reflection(owner, "I wrote a journal entry about a recipe I have not tried.")
+    discovery_worker.process_reflection(source)
+    real_bounds, calls = discovery.period_bounds, []
+
+    def midnight(period):
+        calls.append(period)
+        start, end = real_bounds(period)
+        # The views are built today; by the time they are checked it is tomorrow.
+        return (start, end + timedelta(days=1)) if len(calls) > len(discovery.RANGES) else (start, end)
+
+    monkeypatch.setattr(discovery, "period_bounds", midnight)
+    discovery.process_user(owner)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM discovery_drafts WHERE user_id = %s", (owner,))
+        assert cur.fetchone()[0] == 1, "the draft is kept"
+        cur.execute("SELECT count(*) FROM discovery_views WHERE user_id = %s", (owner,))
+        assert cur.fetchone()[0] == 0, "views dated yesterday are not published"
+
+    monkeypatch.setattr(discovery, "period_bounds", real_bounds)
+    rediscovered = []
+    real_discover = discovery.discover_dynamics
+    monkeypatch.setattr(discovery, "discover_dynamics",
+                        lambda *a, **k: rediscovered.append(1) or real_discover(*a, **k))
+    discovery.process_user(owner)
+    assert rediscovered == [], "the next pass reuses the draft"
+    assert _state(owner)[2] == "ready"

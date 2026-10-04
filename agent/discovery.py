@@ -340,11 +340,16 @@ def process_user(user_id: int) -> None:
                     complete = _complete(cur, user_id)
                     if (complete is None or current_gen != source_gen or
                             current_review != review_gen or canonical_hash(complete[0]) != digest or
-                            library_hash(load()) != lens_digest or
-                            model_name != settings.OPENAI_WORKER_MODEL or
-                            any(period_bounds(v.range)[1] != v.as_of for v in views)):
+                            model_name != settings.OPENAI_WORKER_MODEL):
                         conn.commit()
                         return
+                    # The draft depends on the sources and the model, not on the
+                    # day: a run that crossed midnight, or met a new lens library,
+                    # keeps its draft and only its views are redone on the next
+                    # pass. Discarding both threw away a whole run's draft once a
+                    # long update finished after midnight.
+                    views_stale = (library_hash(load()) != lens_digest or
+                                   any(period_bounds(v.range)[1] != v.as_of for v in views))
                     if cached is None:
                         cur.execute("""INSERT INTO discovery_drafts
                                        (user_id, source_generation, manifest_hash, source_manifest,
@@ -359,6 +364,9 @@ def process_user(user_id: int) -> None:
                                          completed_at = EXCLUDED.completed_at""",
                                     (user_id, source_gen, digest, Json(manifest),
                                      DISCOVERY_VERSION, model_name, Json(draft.as_dict())))
+                    if views_stale:
+                        conn.commit()
+                        return
                     for view in views:
                         cur.execute("""INSERT INTO discovery_views
                                        (user_id, range, source_generation, review_generation,
