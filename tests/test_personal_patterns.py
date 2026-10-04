@@ -151,3 +151,27 @@ def test_an_ungrounded_result_is_withheld_and_the_observed_pattern_still_publish
     card = patterns[0]
     assert card.immediate_return is None, "a result the sources do not record is not published"
     assert card.context.refs and card.response.refs
+
+
+class TitleClaimsTooMuch(NarrativeDecisions):
+    def chat(self, *, messages, system_prompt, **kwargs):
+        if system_prompt == CHECK_PROMPT:
+            source_id = re.search(r"accountId=(a[1-9]\d*)\b", messages[0]["content"]).group(1)
+            return json.dumps({"clauses": [
+                {"index": index, "verdict": "supported" if index < 2 else "not_stated",
+                 "refs": [{"accountId": source_id, "field": "situation", "citationIndex": 0}]
+                 if index < 2 else []}
+                for index in range(3)], "hypotheses": []})
+        return super().chat(messages=messages, system_prompt=system_prompt, **kwargs)
+
+
+def test_a_title_that_claims_too_much_is_replaced_and_the_pattern_kept():
+    episodes = [_event(i) for i in (1, 2, 3)]
+    intelligence = TitleClaimsTooMuch(episodes)
+    draft = discover_dynamics(episodes, intelligence)
+    bound = DiscoveryDraft.from_dict({**draft.as_dict(), "userId": 9})
+    projected = project_range(bound, "all", date(2026, 9, 30))
+    patterns = build_patterns(bound, projected, "all", date(2026, 9, 30), [], intelligence)
+    assert len(patterns) == 1, "the observed relationship is still published"
+    assert patterns[0].evidence_state == "recurring"
+    assert patterns[0].title == "I agreed before checking my capacity"

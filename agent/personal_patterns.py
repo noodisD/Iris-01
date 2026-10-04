@@ -64,6 +64,15 @@ def _latest(account_ids: set[str], accounts: dict[str, Episode]) -> str:
                                               accounts[aid].recorded_on or date.min, aid))
 
 
+def _plain_title(text: str, limit: int = 100) -> str:
+    """A checked clause shortened to a title, at a word boundary."""
+    words = " ".join(text.split())
+    if len(words) <= limit:
+        return words
+    cut = words[:limit - 1].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
+
+
 def _slice(definition: Definition, projected: DiscoveryDraft):
     key = definition_key(definition)
     accounts = {id_: Episode.from_dict(raw) for id_, raw in projected.episodes.items()}
@@ -256,8 +265,15 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
                         [raw.alternative, raw.possibleMeaning] if hypotheses else [],
                         [question, question] if hypotheses else [],
                         source_cohort, contrary, intelligence)
-        if not all(checks.clauses[:3]):
+        # The observed context and response are the pattern; the draft title is
+        # only the proposer's label for it. A label that claims more than the
+        # sources is withheld and the checked response stands in for it, as an
+        # ungrounded result is withheld, not the pattern carrying it. Dropping
+        # the pattern instead lost the one recurring relationship in the
+        # archive: sixteen events across eleven entries, held back by its title.
+        if not all(checks.clauses[:2]):
             continue
+        title = definition.title if checks.clauses[2] else _plain_title(raw.response.text)
         supported_meanings = [clause for i, clause in enumerate(meanings, 3)
                               if checks.clauses[i]]
         offset = 3 + len(meanings)
@@ -279,7 +295,7 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
         dynamic = dynamic_id(draft.user_id, definition)
         exceptions = [g.id for g in groups if g.role == "exception"]
         elsewhere = [g.id for g in groups if g.role == "response_elsewhere"]
-        substantive = {"id": dynamic, "title": definition.title,
+        substantive = {"id": dynamic, "title": title,
                        "context": raw.context.as_dict(), "response": raw.response.as_dict(),
                        "evidenceState": state, "ownerMeanings": [c.as_dict() for c in supported_meanings],
                        "immediateReturn": immediate.as_dict() if immediate else None,
@@ -297,7 +313,7 @@ def build_patterns(draft: DiscoveryDraft, projected: DiscoveryDraft,
         snapshot = snapshot_hash({"claimHash": digest, "range": period, "asOf": as_of.isoformat(),
                                   "lensMatches": [m.as_dict() for m in lens_matches]})
         output.append(PersonalPattern(
-            id=dynamic, title=definition.title, context=raw.context, response=raw.response,
+            id=dynamic, title=title, context=raw.context, response=raw.response,
             evidence_state=state, owner_meanings=supported_meanings,
             immediate_return=immediate, later_cost=later, possible_meaning=possible,
             alternative=alternative, open_question=question, lens_matches=lens_matches,
