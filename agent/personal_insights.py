@@ -8,6 +8,7 @@ must accept the factual clauses and both competing explanations before publicati
 from __future__ import annotations
 
 import hashlib
+import logging
 import itertools
 import json
 from dataclasses import dataclass
@@ -79,6 +80,7 @@ INSIGHTS_VERSION = hashlib.sha256(json.dumps({
     "prompt": PROMPT, "proposalSchema": _Reply.model_json_schema(),
     "eligibility": "independent-event-cross-check-v2;source-consequence;two-reason-anchors;range-scope",
 }, sort_keys=True).encode("utf-8")).hexdigest()
+logger = logging.getLogger(__name__)
 _BUDGET = OBSERVATION_CHUNK_TOKENS * OBSERVATION_CHARS_PER_TOKEN
 #: What counts as a reason the owner stated for an occasion. A stated feeling
 #: counts as well as a concern or an explanation: the owner's decision,
@@ -406,7 +408,17 @@ def build_insights(draft: DiscoveryDraft, projected: DiscoveryDraft, patterns: l
                     published.append(result)
             return published
 
-        results.extend(memo.until_valid(propose))
+        try:
+            results.extend(memo.until_valid(propose))
+        except ReadUnavailable as exc:
+            if str(exc) != "invalid_proposal":
+                raise
+            # Insights are optional: a batch whose proposals still break a rule
+            # after asking again is withheld, and the patterns and the other
+            # batches are published. Unchecked is never shown as a finding.
+            # Failing here used to fail the whole run, patterns included.
+            logger.warning(f"Withheld {len(indexes)} insight candidate(s) after "
+                           f"{memo.ASK_ATTEMPTS} asks: {exc.__cause__}")
     unique = {insight.id: insight for insight in results}
     return sorted(unique.values(), key=lambda insight: (
         -len({(ref.account_id, ref.field, ref.citation_index)

@@ -166,3 +166,12 @@ def test_a_stated_feeling_counts_as_a_reason_for_an_occasion():
     bound, projected, _ = _cohort(2, outcome=True, reason="none")
     accounts = {aid: Episode.from_dict(raw) for aid, raw in projected.episodes.items()}
     assert personal_insights._candidates(bound, projected, [_pattern(bound)], accounts) == []
+
+
+def test_a_proposal_that_keeps_breaking_a_rule_is_withheld_not_the_run():
+    bound, projected, ids = _cohort(2, outcome=True)
+    broken = {**_proposal(bound, ids), "question": "No question mark here."}
+    model = Decisions(broken)
+    found = personal_insights.build_insights(bound, projected, [_pattern(bound)], "all", D, model)
+    assert found == []
+    assert model.prompts.count(personal_insights.PROMPT) == 3, "asked again before withholding"
