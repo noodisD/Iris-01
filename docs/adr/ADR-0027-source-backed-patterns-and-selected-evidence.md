@@ -257,3 +257,10 @@ ran for most of a day. Two changes bound it:
   unclear, and an unclear pair never counts as a separate occasion.
 - A pattern whose draft title fails its claim check keeps its checked context
   and response; the response stands in for the title.
+
+## A stated feeling is a reason (2026-10-05, the owner's decision)
+Insights were anchored only on a stated concern or explanation; 25 of 165
+events had one, and no insight could qualify. A feeling the owner states for
+an occasion now counts as a reason too, in insight eligibility, in the check
+that each anchor contributes a cited reason, and in the claim check's
+relevance test. A shared topic or a repeated word still does not.

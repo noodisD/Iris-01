@@ -15,7 +15,7 @@ from tests.test_dynamics import D, definition, draft, membership, pair
 
 
 def _account(n: int, *, exception: bool = False, outcome: bool = False,
-             day: date = D) -> tuple[str, dict]:
+             day: date = D, reason: str = "concern") -> tuple[str, dict]:
     situation = "Someone was waiting for a response."
     response = ("I checked my calendar before answering." if exception else
                 "I agreed before checking my capacity.")
@@ -23,7 +23,9 @@ def _account(n: int, *, exception: bool = False, outcome: bool = False,
     result = "I felt relieved once the wait ended." if outcome else None
     text = " ".join(part for part in (situation, response, concern, result) if part)
     ep = Episode(actor="self", record_kind="event", situation=situation, response=response,
-                 demand=None, information=None, feeling=None, concern=concern,
+                 demand=None, information=None,
+                 feeling=concern if reason == "feeling" else None,
+                 concern=concern if reason == "concern" else None,
                  immediate_outcome=result, later_outcome=None, explanation=None,
                  self_report=None, domain=None, recorded_on=day,
                  citations=(Citation(entry_id=n, entry_date=day, text=text),))
@@ -31,8 +33,8 @@ def _account(n: int, *, exception: bool = False, outcome: bool = False,
     return account_fingerprint(raw), raw
 
 
-def _cohort(n_support: int, n_exceptions: int = 0, *, outcome: bool = False):
-    data = [_account(n, exception=n >= n_support, outcome=outcome and n == 0)
+def _cohort(n_support: int, n_exceptions: int = 0, *, outcome: bool = False, reason: str = "concern"):
+    data = [_account(n, exception=n >= n_support, outcome=outcome and n == 0, reason=reason)
             for n in range(n_support + n_exceptions)]
     ids = [key for key, _ in data]
     sources = dict(data)
@@ -154,3 +156,13 @@ def test_cross_side_identity_uncertainty_blocks_contrast_even_with_four_groups()
     projected = project_range(changed, "all", D)
     assert personal_insights.build_insights(changed, projected, [_pattern(changed)],
                                             "all", D, None) == []
+
+
+def test_a_stated_feeling_counts_as_a_reason_for_an_occasion():
+    bound, projected, _ = _cohort(2, outcome=True, reason="feeling")
+    accounts = {aid: Episode.from_dict(raw) for aid, raw in projected.episodes.items()}
+    candidates = personal_insights._candidates(bound, projected, [_pattern(bound)], accounts)
+    assert [c.kind for c in candidates] == ["function_and_tradeoff"]
+    bound, projected, _ = _cohort(2, outcome=True, reason="none")
+    accounts = {aid: Episode.from_dict(raw) for aid, raw in projected.episodes.items()}
+    assert personal_insights._candidates(bound, projected, [_pattern(bound)], accounts) == []
