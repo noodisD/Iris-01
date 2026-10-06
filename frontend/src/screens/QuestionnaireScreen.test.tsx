@@ -13,6 +13,7 @@ vi.mock('@/hooks/useQuestionnaire', () => ({
   useQuestionnaire: () => ({ data: state.data, isLoading: false, error: null, refetch: () => {} }),
   useSectionEstimate: () => ({ data: { answers: 1, dollars: 0.12, text: 'Adding 1 answer sends it to OpenAI: at most about $0.12.' } }),
   useAnswerHistory: () => ({ data: [] }),
+  useSuggestEstimate: () => ({ data: { questions: 1, dollars: 0.01, text: 'Looks through your writing: about $0.01.' } }),
   useQuestionnaireActions: () => new Proxy({}, {
     get: (_t, op) => ({ mutate: (v: unknown) => state.calls.push([String(op), v]), isPending: false }),
   }),
@@ -71,5 +72,21 @@ describe('the questionnaire screen', () => {
     render(<QuestionnaireScreen />);
     fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
     expect(state.calls).toEqual([['skip', { id: 'q1', skipped: true }]]);
+  });
+});
+
+describe('suggestions from your writing', () => {
+  it('shows the cost first and asks on the click', () => {
+    state.data = questionnaire([question({})]);
+    render(<QuestionnaireScreen />);
+    expect(screen.getByText('Looks through your writing: about $0.01.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest answers from my writing' }));
+    expect(state.calls).toContainEqual(['suggest', 'home']);
+  });
+
+  it('marks a suggested draft as suggested', () => {
+    state.data = questionnaire([question({ status: 'draft', source: 'suggested', answer: '“By a lake.” (journal, 2025-03-12)' })]);
+    render(<QuestionnaireScreen />);
+    expect(screen.getByText('Suggested')).toBeInTheDocument();
   });
 });

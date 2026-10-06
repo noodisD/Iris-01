@@ -935,8 +935,9 @@ export interface QuestionnaireQuestion {
   textPl: string;
   status: QuestionStatus;
   answer: string;
-  source: 'form' | 'interview' | null;
-  transcript: InterviewTurn[] | null;
+  /** `suggested`: the owner's own sentences, quoted from their writing by IRIS. */
+  source: 'form' | 'interview' | 'suggested' | null;
+  transcript: InterviewTurn[] | { quotes: string[] } | null;
   /** A draft over an answer already added: a revision waiting to be added. */
   revising: boolean;
   addedAt: ISODateTime | null;

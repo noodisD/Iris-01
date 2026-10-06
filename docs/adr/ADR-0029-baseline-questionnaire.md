@@ -42,3 +42,15 @@ copyrighted text; the IRIS repository is public.
 - A revised answer replaces the old one as evidence; how an answer changed is
   visible in its history, not in patterns.
 - Another questionnaire needs only another local file with the same shape.
+
+## Suggested answers (2026-10-06)
+At the owner's click, IRIS suggests drafts for a section's empty questions
+from the owner's own writing (migration 0049). For each question the journal,
+sessions and chat are searched by meaning; a model picks up to four sentences
+that answer it, and each is found again word for word in its source (a session
+quote only in the owner's own turns). The suggestion is those quotes with where
+and when they were written; nothing is paraphrased, and a question nothing
+answers stays empty. A suggestion never replaces what the owner wrote. Kept
+unchanged, or edited around its quotes, it is added as memory but not evidence,
+since its sentences already count in their own entries; rewritten in the
+owner's words, it counts like any answer.

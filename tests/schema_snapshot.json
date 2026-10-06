@@ -4556,7 +4556,7 @@
         "type": "f"
       },
       "questionnaire_answers_source_check": {
-        "definition": "CHECK ((source = ANY (ARRAY['form'::text, 'interview'::text])))",
+        "definition": "CHECK ((source = ANY (ARRAY['form'::text, 'interview'::text, 'suggested'::text])))",
         "type": "c"
       },
       "questionnaire_answers_source_not_null": {

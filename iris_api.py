@@ -1900,6 +1900,29 @@ def add_questionnaire_section(section_id: str, user_id: int = Depends(get_curren
     return _questionnaire_call(user_id, "add_section", section_id)
 
 
+@app.get("/api/questionnaire/sections/{section_id}/suggest/estimate")
+def questionnaire_suggest_estimate(section_id: str, user_id: int = Depends(get_current_user_id)):
+    return _questionnaire_call(user_id, "suggest_estimate", section_id)
+
+
+@app.post("/api/questionnaire/sections/{section_id}/suggest")
+def questionnaire_suggest(section_id: str, user_id: int = Depends(get_current_user_id)):
+    """The owner's click: suggest drafts for a section's empty questions from their own writing.
+
+    Only empty questions get a suggestion; nothing the owner wrote is replaced,
+    and nothing is added to IRIS until the owner adds the section.
+    """
+    from agent.config import settings as app_settings
+    from agent.intelligence import Intelligence
+
+    try:
+        # The cheap model on the standard tier: it is a wait the owner sits through.
+        intelligence = Intelligence(model=app_settings.OPENAI_WORKER_MODEL)
+    except Exception:
+        raise HTTPException(status_code=503, detail="IRIS has no model to read with right now.")
+    return _questionnaire_call(user_id, "suggest_section", section_id, intelligence)
+
+
 @app.post("/api/questionnaire/interview/{question_id}")
 def questionnaire_interview(question_id: str, payload: QuestionnaireInterview,
                             user_id: int = Depends(get_current_user_id)):

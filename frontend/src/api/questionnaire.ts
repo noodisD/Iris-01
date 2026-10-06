@@ -6,6 +6,8 @@
  *   GET  /api/questionnaire/answers/:qid/history         → { versions }
  *   GET  /api/questionnaire/sections/:sid/estimate       → { answers, dollars, text }
  *   POST /api/questionnaire/sections/:sid/add            → { added }   (the owner's click)
+ *   GET  /api/questionnaire/sections/:sid/suggest/estimate → { questions, dollars, text }
+ *   POST /api/questionnaire/sections/:sid/suggest       → { suggested, nothing, failed } (the owner's click)
  *   POST /api/questionnaire/interview/:qid               → InterviewStep
  */
 
@@ -32,3 +34,9 @@ export const addSection = (id: string) => api.post<{ added: number }>(`/question
 
 export const interviewStep = (id: string, messages: InterviewTurn[]) =>
   api.post<InterviewStep>(`/questionnaire/interview/${id}`, { messages });
+
+export const suggestEstimate = (id: string) =>
+  api.get<{ questions: number; dollars: number | null; text: string }>(`/questionnaire/sections/${id}/suggest/estimate`);
+
+export const suggestSection = (id: string) =>
+  api.post<{ suggested: number; nothing: number; failed: number }>(`/questionnaire/sections/${id}/suggest`);

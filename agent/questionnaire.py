@@ -148,7 +148,7 @@ class Questionnaires:
     def save(self, question_id: str, answer: str, source: str = "form",
              transcript: list | None = None) -> dict:
         """Keep a draft answer. Nothing is sent anywhere."""
-        if source not in ("form", "interview"):
+        if source not in ("form", "interview", "suggested"):
             raise QuestionnaireError("Unknown answer source.")
         self._question(self._doc(), question_id)
         text = (answer or "").strip()
@@ -156,6 +156,12 @@ class Questionnaires:
             cur.execute("SELECT pg_advisory_xact_lock(73201, %s)", (self.user_id,))
             versions = self._versions(cur, question_id).get(question_id, [])
             latest = versions[0] if versions else None
+            quotes = ((latest.get("transcript") or {}).get("quotes") or []) \
+                if latest and latest["source"] == "suggested" and isinstance(latest.get("transcript"), dict) else []
+            if source == "form" and any(quote in text for quote in quotes):
+                # Still the owner's earlier sentences, quoted: still a suggestion,
+                # so it does not count twice as evidence (ADR-0029).
+                source, transcript = "suggested", latest["transcript"]
             if latest and latest["status"] in ("draft", "skipped"):
                 if not text:
                     cur.execute("DELETE FROM questionnaire_answers WHERE id = %s", (latest["id"],))
@@ -215,7 +221,9 @@ class Questionnaires:
     @staticmethod
     def content(question: dict, draft: dict, on: date) -> str:
         """The reflection an answer becomes: the question, then the owner's words."""
-        transcript = [turn for turn in (draft.get("transcript") or []) if (turn.get("text") or "").strip()]
+        # A suggestion keeps its quotes as {"quotes": [...]}; only an interview has turns.
+        raw = draft.get("transcript") if isinstance(draft.get("transcript"), list) else []
+        transcript = [turn for turn in raw if (turn.get("text") or "").strip()]
         said = [turn["text"].strip() for turn in transcript if turn.get("role") == "owner"]
         if draft["source"] == "interview" and said and "\n\n".join(said) == draft["answer"]:
             # The whole exchange: what IRIS asked is context, every reply the
@@ -273,7 +281,10 @@ class Questionnaires:
             reflection_id = db.create_reflection(
                 self.user_id, self.content(question, draft, today), reflection_date=today,
                 source="questionnaire", content_format="session",
-                date_source="user", date_confidence="certain")
+                date_source="user", date_confidence="certain",
+                # A suggestion is the owner's sentences quoted from entries that
+                # already count: memory for chat, not evidence a second time.
+                evidence_eligible=draft["source"] != "suggested")
             with db.connection() as conn, conn.cursor() as cur:
                 cur.execute("""UPDATE questionnaire_answers
                                   SET status = 'added', reflection_id = %s, added_at = NOW(),
@@ -290,3 +301,62 @@ class Questionnaires:
             _kick_the_queue()
         logger.info(f"Questionnaire section {section_id}: {added} answers added")
         return {"added": added}
+
+    # --- suggestions from the owner's own writing --------------------------------
+
+    def _unanswered(self, doc: dict, section_id: str) -> list[dict]:
+        section = next((s for s in doc["sections"] if s["id"] == section_id), None)
+        if section is None:
+            raise LookupError("No such section.")
+        with db.connection() as conn, conn.cursor() as cur:
+            versions = self._versions(cur)
+        return [q for q in section["questions"] if not versions.get(q["id"])]
+
+    def suggest_estimate(self, section_id: str) -> dict:
+        """What suggesting answers for a section's empty questions sends and costs."""
+        from .intelligence import Intelligence
+        from .questionnaire_suggest import ENTRY_CHARS, PROMPT, SOURCES_PER_QUESTION
+
+        questions = self._unanswered(self._doc(), section_id)
+        price = Intelligence.PRICE_PER_MTOK.get(settings.OPENAI_WORKER_MODEL)
+        if not questions or not price:
+            return {"questions": len(questions), "dollars": None, "text": ""}
+        tokens_in = len(questions) * (len(PROMPT) + SOURCES_PER_QUESTION * ENTRY_CHARS) // 3
+        dollars = (tokens_in * price[0] + len(questions) * 600 * price[1]) / 1_000_000
+        return {"questions": len(questions), "dollars": round(dollars, 3),
+                "text": (f"Looks through your journal, sessions and chat for the {len(questions)} empty "
+                         f"question{'' if len(questions) == 1 else 's'}: the most related passages are sent "
+                         f"to OpenAI, about ${max(dollars, 0.01):.2f}. Suggestions are your own sentences, "
+                         "quoted; nothing is added until you add the section.")}
+
+    def suggest_section(self, section_id: str, intelligence) -> dict:
+        """Suggested drafts for a section's empty questions, from the owner's own writing."""
+        from .questionnaire_suggest import draft, suggest_all
+
+        questions = self._unanswered(self._doc(), section_id)
+        results = suggest_all(questions, self.user_id, intelligence)
+        suggested = nothing = failed = 0
+        for question in questions:
+            quotes = results[question["id"]]
+            if quotes is None:
+                failed += 1
+                continue
+            if not quotes:
+                nothing += 1
+                continue
+            with db.connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(73201, %s)", (self.user_id,))
+                if self._versions(cur, question["id"]).get(question["id"]):
+                    conn.commit()
+                    continue  # the owner wrote something meanwhile; theirs stands
+                cur.execute("""INSERT INTO questionnaire_answers
+                                   (user_id, questionnaire, question_id, version, status, answer,
+                                    source, transcript)
+                               VALUES (%s, %s, %s, 1, 'draft', %s, 'suggested', %s)""",
+                            (self.user_id, self.name, question["id"], draft(quotes),
+                             Json({"quotes": [q["text"] for q in quotes]})))
+                conn.commit()
+            suggested += 1
+        logger.info(f"Questionnaire section {section_id}: {suggested} suggested, {nothing} nothing found, "
+                    f"{failed} failed")
+        return {"suggested": suggested, "nothing": nothing, "failed": failed}

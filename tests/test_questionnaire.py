@@ -200,3 +200,86 @@ def test_the_routes(client, installed, mock_llm):
     mock_llm.chat.return_value = json.dumps({"reply": "Where did you grow up?", "done": False})
     asked = client.post("/api/questionnaire/interview/q1", json={"messages": []})
     assert asked.status_code == 200 and asked.json()["reply"] == "Where did you grow up?"
+
+
+# --- suggestions from the owner's own writing ------------------------------------
+
+from agent import questionnaire_suggest  # noqa: E402
+from agent import sessions as session_format  # noqa: E402
+
+JOURNAL = "We moved twice when I was small. I grew up mostly in a small town by a lake."
+SESSION = session_format.compose(
+    [session_format.Segment(0, "Counsellor", "So you grew up near water, by the lake?"),
+     session_format.Segment(5, "Ann", "Yes, and the lake was the only quiet place I had as a child.")],
+    kind="therapy", started="2026-09-30T18:00", language="en", owner="Ann", therapist="Counsellor")
+
+
+class Picker:
+    def __init__(self, quotes):
+        self.quotes = quotes
+        self.prompts = []
+
+    def chat(self, *, messages, **_):
+        self.prompts.append(messages[0]["content"])
+        return json.dumps({"quotes": self.quotes})
+
+
+@pytest.fixture
+def writing(monkeypatch):
+    found = [{"kind": "journal", "date": date(2025, 3, 12), "text": JOURNAL, "original": JOURNAL, "session": False},
+             {"kind": "therapy session", "date": date(2026, 9, 30), "text": "...", "original": SESSION,
+              "session": True}]
+    monkeypatch.setattr(questionnaire_suggest, "sources", lambda user_id, query: found)
+
+
+def test_a_suggestion_is_only_the_owners_sentences_found_word_for_word(writing):
+    model = Picker([{"source": "s1", "text": "I grew up mostly in a small town by a lake"},
+                    {"source": "s2", "text": "So you grew up near water, by the lake"},
+                    {"source": "s2", "text": "the lake was the only quiet place I had as a child"},
+                    {"source": "s1", "text": "I grew up in a big city by the sea"}])
+    quotes = questionnaire_suggest.suggest(QUESTION, 1, model)
+    assert [q["text"] for q in quotes] == [
+        "I grew up mostly in a small town by a lake",
+        "the lake was the only quiet place I had as a child"], "not the counsellor, not invented"
+    assert questionnaire_suggest.draft(quotes).startswith(
+        "“I grew up mostly in a small town by a lake” (journal, 2025-03-12)")
+
+
+def test_suggestions_fill_only_empty_questions(test_user, installed, writing, monkeypatch):
+    service = Questionnaires(test_user["id"])
+    service.save("q2", "My own answer.")
+    asked = []
+    monkeypatch.setattr(questionnaire_suggest, "suggest", lambda q, user_id, intel: asked.append(q["id"]) or (
+        [{"kind": "journal", "date": "2025-03-12", "text": "I grew up mostly in a small town by a lake"}]))
+    assert service.suggest_estimate("home")["questions"] == 1
+    assert service.suggest_section("home", object()) == {"suggested": 1, "nothing": 0, "failed": 0}
+    assert asked == ["q1"], "the owner's draft is left alone and not asked about"
+    state = service.question("q1")
+    assert state["status"] == "draft" and state["source"] == "suggested"
+    assert service.question("q2")["answer"] == "My own answer."
+    assert _reflections(test_user["id"]) == [], "suggesting sends nothing into IRIS"
+
+
+def test_a_kept_suggestion_is_memory_and_a_rewritten_one_is_evidence(test_user, installed, monkeypatch):
+    service = Questionnaires(test_user["id"])
+    monkeypatch.setattr(questionnaire_suggest, "suggest", lambda q, user_id, intel: (
+        [{"kind": "journal", "date": "2025-03-12", "text": "I grew up mostly in a small town by a lake"}]))
+    service.suggest_section("home", object())
+    edited = service.question("q1")["answer"] + "\n\nI still go back every summer."
+    assert service.save("q1", edited)["source"] == "suggested", "the quotes are still there"
+    service.add_section("home")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT evidence_eligible FROM reflections WHERE user_id = %s", (test_user["id"],))
+        assert [row[0] for row in cur.fetchall()] == [False, False], "both kept suggestions are memory"
+    assert service.save("q1", "In a town by a lake. I still go back every summer.")["source"] == "form"
+    service.add_section("home")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT evidence_eligible FROM reflections WHERE user_id = %s", (test_user["id"],))
+        assert sorted(row[0] for row in cur.fetchall()) == [False, True], "the rewritten one counts"
+
+
+def test_the_suggestion_routes(client, installed, monkeypatch):
+    monkeypatch.setattr(questionnaire_suggest, "suggest", lambda q, user_id, intel: [])
+    assert client.get("/api/questionnaire/sections/home/suggest/estimate").json()["questions"] == 2
+    assert client.post("/api/questionnaire/sections/home/suggest").json() == {
+        "suggested": 0, "nothing": 2, "failed": 0}

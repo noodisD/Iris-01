@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAnswerHistory, useQuestionnaire, useQuestionnaireActions, useSectionEstimate } from '@/hooks/useQuestionnaire';
+import { useAnswerHistory, useQuestionnaire, useQuestionnaireActions, useSectionEstimate, useSuggestEstimate } from '@/hooks/useQuestionnaire';
 import { interviewStep } from '@/api/questionnaire';
 import { HttpError } from '@/api/client';
 import { ErrorState, LoadingState } from '@/components/states';
@@ -138,7 +138,8 @@ function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
     return () => window.clearTimeout(timer);
   }, [text]);
 
-  const status = question.revising ? 'Revision' : STATUS_LABEL[question.status];
+  const status = question.revising ? 'Revision'
+    : question.status === 'draft' && question.source === 'suggested' ? 'Suggested' : STATUS_LABEL[question.status];
   return (
     <article className={styles.question} aria-labelledby={`q-${question.id}`}>
       <header className={styles.questionHead}>
@@ -182,6 +183,41 @@ function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
       </div>
       {history && <History id={question.id} />}
     </article>
+  );
+}
+
+/** Drafts for empty questions, made of the owner's own sentences (ADR-0029). */
+function Suggest({ section }: { section: QuestionnaireSection }) {
+  const actions = useQuestionnaireActions();
+  const { data: estimate } = useSuggestEstimate(section.id, section.counts.unanswered);
+  const [result, setResult] = React.useState<{ suggested: number; nothing: number; failed: number }>();
+  const [error, setError] = React.useState<string>();
+  if (!section.counts.unanswered && !result) return null;
+  return (
+    <div className={styles.suggest}>
+      {result ? (
+        <p className={styles.cost} role="status">
+          {result.suggested
+            ? `Suggested ${result.suggested} answer${result.suggested === 1 ? '' : 's'} from your writing. Keep, edit or clear each one.`
+            : 'Nothing in your writing answers these questions yet.'}
+          {result.suggested > 0 && result.nothing > 0 && ` Nothing found for ${result.nothing}.`}
+          {result.failed > 0 && ` ${result.failed} could not be looked up; try again.`}
+        </p>
+      ) : (
+        <>
+          {estimate?.text && <p className={styles.muted}>{estimate.text}</p>}
+          <div className={styles.row}>
+            <Button size="sm" disabled={actions.suggest.isPending}
+              onClick={() => actions.suggest.mutate(section.id, {
+                onSuccess: setResult, onError: e => setError(message(e)),
+              })}>
+              {actions.suggest.isPending ? 'Looking through your writing…' : 'Suggest answers from my writing'}
+            </Button>
+          </div>
+        </>
+      )}
+      {error && <p role="alert" className={styles.error}>{error}</p>}
+    </div>
   );
 }
 
@@ -252,6 +288,7 @@ export function QuestionnaireScreen() {
               </>
             )}
           </header>
+          <Suggest key={section.id} section={section} />
           <div className={styles.questions}>
             {section.questions.map(question => <QuestionCard key={question.id} question={question} />)}
           </div>

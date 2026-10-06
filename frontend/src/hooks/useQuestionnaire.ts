@@ -13,6 +13,10 @@ export const useSectionEstimate = (id: string, drafts: number) =>
 export const useAnswerHistory = (id: string, open: boolean) =>
   useQuery({ queryKey: qk.questionnaireHistory(id), queryFn: () => qApi.answerHistory(id), enabled: open });
 
+export const useSuggestEstimate = (id: string, empty: number) =>
+  useQuery({ queryKey: ['questionnaire', 'suggest', id, empty], queryFn: () => qApi.suggestEstimate(id),
+             enabled: empty > 0 });
+
 export function useQuestionnaireActions() {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: qk.questionnaire });
@@ -27,5 +31,6 @@ export function useQuestionnaireActions() {
       onSuccess: refresh,
     }),
     add: useMutation({ mutationFn: qApi.addSection, onSuccess: refresh }),
+    suggest: useMutation({ mutationFn: qApi.suggestSection, onSuccess: refresh }),
   };
 }
