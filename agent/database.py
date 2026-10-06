@@ -1668,6 +1668,10 @@ class Database:
                 """SELECT id, reflection_date, content, mood, energy_level, clarity_level, metrics,
                           content_format
                    FROM reflections WHERE user_id = %s
+                    -- Questionnaire answers are not something the owner wrote
+                    -- lately; dozens added in one sitting would crowd the
+                    -- latest entries out (ADR-0029). Chat recalls them by memory.
+                    AND source <> 'questionnaire'
                    -- NULLS LAST, explicitly: DESC puts them first in Postgres,
                    -- so "the most recent entries" began with the writing whose
                    -- day is unknown and the dated ones fell off the end.
@@ -1691,7 +1695,7 @@ class Database:
             "message": ("said in chat", "SELECT content, created_at::date FROM conversation_messages WHERE id = %s;"),
             # Whole turns with their speakers named (ADR-0028): a recalled
             # moment of a session always says who said it.
-            "session_passage": ("therapy session", """SELECT p.text, r.reflection_date
+            "session_passage": ("therapy session", """SELECT p.text, r.reflection_date, r.source
                                                       FROM session_passages p
                                                       JOIN reflections r ON r.id = p.reflection_id
                                                      WHERE p.id = %s;"""),
@@ -1710,6 +1714,8 @@ class Database:
             row = cur.fetchone()
         if not row or not (row[0] or "").strip():
             return None
+        if source_type == "session_passage" and row[2] == "questionnaire":
+            kind = "questionnaire answer"
         return {"kind": kind, "date": row[1], "text": row[0]}
 
     def is_evidence_eligible(self, source_type: str, source_id: int) -> bool:
@@ -1754,7 +1760,7 @@ class Database:
                        tags, created_at, updated_at, audio_path, entry_sequence,
                        content_format, metrics
                   FROM reflections
-                 WHERE user_id = %s
+                 WHERE user_id = %s AND source <> 'questionnaire'
                    AND (%s::int IS NULL
                         OR (%s::date IS NOT NULL
                             AND (reflection_date IS NULL

@@ -922,3 +922,46 @@ export interface ApiError {
   /** Optional field-level errors for forms. */
   fields?: Record<string, string>;
 }
+
+// The baseline questionnaire (ADR-0029). The questions live on this machine only.
+export type QuestionStatus = 'unanswered' | 'draft' | 'added' | 'skipped';
+
+export interface InterviewTurn { role: 'iris' | 'owner'; text: string }
+
+export interface QuestionnaireQuestion {
+  id: string;
+  number: number;
+  text: string;
+  textPl: string;
+  status: QuestionStatus;
+  answer: string;
+  source: 'form' | 'interview' | null;
+  transcript: InterviewTurn[] | null;
+  /** A draft over an answer already added: a revision waiting to be added. */
+  revising: boolean;
+  addedAt: ISODateTime | null;
+  /** How many answers to this question have been added over time. */
+  history: number;
+}
+
+export interface QuestionnaireSection {
+  id: string;
+  title: string;
+  titlePl: string;
+  intro: string;
+  introPl: string;
+  questions: QuestionnaireQuestion[];
+  counts: Record<QuestionStatus, number> & { total: number };
+}
+
+export interface Questionnaire {
+  id: string;
+  title: string;
+  titlePl: string;
+  version: string | null;
+  about: string | null;
+  aboutPl: string | null;
+  sections: QuestionnaireSection[];
+}
+
+export interface InterviewStep { reply: string; done: boolean; draft: string; skipped: boolean }

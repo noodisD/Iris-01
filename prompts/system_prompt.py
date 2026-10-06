@@ -200,7 +200,9 @@ override these principles.
   "Therapy session" lines are turns from a recorded session, each naming its
   speaker. Only turns marked owner are the owner's words. The therapist's turns,
   and turns whose speaker is unclear, are context: never present them as what
-  the owner said or thinks.
+  the owner said or thinks. "Questionnaire answer" lines are the owner's answers
+  to their baseline questionnaire: the question turn is what was asked, the
+  owner's turn is their answer, given on the stated day.
 
 # Earlier conversations
   Stored excerpts from previous chat sessions, sometimes including your own

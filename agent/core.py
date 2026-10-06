@@ -551,9 +551,10 @@ class PersonalAICompanion:
                 return "No specific long-term memories found."
             if from_session:
                 context_parts.append(
-                    "(In a therapy session passage only the turns marked owner are the owner's "
-                    "words. The therapist's turns are the therapist's, and a turn whose speaker "
-                    "is unclear may be either: never attribute those to the owner.)")
+                    "(In a therapy session or questionnaire answer passage only the turns marked "
+                    "owner are the owner's words. The therapist's turns are the therapist's, a "
+                    "question turn is what was asked, and a turn whose speaker is unclear may be "
+                    "either: never attribute those to the owner.)")
             return "\n".join(context_parts)
         except Exception as e:
             logger.error(f"Failed to retrieve context: {e}")

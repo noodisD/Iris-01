@@ -1987,6 +1987,73 @@
         "type": "integer"
       }
     },
+    "questionnaire_answers": {
+      "added_at": {
+        "default": null,
+        "nullable": "YES",
+        "type": "timestamp with time zone"
+      },
+      "answer": {
+        "default": "''::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "question_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "questionnaire": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
+      "source": {
+        "default": "'form'::text",
+        "nullable": "NO",
+        "type": "text"
+      },
+      "status": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "transcript": {
+        "default": null,
+        "nullable": "YES",
+        "type": "jsonb"
+      },
+      "updated_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "version": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "reflections": {
       "audio_path": {
         "default": null,
@@ -4459,6 +4526,72 @@
         "type": "n"
       }
     },
+    "questionnaire_answers": {
+      "questionnaire_answers_answer_not_null": {
+        "definition": "NOT NULL answer",
+        "type": "n"
+      },
+      "questionnaire_answers_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "questionnaire_answers_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "questionnaire_answers_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "questionnaire_answers_question_id_not_null": {
+        "definition": "NOT NULL question_id",
+        "type": "n"
+      },
+      "questionnaire_answers_questionnaire_not_null": {
+        "definition": "NOT NULL questionnaire",
+        "type": "n"
+      },
+      "questionnaire_answers_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE SET NULL",
+        "type": "f"
+      },
+      "questionnaire_answers_source_check": {
+        "definition": "CHECK ((source = ANY (ARRAY['form'::text, 'interview'::text])))",
+        "type": "c"
+      },
+      "questionnaire_answers_source_not_null": {
+        "definition": "NOT NULL source",
+        "type": "n"
+      },
+      "questionnaire_answers_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'added'::text, 'superseded'::text, 'skipped'::text])))",
+        "type": "c"
+      },
+      "questionnaire_answers_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      },
+      "questionnaire_answers_updated_at_not_null": {
+        "definition": "NOT NULL updated_at",
+        "type": "n"
+      },
+      "questionnaire_answers_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "questionnaire_answers_user_id_not_null": {
+        "definition": "NOT NULL user_id",
+        "type": "n"
+      },
+      "questionnaire_answers_user_id_questionnaire_question_id_ver_key": {
+        "definition": "UNIQUE (user_id, questionnaire, question_id, version)",
+        "type": "u"
+      },
+      "questionnaire_answers_version_not_null": {
+        "definition": "NOT NULL version",
+        "type": "n"
+      }
+    },
     "reflections": {
       "reflections_clarity_level_check": {
         "definition": "CHECK (((clarity_level >= 1) AND (clarity_level <= 10)))",
@@ -4497,7 +4630,7 @@
         "type": "p"
       },
       "reflections_source_check": {
-        "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying, 'session'::character varying])::text[])))",
+        "definition": "CHECK (((source)::text = ANY ((ARRAY['app'::character varying, 'cli'::character varying, 'import'::character varying, 'voice'::character varying, 'session'::character varying, 'questionnaire'::character varying])::text[])))",
         "type": "c"
       },
       "reflections_source_not_null": {
@@ -5122,6 +5255,11 @@
       "idx_processing_queue_due": "CREATE INDEX idx_processing_queue_due ON public.processing_queue USING btree (next_attempt_at)",
       "processing_queue_pkey": "CREATE UNIQUE INDEX processing_queue_pkey ON public.processing_queue USING btree (id)",
       "processing_queue_source_type_source_id_key": "CREATE UNIQUE INDEX processing_queue_source_type_source_id_key ON public.processing_queue USING btree (source_type, source_id)"
+    },
+    "questionnaire_answers": {
+      "questionnaire_answers_pkey": "CREATE UNIQUE INDEX questionnaire_answers_pkey ON public.questionnaire_answers USING btree (id)",
+      "questionnaire_answers_question": "CREATE INDEX questionnaire_answers_question ON public.questionnaire_answers USING btree (user_id, questionnaire, question_id, version DESC)",
+      "questionnaire_answers_user_id_questionnaire_question_id_ver_key": "CREATE UNIQUE INDEX questionnaire_answers_user_id_questionnaire_question_id_ver_key ON public.questionnaire_answers USING btree (user_id, questionnaire, question_id, version)"
     },
     "reflections": {
       "idx_reflections_status_date": "CREATE INDEX idx_reflections_status_date ON public.reflections USING btree (processing_status, reflection_date)",

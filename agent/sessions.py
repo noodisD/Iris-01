@@ -38,8 +38,8 @@ import re
 from dataclasses import dataclass
 
 FORMAT = "session"
-KINDS = ("therapy",)
-ROLES = ("owner", "therapist", "unclear")
+KINDS = ("therapy", "questionnaire")
+ROLES = ("owner", "therapist", "asker", "unclear")
 
 #: How much of a session one recalled passage holds. Small enough that a
 #: memory names one moment of the conversation, large enough to keep a
@@ -53,7 +53,8 @@ _HEADER = re.compile(
     r"^(?:\*\*)?\[(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\][ \t]+([^:*\[\]\n]{1,60}?)[ \t]*:"
     r"(?:\*\*)?[ \t]*(.*)$", re.M)
 _FENCE = "---"
-_ROLE_WORDS = {"owner": "owner", "therapist": "therapist", "unclear": "speaker unclear"}
+_ROLE_WORDS = {"owner": "owner", "therapist": "therapist", "asker": "question",
+               "unclear": "speaker unclear"}
 _LANGUAGES = {"pl": "Polish", "en": "English", "de": "German", "es": "Spanish",
               "fr": "French", "it": "Italian", "uk": "Ukrainian"}
 #: A label the transcriber was not sure of. Only a default for the owner's
@@ -93,6 +94,9 @@ class Session:
     owner: str | None
     therapist: str | None
     turns: tuple[Turn, ...]
+    #: A questionnaire answer: who asked (the question or IRIS), and which question.
+    asker: str | None = None
+    question: str | None = None
 
     @property
     def duration(self) -> int | None:
@@ -199,7 +203,8 @@ def guess_language(text: str) -> str:
 
 
 def compose(found: list[Segment], *, kind: str, started: str, language: str,
-            owner: str, therapist: str | None) -> str:
+            owner: str, therapist: str | None = None, asker: str | None = None,
+            question: str | None = None) -> str:
     """The stored session: the speakers named, then one paragraph per turn.
 
     Words are kept exactly as transcribed; only layout changes, where
@@ -208,9 +213,10 @@ def compose(found: list[Segment], *, kind: str, started: str, language: str,
     if kind not in KINDS:
         raise ValueError(f"unknown session kind: {kind!r}")
     values = {"session": kind, "started": started, "language": language,
-              "owner": owner, "therapist": therapist or ""}
+              "owner": owner, "therapist": therapist or "", "asker": asker or "",
+              "question": question or ""}
     for key, value in values.items():
-        if "\n" in value or (key != "therapist" and not value.strip()):
+        if "\n" in value or (key not in ("therapist", "asker", "question") and not value.strip()):
             raise ValueError(f"session {key} must be one non-empty line")
     turns: list[Segment] = []
     for segment in found:
@@ -241,6 +247,7 @@ def read(content: str | None) -> Session | None:
     if meta.get("session") not in KINDS:
         return None
     owner, therapist = meta.get("owner") or None, meta.get("therapist") or None
+    asker = meta.get("asker") or None
     body = close + len(_FENCE) + 2
     marks = list(_HEADER.finditer(text, body))
     turns: list[Turn] = []
@@ -254,12 +261,13 @@ def read(content: str | None) -> Session | None:
             continue
         label = mark.group(4).strip()
         role = ("owner" if owner and label == owner else
-                "therapist" if therapist and label == therapist else "unclear")
+                "therapist" if therapist and label == therapist else
+                "asker" if asker and label == asker else "unclear")
         turns.append(Turn(at=_seconds(*mark.group(1, 2, 3)), label=label, role=role, text=words,
                           start=start + lead, end=start + lead + len(words)))
     return Session(kind=meta["session"], started=meta.get("started") or None,
                    language=meta.get("language") or None, owner=owner, therapist=therapist,
-                   turns=tuple(turns))
+                   turns=tuple(turns), asker=asker, question=meta.get("question") or None)
 
 
 def _line(turn: Turn) -> str:
@@ -271,6 +279,13 @@ def describe(session: Session) -> str:
     language = _LANGUAGES.get(session.language or "", session.language)
     when = session.started.replace("T", " at ") if session.started else None
     counted = {role: sum(turn.role == role for turn in session.turns) for role in ROLES}
+    if session.kind == "questionnaire":
+        # Not a conversation that happened: the owner answering one question of
+        # their baseline questionnaire, in writing or in a short interview.
+        return ("The owner's answer to one question of their baseline questionnaire"
+                + (f", given {session.started.split('T')[0]}" if session.started else "")
+                + ". Turns marked question are what was asked, and context; only turns marked "
+                "owner are the owner's words.")
     parts = [f"A {session.kind} session"
              + (f", recorded {when}" if when else "")
              + (f", about {round(session.duration / 60)} minutes" if session.duration else "")

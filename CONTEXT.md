@@ -96,6 +96,15 @@ they are; importing is the click that sends it to be indexed and read. It is
 recalled in chat by **passage** (whole turns, each naming its speaker) and is
 not a theme occurrence (ADR-0028).
 
+### Questionnaire answer
+The owner's answer to one question of a questionnaire they answer inside IRIS
+(ADR-0029). The questions stay in a local file, never in the repository. An
+answer is a **draft**, sent nowhere, until the owner adds its section; then it
+becomes a reflection in the session format whose question (or IRIS's interview
+turns) is context and whose owner turns alone are evidence. A revised answer is
+a new version; the earlier one is kept as history and stops being evidence.
+Answers are recalled in chat but are not recent writing.
+
 ### Trajectory
 Whether a theme's recent rate differs from its baseline:
 `TRAJECTORY_RECENT_DAYS` (14) against the prior `TRAJECTORY_BASELINE_DAYS` (60).

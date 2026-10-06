@@ -1827,6 +1827,108 @@ def start_session_voices(import_id: int, user_id: int = Depends(get_current_user
     return _session_import_call(user_id, "start_voices", import_id)
 
 
+# --- the baseline questionnaire (ADR-0029) -----------------------------------
+
+class QuestionnaireTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["iris", "owner"]
+    text: str = Field(max_length=8000)
+
+
+class QuestionnaireAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer: str = Field(max_length=20000)
+    source: Literal["form", "interview"] = "form"
+    transcript: list[QuestionnaireTurn] | None = None
+
+
+class QuestionnaireSkip(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    skipped: bool
+
+
+class QuestionnaireInterview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    messages: list[QuestionnaireTurn] = Field(default_factory=list, max_length=12)
+
+
+def _questionnaire_call(user_id: int, action: str, *args):
+    from agent.questionnaire import QuestionnaireError, QuestionnaireMissing, Questionnaires
+    try:
+        return getattr(Questionnaires(user_id), action)(*args)
+    except QuestionnaireMissing as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except QuestionnaireError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/questionnaire")
+def get_questionnaire(user_id: int = Depends(get_current_user_id)):
+    """The questionnaire with every answer's state. 404 when it is not installed here."""
+    return _questionnaire_call(user_id, "overview")
+
+
+@app.put("/api/questionnaire/answers/{question_id}")
+def save_questionnaire_answer(question_id: str, payload: QuestionnaireAnswer,
+                              user_id: int = Depends(get_current_user_id)):
+    """Keep a draft answer. Nothing is sent anywhere."""
+    transcript = [t.model_dump() for t in payload.transcript] if payload.transcript else None
+    return _questionnaire_call(user_id, "save", question_id, payload.answer, payload.source, transcript)
+
+
+@app.post("/api/questionnaire/answers/{question_id}/skip")
+def skip_questionnaire_question(question_id: str, payload: QuestionnaireSkip,
+                                user_id: int = Depends(get_current_user_id)):
+    return _questionnaire_call(user_id, "skip", question_id, payload.skipped)
+
+
+@app.get("/api/questionnaire/answers/{question_id}/history")
+def questionnaire_answer_history(question_id: str, user_id: int = Depends(get_current_user_id)):
+    return {"versions": _questionnaire_call(user_id, "history", question_id)}
+
+
+@app.get("/api/questionnaire/sections/{section_id}/estimate")
+def questionnaire_section_estimate(section_id: str, user_id: int = Depends(get_current_user_id)):
+    return _questionnaire_call(user_id, "estimate", section_id)
+
+
+@app.post("/api/questionnaire/sections/{section_id}/add")
+def add_questionnaire_section(section_id: str, user_id: int = Depends(get_current_user_id)):
+    """The owner's click: the section's drafts go to IRIS to be indexed and read."""
+    return _questionnaire_call(user_id, "add_section", section_id)
+
+
+@app.post("/api/questionnaire/interview/{question_id}")
+def questionnaire_interview(question_id: str, payload: QuestionnaireInterview,
+                            user_id: int = Depends(get_current_user_id)):
+    """IRIS's next message in a short interview about one question.
+
+    Only the question and this exchange are sent to the model; the draft it
+    returns is the owner's own replies.
+    """
+    import agent.core as core_module
+    from agent.questionnaire import QuestionnaireMissing, Questionnaires
+    from agent.questionnaire_interview import interview
+
+    service = Questionnaires(user_id)
+    try:
+        doc = service._doc()
+        section, question = service._question(doc, question_id)
+    except (QuestionnaireMissing, LookupError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    try:
+        intelligence = core_module.Intelligence()
+    except Exception:
+        raise HTTPException(status_code=503, detail="IRIS has no model to talk with right now.")
+    try:
+        return interview(question, section.get("intro_en", ""),
+                         [t.model_dump() for t in payload.messages], intelligence)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @app.post("/api/sessions/imports/{import_id}/voices/undo")
 def undo_session_voices(import_id: int, user_id: int = Depends(get_current_user_id)):
     """Put the transcriber's own speaker labels back."""
@@ -2448,12 +2550,15 @@ def _review_letter(user_id, this_week, written_on, energy_avg, energy_delta,
     import agent.core as core_module
     from agent import review_letter
     from agent.narrative import NarrativeFormatter
-    from agent.sessions import owner_words
+    from agent.sessions import owner_words, read as read_session
     from agent.pipeline_orchestrator import admit
     from agent.prioritization import InsightPrioritizationEngine
 
     # A therapy session is not something the owner wrote (ADR-0028).
-    held = [r for r in this_week if r.get("content_format") == "session"]
+    # Questionnaire answers are neither (ADR-0029): left out of the week's facts.
+    kind = {id(r): (read_session(r["content"]).kind if r.get("content_format") == "session"
+                    and read_session(r["content"]) else None) for r in this_week}
+    held = [r for r in this_week if kind[id(r)] == "therapy"]
     written = [r for r in this_week if r.get("content_format") != "session"]
     n = len(written)
     days = {r["reflection_date"] for r in written} & set(written_on)
