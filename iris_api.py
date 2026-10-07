@@ -1821,6 +1821,31 @@ async def keep_session_recording(import_id: int, file: UploadFile = File(...),
         shutil.rmtree(staging, ignore_errors=True)
 
 
+@app.post("/api/sessions/recordings")
+async def stage_session_recording(file: UploadFile = File(...),
+                                  user_id: int = Depends(get_current_user_id)):
+    """Keep a session recording that has no transcript yet. Nothing is sent anywhere."""
+    from agent.session_voices import AUDIO_SUFFIXES, MAX_RECORDING_BYTES
+
+    name = Path(file.filename or "recording").name
+    if Path(name).suffix.lower() not in AUDIO_SUFFIXES:
+        raise HTTPException(status_code=400,
+                            detail=f"{Path(name).suffix or 'That file'} is not an audio format IRIS can read.")
+    staging = Path(tempfile.mkdtemp(prefix="iris-session-audio-"))
+    destination = staging / name
+    size = 0
+    try:
+        with destination.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_RECORDING_BYTES:
+                    raise HTTPException(status_code=413, detail="That recording is too large.")
+                out.write(chunk)
+        return await run_in_threadpool(_session_import_call, user_id, "stage_recording", destination, name)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 @app.post("/api/sessions/imports/{import_id}/voices")
 def start_session_voices(import_id: int, user_id: int = Depends(get_current_user_id)):
     """The owner's click that sends the recording to tell the speakers apart."""

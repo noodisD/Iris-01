@@ -39,6 +39,13 @@ function plural(count: number, one: string, many: string): string {
 
 /** What the voices pass changed, said as a sentence or two. */
 export function voicesSummary(report: SessionVoicesReport, owner: string | null): string {
+  if (report.transcribed) {
+    const named = Object.entries(report.named ?? {}).filter(([, count]) => count > 0)
+      .map(([label, count]) => `${plural(count, 'line', 'lines')} ${label === owner ? 'yours' : `by ${label}`}`);
+    return [`Transcribed into ${plural(report.segments, 'line', 'lines')}${named.length ? `: ${named.join(', ')}` : ''}.`,
+            report.unclear ? `${plural(report.unclear, 'line', 'lines')} could not be matched to a voice and ${report.unclear === 1 ? 'stays' : 'stay'} unclear.` : '',
+            'Check who is who below before importing.'].filter(Boolean).join(' ');
+  }
   const attributed = Object.entries(report.attributed).filter(([, count]) => count > 0)
     .map(([label, count]) => `${plural(count, 'line', 'lines')} to ${label === owner ? 'you' : label}`);
   const parts = [
@@ -59,16 +66,22 @@ function Voices({ item, onError }: { item: SessionImport; onError: (message?: st
 
   let body: React.ReactNode;
   if (voices.status === 'queued' || voices.status === 'running') {
-    body = <p className={styles.muted} role="status">Listening to the recording. This takes a few minutes; you can leave this page.</p>;
+    body = <p className={styles.muted} role="status">
+      {item.needsTranscript
+        ? 'Transcribing the recording. An hour takes about twenty minutes; you can leave this page.'
+        : 'Listening to the recording. This takes a few minutes; you can leave this page.'}
+    </p>;
   } else if (voices.status === 'done' && voices.report) {
     body = (
       <>
         <p className={styles.cost} role="status">{voicesSummary(voices.report, item.owner)}</p>
-        <div className={styles.row}>
-          <Button size="sm" disabled={actions.undoVoices.isPending} onClick={() => actions.undoVoices.mutate(item.id, handlers)}>
-            Put the transcript&rsquo;s labels back
-          </Button>
-        </div>
+        {!voices.report.transcribed && (
+          <div className={styles.row}>
+            <Button size="sm" disabled={actions.undoVoices.isPending} onClick={() => actions.undoVoices.mutate(item.id, handlers)}>
+              Put the transcript&rsquo;s labels back
+            </Button>
+          </div>
+        )}
       </>
     );
   } else if (!voices.hasRecording) {
@@ -91,6 +104,19 @@ function Voices({ item, onError }: { item: SessionImport; onError: (message?: st
         </div>
       </>
     );
+  } else if (item.needsTranscript) {
+    body = (
+      <>
+        {voices.estimate && <p className={styles.cost}>{voices.estimate.text}</p>}
+        {voices.status === 'failed' && voices.error && <p role="alert" className={styles.error}>{voices.error}</p>}
+        <div className={styles.row}>
+          <Button size="sm" variant="primary" disabled={actions.startVoices.isPending}
+            onClick={() => actions.startVoices.mutate(item.id, handlers)}>
+            Transcribe the recording
+          </Button>
+        </div>
+      </>
+    );
   } else {
     const ready = !!item.owner && !!item.therapist;
     body = (
@@ -109,7 +135,7 @@ function Voices({ item, onError }: { item: SessionImport; onError: (message?: st
   }
   return (
     <section className={styles.speakers} aria-labelledby={`voices-${item.id}`}>
-      <h4 id={`voices-${item.id}`} className={styles.subhead}>Speakers from the recording</h4>
+      <h4 id={`voices-${item.id}`} className={styles.subhead}>{item.needsTranscript ? 'Transcript' : 'Speakers from the recording'}</h4>
       {body}
     </section>
   );
@@ -134,7 +160,9 @@ function Staged({ item }: { item: SessionImport }) {
       <header className={styles.head}>
         <h3 className={styles.title}>{item.filename ?? 'Session transcript'}</h3>
         <p className={styles.muted}>
-          {item.turns} turns{minutes ? `, about ${minutes} minutes` : ''}.
+          {item.needsTranscript
+            ? `A recording${item.voices.estimate ? ` of about ${item.voices.estimate.minutes} minutes` : ''}, not transcribed yet. Set the language before transcribing.`
+            : `${item.turns} turns${minutes ? `, about ${minutes} minutes` : ''}.`}
           {item.leftOut > 0 && ` ${item.leftOut} line${item.leftOut === 1 ? '' : 's'} before the first turn ${item.leftOut === 1 ? 'was' : 'were'} left out.`}
         </p>
       </header>
@@ -153,7 +181,7 @@ function Staged({ item }: { item: SessionImport }) {
         </Field>
       </div>
 
-      <section className={styles.speakers} aria-labelledby={`who-${item.id}`}>
+      {!item.needsTranscript && <section className={styles.speakers} aria-labelledby={`who-${item.id}`}>
         <h4 id={`who-${item.id}`} className={styles.subhead}>Who is who</h4>
         <p className={styles.muted}>
           Only turns by the speaker marked as you can become evidence. The therapist&rsquo;s turns,
@@ -171,7 +199,7 @@ function Staged({ item }: { item: SessionImport }) {
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
 
       <Voices item={item} onError={setError} />
 

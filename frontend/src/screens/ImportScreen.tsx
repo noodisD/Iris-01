@@ -8,14 +8,14 @@ import {
 import { LoadingState, ErrorState } from '@/components/states';
 import { AudioRecorder } from '@/components/AudioRecorder';
 import { SessionImports } from '@/components/SessionImports';
-import { uploadSessionTranscript } from '@/api/sessions';
+import { uploadSessionAudio, uploadSessionTranscript } from '@/api/sessions';
 import type { ImportBatch, ImportEntry } from '@/types/api';
 import { Badge, Button, Page, Section } from '@/ui';
 import styles from './ImportScreen.module.css';
 
 const TEXT_ACCEPT = '.zip,.md,.markdown,.txt,.json,.csv';
 const AUDIO_ACCEPT = '.m4a,.mp3,.wav,.webm,.ogg,.flac,.aac,.mp4';
-const SESSION_ACCEPT = '.md,.markdown,.txt';
+const SESSION_ACCEPT = `.md,.markdown,.txt,${AUDIO_ACCEPT}`;
 
 const badgeTone: Record<string, 'neutral' | 'confirmed' | 'worse' | 'action'> = {
   staged: 'neutral',
@@ -337,7 +337,9 @@ export function ImportScreen() {
     try {
       for (const file of Array.from(files)) {
         setProgress({ label: 'uploading', fraction: 0 });
-        await uploadSessionTranscript(file, { onProgress: (fraction) => setProgress({ label: 'uploading', fraction }) });
+        const onProgress = (fraction: number) => setProgress({ label: 'uploading', fraction });
+        const audio = AUDIO_ACCEPT.split(',').some(ext => file.name.toLowerCase().endsWith(ext));
+        await (audio ? uploadSessionAudio(file, { onProgress }) : uploadSessionTranscript(file, { onProgress }));
       }
       qc.invalidateQueries({ queryKey: qk.sessionImports });
     } catch (e) {
@@ -410,7 +412,7 @@ export function ImportScreen() {
             </div>
             <DropZone
               label="Therapy sessions" accept={SESSION_ACCEPT} busy={!!progress}
-              hint="A transcript with each turn marked by time and speaker. It waits here until you have said which speaker is you and when it was; nothing is sent before you import it."
+              hint="The recording, or a transcript with each turn marked by time and speaker. It waits here until you have said when it was and which speaker is you; nothing is sent before you ask."
               onFiles={sendSession}
             />
           </div>

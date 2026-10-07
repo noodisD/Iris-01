@@ -185,3 +185,55 @@ def test_a_pass_cut_off_by_a_restart_can_be_tried_again(test_user, tmp_path, rec
     stale = imports.get(import_id)
     assert stale["voices"]["status"] == "failed" and "Try again" in stale["voices"]["error"]
     assert imports.start_voices(import_id)["voices"]["status"] == "queued"
+
+
+# --- a recording with no transcript ----------------------------------------------
+
+def test_a_transcript_is_built_with_known_voices_named_and_the_rest_unclear():
+    heard = [Heard("Ann", 0, 5, "I kept postponing the call to my landlord."),
+             Heard("A", 5, 7, "Mhm."),
+             Heard("Counsellor", 7, 12, "What happened when you called?")]
+    text = session_voices.transcript_from(heard, {"Ann": "Ann", "Counsellor": "Counsellor"}, "en")
+    assert [s.label for s in sessions.segments(text)[0]] == ["Ann", "Speaker unclear", "Counsellor"]
+    lettered = session_voices.transcript_from(heard, {}, "pl")
+    assert [s.label for s in sessions.segments(lettered)[0]] == ["Mówca Ann", "Mówca A", "Mówca Counsellor"]
+
+
+def test_a_recording_is_staged_transcribed_on_the_click_and_then_imported(test_user, tmp_path, recordings,
+                                                                          monkeypatch):
+    voices = tmp_path / "voices"
+    monkeypatch.setattr(session_voices, "voices_root", lambda: voices)
+    session_voices.save_voice("owner", "Ann", b"RIFFowner")
+    session_voices.save_voice("therapist", "Counsellor", b"RIFFtherapist")
+    sent = []
+    monkeypatch.setattr(session_voices, "_diarize", lambda parts, names, samples, language: sent.append(
+        (names, len(samples))) or [
+        Heard("Ann", 0, 9, "I kept postponing the call to my landlord because I expected an argument."),
+        Heard("Counsellor", 9, 15, "What happened when you finally called him about it?"),
+        Heard("Ann", 15, 25, "He agreed to fix the heating straight away, and I felt silly.")])
+    audio = tmp_path / "session.m4a"
+    audio.write_bytes(b"not really audio")
+    imports = SessionImports(test_user["id"])
+    staged = imports.stage_recording(audio, "session.m4a")
+    import_id = int(staged["id"])
+    assert staged["needsTranscript"] and staged["voices"]["hasRecording"]
+    assert "a transcript (transcribe the recording)" in staged["missing"]
+    assert not sent, "staging sends nothing"
+    with pytest.raises(SessionImportError):
+        imports.commit(import_id)
+
+    imports.start_voices(import_id)
+    session_voices.run(import_id)
+    done = imports.get(import_id)
+    assert sent == [(("Ann", "Counsellor"), 2)]
+    assert not done["needsTranscript"] and done["voices"]["report"]["transcribed"]
+    assert (done["owner"], done["therapist"]) == ("Ann", "Counsellor")
+    imports.update(import_id, {"startedAt": "2026-10-07T18:04"})
+    assert imports.commit(import_id)["status"] == "imported"
+
+
+def test_the_recording_upload_route(client, recordings):
+    staged = client.post("/api/sessions/recordings", files={"file": ("s.m4a", b"not really audio", "audio/mp4")})
+    assert staged.status_code == 200 and staged.json()["needsTranscript"]
+    assert client.post("/api/sessions/recordings",
+                       files={"file": ("s.txt", b"x", "text/plain")}).status_code == 400

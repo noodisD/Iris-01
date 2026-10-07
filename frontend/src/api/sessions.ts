@@ -59,3 +59,12 @@ export const startSessionVoices = (id: string) =>
 
 export const undoSessionVoices = (id: string) =>
   api.post<SessionImport>(`/sessions/imports/${id}/voices/undo`);
+
+/** A session recording with no transcript: kept here, sent nowhere until transcribed on a click. */
+export async function uploadSessionAudio(
+  file: File, opts: { onProgress?: (fraction: number) => void } = {},
+): Promise<SessionImport> {
+  const form = new FormData();
+  form.append('file', file);
+  return upload('/sessions/recordings', form, opts);
+}

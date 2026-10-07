@@ -63,3 +63,13 @@ uncertain, and an hour of talk is too long to embed or to paste into chat.
 - Revisit if sessions with more than two people, or other recorded
   conversations, are wanted: the roles would need more than owner, therapist
   and unclear.
+
+## A recording with no transcript (2026-10-07)
+A session can be staged from its recording alone. It is kept on this machine
+and sent nowhere until the owner clicks "Transcribe the recording", with the
+cost shown first. The recording is then written down speaker by speaker
+(gpt-4o-transcribe-diarize). Voices kept locally in `data/sessions/voices/`
+(`owner--<label>.wav`, `therapist--<label>.wav`) let it name the speakers; a
+voice it cannot match is unclear. Without kept voices each voice keeps a
+letter for the owner to name. The owner then checks who is who, gives the day
+and time, and imports, as with a transcript.

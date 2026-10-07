@@ -31,6 +31,7 @@ function staged(over: Partial<SessionImport> = {}): SessionImport {
     estimate: { passages: 2, indexingDollars: 0.0001, readingDollars: 0.002,
                 text: 'Importing sends the session to OpenAI: about $0.002.' },
     reflectionId: null,
+    needsTranscript: false,
     voices: { status: 'none', report: null, error: null, hasRecording: false, estimate: null },
     ...over,
   };
@@ -123,5 +124,25 @@ describe('speakers from the recording', () => {
       'Uncertain lines now have a speaker: 2 lines to you, 1 line to Counsellor. '
       + '1 labelled line the voices disagreed with is now marked unsure. 1 line stays unclear. '
       + 'The voices agreed with 4 of the 5 lines the transcript had labelled.');
+  });
+});
+
+describe('a recording with no transcript', () => {
+  it('offers to transcribe it, with the cost first, and hides who is who until then', () => {
+    state.items = [staged({ needsTranscript: true, speakers: [], turns: 0, segments: 0,
+      missing: ['a transcript (transcribe the recording)', 'the day and time of the session'],
+      voices: { status: 'none', report: null, error: null, hasRecording: true,
+        estimate: { minutes: 56, dollars: 0.34, text: 'Transcribing sends the recording, about $0.34.' } } })];
+    render(<SessionImports />);
+    expect(screen.getByText('Transcribing sends the recording, about $0.34.')).toBeInTheDocument();
+    expect(screen.queryByText('Who is who')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Transcribe the recording' }));
+    expect(state.calls).toEqual([['startVoices', '4']]);
+  });
+
+  it('says what the transcription found', () => {
+    expect(voicesSummary({ segments: 10, heard: 0, labelled: 0, agreed: 0, contradicted: 0, attributed: {},
+      doubtful: 0, transcribed: true, named: { Ann: 6, Counsellor: 3 }, unclear: 1 }, 'Ann')).toBe(
+      'Transcribed into 10 lines: 6 lines yours, 3 lines by Counsellor. 1 line could not be matched to a voice and stays unclear. Check who is who below before importing.');
   });
 });

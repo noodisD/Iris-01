@@ -163,6 +163,8 @@ export interface SessionImport {
   alreadyImported: { importId: ID; on: ISODate } | null;
   estimate: { passages: number; indexingDollars: number; readingDollars: number | null; updateDollars?: number | null; text: string } | null;
   reflectionId: ID | null;
+  /** A recording staged on its own: it must be transcribed before it can be imported. */
+  needsTranscript: boolean;
   /** The optional pass that tells the speakers apart by voice; it sends the recording, so it has its own click. */
   voices: {
     status: 'none' | 'queued' | 'running' | 'done' | 'failed';
@@ -184,6 +186,11 @@ export interface SessionVoicesReport {
   /** Uncertain lines now given a speaker, by label. */
   attributed: Record<string, number>;
   doubtful: number;
+  /** Set when a recording with no transcript was written down. */
+  transcribed?: boolean;
+  /** Segments per speaker the voices named, when transcribed. */
+  named?: Record<string, number>;
+  unclear?: number;
 }
 
 export interface JournalWrite {

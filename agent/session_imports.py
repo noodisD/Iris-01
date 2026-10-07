@@ -155,9 +155,11 @@ class SessionImports:
     @staticmethod
     def _missing(row: dict, labels: set[str]) -> list[str]:
         missing = []
+        if not labels:
+            missing.append("a transcript (transcribe the recording)")
         if row["started_at"] is None:
             missing.append("the day and time of the session")
-        if not row["owner_label"] or row["owner_label"] not in labels:
+        if labels and (not row["owner_label"] or row["owner_label"] not in labels):
             missing.append("which speaker is you")
         return missing
 
@@ -200,9 +202,11 @@ class SessionImports:
             "alreadyImported": earlier,
             "estimate": estimate(self._content(row, found), self.user_id) if found else None,
             "reflectionId": str(row["reflection_id"]) if row["reflection_id"] else None,
+            "needsTranscript": not found,
             "voices": {"status": row["voices_status"], "report": row["voices_report"],
                        "error": row["voices_error"], "hasRecording": bool(row["audio_path"]),
-                       "estimate": voices_estimate(row["audio_seconds"]) if row["audio_path"] else None},
+                       "estimate": voices_estimate(row["audio_seconds"], transcribe=not found)
+                       if row["audio_path"] else None},
         }
 
     # --- staging ------------------------------------------------------------
@@ -390,7 +394,8 @@ class SessionImports:
             self._require_staged(row)
             if not row["audio_path"]:
                 raise SessionImportError("Add the recording first.")
-            if not row["owner_label"] or not row["therapist_label"]:
+            transcribed = bool(sessions.segments(row["transcript"])[0])
+            if transcribed and (not row["owner_label"] or not row["therapist_label"]):
                 raise SessionImportError("Say which speaker is you and which is the therapist first.")
             if row["voices_status"] in ("queued", "running"):
                 raise SessionImportError("The speakers are being sorted out already.")
@@ -449,3 +454,41 @@ class SessionImports:
             conn.commit()
         if row and row[0]:
             (recordings_root() / row[0]).unlink(missing_ok=True)
+
+    # --- a recording without a transcript -------------------------------------
+
+    def stage_recording(self, src, filename: str) -> dict:
+        """Keep a session recording to be transcribed. Nothing is sent until the owner asks."""
+        with db.connection() as conn, conn.cursor() as cur:
+            # The language of the last session is the likely one; the owner can change it.
+            cur.execute("""SELECT language FROM session_imports WHERE user_id = %s AND language IS NOT NULL
+                            ORDER BY created_at DESC LIMIT 1""", (self.user_id,))
+            last = cur.fetchone()
+            cur.execute("""INSERT INTO session_imports
+                               (user_id, original_filename, transcript, transcript_hash, language)
+                           VALUES (%s, %s, '', %s, %s) RETURNING id;""",
+                        (self.user_id, filename, transcript_hash(""), last[0] if last else None))
+            import_id = cur.fetchone()[0]
+            conn.commit()
+        logger.info(f"Session import {import_id} staged from a recording")
+        return self.keep_recording(import_id, src, filename)
+
+    def apply_transcript(self, import_id: int, transcript: str, report: dict, *,
+                         owner: str | None, therapist: str | None) -> None:
+        """Keep what the recording was transcribed into; the owner checks who is who."""
+        from psycopg2.extras import Json
+
+        found, _ = sessions.segments(transcript)
+        labels = {segment.label for segment in found}
+        guessed_owner, guessed_therapist = sessions.guess_roles(found)
+        owner = owner if owner in labels else guessed_owner
+        therapist = therapist if therapist in labels and therapist != owner else guessed_therapist
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("""UPDATE session_imports
+                              SET transcript = %s, transcript_hash = %s, owner_label = %s,
+                                  therapist_label = %s, voices_status = 'done', voices_report = %s,
+                                  voices_error = NULL, updated_at = NOW()
+                            WHERE id = %s AND user_id = %s AND reflection_id IS NULL""",
+                        (transcript, transcript_hash(transcript), owner,
+                         therapist if therapist != owner else None, Json(report), import_id, self.user_id))
+            conn.commit()

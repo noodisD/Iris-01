@@ -56,21 +56,57 @@ class Heard:
     speaker: str
     start: float
     end: float
+    text: str = ""
 
 
 def recordings_root() -> Path:
     return Path(settings.DATA_DIR) / "sessions" / "recordings"
 
 
-def estimate(seconds: float | None) -> dict | None:
+def voices_root() -> Path:
+    """A few seconds of each regular speaker's voice, kept on this machine.
+
+    `owner--<label>.wav` and `therapist--<label>.wav`: with them a recording
+    that has no transcript comes back with its speakers already named.
+    """
+    return Path(settings.DATA_DIR) / "sessions" / "voices"
+
+
+def stored_voices() -> list[tuple[str, str, str]]:
+    """(role, label, data URL) for every voice kept, owner first."""
+    found = []
+    for path in sorted(voices_root().glob("*--*.wav")):
+        role, _, label = path.stem.partition("--")
+        if role in ("owner", "therapist") and label:
+            found.append((role, label, "data:audio/wav;base64," + base64.b64encode(path.read_bytes()).decode()))
+    return sorted(found, key=lambda item: item[0] != "owner")
+
+
+def save_voice(role: str, label: str, wav: bytes) -> Path:
+    if role not in ("owner", "therapist") or not label or "/" in label or "--" in label:
+        raise ValueError("a voice is kept as owner or therapist, under a plain label")
+    root = voices_root()
+    root.mkdir(parents=True, exist_ok=True)
+    for old in root.glob(f"{role}--*.wav"):
+        old.unlink()
+    path = root / f"{role}--{label}.wav"
+    path.write_bytes(wav)
+    return path
+
+
+def estimate(seconds: float | None, transcribe: bool = False) -> dict | None:
     if not seconds:
         return None
     minutes = seconds / 60
     dollars = minutes * PRICE_PER_MINUTE
-    return {"minutes": round(minutes), "dollars": round(dollars, 3),
-            "text": (f"Sorting out speakers sends the recording ({round(minutes)} minutes) to OpenAI to "
-                     f"tell the voices apart, about ${dollars:.2f}. Only speaker labels change; "
-                     "the words stay as transcribed.")}
+    if transcribe:
+        text = (f"Transcribing sends the recording ({round(minutes)} minutes) to OpenAI to be written "
+                f"down speaker by speaker, about ${dollars:.2f}. Nothing goes into IRIS until you import it.")
+    else:
+        text = (f"Sorting out speakers sends the recording ({round(minutes)} minutes) to OpenAI to "
+                f"tell the voices apart, about ${dollars:.2f}. Only speaker labels change; "
+                "the words stay as transcribed.")
+    return {"minutes": round(minutes), "dollars": round(dollars, 3), "text": text}
 
 
 # --- the arithmetic, kept apart from audio and the network --------------------
@@ -208,13 +244,15 @@ def _diarize(parts: list[tuple[float, Path]], names: tuple[str, str], samples: l
     for offset, piece in parts:
         with LlmCall("diarize", MODEL, prompt=f"<audio {piece.stat().st_size} bytes>") as call, \
                 piece.open("rb") as fh:
+            known = ({"known_speaker_names": list(names), "known_speaker_references": samples}
+                     if names and samples else {})
             result = client.audio.transcriptions.create(
-                model=MODEL, file=fh, response_format="diarized_json", chunking_strategy="auto",
-                known_speaker_names=list(names), known_speaker_references=samples,
+                model=MODEL, file=fh, response_format="diarized_json", chunking_strategy="auto", **known,
                 **({"language": language} if language and language != "unknown" else {}))
             stretches = (result.model_dump() if hasattr(result, "model_dump") else result).get("segments") or []
             call.output(f"<{len(stretches)} segments>")
-        heard.extend(Heard(str(item.get("speaker")), float(item["start"]) + offset, float(item["end"]) + offset)
+        heard.extend(Heard(str(item.get("speaker")), float(item["start"]) + offset, float(item["end"]) + offset,
+                           (item.get("text") or "").strip())
                      for item in stretches)
     return heard
 
@@ -242,6 +280,9 @@ def run(import_id: int) -> None:
     user_id, transcript, audio_path, owner, therapist, language = row
     workdir = Path(tempfile.mkdtemp(prefix="iris-voices-"))
     try:
+        if not sessions.segments(transcript)[0]:
+            _transcribe(import_id, user_id, audio_path, language, workdir)
+            return
         if not audio_path or not owner or not therapist:
             raise VoicesUnavailable("Say which speaker is you and which is the therapist, and add the recording.")
         audio = recordings_root() / audio_path
@@ -272,3 +313,49 @@ def run(import_id: int) -> None:
             conn.commit()
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def transcript_from(heard: list[Heard], names: dict[str, str], language: str | None) -> str:
+    """A transcript in the session format from what the transcriber heard.
+
+    `names` maps the transcriber's speaker names to labels. With known voices,
+    a speaker it could not match is unclear; without them each voice keeps a
+    letter of its own for the owner to name.
+    """
+    unclear = "Mówca niepewny" if language == "pl" else "Speaker unclear"
+    lines = []
+    for stretch in heard:
+        if not stretch.text:
+            continue
+        if stretch.speaker in names:
+            label = names[stretch.speaker]
+        elif names:
+            label = unclear
+        else:
+            label = f"{'Mówca' if language == 'pl' else 'Speaker'} {stretch.speaker}"
+        lines.append(f"**[{sessions.clock(int(stretch.start))}] {label}:**\n{stretch.text}\n")
+    return "\n".join(lines)
+
+
+def _transcribe(import_id: int, user_id: int, audio_path: str | None, language: str | None,
+                workdir: Path) -> None:
+    """Write a recording down speaker by speaker; the owner then checks who is who."""
+    from .session_imports import SessionImports
+
+    if not audio_path or not (recordings_root() / audio_path).exists():
+        raise VoicesUnavailable("The recording is no longer here. Add it again.")
+    voices = stored_voices()
+    names = {label: label for _, label, _ in voices}
+    heard = _diarize(_parts(recordings_root() / audio_path, workdir), tuple(names),
+                     [url for _, _, url in voices], language)
+    transcript = transcript_from(heard, names, language)
+    found, _ = sessions.segments(transcript)
+    if len(found) < 2:
+        raise VoicesUnavailable("Nothing could be heard in the recording.")
+    roles = {role: label for role, label, _ in voices}
+    report = {"transcribed": True, "segments": len(found),
+              "named": {label: sum(s.label == label for s in found) for label in names},
+              "unclear": sum(s.label not in names for s in found)}
+    SessionImports(user_id).apply_transcript(import_id, transcript, report,
+                                             owner=roles.get("owner"), therapist=roles.get("therapist"))
+    logger.info(f"Session import {import_id}: transcribed, {len(found)} segments")
