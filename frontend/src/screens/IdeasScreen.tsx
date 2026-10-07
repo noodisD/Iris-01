@@ -5,7 +5,7 @@ import { Backlinks, EditableStatement, IdeaNotes } from '@/components/IdeaPage';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { HttpError } from '@/api/client';
 import {
-  useConfirmIdea, useConfirmIdeaLink, useCritiqueIdea, useDiscoverIdeaLinks, useDiscoverIdeas, useFoldIdea,
+  useConfirmIdea, useConfirmIdeaLink, useCritiqueIdea, useDiscoverIdeaLinks, useDiscoverIdeas, useDiscoverEstimate, useFoldIdea,
   useDiscoverMeanings, useMeaningEstimate,
   useIdea, useIdeaReview, useIdeasFramework, useRejectIdea, useRejectIdeaCitations,
   useRejectIdeaLink, useUpdateIdea,
@@ -15,6 +15,7 @@ import { AREA_COLOR, AREAS, areaLabel } from '@/lib/ideaAreas';
 import { LINK_COLOR, LINK_KINDS, LINK_LABEL, SYMMETRIC } from '@/lib/ideaLinks';
 import { Badge, Button, Page, Panel, Section, Tabs, TabPanel } from '@/ui';
 import styles from './IdeasScreen.module.css';
+import type { DiscoverEstimate } from '@/api/ideas';
 import type {
   IdeaCitation, IdeaCritique, IdeaDomain, IdeaLink, IdeaPosition, IdeaRun, IdeaSummary,
   IdeasFramework, IdeasReview, LinkKind,
@@ -340,19 +341,37 @@ function LinkCard({ link }: { link: IdeaLink }) {
  * Asking IRIS to look again. Both send something to the model, so each says
  * what; they live beside the proposals they produce, not above the framework.
  */
+function estimateText(estimate: DiscoverEstimate | undefined, what: string): string {
+  if (!estimate) return '';
+  const cost = estimate.dollars != null ? `, about $${estimate.dollars.toFixed(2)}` : '';
+  return `${what}: ${estimate.entries} entr${estimate.entries === 1 ? 'y' : 'ies'}${cost}.`;
+}
+
 function AskIris({ run }: { run: IdeaRun | null }) {
   const discover = useDiscoverIdeas();
+  const discoverNew = useDiscoverIdeas('new');
+  const { data: fresh } = useDiscoverEstimate('new');
+  const { data: whole } = useDiscoverEstimate('all');
+  const busy = discover.isPending || discoverNew.isPending;
   return (
     <Section title="Ask IRIS to look again">
       <div className={styles.asks}>
         <div className={styles.ask}>
-          <div>
-            <Button disabled={discover.isPending} onClick={() => discover.mutate(undefined)}>
-              {discover.isPending ? 'Reading…' : 'Read my reflections'}
+          <div className={styles.askButtons}>
+            <Button disabled={busy || !fresh?.entries} onClick={() => discoverNew.mutate(undefined)}>
+              {discoverNew.isPending ? 'Reading…' : 'Read what’s new'}
+            </Button>
+            <Button variant="quiet" disabled={busy} onClick={() => discover.mutate(undefined)}>
+              {discover.isPending ? 'Reading…' : 'Read everything again'}
             </Button>
           </div>
-          <p className={styles.muted}>Looks through your journal for positions you state and proposes them here, with the quotes. Sends eligible entries to the model.</p>
-          {discover.error && <p role="alert" className={styles.error}>{failureText(discover.error)}</p>}
+          <p className={styles.muted}>
+            Looks through your writing for positions you state and proposes them here, with the quotes. Sends
+            the entries it reads to the model. {estimateText(fresh, 'New since the last reading')}{' '}
+            {estimateText(whole, 'Everything')}
+          </p>
+          {(discover.error || discoverNew.error) &&
+            <p role="alert" className={styles.error}>{failureText(discover.error ?? discoverNew.error)}</p>}
         </div>
         <RelatedIdeas />
       </div>

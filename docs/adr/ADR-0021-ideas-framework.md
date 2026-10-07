@@ -40,3 +40,12 @@ the Android app do not read this store.
 
 A future feature that feeds a critique, a link rationale, or an idea statement
 back into evidence, chat context, or theme measurement reopens this ADR.
+
+## Quotes for held ideas go straight in (2026-10-07, the owner's decision)
+A quote IRIS finds for an idea the owner already holds is added as accepted
+rather than proposed for review, once it has passed the same checks: found
+word for word in an eligible entry (in a session, only in the owner's own
+turns) and judged by the stance check to state the idea. New ideas are still
+proposed. Quotes proposed for held ideas before this change are accepted where
+their source is unchanged. Reading can also be limited to entries that reached
+IRIS after the last complete reading ("Read what's new").

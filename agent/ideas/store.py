@@ -154,7 +154,7 @@ def stage_citations(
     Returns counts under `created`, `already_decided`, `duplicate`, and
     `source_changed`. Never overwrites an existing citation's stance.
     """
-    result = {"created": 0, "already_decided": 0, "duplicate": 0, "source_changed": 0}
+    result = {"created": 0, "added": 0, "already_decided": 0, "duplicate": 0, "source_changed": 0}
     if not citations:
         result["source_changed"] = 1
         return result
@@ -175,6 +175,7 @@ def stage_citations(
                 return result
 
         idea_id = matched_id
+        held = False
         if idea_id is None:
             cur.execute(
                 """
@@ -208,6 +209,7 @@ def stage_citations(
                     result["already_decided"] = 1
                     conn.rollback()
                     return result
+                held = existing[1] == "active"
         else:
             cur.execute(
                 """
@@ -226,14 +228,19 @@ def stage_citations(
                 result["already_decided"] = 1
                 conn.rollback()
                 return result
+            held = existing[0] == "active"
 
+        # A quote for an idea the owner already holds is added, not proposed:
+        # it has passed the same verbatim and stance checks, and the owner
+        # asked for these to go straight in (ADR-0021, 2026-10-07).
+        status = "accepted" if held else "candidate"
         for item in citations:
             cur.execute(
                 """
                 INSERT INTO idea_citations
                     (idea_id, reflection_id, quote, quote_hash, source_hash,
                      stance, status, run_id)
-                VALUES (%s, %s, %s, %s, %s, %s, 'candidate', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (idea_id, reflection_id, quote_hash) DO NOTHING
                 RETURNING id;
                 """,
@@ -244,11 +251,12 @@ def stage_citations(
                     item["quote_hash"],
                     item["source_hash"],
                     item["stance"],
+                    status,
                     run_id,
                 ),
             )
             if cur.fetchone():
-                result["created"] += 1
+                result["added" if held else "created"] += 1
                 continue
             cur.execute(
                 """
@@ -965,3 +973,28 @@ def insert_critique(
     }
 
 
+
+
+def adopt_pending_quotes(user_id: int) -> int:
+    """Accept quotes still waiting on ideas the owner holds, where the source still matches.
+
+    New quotes for a held idea are added as they are found; this takes in the
+    ones proposed before that, so none is left asking.
+    """
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.id, c.source_hash, r.content, r.evidence_eligible
+              FROM idea_citations c
+              JOIN ideas i ON i.id = c.idea_id
+              LEFT JOIN reflections r ON r.id = c.reflection_id AND r.user_id = %s
+             WHERE i.user_id = %s AND i.status = 'active' AND c.status = 'candidate'
+             FOR UPDATE OF c;
+            """,
+            (user_id, user_id),
+        )
+        valid = [int(row[0]) for row in cur.fetchall() if _valid_source(row[2], row[3], row[1])]
+        if valid:
+            cur.execute("UPDATE idea_citations SET status = 'accepted' WHERE id = ANY(%s);", (valid,))
+        conn.commit()
+    return len(valid)

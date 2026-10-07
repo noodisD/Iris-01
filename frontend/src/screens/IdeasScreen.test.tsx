@@ -119,6 +119,7 @@ vi.mock('@/hooks/useIdeas', () => ({
   useIdeaReview: () => ({ data: fixtures.review, isLoading: false, isError: false, refetch: vi.fn() }),
   useIdea: (id?: string) => ({ data: id === '8' ? fixtures.linkedDetail : fixtures.detail, isLoading: false, isError: false, refetch: vi.fn() }),
   useDiscoverIdeas: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useDiscoverEstimate: (scope: string) => ({ data: { scope, entries: scope === 'new' ? 3 : 40, since: null, dollars: scope === 'new' ? 0.05 : 0.9 } }),
   useDiscoverMeanings: () => ({ mutate: vi.fn(), isPending: false, error: null }),
   useMeaningEstimate: () => ({ data: { ideas: 3, calls: 1, tokensIn: 900, estimate: '0k tokens in on m, about $0.01' }, isPending: false, isError: false }),
   useConfirmIdea: () => ({ mutate: confirmIdea, isPending: false, error: null }),
@@ -336,5 +337,13 @@ describe('a proposed link between two ideas', () => {
     fireEvent.click(options[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Merge into this idea' }));
     expect(foldIdea).toHaveBeenCalledWith({ id: '7', intoId: '8' }, expect.anything());
+  });
+});
+
+describe('asking IRIS to read again', () => {
+  it('offers to read only what is new, with both costs shown', () => {
+    renderAt('/ideas?view=review');
+    expect(screen.getByRole('button', { name: 'Read what’s new' })).toBeEnabled();
+    expect(screen.getByText(/New since the last reading: 3 entries, about \$0\.05\. Everything: 40 entries, about \$0\.90\./)).toBeInTheDocument();
   });
 });

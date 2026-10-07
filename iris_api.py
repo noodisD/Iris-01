@@ -2344,10 +2344,20 @@ def get_ideas_review(user_id: int = Depends(get_current_user_id)):
     return IdeaService(user_id).review()
 
 
+@app.get("/api/ideas/discover/estimate")
+def estimate_idea_discovery(scope: Literal["all", "new"] = "new",
+                            user_id: int = Depends(get_current_user_id)):
+    """What reading every entry, or only those new since the last reading, sends and costs."""
+    return IdeaService(user_id).discover_estimate(scope)
+
+
 @app.post("/api/ideas/discover")
-def discover_ideas(user_id: int = Depends(get_current_user_id)):
-    """Read eligible reflections and stage idea proposals. Owner-triggered."""
-    return _analysis_result(IdeaService(user_id).discover())
+def discover_ideas(scope: Literal["all", "new"] = "all", user_id: int = Depends(get_current_user_id)):
+    """Read eligible reflections and stage idea proposals. Owner-triggered.
+
+    `scope=new` reads only entries that reached IRIS after the last complete reading.
+    """
+    return _analysis_result(IdeaService(user_id).discover(scope))
 
 
 @app.get("/api/ideas/meanings/estimate")

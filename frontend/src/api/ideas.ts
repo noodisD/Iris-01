@@ -16,8 +16,14 @@ export function getIdea(id: string): Promise<IdeaDetail> {
   return api.get(`/ideas/${id}`);
 }
 
-export function discoverIdeas(): Promise<{ run: IdeaRun }> {
-  return api.post('/ideas/discover');
+export function discoverIdeas(scope: 'all' | 'new' = 'all'): Promise<{ run: IdeaRun }> {
+  return api.post(`/ideas/discover?scope=${scope}`);
+}
+
+export interface DiscoverEstimate { scope: 'all' | 'new'; entries: number; since: string | null; dollars: number | null }
+
+export function getDiscoverEstimate(scope: 'all' | 'new'): Promise<DiscoverEstimate> {
+  return api.get(`/ideas/discover/estimate?scope=${scope}`);
 }
 
 /** No model call: what finding shared meanings would send and cost. */

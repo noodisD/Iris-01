@@ -1876,7 +1876,8 @@ class Database:
                 for r in cur.fetchall()
             ]
 
-    def get_entries_for_reading(self, user_id: int, limit: int | None = 60, since=None) -> list:
+    def get_entries_for_reading(self, user_id: int, limit: int | None = 60, since=None,
+                                created_after=None) -> list:
         """Entries an engine may read and quote from, newest first.
 
         Only what the owner deliberately logged, and only what still counts as
@@ -1887,7 +1888,8 @@ class Database:
         from something they actually sat down and wrote.
 
         `limit=None` reads the whole eligible archive (PostgreSQL `LIMIT NULL`).
-        Existing callers keep the default of 60.
+        Existing callers keep the default of 60. `created_after` keeps only
+        what reached IRIS after that moment, whatever day it was written.
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -1896,11 +1898,12 @@ class Database:
                   FROM reflections
                  WHERE user_id = %s AND evidence_eligible
                    AND (%s::date IS NULL OR reflection_date >= %s::date)
+                   AND (%s::timestamptz IS NULL OR created_at > %s::timestamptz)
                    AND content IS NOT NULL AND length(trim(content)) > 0
                  ORDER BY reflection_date DESC, id DESC
                  LIMIT %s;
                 """,
-                (user_id, since, since, limit),
+                (user_id, since, since, created_after, created_after, limit),
             )
             return [{"id": r[0], "date": r[1], "content": r[2],
                      "content_format": r[3], "discovery_revision": r[4],

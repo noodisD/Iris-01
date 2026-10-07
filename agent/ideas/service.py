@@ -131,8 +131,38 @@ class IdeaService:
         return self.intelligence
 
     @obs.traced("ideas.discover", "ideas", result=lambda r: {"iris.ideas.result": r})
-    def discover(self) -> dict[str, Any]:
-        entries = db.get_entries_for_reading(self.user_id, limit=None)
+    def _last_read(self) -> Any:
+        """When the last complete reading of the archive started, or None."""
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT max(started_at) FROM idea_runs
+                            WHERE user_id = %s AND kind = 'discovery' AND status = 'complete'""",
+                        (self.user_id,))
+            return cur.fetchone()[0]
+
+    def _entries(self, scope: str) -> list[dict[str, Any]]:
+        if scope not in ("all", "new"):
+            raise ValueError("scope is all or new")
+        after = self._last_read() if scope == "new" else None
+        return db.get_entries_for_reading(self.user_id, limit=None, created_after=after)
+
+    def discover_estimate(self, scope: str = "new") -> dict[str, Any]:
+        """What reading the archive, or only what is new, sends and costs. No model call."""
+        from agent.markdown_text import for_model
+
+        entries = self._entries(scope)
+        chars = sum(len(for_model(e.get("content"), e.get("content_format"))) for e in entries)
+        # The reading, then a stance check and a match per proposal: about twice the input.
+        tokens_in = (chars // 3 + len(reader.IDEA_READ_PROMPT) // 3) * 2 if entries else 0
+        tokens_out = len(entries) * 300
+        price = Intelligence.PRICE_PER_MTOK.get(settings.OPENAI_MODEL)
+        dollars = (tokens_in * price[0] + tokens_out * price[1]) / 1_000_000 if price else None
+        last = self._last_read()
+        return {"scope": scope, "entries": len(entries),
+                "since": last.isoformat() if last and scope == "new" else None,
+                "dollars": round(dollars, 2) if dollars is not None else None}
+
+    def discover(self, scope: str = "all") -> dict[str, Any]:
+        entries = self._entries(scope)
         model = settings.OPENAI_MODEL
         if not entries:
             run_id = store.start_run(
@@ -166,6 +196,8 @@ class IdeaService:
                 tally.bump("malformed", malformed)
                 for draft in drafts:
                     self._stage_draft(draft, by_id, client, run_id, tally, registry)
+            # Quotes proposed for held ideas before they were added directly.
+            store.adopt_pending_quotes(self.user_id)
         except Exception:
             logger.error("idea discovery failed for user %s run %s", self.user_id, run_id)
             tally.fail("model_failed")

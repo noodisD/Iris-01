@@ -40,8 +40,12 @@ function useIdeaMutation<T>(mutationFn: (value: T) => Promise<unknown>) {
   });
 }
 
-export function useDiscoverIdeas() {
-  return useIdeaMutation(() => ideasApi.discoverIdeas());
+export function useDiscoverIdeas(scope: 'all' | 'new' = 'all') {
+  return useIdeaMutation(() => ideasApi.discoverIdeas(scope));
+}
+
+export function useDiscoverEstimate(scope: 'all' | 'new') {
+  return useQuery({ queryKey: [...qk.ideas, 'discover-estimate', scope], queryFn: () => ideasApi.getDiscoverEstimate(scope), staleTime: 0 });
 }
 
 export function useMeaningEstimate(enabled: boolean) {
