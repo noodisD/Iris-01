@@ -459,7 +459,10 @@ class Database:
             try:
                 cur.execute(
                     """
-                    SELECT e.source_type, e.source_id, e.vector <=> %s::vector AS distance
+                    -- A passage can have a vector of its own words and one of
+                    -- their English translation; it is one memory, at its
+                    -- nearer distance.
+                    SELECT e.source_type, e.source_id, min(e.vector <=> %s::vector) AS distance
                     FROM embeddings e
                     WHERE (
                         -- A long entry is found by its passages; its one
@@ -478,6 +481,7 @@ class Database:
                         (e.source_type = 'session_passage' AND e.source_id IN (
                             SELECT id FROM session_passages WHERE user_id = %s))
                     )
+                    GROUP BY e.source_type, e.source_id
                     ORDER BY distance ASC
                     LIMIT %s;
                     """,

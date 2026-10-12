@@ -139,7 +139,51 @@ def _index_session(user_id: int, reflection_id: int) -> str:
     db.replace_session_passages(user_id, reflection_id, model_name,
                                 [(p.position, p.at, p.text, v) for p, v in zip(cut, vectors)])
     obs.set_attributes({"iris.pipeline.session_passages": len(cut)})
+    gloss_session_passages(reflection_id)
     return "complete"
+
+
+#: The embedding model name under which a passage's English translation is kept.
+GLOSS_MODEL = "text-embedding-3-small+en"
+GLOSS_PROMPT = ("Translate this passage of a recorded conversation into English, faithfully and in full, "
+                "keeping every speaker label and time exactly as written. Reply with the translation only.")
+
+
+def gloss_session_passages(reflection_id: int) -> int:
+    """Give a non-English session's passages an English vector too, for search only.
+
+    The owner asks chat in English and the sessions are in Polish. Asked in
+    Polish, chat found the passage that answers a question ten times in ten;
+    asked in English, three in ten. Each passage keeps one vector of its own
+    words and gains one of its translation, so either language finds it. Chat
+    still shows the passage as it was said. A failure leaves the passage
+    findable in its own language, as before.
+    """
+    from .sessions import read
+
+    stored = db.get_reflection(reflection_id) or {}
+    session = read(stored.get("content"))
+    if session is None or (session.language or "en") == "en":
+        return 0
+    model = _reading_model()
+    if model is None:
+        return 0
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, text FROM session_passages WHERE reflection_id = %s ORDER BY position;",
+                    (reflection_id,))
+        rows = cur.fetchall()
+    glossed = 0
+    for passage_id, text in rows:
+        try:
+            english = model.chat(messages=[{"role": "user", "content": text}], system_prompt=GLOSS_PROMPT,
+                                 temperature=None, max_tokens=4000).strip()
+            if english:
+                db.add_embedding("session_passage", passage_id, GLOSS_MODEL, generate_embedding(english))
+                glossed += 1
+        except Exception as e:
+            logger.warning(f"No English vector for passage {passage_id}: {type(e).__name__}")
+    obs.set_attributes({"iris.pipeline.glossed_passages": glossed})
+    return glossed
 
 
 def _reading_model():

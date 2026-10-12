@@ -187,3 +187,29 @@ def test_a_long_session_reaches_the_reader_a_part_at_a_time(test_user, monkeypat
     monkeypatch.setattr(discovery_worker.EpisodeReader, "read", read)
     discovery_worker.process_reflection(reflection_id)
     assert len(seen) == 3 and all(sessions.read(piece) for piece in seen)
+
+
+def test_a_polish_session_is_found_in_english_too_and_still_shown_as_said(test_user, monkeypatch):
+    from agent import sessions
+
+    class Translator:
+        def chat(self, messages, system_prompt, **kwargs):
+            return "Translated: " + messages[0]["content"]
+    monkeypatch.setattr(pipeline, "_reading_model", lambda: Translator())
+    turns = [sessions.Segment(0, "Ania", "Wczoraj podlewałam ogród i myślałam o rowerze."),
+             sessions.Segment(20, "Terapeuta", "Co wtedy czułaś?")]
+    text = sessions.compose(turns, kind="therapy", started="2026-10-07T18:00", language="pl",
+                            owner="Ania", therapist="Terapeuta")
+    reflection_id = db.create_reflection(test_user["id"], text, source="session", content_format="session")
+    pipeline.run_processing_pipeline("reflection", reflection_id)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT p.id, count(e.id) FROM session_passages p
+                         JOIN embeddings e ON e.source_type = 'session_passage' AND e.source_id = p.id
+                        WHERE p.reflection_id = %s GROUP BY p.id""", (reflection_id,))
+        counts = cur.fetchall()
+    assert counts and all(n == 2 for _, n in counts), "its own words and an English translation"
+    found = db.search_similar_embeddings(test_user["id"], [0.1] * 1536, n_results=50)
+    keys = [(r["source_type"], r["source_id"]) for r in found]
+    assert len(keys) == len(set(keys)), "one memory, not one per vector"
+    item = db.get_memory_item("session_passage", counts[0][0])
+    assert "Translated" not in item["text"] and "ogród" in item["text"]
