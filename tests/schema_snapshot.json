@@ -5243,8 +5243,7 @@
     },
     "embeddings": {
       "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",
-      "embeddings_source_type_source_id_model_name_key": "CREATE UNIQUE INDEX embeddings_source_type_source_id_model_name_key ON public.embeddings USING btree (source_type, source_id, model_name)",
-      "idx_embeddings_vector_cosine": "CREATE INDEX idx_embeddings_vector_cosine ON public.embeddings USING ivfflat (vector vector_cosine_ops) WITH (lists='100')"
+      "embeddings_source_type_source_id_model_name_key": "CREATE UNIQUE INDEX embeddings_source_type_source_id_model_name_key ON public.embeddings USING btree (source_type, source_id, model_name)"
     },
     "entry_passages": {
       "entry_passages_pkey": "CREATE UNIQUE INDEX entry_passages_pkey ON public.entry_passages USING btree (id)",
@@ -5416,7 +5415,6 @@
       "theme_tensions_theme_a_id_theme_b_id_key": "CREATE UNIQUE INDEX theme_tensions_theme_a_id_theme_b_id_key ON public.theme_tensions USING btree (theme_a_id, theme_b_id)"
     },
     "themes": {
-      "idx_themes_centroid_cosine": "CREATE INDEX idx_themes_centroid_cosine ON public.themes USING ivfflat (centroid_embedding vector_cosine_ops) WITH (lists='50')",
       "idx_themes_proposal_key": "CREATE INDEX idx_themes_proposal_key ON public.themes USING btree (user_id, proposal_key)",
       "idx_themes_user": "CREATE INDEX idx_themes_user ON public.themes USING btree (user_id)",
       "idx_themes_user_kind": "CREATE INDEX idx_themes_user_kind ON public.themes USING btree (user_id, claim_kind)",
