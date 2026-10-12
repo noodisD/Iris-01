@@ -10,7 +10,7 @@
  */
 
 import { api, sse } from './client';
-import type { ChatMessage, Conversation, DiscussionPreview, EvidenceRef } from '@/types/api';
+import type { ChatEvidence, ChatMessage, Conversation, DiscussionPreview, EvidenceRef } from '@/types/api';
 
 /** A new empty open. Earlier messages stay stored and are not returned here. */
 export async function startConversation(): Promise<Conversation> {
@@ -24,6 +24,16 @@ export async function getCurrentConversation(): Promise<Conversation> {
 export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
   return api.get<ChatMessage[]>(`/conversations/${conversationId}/messages`);
 }
+/** Whether this conversation is in IRIS as evidence, and what adding it costs (ADR-0032). */
+export function getChatEvidence(conversationId: string): Promise<ChatEvidence> {
+  return api.get<ChatEvidence>(`/conversations/${conversationId}/evidence`);
+}
+
+/** The owner's click: the conversation is read for patterns, their own words only. */
+export function addChatEvidence(conversationId: string): Promise<ChatEvidence> {
+  return api.post<ChatEvidence>(`/conversations/${conversationId}/evidence`, {});
+}
+
 export function getDiscussionPreview(ref: EvidenceRef): Promise<DiscussionPreview> {
   return api.get(`/discovery/discussion?ref=${encodeURIComponent(JSON.stringify(ref))}`);
 }

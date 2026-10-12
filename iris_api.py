@@ -746,6 +746,30 @@ def get_current_conversation(user_id: int = Depends(get_current_user_id)):
     return _conversation_for(user_id, session)
 
 
+@app.get("/api/conversations/{conversation_id}/evidence")
+def conversation_evidence(conversation_id: str, user_id: int = Depends(get_current_user_id)):
+    """Whether this conversation is in IRIS as evidence, and what adding it costs (ADR-0032)."""
+    from agent import chat_evidence
+
+    try:
+        return chat_evidence.status(user_id, conversation_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No such conversation.")
+
+
+@app.post("/api/conversations/{conversation_id}/evidence")
+def add_conversation_evidence(conversation_id: str, user_id: int = Depends(get_current_user_id)):
+    """The owner's click: the conversation is read for patterns, the owner's words only."""
+    from agent import chat_evidence
+
+    try:
+        return chat_evidence.add(user_id, conversation_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="No such conversation.")
+    except chat_evidence.ChatEvidenceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @app.get("/api/conversations/{conversation_id}/messages")
 def get_conversation_messages(conversation_id: str, user_id: int = Depends(get_current_user_id)):
     """Messages in this open only. An unknown open is empty, not another session."""

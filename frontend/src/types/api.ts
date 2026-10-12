@@ -202,6 +202,18 @@ export interface SessionVoicesReport {
   whisper_failed?: string;
 }
 
+/** A chat conversation's place in IRIS as evidence (ADR-0032). */
+export interface ChatEvidence {
+  added: boolean;
+  addedAt: string | null;
+  messages: number;
+  yourMessages: number;
+  /** Messages since it was added; all of them when it never was. */
+  newSinceAdded: number;
+  dollars: number | null;
+  text: string;
+}
+
 export interface JournalWrite {
   text?: string;
   format?: 'plain' | 'markdown';

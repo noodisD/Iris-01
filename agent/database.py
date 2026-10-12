@@ -1747,7 +1747,7 @@ class Database:
                     -- Questionnaire answers are not something the owner wrote
                     -- lately; dozens added in one sitting would crowd the
                     -- latest entries out (ADR-0029). Chat recalls them by memory.
-                    AND source <> 'questionnaire'
+                    AND source NOT IN ('questionnaire', 'chat')
                    -- NULLS LAST, explicitly: DESC puts them first in Postgres,
                    -- so "the most recent entries" began with the writing whose
                    -- day is unknown and the dated ones fell off the end.
@@ -1841,7 +1841,7 @@ class Database:
                        tags, created_at, updated_at, audio_path, entry_sequence,
                        content_format, metrics
                   FROM reflections
-                 WHERE user_id = %s AND source <> 'questionnaire'
+                 WHERE user_id = %s AND source NOT IN ('questionnaire', 'chat')
                    AND (%s::int IS NULL
                         OR (%s::date IS NOT NULL
                             AND (reflection_date IS NULL

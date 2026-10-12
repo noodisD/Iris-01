@@ -105,6 +105,13 @@ not a theme occurrence (ADR-0028). A session added from its recording alone is
 written down locally by Whisper, its speakers taken from the diarizer, and its
 mis-hearings checked against the diarizer's second hearing (ADR-0030).
 
+### Added chat
+A chat conversation the owner chose to add to IRIS, stored as a reflection in
+the session format (`source 'chat'`). IRIS's turns are context and only the
+owner's turns are evidence, as in a session. Adding it again after it went on
+replaces the earlier copy. A chat that was never added is never evidence
+(ADR-0032).
+
 ### Questionnaire answer
 The owner's answer to one question of a questionnaire they answer inside IRIS
 (ADR-0029). The questions stay in a local file, never in the repository. An

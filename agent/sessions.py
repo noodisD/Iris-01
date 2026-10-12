@@ -38,7 +38,7 @@ import re
 from dataclasses import dataclass
 
 FORMAT = "session"
-KINDS = ("therapy", "questionnaire")
+KINDS = ("therapy", "questionnaire", "chat")
 ROLES = ("owner", "therapist", "asker", "unclear")
 
 #: How much of a session one recalled passage holds. Small enough that a
@@ -286,6 +286,13 @@ def describe(session: Session) -> str:
                 + (f", given {session.started.split('T')[0]}" if session.started else "")
                 + ". Turns marked question are what was asked, and context; only turns marked "
                 "owner are the owner's words.")
+    if session.kind == "chat":
+        # A conversation with IRIS the owner chose to add (ADR-0032). IRIS's
+        # turns are what it asked or said, and context; only the owner's count.
+        return ("A conversation between the owner and IRIS"
+                + (f" on {session.started.split('T')[0]}" if session.started else "")
+                + f", {counted['owner']} of the owner's turns. Turns marked question are IRIS's, "
+                "and context; only turns marked owner are the owner's words.")
     parts = [f"A {session.kind} session"
              + (f", recorded {when}" if when else "")
              + (f", about {round(session.duration / 60)} minutes" if session.duration else "")

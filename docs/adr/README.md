@@ -37,6 +37,7 @@ re-litigated by accident, only deliberately.
 | [0029](ADR-0029-baseline-questionnaire.md) | The owner answers a questionnaire inside IRIS, in their own words | Why the questions stay local, why drafts go nowhere until a section is added, and why only the owner's words in an answer count |
 | [0030](ADR-0030-local-whisper-sessions.md) | A session recording's words are written down locally by Whisper, then checked | Why words come from local Whisper and speakers from the diarizer, and how a model may fix mis-hearings without guessing |
 | [0031](ADR-0031-reading-copies-and-entry-passages.md) | Dictated entries are read from a reading copy; long entries are recalled by passage | Why the reader reads punctuated copies with the same words, and why chat recalls long entries by passage rather than one averaged vector |
+| [0032](ADR-0032-chat-as-evidence.md) | A chat conversation is evidence only when the owner adds it | Why chats are read for patterns only at the owner's click, and why only the owner's turns in them count |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

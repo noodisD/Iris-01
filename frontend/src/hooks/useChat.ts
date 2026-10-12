@@ -26,6 +26,23 @@ export function useMessages(conversationId: string | undefined) {
     enabled:  !!conversationId,
   });
 }
+/** The conversation's place in IRIS, refreshed as it goes on. */
+export function useChatEvidence(conversationId: string | undefined, messageCount: number) {
+  return useQuery({
+    queryKey: ['conversation', 'evidence', conversationId, messageCount],
+    queryFn: () => chatApi.getChatEvidence(conversationId!),
+    enabled: !!conversationId && messageCount > 0,
+  });
+}
+
+export function useAddChatEvidence(conversationId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => chatApi.addChatEvidence(conversationId!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversation', 'evidence', conversationId] }),
+  });
+}
+
 export function useEvidencePreview(ref: EvidenceRef | null) {
   return useQuery({
     queryKey: ['discovery', 'discussion', ref ? JSON.stringify(ref) : null],

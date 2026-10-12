@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useEvidencePreview, useMessages, useNewConversation, useSendMessage } from '@/hooks/useChat';
+import { useAddChatEvidence, useChatEvidence, useEvidencePreview, useMessages, useNewConversation,
+  useSendMessage } from '@/hooks/useChat';
 import { useUser } from '@/hooks/useData';
 import { ReplyFailed } from '@/api/chat';
 import { parseEvidenceRef } from '@/lib/evidence';
@@ -15,6 +16,35 @@ import styles from './ChatScreen.module.css';
 
 /** The part of the day it actually is. The header said "evening check-in" at
  *  every hour. */
+/**
+ * Adding the conversation to IRIS (ADR-0032): the owner's words in it are read
+ * for patterns and ideas, IRIS's only as context. Never automatic.
+ */
+export function AddToIris({ conversationId, messageCount, busy }:
+  { conversationId: string; messageCount: number; busy: boolean }) {
+  const status = useChatEvidence(conversationId, messageCount);
+  const add = useAddChatEvidence(conversationId);
+  const data = status.data;
+  if (!data || data.yourMessages === 0) return null;
+  const current = data.added && data.newSinceAdded === 0;
+  return (
+    <div className={styles.addToIris}>
+      {current
+        ? <p className={styles.meta} role="status">This conversation is in IRIS. Your words in it are read for patterns.</p>
+        : <>
+          <Button size="sm" onClick={() => add.mutate()} disabled={busy || add.isPending}>
+            {add.isPending ? 'Adding…' : data.added ? 'Update in IRIS' : 'Add to IRIS'}
+          </Button>
+          <p className={styles.meta}>{data.added
+            ? `${data.newSinceAdded} new message${data.newSinceAdded === 1 ? '' : 's'} since you added it. ${data.text}`
+            : data.text}</p>
+        </>}
+      {add.isError && <p role="alert" className={styles.failure}>
+        Couldn't add it: {add.error instanceof Error ? add.error.message : String(add.error)}</p>}
+    </div>
+  );
+}
+
 function partOfDay(d = new Date()): string {
   const h = d.getHours();
   return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening';
@@ -287,6 +317,8 @@ export function ChatScreen() {
           {(reference || invalidReference) && <p className={styles.meta}>
             Selected evidence is for typed discussion. Remove it to start Talk.</p>}
           <p className={styles.meta}>{sentToday(messages ?? [])} messages today</p>
+          <AddToIris conversationId={convo.id} busy={send.isPending}
+            messageCount={(messages ?? []).filter(m => !m.streaming).length} />
           </>}
         </div>
       </div>

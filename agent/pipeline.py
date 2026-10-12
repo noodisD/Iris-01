@@ -126,7 +126,12 @@ def _index_session(user_id: int, reflection_id: int) -> str:
 
     model_name = "text-embedding-3-small"
     stored = db.get_reflection(reflection_id) or {}
-    cut = passages(stored.get("content"))
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT source FROM reflections WHERE id = %s;", (reflection_id,))
+        row = cur.fetchone()
+    # An added chat is recalled already, message by message (ADR-0032); a
+    # second copy as passages would only crowd the memories chat is shown.
+    cut = [] if row and row[0] == "chat" else passages(stored.get("content"))
     vectors = [generate_embedding(passage.text, model=model_name) for passage in cut]
     if not db.is_still_processing("reflection", reflection_id):
         logger.info(f"Session {reflection_id} changed while being indexed; leaving it to the re-queued run")
