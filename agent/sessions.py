@@ -270,6 +270,29 @@ def read(content: str | None) -> Session | None:
                    turns=tuple(turns), asker=asker, question=meta.get("question") or None)
 
 
+#: Turns the reader sees at once. Read whole, an hour-long session gave one
+#: account; read 25 turns at a time, the same session gave thirty.
+READ_TURNS = 25
+
+
+def parts(content: str | None, turns: int = READ_TURNS) -> list[str]:
+    """A stored session cut into runs of whole turns, each with the session's header.
+
+    Every part is the header plus a stretch of the stored text, so a quote
+    taken from a part is found word for word in the whole session.
+    """
+    text = content or ""
+    if read(text) is None:
+        return [text]
+    close = text.find("\n" + _FENCE + "\n", len(_FENCE)) + len(_FENCE) + 2
+    marks = list(_HEADER.finditer(text, close))
+    if len(marks) <= turns:
+        return [text]
+    head = text[:close]
+    return [head + "\n" + text[marks[i].start():marks[i + turns].start() if i + turns < len(marks) else len(text)]
+            for i in range(0, len(marks), turns)]
+
+
 def _line(turn: Turn) -> str:
     return f"[{clock(turn.at)}] {turn.label} ({_ROLE_WORDS[turn.role]}): {turn.text}"
 

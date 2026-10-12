@@ -169,3 +169,21 @@ def test_the_reader_reads_the_copy_and_entries_can_be_read_again(test_user, monk
         cur.execute("SELECT count(*) FROM processing_queue WHERE source_type = 'discovery' AND source_id = %s;",
                     (reflection_id,))
         assert cur.fetchone()[0] == 1
+
+
+def test_a_long_session_reaches_the_reader_a_part_at_a_time(test_user, monkeypatch):
+    from agent import sessions
+
+    turns = [sessions.Segment(i * 10, "Ann" if i % 2 == 0 else "Counsellor",
+                              f"Invented line {i} about the bicycle.") for i in range(60)]
+    text = sessions.compose(turns, kind="therapy", started="2026-10-07T18:00", language="en",
+                            owner="Ann", therapist="Counsellor")
+    reflection_id = db.create_reflection(test_user["id"], text, source="session", content_format="session")
+    seen = []
+
+    def read(self, entries, readable=None):
+        seen.append(entries[0]["content"])
+        return []
+    monkeypatch.setattr(discovery_worker.EpisodeReader, "read", read)
+    discovery_worker.process_reflection(reflection_id)
+    assert len(seen) == 3 and all(sessions.read(piece) for piece in seen)

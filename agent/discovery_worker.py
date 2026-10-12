@@ -87,10 +87,20 @@ def process_reflection(reflection_id: int) -> None:
     # Dictated in one breath, an entry is read from its reading copy: the same
     # words punctuated, so quotes still resolve to the entry's own text.
     copy = None if content_format == "session" else ensure_copy(reflection_id, content, stored_copy, model)
+    from .sessions import parts
+
+    # A long session is read a stretch of turns at a time (sessions.READ_TURNS).
+    pieces = parts(content) if content_format == "session" else [content]
     try:
-        episodes = reader.read([entry], readable={str(reflection_id): copy} if copy else None)
-        kept, dropped, omitted = verify_reading(episodes, model)
-        omitted += reader.omitted_fields
+        kept, dropped, omitted, skipped = [], 0, 0, 0
+        for piece in pieces:
+            episodes = reader.read([{**entry, "content": piece}],
+                                   readable={str(reflection_id): copy} if copy else None)
+            found, lost, unsupported = verify_reading(episodes, model)
+            kept += found
+            dropped += lost
+            omitted += unsupported + reader.omitted_fields
+            skipped += reader.omitted_accounts
     except ReadUnavailable as exc:
         raise ReadUnavailable(str(exc)) from None
     except ValueError:
@@ -105,6 +115,6 @@ def process_reflection(reflection_id: int) -> None:
             return
         _store_reading(cur, user_id, [ep.as_dict() for ep in kept],
                        source_revisions={reflection_id: revision},
-                       omitted_accounts=reader.omitted_accounts + dropped,
+                       omitted_accounts=skipped + dropped,
                        omitted_fields=omitted, locked_sources=sources)
         conn.commit()

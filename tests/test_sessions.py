@@ -203,3 +203,20 @@ def test_an_idea_check_sees_the_turns_around_a_quote_not_the_whole_session():
     assert "Counsellor (therapist): What happened" in context
     assert "Ann (owner): He agreed" in context
     assert "Speaker unsure" not in context, "only the turns either side"
+
+
+def test_a_long_session_is_read_in_parts_that_keep_its_header_and_its_words():
+    turns = [sessions.Segment(i * 10, "Ann" if i % 2 == 0 else "Counsellor",
+                              f"Invented line {i} about the allotment and the weather.") for i in range(60)]
+    text = sessions.compose(turns, kind="therapy", started="2026-10-07T18:00", language="en",
+                            owner="Ann", therapist="Counsellor")
+    pieces = sessions.parts(text, turns=25)
+    assert len(pieces) == 3
+    for piece in pieces:
+        read = sessions.read(piece)
+        assert read is not None and read.owner == "Ann" and read.therapist == "Counsellor"
+        for turn in read.turns:
+            assert turn.text in text
+    assert sum(len(sessions.read(p).turns) for p in pieces) == len(sessions.read(text).turns)
+    assert sessions.parts(text, turns=100) == [text]
+    assert sessions.parts("A plain journal entry.") == ["A plain journal entry."]
