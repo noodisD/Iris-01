@@ -33,8 +33,14 @@ def _open(client) -> str:
 
 
 def test_opening_chat_starts_an_empty_session(client, test_user):
-    """Each open is empty. Current is the latest open, not one rolling transcript."""
+    """Each open is empty. Current is the latest open, not one rolling transcript.
+
+    An open nobody wrote in is reused rather than another left behind."""
+    from agent.database import db
+
     first = _open(client)
+    assert _open(client) == first, "an empty open is reused"
+    db.create_conversation_message(test_user["id"], first, "user", "A note about the weather.")
     second = _open(client)
     assert first != second
     current = client.get("/api/conversations/current")

@@ -139,10 +139,11 @@ class ObservatorySpanProcessor(SpanProcessor):
         parent_module_id = None if ident is None else ident.parent_module_id
         record = to_record(span, self_ms, module_id=module_id, parent_module_id=parent_module_id)
         hub.finish_sdk(record)
-        sink.put_span(record)
+        sink.put_span(for_storage(record))
 
     def shutdown(self) -> None:
         return None
+
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         return True
@@ -248,3 +249,30 @@ class SpanMetricsProcessor(SpanProcessor):
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
         return True
+
+
+#: A database step quicker than this keeps only its timing and statement once stored.
+DB_SPAN_KEEP_MS = 250.0
+_DB_NAMES = ("db.", "SELECT ", "INSERT ", "UPDATE ", "DELETE ")
+#: What a database step captured of its own input and result rows.
+_CAPTURED = ("iris.io.output", "iris.io.input")
+
+
+def for_storage(record: dict) -> dict:
+    """The span as written to the store; the live view has already had it whole.
+
+    Every query stored a copy of the rows it returned: 233 MB a day, nine
+    tenths of the database, and why each backup was most of a gigabyte. A
+    quick, successful database step keeps its timing, statement and fingerprint
+    (what the database view needs) without that copy; a slow or failed one, and
+    every other span, is stored whole.
+    """
+    name = str(record.get("name") or "")
+    if record.get("component") != "db" and not name.startswith(_DB_NAMES):
+        return record
+    if record.get("status") == "error" or float(record.get("duration_ms") or 0) >= DB_SPAN_KEEP_MS:
+        return record
+    attributes = record.get("attributes")
+    if not isinstance(attributes, dict) or not any(key in attributes for key in _CAPTURED):
+        return record
+    return {**record, "attributes": {k: v for k, v in attributes.items() if k not in _CAPTURED}}

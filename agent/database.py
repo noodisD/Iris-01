@@ -218,10 +218,28 @@ class Database:
     # ============================================================================
 
     def create_chat_session(self, user_id: int) -> dict:
-        """Opens an empty chat session. Its messages stay in conversation_messages."""
+        """Opens an empty chat session. Its messages stay in conversation_messages.
+
+        The chat screen opens one every time it loads, so most were never
+        written in: 118 of 129. An empty one already open is reused, restarted
+        at now, rather than another left behind.
+        """
         session_id = uuid.uuid4().hex
         with self.connection() as conn, conn.cursor() as cur:
             try:
+                cur.execute(
+                    """UPDATE chat_sessions SET created_at = NOW()
+                        WHERE id = (SELECT s.id FROM chat_sessions s
+                                     WHERE s.user_id = %s AND NOT EXISTS (
+                                           SELECT 1 FROM conversation_messages m WHERE m.session_id = s.id)
+                                     ORDER BY s.created_at DESC LIMIT 1)
+                    RETURNING id, created_at;""",
+                    (user_id,),
+                )
+                reused = cur.fetchone()
+                if reused:
+                    conn.commit()
+                    return {"id": reused[0], "created_at": reused[1]}
                 cur.execute(
                     """
                     INSERT INTO chat_sessions (id, user_id)

@@ -271,3 +271,17 @@ def test_prune_keeps_only_the_retention_window(observatory):
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT name FROM obs_spans ORDER BY name")
         assert [row[0] for row in cur.fetchall()] == ["new"]
+
+
+
+def test_a_quick_database_step_is_stored_without_the_rows_it_returned():
+    from agent.observability.processors import for_storage
+
+    captured = {"iris.io.output": "rows", "iris.io.input": "params", "db.query.text": "SELECT 1"}
+    quick = for_storage({"name": "db.fetch themes", "component": "db", "duration_ms": 4, "status": "ok",
+                         "attributes": dict(captured)})
+    assert quick["attributes"] == {"db.query.text": "SELECT 1"}
+    for kept in ({"name": "db.fetch themes", "component": "db", "duration_ms": 900, "status": "ok"},
+                 {"name": "db.fetch themes", "component": "db", "duration_ms": 4, "status": "error"},
+                 {"name": "llm.chat", "component": "llm", "duration_ms": 4, "status": "ok"}):
+        assert for_storage({**kept, "attributes": dict(captured)})["attributes"] == captured

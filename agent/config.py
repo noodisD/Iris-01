@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Observability. The Observatory stores traces in this PostgreSQL and shows
     # them live; OTLP export is optional and off unless an endpoint is set.
     OBS_ENABLED: bool = Field(default=True)
-    OBS_RETENTION_DAYS: int = Field(default=14, ge=1, le=365)
+    OBS_RETENTION_DAYS: int = Field(default=7, ge=1, le=365)
     OBS_OTLP_ENDPOINT: str = Field(default="")
 
     # PostgreSQL
