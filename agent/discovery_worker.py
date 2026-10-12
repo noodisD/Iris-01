@@ -42,6 +42,21 @@ def verify_reading(episodes, intelligence):
     return kept, dropped, omitted_fields
 
 
+def _unique(episodes):
+    """One of each account. A reader that returns the same account twice, field
+    for field, has said nothing new the second time; the store refuses a reading
+    holding a duplicate, which threw away every other account in the entry."""
+    from .reference_evaluation import account_fingerprint
+
+    seen, unique = set(), []
+    for episode in episodes:
+        key = account_fingerprint(episode.as_dict())
+        if key not in seen:
+            seen.add(key)
+            unique.append(episode)
+    return unique
+
+
 def process_reflection(reflection_id: int) -> None:
     """Publish only source-grounded fields for the still-current source revision.
 
@@ -80,6 +95,7 @@ def process_reflection(reflection_id: int) -> None:
         raise ReadUnavailable(str(exc)) from None
     except ValueError:
         raise ReadUnavailable("invalid_field_checks") from None
+    kept = _unique(kept)
     with db.connection() as conn, conn.cursor() as cur:
         try:
             sources = _source_rows(cur, user_id, {reflection_id: revision})

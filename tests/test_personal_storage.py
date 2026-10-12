@@ -227,3 +227,26 @@ def test_a_run_that_crosses_midnight_keeps_its_draft_and_redoes_only_the_views(t
     discovery.process_user(owner)
     assert rediscovered == [], "the next pass reuses the draft"
     assert _state(owner)[2] == "ready"
+
+
+def test_an_account_returned_twice_is_kept_once_with_the_rest_of_the_reading(test_user, monkeypatch):
+    owner = test_user["id"]
+    text = "When the parcel arrived late I rang the depot. Later I walked to the shop."
+    source = db.create_reflection(owner, text)
+    day = db.get_reflection(source)["reflection_date"]
+
+    def account(situation, response, quote):
+        return Episode(actor="self", record_kind="event", situation=situation,
+                       response=response, demand=None, information=None, feeling=None, concern=None,
+                       immediate_outcome=None, later_outcome=None, explanation=None,
+                       self_report=None, domain=None, recorded_on=day,
+                       citations=(Citation(entry_id=source, entry_date=day, text=quote),))
+    rang = account("the parcel arrived late", "I rang the depot", "When the parcel arrived late I rang the depot.")
+    walked = account("Later", "I walked to the shop", "Later I walked to the shop.")
+    monkeypatch.setattr(discovery_worker.EpisodeReader, "read", lambda self, entries, readable=None: [])
+    monkeypatch.setattr(discovery_worker, "verify_reading", lambda episodes, model: ([rang, rang, walked], 0, 0))
+    discovery_worker.process_reflection(source)
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT data->>'response' FROM discovery_accounts
+                       WHERE user_id = %s AND reflection_id = %s AND is_current ORDER BY 1""", (owner, source))
+        assert [r[0] for r in cur.fetchall()] == ["I rang the depot", "I walked to the shop"]
