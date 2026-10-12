@@ -176,3 +176,31 @@ def readable(text: str, intelligence) -> tuple[str | None, str]:
         logger.error("Reading copy refused: the words are not the same words")
         return None, "changed_words"
     return copy, "ok"
+
+
+def current_copy(content: str | None, copy: str | None) -> str | None:
+    """The stored copy, only while it still has exactly the entry's words."""
+    return copy if copy and content and same_words(content, copy) else None
+
+
+def ensure_copy(reflection_id: int, content: str | None, stored: str | None, intelligence) -> str | None:
+    """An entry's reading copy: the stored one if still current, else one made and kept.
+
+    Only an entry read as one breath gets one. Kept only if the entry still has
+    the words it was made from, so an edit racing this cannot pair new words
+    with an old copy (and an edit clears the column anyway).
+    """
+    current = current_copy(content, stored)
+    if current or not content or not needs_tidying(content):
+        return current
+    copy, reason = readable(content, intelligence)
+    if copy is None:
+        logger.info(f"No reading copy for entry {reflection_id}: {reason}")
+        return None
+    from .database import db
+
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE reflections SET reading_copy = %s WHERE id = %s AND content = %s;",
+                    (copy, reflection_id, content))
+        conn.commit()
+    return copy

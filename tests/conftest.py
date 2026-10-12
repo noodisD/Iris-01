@@ -213,6 +213,9 @@ def offline_embeddings(monkeypatch):
             return '{"episodes":[]}'
 
     monkeypatch.setattr("agent.discovery_worker.Intelligence", OfflineDiscoveryModel)
+    # A dictated entry's reading copy is asked of a model during processing;
+    # offline there is none, and the entry is cut from its own text.
+    monkeypatch.setattr("agent.pipeline._reading_model", lambda: None)
     monkeypatch.setattr("agent.discovery.Intelligence", OfflineDiscoveryModel)
     yield
 
@@ -305,9 +308,11 @@ def _purge_user(user_id: int) -> None:
                     SELECT c.id FROM habit_completions c
                     JOIN habits h ON h.id = c.habit_id WHERE h.user_id = %s))
              OR (source_type = 'session_passage' AND source_id IN (
-                    SELECT id FROM session_passages WHERE user_id = %s));
+                    SELECT id FROM session_passages WHERE user_id = %s))
+             OR (source_type = 'entry_passage' AND source_id IN (
+                    SELECT id FROM entry_passages WHERE user_id = %s));
             """,
-            (user_id, user_id, user_id, user_id),
+            (user_id, user_id, user_id, user_id, user_id),
         )
 
         # Analytical caches keyed by pattern, not by user.

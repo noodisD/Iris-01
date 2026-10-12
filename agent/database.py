@@ -405,6 +405,36 @@ class Database:
                 logger.error(f"Failed to store passages for session {reflection_id}: {e}")
                 raise
 
+    def replace_entry_passages(self, user_id: int, reflection_id: int, model_name: str,
+                               rows: list[tuple[int, str, list]]) -> None:
+        """A long entry's recall passages and their vectors, replacing the last cut.
+
+        `rows` are (position, text, vector); none removes the cut, for an entry
+        that is no longer long. One transaction, as for a session.
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """DELETE FROM embeddings WHERE source_type = 'entry_passage' AND source_id IN (
+                           SELECT id FROM entry_passages WHERE reflection_id = %s);""",
+                    (reflection_id,))
+                cur.execute("DELETE FROM entry_passages WHERE reflection_id = %s;", (reflection_id,))
+                for position, text, vector in rows:
+                    cur.execute(
+                        """INSERT INTO entry_passages (reflection_id, user_id, position, text)
+                           VALUES (%s, %s, %s, %s) RETURNING id;""",
+                        (reflection_id, user_id, position, text))
+                    passage_id = cur.fetchone()[0]
+                    cur.execute(
+                        """INSERT INTO embeddings (source_type, source_id, model_name, vector)
+                           VALUES ('entry_passage', %s, %s, %s);""",
+                        (passage_id, model_name, vector))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to store passages for entry {reflection_id}: {e}")
+                raise
+
     def search_similar_embeddings(self, user_id: int, query_vector: list, n_results: int = 5) -> list:
         """Searches for semantically similar embeddings using pgvector cosine distance."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -414,8 +444,14 @@ class Database:
                     SELECT e.source_type, e.source_id, e.vector <=> %s::vector AS distance
                     FROM embeddings e
                     WHERE (
+                        -- A long entry is found by its passages; its one
+                        -- vector is the average of everything in it.
                         (e.source_type = 'reflection' AND e.source_id IN (
-                            SELECT id FROM reflections WHERE user_id = %s)) OR
+                            SELECT id FROM reflections WHERE user_id = %s)
+                         AND NOT EXISTS (SELECT 1 FROM entry_passages ep
+                                          WHERE ep.reflection_id = e.source_id)) OR
+                        (e.source_type = 'entry_passage' AND e.source_id IN (
+                            SELECT id FROM entry_passages WHERE user_id = %s)) OR
                         (e.source_type = 'message' AND e.source_id IN (
                             SELECT id FROM conversation_messages WHERE user_id = %s AND role = 'user')) OR
                         (e.source_type = 'habit_completion' AND e.source_id IN (
@@ -427,7 +463,7 @@ class Database:
                     ORDER BY distance ASC
                     LIMIT %s;
                     """,
-                    (query_vector, user_id, user_id, user_id, user_id, n_results)
+                    (query_vector, user_id, user_id, user_id, user_id, user_id, n_results)
                 )
                 rows = cur.fetchall()
                 return [
@@ -909,6 +945,28 @@ class Database:
             (user_id, source_type, source_id, current_traceparent()),
         )
 
+
+    def reread_entries(self, user_id: int, reflection_ids: list[int]) -> int:
+        """Queue entries to be read again as if edited, words unchanged.
+
+        For when how an entry is read has improved (a reading copy made since):
+        its revision moves on, so its old accounts give way to the new reading,
+        and the pattern update follows once every read is in.
+        """
+        queued = 0
+        with self.connection() as conn, conn.cursor() as cur:
+            for reflection_id in reflection_ids:
+                cur.execute("""UPDATE reflections SET discovery_revision = discovery_revision + 1
+                                WHERE id = %s AND user_id = %s AND evidence_eligible
+                                  AND length(btrim(coalesce(content, ''))) > 0
+                            RETURNING id;""", (reflection_id, user_id))
+                if cur.fetchone() is None:
+                    continue
+                self._invalidate_discovery_source(cur, user_id, reflection_id)
+                self._queue(cur, user_id, 'discovery', reflection_id)
+                queued += 1
+            conn.commit()
+        return queued
 
     @staticmethod
     def _invalidate_discovery_source(
@@ -1699,6 +1757,11 @@ class Database:
                                                       FROM session_passages p
                                                       JOIN reflections r ON r.id = p.reflection_id
                                                      WHERE p.id = %s;"""),
+            # A run of whole sentences from a long entry, in the owner's words.
+            "entry_passage": ("journal", """SELECT p.text, r.reflection_date
+                                              FROM entry_passages p
+                                              JOIN reflections r ON r.id = p.reflection_id
+                                             WHERE p.id = %s;"""),
             "habit_completion": ("habit", """SELECT CASE WHEN hc.is_skipped
                                                      THEN 'Skipped ' || h.name || COALESCE(': ' || hc.skip_reason, '')
                                                      ELSE 'Did ' || h.name || COALESCE(': ' || hc.notes, '') END,
@@ -3399,6 +3462,14 @@ class Database:
                     cur.execute(
                         "UPDATE reflections SET discovery_revision = discovery_revision + 1 WHERE id = %s;",
                         (reflection_id,))
+                    # The reading copy and the passages were made from the old
+                    # words; the re-queued run makes them again from the new.
+                    cur.execute("UPDATE reflections SET reading_copy = NULL WHERE id = %s;", (reflection_id,))
+                    cur.execute(
+                        """DELETE FROM embeddings WHERE source_type = 'entry_passage' AND source_id IN (
+                               SELECT id FROM entry_passages WHERE reflection_id = %s);""",
+                        (reflection_id,))
+                    cur.execute("DELETE FROM entry_passages WHERE reflection_id = %s;", (reflection_id,))
                     if previous[1]:
                         self._invalidate_discovery_source(cur, row[0], reflection_id)
                     if previous[1] and (updates['content'] or "").strip():
@@ -3482,6 +3553,11 @@ class Database:
                 cur.execute(
                     """DELETE FROM embeddings WHERE source_type = 'session_passage' AND source_id IN (
                            SELECT id FROM session_passages WHERE reflection_id = %s);""",
+                    (reflection_id,)
+                )
+                cur.execute(
+                    """DELETE FROM embeddings WHERE source_type = 'entry_passage' AND source_id IN (
+                           SELECT id FROM entry_passages WHERE reflection_id = %s);""",
                     (reflection_id,)
                 )
                 # Its job goes too. A queued entry deleted before the worker

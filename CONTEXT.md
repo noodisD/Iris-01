@@ -81,6 +81,13 @@ and UTC day occupies the cap; deletion restores an older approved reading
 when one exists. Unlinked readings stay raw and cannot form themes.
 Date-only step readings retain their calendar day in review.
 
+An entry dictated in one breath has a **reading copy**: the same words with
+punctuation and capitals put in, checked word for word and cleared by any edit.
+The reader reads the copy; every quote resolves to the entry's own text. A
+journal entry over 250 words is recalled in chat by **entry passage**, runs of
+whole sentences embedded on their own, and its averaged vector is not searched
+(ADR-0031).
+
 ### Session
 A recorded therapy session, stored as one dated reflection (`content_format`
 `session`) whose text names the owner's and the therapist's speaker labels and

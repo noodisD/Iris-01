@@ -694,6 +694,38 @@
         "type": "USER-DEFINED"
       }
     },
+    "entry_passages": {
+      "created_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "position": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "reflection_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "text": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "user_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "integer"
+      }
+    },
     "habit_completions": {
       "completed_at": {
         "default": "CURRENT_TIMESTAMP",
@@ -2135,6 +2167,11 @@
         "nullable": "YES",
         "type": "character varying"
       },
+      "reading_copy": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
       "reflection_date": {
         "default": null,
         "nullable": "YES",
@@ -3535,6 +3572,48 @@
       },
       "embeddings_vector_not_null": {
         "definition": "NOT NULL vector",
+        "type": "n"
+      }
+    },
+    "entry_passages": {
+      "entry_passages_created_at_not_null": {
+        "definition": "NOT NULL created_at",
+        "type": "n"
+      },
+      "entry_passages_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "entry_passages_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "entry_passages_position_not_null": {
+        "definition": "NOT NULL \"position\"",
+        "type": "n"
+      },
+      "entry_passages_reflection_id_fkey": {
+        "definition": "FOREIGN KEY (reflection_id) REFERENCES reflections(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "entry_passages_reflection_id_not_null": {
+        "definition": "NOT NULL reflection_id",
+        "type": "n"
+      },
+      "entry_passages_reflection_id_position_key": {
+        "definition": "UNIQUE (reflection_id, \"position\")",
+        "type": "u"
+      },
+      "entry_passages_text_not_null": {
+        "definition": "NOT NULL text",
+        "type": "n"
+      },
+      "entry_passages_user_id_fkey": {
+        "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "type": "f"
+      },
+      "entry_passages_user_id_not_null": {
+        "definition": "NOT NULL user_id",
         "type": "n"
       }
     },
@@ -5147,6 +5226,11 @@
       "embeddings_pkey": "CREATE UNIQUE INDEX embeddings_pkey ON public.embeddings USING btree (id)",
       "embeddings_source_type_source_id_model_name_key": "CREATE UNIQUE INDEX embeddings_source_type_source_id_model_name_key ON public.embeddings USING btree (source_type, source_id, model_name)",
       "idx_embeddings_vector_cosine": "CREATE INDEX idx_embeddings_vector_cosine ON public.embeddings USING ivfflat (vector vector_cosine_ops) WITH (lists='100')"
+    },
+    "entry_passages": {
+      "entry_passages_pkey": "CREATE UNIQUE INDEX entry_passages_pkey ON public.entry_passages USING btree (id)",
+      "entry_passages_reflection_id_position_key": "CREATE UNIQUE INDEX entry_passages_reflection_id_position_key ON public.entry_passages USING btree (reflection_id, \"position\")",
+      "entry_passages_user": "CREATE INDEX entry_passages_user ON public.entry_passages USING btree (user_id)"
     },
     "habit_completions": {
       "habit_completions_habit_id_completion_date_key": "CREATE UNIQUE INDEX habit_completions_habit_id_completion_date_key ON public.habit_completions USING btree (habit_id, completion_date)",

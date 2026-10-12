@@ -10,6 +10,7 @@ from .discovery import _source_rows, _store_reading
 from .dynamics import validate_field_checks
 from .episodes import EXTRACTION_VERSION, EpisodeReader, ReadUnavailable
 from .intelligence import Intelligence
+from .readable import ensure_copy
 from .reading_version import VERIFIED_READER_VERSION as READER_VERSION
 
 
@@ -50,14 +51,14 @@ def process_reflection(reflection_id: int) -> None:
     """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("""SELECT user_id, reflection_date, content, content_format,
-                              discovery_revision
+                              discovery_revision, reading_copy
                          FROM reflections WHERE id = %s AND evidence_eligible
                            AND content IS NOT NULL AND length(btrim(content)) > 0""",
                     (reflection_id,))
         row = cur.fetchone()
         if row is None:
             return
-        user_id, recorded, content, content_format, revision = row
+        user_id, recorded, content, content_format, revision, stored_copy = row
         if _completed(cur, reflection_id, revision):
             return
     entry = {"id": reflection_id, "date": recorded, "content": content,
@@ -68,8 +69,11 @@ def process_reflection(reflection_id: int) -> None:
     except Exception:
         raise ReadUnavailable("no_provider") from None
     reader = EpisodeReader(user_id, intelligence=model)
+    # Dictated in one breath, an entry is read from its reading copy: the same
+    # words punctuated, so quotes still resolve to the entry's own text.
+    copy = None if content_format == "session" else ensure_copy(reflection_id, content, stored_copy, model)
     try:
-        episodes = reader.read([entry])
+        episodes = reader.read([entry], readable={str(reflection_id): copy} if copy else None)
         kept, dropped, omitted = verify_reading(episodes, model)
         omitted += reader.omitted_fields
     except ReadUnavailable as exc:

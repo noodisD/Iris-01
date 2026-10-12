@@ -137,6 +137,46 @@ def _index_session(user_id: int, reflection_id: int) -> str:
     return "complete"
 
 
+def _reading_model():
+    """The cheap worker model that says where a dictated entry's sentences end."""
+    try:
+        from .intelligence import Intelligence
+        return Intelligence(model=settings.OPENAI_WORKER_MODEL,
+                            service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
+    except Exception:
+        return None
+
+
+def _index_entry_passages(user_id: int, reflection_id: int, content: str | None,
+                          content_format: str | None) -> int:
+    """Cut a long entry into passages for recall and embed each; a short one has none.
+
+    A dictated entry gets its reading copy here if it has none yet, and is cut
+    from it: the same words, so its sentences can be found. A failure is logged
+    and leaves the entry recalled whole, as before passages existed.
+    """
+    from .entry_passages import cut
+    from .markdown_text import for_model
+    from .readable import ensure_copy
+
+    model_name = "text-embedding-3-small"
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT reading_copy FROM reflections WHERE id = %s;", (reflection_id,))
+            row = cur.fetchone()
+        copy = ensure_copy(reflection_id, content, row[0] if row else None, _reading_model())
+        text = copy or for_model(content, content_format)
+        pieces = cut(strip_prompt_labels(text).strip() or text)
+        vectors = [generate_embedding(piece, model=model_name) for piece in pieces]
+        db.replace_entry_passages(user_id, reflection_id, model_name,
+                                  [(i, piece, v) for i, (piece, v) in enumerate(zip(pieces, vectors))])
+        obs.set_attributes({"iris.pipeline.entry_passages": len(pieces)})
+        return len(pieces)
+    except Exception as e:
+        logger.warning(f"Passages for entry {reflection_id} not made: {type(e).__name__}: {e}")
+        return 0
+
+
 def run_processing_pipeline(source_type: str, source_id: int):
     """
     Runs the full processing pipeline for a given source item.
@@ -231,6 +271,8 @@ def run_processing_pipeline(source_type: str, source_id: int):
 
         # 4. Store the canonical embedding in PostgreSQL
         db.add_embedding(source_type, source_id, model_name, embedding)
+        if source_type == "reflection":
+            _index_entry_passages(user_id, source_id, content, item_data.get("content_format"))
 
         # 5. Check for persistence (what keeps coming back)
         # User messages participate in theme matching; assistant responses are excluded

@@ -48,6 +48,8 @@ MEMORY_CHARS_IN_CONTEXT = 300
 #: A recalled moment of a session is whole turns (sessions.PASSAGE_CHARS), so
 #: it is shown whole; this only bounds one unusually long turn.
 SESSION_PASSAGE_CHARS_IN_CONTEXT = 1000
+#: A long entry's passage is about 150 words; this only stops an outlier.
+ENTRY_PASSAGE_CHARS_IN_CONTEXT = 1600
 
 _WORD = re.compile(r"[a-z0-9']+")
 
@@ -541,6 +543,13 @@ class PersonalAICompanion:
                         turns = turns[:SESSION_PASSAGE_CHARS_IN_CONTEXT].rstrip() + " …"
                     body = "\n".join(f"  {line}" for line in turns.splitlines())
                     context_parts.append(f"- [{item['kind']}, {when}]\n{body}")
+                elif r["source_type"] == "entry_passage":
+                    # The run of a long entry whose own vector matched: shown
+                    # whole, and said to be part of something longer.
+                    words = " ".join(item["text"].split())
+                    if len(words) > ENTRY_PASSAGE_CHARS_IN_CONTEXT:
+                        words = words[:ENTRY_PASSAGE_CHARS_IN_CONTEXT].rstrip() + " …"
+                    context_parts.append(f"- [{item['kind']}, {when}, part of a longer entry] {words}")
                 else:
                     words = _best_passage(item["text"], text, MEMORY_CHARS_IN_CONTEXT)
                     context_parts.append(f"- [{item['kind']}, {when}] {words}")

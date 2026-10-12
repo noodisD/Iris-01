@@ -54,6 +54,15 @@ def _session_passage(passage_id: int) -> dict | None:
     return dict(zip(("text", "content", "date", "source"), row)) if row else None
 
 
+def _entry_passage(passage_id: int) -> dict | None:
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT p.text, r.content, r.reflection_date
+                         FROM entry_passages p JOIN reflections r ON r.id = p.reflection_id
+                        WHERE p.id = %s""", (passage_id,))
+        row = cur.fetchone()
+    return dict(zip(("text", "content", "date"), row)) if row else None
+
+
 def sources(user_id: int, query: str) -> list[dict]:
     """The owner's passages most related to a question, each with how to check a quote."""
     from .markdown_text import for_model
@@ -71,6 +80,13 @@ def sources(user_id: int, query: str) -> list[dict]:
             found.append({"kind": "journal", "date": entry.get("reflection_date"),
                           "text": for_model(entry["content"], entry.get("content_format"))[:ENTRY_CHARS],
                           "original": entry["content"], "session": False})
+        elif kind == "entry_passage":
+            passage = _entry_passage(sid)
+            if not passage:
+                continue
+            # Quotes are checked against the entry itself; the passage has its words.
+            found.append({"kind": "journal", "date": passage["date"], "text": passage["text"][:ENTRY_CHARS],
+                          "original": passage["content"], "session": False})
         elif kind == "session_passage":
             passage = _session_passage(sid)
             # A questionnaire answer is not a source for another answer.
