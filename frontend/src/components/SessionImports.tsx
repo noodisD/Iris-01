@@ -44,6 +44,10 @@ export function voicesSummary(report: SessionVoicesReport, owner: string | null)
       .map(([label, count]) => `${plural(count, 'line', 'lines')} ${label === owner ? 'yours' : `by ${label}`}`);
     return [`Transcribed into ${plural(report.segments, 'line', 'lines')}${named.length ? `: ${named.join(', ')}` : ''}.`,
             report.unclear ? `${plural(report.unclear, 'line', 'lines')} could not be matched to a voice and ${report.unclear === 1 ? 'stays' : 'stay'} unclear.` : '',
+            report.transcriber === 'whisper'
+              ? `Written down on this computer by Whisper; ${plural(report.fixes ?? 0, 'mis-heard word was', 'mis-heard words were')} fixed against the second hearing${report.unclear_spans ? ` and ${plural(report.unclear_spans, 'passage is', 'passages are')} marked unclear` : ''}.`
+              : '',
+            report.whisper_failed ? 'Whisper could not run here, so these are the hosted transcriber\'s words.' : '',
             'Check who is who below before importing.'].filter(Boolean).join(' ');
   }
   const attributed = Object.entries(report.attributed).filter(([, count]) => count > 0)

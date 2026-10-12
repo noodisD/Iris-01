@@ -94,7 +94,9 @@ speaker and never quoted as the owner's. A session waits on the Import screen,
 sent nowhere, until the owner has given its day and time and said which speaker
 they are; importing is the click that sends it to be indexed and read. It is
 recalled in chat by **passage** (whole turns, each naming its speaker) and is
-not a theme occurrence (ADR-0028).
+not a theme occurrence (ADR-0028). A session added from its recording alone is
+written down locally by Whisper, its speakers taken from the diarizer, and its
+mis-hearings checked against the diarizer's second hearing (ADR-0030).
 
 ### Questionnaire answer
 The owner's answer to one question of a questionnaire they answer inside IRIS

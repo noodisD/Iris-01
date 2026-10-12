@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # lever for a very large backlog; whisper-1 is the one to switch to if
     # per-segment timestamps are ever wanted.
     TRANSCRIPTION_MODEL: str = Field(default="gpt-4o-transcribe")
+    # A session recording's words are written down locally by faster-whisper
+    # when this points at the Python of an environment that has it (ADR-0030).
+    # Empty means the hosted diarizing transcriber writes the words as well.
+    WHISPER_PYTHON: str = Field(default="")
+    WHISPER_MODEL: str = Field(default="large-v3")
     # IRIS's voice when talking (ADR-0025). The model takes a tone instruction,
     # which is how IRIS sounds calm rather than like an announcer.
     TTS_MODEL: str = Field(default="gpt-4o-mini-tts")

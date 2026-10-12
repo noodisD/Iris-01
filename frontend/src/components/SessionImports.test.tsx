@@ -144,5 +144,9 @@ describe('a recording with no transcript', () => {
     expect(voicesSummary({ segments: 10, heard: 0, labelled: 0, agreed: 0, contradicted: 0, attributed: {},
       doubtful: 0, transcribed: true, named: { Ann: 6, Counsellor: 3 }, unclear: 1 }, 'Ann')).toBe(
       'Transcribed into 10 lines: 6 lines yours, 3 lines by Counsellor. 1 line could not be matched to a voice and stays unclear. Check who is who below before importing.');
+    expect(voicesSummary({ segments: 2, heard: 0, labelled: 0, agreed: 0, contradicted: 0, attributed: {},
+      doubtful: 0, transcribed: true, named: { Ann: 2 }, unclear: 0, transcriber: 'whisper', fixes: 3,
+      unclear_spans: 1 }, 'Ann')).toContain(
+      'Written down on this computer by Whisper; 3 mis-heard words were fixed against the second hearing and 1 passage is marked unclear.');
   });
 });

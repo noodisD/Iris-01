@@ -35,6 +35,7 @@ re-litigated by accident, only deliberately.
 | [0027](ADR-0027-source-backed-patterns-and-selected-evidence.md) | Source-backed Patterns and selected conversations; current process-first cutover | Neutral reading, whole-archive checks, owner corrections and typed current discussion; measured days stay separate |
 | [0028](ADR-0028-therapy-sessions.md) | A therapy session is the owner's evidence only where the owner speaks | Why sessions keep each turn's speaker, why only owner turns can be quoted, and why a session waits for the owner's click |
 | [0029](ADR-0029-baseline-questionnaire.md) | The owner answers a questionnaire inside IRIS, in their own words | Why the questions stay local, why drafts go nowhere until a section is added, and why only the owner's words in an answer count |
+| [0030](ADR-0030-local-whisper-sessions.md) | A session recording's words are written down locally by Whisper, then checked | Why words come from local Whisper and speakers from the diarizer, and how a model may fix mis-hearings without guessing |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

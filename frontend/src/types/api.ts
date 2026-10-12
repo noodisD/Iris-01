@@ -191,6 +191,15 @@ export interface SessionVoicesReport {
   /** Segments per speaker the voices named, when transcribed. */
   named?: Record<string, number>;
   unclear?: number;
+  /** Who wrote the words down: local Whisper, or the hosted diarizer. */
+  transcriber?: 'whisper' | 'diarizer';
+  /** Words the check against the second hearing changed; each is listed in changes. */
+  fixes?: number;
+  changes?: { at: number; from: string; to: string; why: string }[];
+  /** Spans neither hearing made sense of, marked unclear in the text. */
+  unclear_spans?: number;
+  /** Set when local Whisper failed and the diarizer's words were kept. */
+  whisper_failed?: string;
 }
 
 export interface JournalWrite {

@@ -37,6 +37,12 @@ Mhm.
 NAMES = ("Ann", "Counsellor")
 
 
+@pytest.fixture(autouse=True)
+def no_local_whisper(monkeypatch):
+    """Whisper is installed on the owner's machine; these tests never run it."""
+    monkeypatch.setattr("agent.config.settings.WHISPER_PYTHON", "")
+
+
 @pytest.fixture
 def client(test_user):
     app.dependency_overrides[get_current_user_id] = lambda: test_user["id"]
@@ -237,3 +243,88 @@ def test_the_recording_upload_route(client, recordings):
     assert staged.status_code == 200 and staged.json()["needsTranscript"]
     assert client.post("/api/sessions/recordings",
                        files={"file": ("s.txt", b"x", "text/plain")}).status_code == 400
+
+
+# --- words written down locally (ADR-0030) ------------------------------------------
+
+from agent import local_whisper, session_cleanup  # noqa: E402
+from agent.local_whisper import Word  # noqa: E402
+
+
+def test_each_word_goes_to_the_voice_heard_when_it_was_said():
+    heard = [Heard("Ann", 0, 4), Heard("Counsellor", 5, 8)]
+    words = [Word(0.5, 1.0, " I"), Word(1.0, 1.5, " called"), Word(4.2, 4.4, " him."),
+             Word(5.5, 6.0, " And?"), Word(20.0, 20.5, " Mhm.")]
+    turns = session_voices.assign(words, heard)
+    assert [(t.speaker, t.text) for t in turns] == [
+        ("Ann", "I called him."), ("Counsellor", "And?"), ("", "Mhm.")]
+    assert (turns[0].start, turns[0].end) == (0.5, 4.4)
+    text = session_voices.transcript_from(turns, {"Ann": "Ann", "Counsellor": "Counsellor"}, "en")
+    assert [s.label for s in sessions.segments(text)[0]] == ["Ann", "Counsellor", "Speaker unclear"]
+
+
+def _recording(test_user, tmp_path, monkeypatch):
+    voices = tmp_path / "voices"
+    monkeypatch.setattr(session_voices, "voices_root", lambda: voices)
+    session_voices.save_voice("owner", "Ann", b"RIFFowner")
+    session_voices.save_voice("therapist", "Counsellor", b"RIFFtherapist")
+    monkeypatch.setattr(session_voices, "_diarize", lambda parts, names, samples, language: [
+        Heard("Ann", 0, 9, "I kept postponing the cold to my landlord."),
+        Heard("Counsellor", 9, 15, "What happened when you called?")])
+    audio = tmp_path / "session.m4a"
+    audio.write_bytes(b"not really audio")
+    imports = SessionImports(test_user["id"])
+    import_id = int(imports.stage_recording(audio, "session.m4a")["id"])
+    imports.start_voices(import_id)
+    return imports, import_id
+
+
+def test_a_recording_is_written_down_by_whisper_and_checked_when_it_is_set_up(test_user, tmp_path, recordings,
+                                                                               monkeypatch):
+    imports, import_id = _recording(test_user, tmp_path, monkeypatch)
+    monkeypatch.setattr(local_whisper, "available", lambda: True)
+    monkeypatch.setattr(local_whisper, "words", lambda audio, language: [
+        Word(0.5, 1.0, " I"), Word(1.0, 2.0, " kept"), Word(2.0, 3.0, " putting"), Word(3.0, 4.0, " off"),
+        Word(4.0, 5.0, " the"), Word(5.0, 6.0, " cold."), Word(10.0, 11.0, " What"), Word(11.0, 12.0, " happened?")])
+    checked = []
+
+    def tidy(turns, second, language):
+        checked.append((len(turns), len(second)))
+        fixed = [Heard(t.speaker, t.start, t.end, t.text.replace("cold", "call")) for t in turns]
+        return fixed, {"changes": [{"at": 0, "from": "cold", "to": "call", "why": "mis-heard"}],
+                       "refused": 0, "unavailable": 0, "unclear": 0}
+    monkeypatch.setattr(session_cleanup, "tidy", tidy)
+    session_voices.run(import_id)
+    done = imports.get(import_id)
+    found = sessions.segments(_transcript(import_id))[0]
+    assert checked == [(2, 2)]
+    assert [s.text for s in found] == ["I kept putting off the call.", "What happened?"]
+    report = done["voices"]["report"]
+    assert report["transcriber"] == "whisper" and report["fixes"] == 1
+
+
+def _transcript(import_id):
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT transcript FROM session_imports WHERE id = %s", (import_id,))
+        return cur.fetchone()[0]
+
+
+def test_when_whisper_fails_the_diarizers_words_are_kept_and_said(test_user, tmp_path, recordings, monkeypatch):
+    imports, import_id = _recording(test_user, tmp_path, monkeypatch)
+    monkeypatch.setattr(local_whisper, "available", lambda: True)
+
+    def broken(audio, language):
+        raise local_whisper.WhisperFailed("out of memory")
+    monkeypatch.setattr(local_whisper, "words", broken)
+    session_voices.run(import_id)
+    report = imports.get(import_id)["voices"]["report"]
+    assert report["transcriber"] == "diarizer" and report["whisper_failed"] == "out of memory"
+    assert "landlord" in _transcript(import_id)
+
+
+def test_the_estimate_says_where_the_words_are_written(monkeypatch):
+    monkeypatch.setattr(local_whisper, "available", lambda: False)
+    assert "to be written down" in session_voices.estimate(600, transcribe=True)["text"]
+    monkeypatch.setattr(local_whisper, "available", lambda: True)
+    local = session_voices.estimate(600, transcribe=True)
+    assert "on this computer" in local["text"] and local["dollars"] > session_voices.estimate(600)["dollars"]

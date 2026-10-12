@@ -25,9 +25,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import sessions
+from . import local_whisper, session_cleanup, sessions
 from .config import settings
 from .database import db
+from .local_whisper import Word
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,14 @@ def estimate(seconds: float | None, transcribe: bool = False) -> dict | None:
         return None
     minutes = seconds / 60
     dollars = minutes * PRICE_PER_MINUTE
-    if transcribe:
+    if transcribe and local_whisper.available():
+        checking = minutes * session_cleanup.DOLLARS_PER_MINUTE
+        text = (f"Transcribing writes the recording ({round(minutes)} minutes) down on this computer with "
+                f"Whisper, sends it to OpenAI to tell the voices apart (about ${dollars:.2f}), then has "
+                f"the model check mis-heard words against that second hearing (about ${checking:.2f}). "
+                "Nothing goes into IRIS until you import it.")
+        dollars += checking
+    elif transcribe:
         text = (f"Transcribing sends the recording ({round(minutes)} minutes) to OpenAI to be written "
                 f"down speaker by speaker, about ${dollars:.2f}. Nothing goes into IRIS until you import it.")
     else:
@@ -128,6 +136,34 @@ def _voice(span: tuple[float, float], heard: list[Heard]) -> tuple[str | None, f
         return None, 0.0
     speaker = max(tally, key=tally.get)
     return speaker, tally[speaker] / sum(tally.values())
+
+
+#: A word heard in a pause between voices goes to the nearer one within this.
+NEAR_SECONDS = 2.0
+
+
+def assign(words: list[Word], heard: list[Heard]) -> list[Heard]:
+    """Whisper's words grouped into turns by whose voice was heard when each was said.
+
+    A word belongs to the stretch its middle falls in, or the nearest one when
+    it falls in a pause; one far from any voice is nobody's, so unclear.
+    """
+    turns: list[Heard] = []
+    for word in words:
+        middle = (word.start + word.end) / 2
+        speaker, gap = "", NEAR_SECONDS
+        for stretch in heard:
+            distance = max(stretch.start - middle, middle - stretch.end, 0.0)
+            if distance <= gap:
+                speaker, gap = stretch.speaker, distance
+                if distance == 0:
+                    break
+        if turns and turns[-1].speaker == speaker:
+            last = turns[-1]
+            turns[-1] = Heard(speaker, last.start, word.end, last.text + word.text)
+        else:
+            turns.append(Heard(speaker, word.start, word.end, word.text))
+    return [Heard(t.speaker, t.start, t.end, t.text.strip()) for t in turns if t.text.strip()]
 
 
 def name_unnamed(heard: list[Heard], found: list[sessions.Segment], names: tuple[str, str]) -> list[Heard]:
@@ -329,7 +365,7 @@ def transcript_from(heard: list[Heard], names: dict[str, str], language: str | N
             continue
         if stretch.speaker in names:
             label = names[stretch.speaker]
-        elif names:
+        elif names or not stretch.speaker:
             label = unclear
         else:
             label = f"{'Mówca' if language == 'pl' else 'Speaker'} {stretch.speaker}"
@@ -346,8 +382,22 @@ def _transcribe(import_id: int, user_id: int, audio_path: str | None, language: 
         raise VoicesUnavailable("The recording is no longer here. Add it again.")
     voices = stored_voices()
     names = {label: label for _, label, _ in voices}
-    heard = _diarize(_parts(recordings_root() / audio_path, workdir), tuple(names),
-                     [url for _, _, url in voices], language)
+    audio = recordings_root() / audio_path
+    heard = _diarize(_parts(audio, workdir), tuple(names), [url for _, _, url in voices], language)
+    extra: dict = {"transcriber": "diarizer"}
+    if local_whisper.available():
+        try:
+            turns = assign(local_whisper.words(audio, language), heard)
+        except local_whisper.WhisperFailed as exc:
+            # The diarizer's own words are worse but real; the owner sees why.
+            logger.warning(f"Session import {import_id}: local Whisper failed ({exc})")
+            extra["whisper_failed"] = str(exc)
+        else:
+            turns, checked = session_cleanup.tidy(turns, heard, language)
+            heard = turns
+            extra = {"transcriber": "whisper", "fixes": len(checked["changes"]), "changes": checked["changes"],
+                     "refused": checked["refused"], "unchecked": checked["unavailable"],
+                     "unclear_spans": checked["unclear"]}
     transcript = transcript_from(heard, names, language)
     found, _ = sessions.segments(transcript)
     if len(found) < 2:
@@ -355,7 +405,7 @@ def _transcribe(import_id: int, user_id: int, audio_path: str | None, language: 
     roles = {role: label for role, label, _ in voices}
     report = {"transcribed": True, "segments": len(found),
               "named": {label: sum(s.label == label for s in found) for label in names},
-              "unclear": sum(s.label not in names for s in found)}
+              "unclear": sum(s.label not in names for s in found), **extra}
     SessionImports(user_id).apply_transcript(import_id, transcript, report,
                                              owner=roles.get("owner"), therapist=roles.get("therapist"))
     logger.info(f"Session import {import_id}: transcribed, {len(found)} segments")
