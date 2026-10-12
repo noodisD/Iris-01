@@ -17,8 +17,13 @@ function message(error: unknown): string {
 }
 
 /** A short conversation that ends with the owner's own words as the draft (ADR-0029). */
-function Interview({ question, onDone, onCancel }: {
+/** An answer this short often leaves out what the question asks; IRIS can ask for the rest. */
+export const SHORT_ANSWER = 120;
+
+function Interview({ question, seed, onDone, onCancel }: {
   question: QuestionnaireQuestion;
+  /** An answer already given: IRIS starts from it and asks only for what is missing. */
+  seed?: string;
   onDone: (draft: string, transcript: InterviewTurn[]) => void;
   onCancel: () => void;
 }) {
@@ -47,8 +52,8 @@ function Interview({ question, onDone, onCancel }: {
   React.useEffect(() => {
     if (opened.current) return;
     opened.current = true;
-    void step([]);
-  }, [step]);
+    void step(seed?.trim() ? [{ role: 'owner', text: seed.trim() }] : []);
+  }, [step, seed]);
 
   const send = () => {
     const said = text.trim();
@@ -113,11 +118,18 @@ function History({ id }: { id: string }) {
   );
 }
 
-function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
+function QuestionCard({ question, focused = false }: { question: QuestionnaireQuestion; focused?: boolean }) {
   const actions = useQuestionnaireActions();
   const [text, setText] = React.useState(question.answer);
   const [polish, setPolish] = React.useState(false);
-  const [interviewing, setInterviewing] = React.useState(false);
+  const [interviewing, setInterviewing] = React.useState(focused);
+  const [seed, setSeed] = React.useState<string>();
+  const card = React.useRef<HTMLElement>(null);
+  React.useEffect(() => {
+    if (!focused) return;
+    setInterviewing(true);
+    card.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [focused]);
   const [history, setHistory] = React.useState(false);
   const [error, setError] = React.useState<string>();
   const saved = React.useRef(question.answer);
@@ -141,7 +153,7 @@ function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
   const status = question.revising ? 'Revision'
     : question.status === 'draft' && question.source === 'suggested' ? 'Suggested' : STATUS_LABEL[question.status];
   return (
-    <article className={styles.question} aria-labelledby={`q-${question.id}`}>
+    <article ref={card} className={styles.question} aria-labelledby={`q-${question.id}`}>
       <header className={styles.questionHead}>
         <span className={styles.number}>{question.number}</span>
         <h3 id={`q-${question.id}`} className={styles.questionText}>{question.text}</h3>
@@ -151,10 +163,11 @@ function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
       {question.status === 'skipped' ? (
         <p className={styles.muted}>You chose to leave this one.</p>
       ) : interviewing ? (
-        <Interview question={question}
-          onCancel={() => setInterviewing(false)}
+        <Interview question={question} seed={seed}
+          onCancel={() => { setInterviewing(false); setSeed(undefined); }}
           onDone={(draft, transcript) => {
             setInterviewing(false);
+            setSeed(undefined);
             if (draft) { setText(draft); save(draft, 'interview', transcript); }
             else actions.skip.mutate({ id: question.id, skipped: true });
           }} />
@@ -168,9 +181,9 @@ function QuestionCard({ question }: { question: QuestionnaireQuestion }) {
         <Button size="sm" variant="quiet" aria-pressed={polish} onClick={() => setPolish(open => !open)}>
           {polish ? 'Hide the Polish' : 'Show the Polish'}
         </Button>
-        {question.status !== 'skipped' && !interviewing && (
-          <Button size="sm" onClick={() => setInterviewing(true)}>Answer with IRIS</Button>
-        )}
+        {question.status !== 'skipped' && !interviewing && (text.trim() && text.trim().length < SHORT_ANSWER
+          ? <Button size="sm" onClick={() => { setSeed(text); setInterviewing(true); }}>Say more with IRIS</Button>
+          : !text.trim() && <Button size="sm" onClick={() => setInterviewing(true)}>Answer with IRIS</Button>)}
         <Button size="sm" variant="quiet"
           onClick={() => actions.skip.mutate({ id: question.id, skipped: question.status !== 'skipped' })}>
           {question.status === 'skipped' ? 'Answer after all' : 'Skip'}
@@ -247,6 +260,7 @@ export function QuestionnaireScreen() {
   const { data, isLoading, error, refetch } = useQuestionnaire();
   const [active, setActive] = React.useState<string>();
   const [polish, setPolish] = React.useState(false);
+  const [focus, setFocus] = React.useState<string>();
 
   if (isLoading) return <LoadingState label="Opening your questionnaire…" />;
   if (error instanceof HttpError && error.status === 404) {
@@ -259,6 +273,9 @@ export function QuestionnaireScreen() {
   if (error || !data) return <ErrorState onRetry={() => refetch()} />;
 
   const section = data.sections.find(s => s.id === active) ?? data.sections[0];
+  const unanswered = data.sections.flatMap(s => s.questions.filter(q => !q.answer.trim() && q.status !== 'skipped')
+    .map(q => ({ section: s.id, id: q.id })));
+  const next = unanswered.find(item => item.id !== focus) ?? null;
   return (
     <Page title="Questionnaire" width="standard"
       description="Your baseline questionnaire. Answer in your own words, in any order and over several sittings. Answers stay here as drafts until you add a section to IRIS.">
@@ -288,9 +305,18 @@ export function QuestionnaireScreen() {
               </>
             )}
           </header>
+          <div className={styles.row}>
+            <Button size="sm" variant="primary" disabled={!next}
+              onClick={() => { if (next) { setActive(next.section); setFocus(next.id); } }}>
+              {next ? 'Next unanswered question' : 'Every question has an answer'}
+            </Button>
+            <span className={styles.muted}>{unanswered.length} still to answer</span>
+          </div>
           <Suggest key={section.id} section={section} />
           <div className={styles.questions}>
-            {section.questions.map(question => <QuestionCard key={question.id} question={question} />)}
+            {section.questions.map(question => (
+              <QuestionCard key={`${question.id}-${question.id === focus}`} question={question}
+                focused={question.id === focus} />))}
           </div>
           <SectionFooter section={section} />
         </section>

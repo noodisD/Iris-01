@@ -7,6 +7,14 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Questionnaire, QuestionnaireQuestion } from '@/types/api';
 
+const asked = vi.hoisted(() => [] as unknown[][]);
+vi.mock('@/api/questionnaire', () => ({
+  interviewStep: async (_id: string, messages: unknown[]) => {
+    asked.push(messages);
+    return { reply: 'What was it like there?', done: false, draft: '', skipped: false };
+  },
+}));
+
 const state = vi.hoisted(() => ({ data: null as unknown, calls: [] as [string, unknown][] }));
 
 vi.mock('@/hooks/useQuestionnaire', () => ({
@@ -88,5 +96,25 @@ describe('suggestions from your writing', () => {
     state.data = questionnaire([question({ status: 'draft', source: 'suggested', answer: '“By a lake.” (journal, 2025-03-12)' })]);
     render(<QuestionnaireScreen />);
     expect(screen.getByText('Suggested')).toBeInTheDocument();
+  });
+
+  it('jumps to the next unanswered question and opens the interview there', async () => {
+    asked.length = 0;
+    state.data = questionnaire([question({ id: 'q1', status: 'added', answer: 'A long enough answer. '.repeat(8) }),
+      question({ id: 'q2', number: 2, text: 'Who did you live with?' })]);
+    render(<QuestionnaireScreen />);
+    expect(screen.getByText('1 still to answer')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Next unanswered question' })); });
+    expect(screen.getByLabelText('Answering with IRIS')).toBeTruthy();
+    expect(asked).toEqual([[]]);
+  });
+
+  it('offers to say more on a short answer, starting from what was said', async () => {
+    asked.length = 0;
+    state.data = questionnaire([question({ status: 'added', answer: 'By the sea.' })]);
+    render(<QuestionnaireScreen />);
+    expect(screen.queryByRole('button', { name: 'Answer with IRIS' })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Say more with IRIS' })); });
+    expect(asked).toEqual([[{ role: 'owner', text: 'By the sea.' }]]);
   });
 });
