@@ -45,6 +45,61 @@ export function AddToIris({ conversationId, messageCount, busy }:
   );
 }
 
+/** How near the end counts as reading the end. */
+const AT_BOTTOM_PX = 48;
+
+/**
+ * Keep the thread at its newest line while the owner is reading there.
+ *
+ * Scrolling once per message was not enough: anything below the thread that
+ * grew afterwards (the Add to IRIS line arriving after a reply, an error, a
+ * reply re-wrapping as it streamed) shrank the view and hid the last lines.
+ * Any change of size now re-pins it, unless the owner has scrolled up to read.
+ */
+export function useStickToBottom(scrollRef: React.RefObject<HTMLDivElement | null>,
+  threadRef: React.RefObject<HTMLDivElement | null>, deps: unknown[]) {
+  const pinned = React.useRef(true);
+  const toBottom = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [scrollRef]);
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Only the owner's own scrolling decides whether they are reading the end.
+    // The browser scrolls too when the view shrinks, and taking that as the
+    // owner leaving the end is what stopped the thread following the reply.
+    let owner = 0;
+    const byOwner = () => { owner = Date.now(); };
+    const onScroll = () => {
+      if (Date.now() - owner < 400) {
+        pinned.current = el.scrollHeight - el.clientHeight - el.scrollTop < AT_BOTTOM_PX;
+      }
+    };
+    const inputs = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
+    inputs.forEach(name => el.addEventListener(name, byOwner, { passive: true }));
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null
+      : new ResizeObserver(() => { if (pinned.current) toBottom(); });
+    observer?.observe(el);
+    if (threadRef.current) observer?.observe(threadRef.current);
+    return () => {
+      inputs.forEach(name => el.removeEventListener(name, byOwner));
+      el.removeEventListener('scroll', onScroll);
+      observer?.disconnect();
+    };
+  });
+
+  React.useEffect(() => {
+    if (pinned.current) requestAnimationFrame(toBottom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  /** Sending a message always returns to the end, wherever the owner was reading. */
+  return React.useCallback(() => { pinned.current = true; }, []);
+}
+
 function partOfDay(d = new Date()): string {
   const h = d.getHours();
   return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening';
@@ -188,10 +243,8 @@ export function ChatScreen() {
     ...talk, end: () => { talk.end(); setTalkStage('off'); },
   }), [talk]);
 
-  React.useEffect(() => {
-    const el = scrollRef.current;
-    if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-  }, [messages, send.isPending]);
+  const threadRef = React.useRef<HTMLDivElement>(null);
+  const pinToBottom = useStickToBottom(scrollRef, threadRef, [messages, send.isPending]);
 
   const submit = (text = draft) => {
     const t = text.trim();
@@ -201,6 +254,7 @@ export function ChatScreen() {
     const submittedDraft = draftKey ? sessionStorage.getItem(draftKey) : null;
     setDraft('');
     setFailure(null);
+    pinToBottom();
     draftTouched.current = true;
     send.mutate(reference ? { text: t, evidenceRef: reference } : t, {
       onSuccess: () => {
@@ -241,7 +295,7 @@ export function ChatScreen() {
       </header>
 
       <div ref={scrollRef} className={styles.scroll}>
-        <div className={styles.thread} aria-live="polite">
+        <div ref={threadRef} className={styles.thread} aria-live="polite">
           <div className={styles.iris}>
             <Lens size={20} />
             <p className={styles.irisText}>How was today, really?</p>
