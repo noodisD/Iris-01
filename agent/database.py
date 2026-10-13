@@ -355,6 +355,27 @@ class Database:
                 logger.error(f"Failed to get earlier chat history for user {user_id}: {e}")
                 return []
 
+    def list_chat_sessions(self, user_id: int, limit: int = 50) -> list[dict]:
+        """Conversations with something in them, the most recently active first."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT s.id, s.created_at, count(m.id), max(m.created_at),
+                       (array_agg(m.content ORDER BY m.created_at, m.id)
+                          FILTER (WHERE m.role = 'user'))[1],
+                       s.reflection_id IS NOT NULL
+                  FROM chat_sessions s
+                  JOIN conversation_messages m ON m.session_id = s.id AND m.user_id = s.user_id
+                 WHERE s.user_id = %s
+                 GROUP BY s.id
+                 ORDER BY max(m.created_at) DESC
+                 LIMIT %s;
+                """,
+                (user_id, limit),
+            )
+            keys = ("id", "created_at", "message_count", "last_at", "first_said", "added")
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+
     def chat_session_counts(self, user_id: int, session_id: str) -> dict:
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(

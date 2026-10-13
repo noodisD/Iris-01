@@ -46,10 +46,15 @@ def test_opening_chat_starts_an_empty_session(client, test_user):
     current = client.get("/api/conversations/current")
     assert current.status_code == 200
     data = current.json()
-    assert data["id"] == second
+    assert data["id"] == first, "reloading reopens the conversation last written in"
     assert data["userId"] == str(test_user["id"])
-    assert data["messageCount"] == 0
+    assert data["messageCount"] == 1
     assert "startedAt" in data and "lastMessageAt" in data
+    listed = client.get("/api/conversations").json()
+    assert [c["id"] for c in listed] == [first], "an empty open is not listed"
+    assert listed[0]["preview"] == "A note about the weather." and listed[0]["addedToIris"] is False
+    assert client.get(f"/api/conversations/{first}").json()["messageCount"] == 1
+    assert client.get("/api/conversations/missing").status_code == 404
 
 
 def test_messages_empty_for_new_user(client):

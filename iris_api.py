@@ -731,6 +731,17 @@ def _conversation_for(user_id: int, session: dict) -> dict:
     )
 
 
+@app.get("/api/conversations")
+def list_conversations(user_id: int = Depends(get_current_user_id)):
+    """Earlier conversations to reopen, each with how it began. Empty opens are left out."""
+    return [
+        {**_conversation_payload(user_id, row["id"], row["created_at"], row["last_at"], row["message_count"]),
+         "preview": " ".join((row["first_said"] or "").split())[:120],
+         "addedToIris": row["added"]}
+        for row in db.list_chat_sessions(user_id)
+    ]
+
+
 @app.post("/api/conversations")
 def start_conversation(user_id: int = Depends(get_current_user_id)):
     """Open an empty chat. Earlier messages stay stored and are not shown."""
@@ -741,8 +752,23 @@ def start_conversation(user_id: int = Depends(get_current_user_id)):
 
 @app.get("/api/conversations/current")
 def get_current_conversation(user_id: int = Depends(get_current_user_id)):
-    """The latest open. Chat screens start a new one instead of calling this."""
-    session = db.latest_chat_session(user_id) or db.create_chat_session(user_id)
+    """The conversation to reopen: the one last written in, else the latest open.
+
+    Reloading the chat used to start an empty conversation every time, and
+    the earlier ones could not be reached from the screen.
+    """
+    active = db.list_chat_sessions(user_id, limit=1)
+    session = ({"id": active[0]["id"], "created_at": active[0]["created_at"]} if active
+               else db.latest_chat_session(user_id) or db.create_chat_session(user_id))
+    return _conversation_for(user_id, session)
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, user_id: int = Depends(get_current_user_id)):
+    """One conversation, to reopen and continue."""
+    session = db.get_chat_session(user_id, conversation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No such conversation.")
     return _conversation_for(user_id, session)
 
 

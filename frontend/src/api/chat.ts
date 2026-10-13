@@ -10,7 +10,8 @@
  */
 
 import { api, sse } from './client';
-import type { ChatEvidence, ChatMessage, Conversation, DiscussionPreview, EvidenceRef } from '@/types/api';
+import type { ChatEvidence, ChatMessage, Conversation, ConversationSummary, DiscussionPreview,
+  EvidenceRef } from '@/types/api';
 
 /** A new empty open. Earlier messages stay stored and are not returned here. */
 export async function startConversation(): Promise<Conversation> {
@@ -19,6 +20,15 @@ export async function startConversation(): Promise<Conversation> {
 
 export async function getCurrentConversation(): Promise<Conversation> {
   return api.get<Conversation>('/conversations/current');
+}
+
+/** Earlier conversations to reopen, most recently active first. */
+export function listConversations(): Promise<ConversationSummary[]> {
+  return api.get<ConversationSummary[]>('/conversations');
+}
+
+export function getConversation(conversationId: string): Promise<Conversation> {
+  return api.get<Conversation>(`/conversations/${conversationId}`);
 }
 
 export async function getMessages(conversationId: string): Promise<ChatMessage[]> {

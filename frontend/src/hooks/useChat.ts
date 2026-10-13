@@ -6,18 +6,26 @@ import type { ChatMessage, EvidenceRef } from '@/types/api';
 export function useConversation() {
   return useQuery({ queryKey: qk.conversation, queryFn: chatApi.getCurrentConversation });
 }
-/** One empty open per visit. Remounting the screen, not refetching, starts the next. */
-export function useNewConversation(visitId: string) {
+
+
+/**
+ * The conversation on screen: the one named in the address, a new one when a
+ * pattern is brought to discuss, else the one last written in. Reloading the
+ * page reopens it rather than starting over.
+ */
+export function useOpenConversation(conversationId: string | null, fresh: boolean, visitId: string) {
   return useQuery({
-    queryKey: ['conversation', 'visit', visitId],
-    queryFn: chatApi.startConversation,
+    queryKey: ['conversation', 'open', conversationId ?? (fresh ? `new:${visitId}` : 'current')],
+    queryFn: conversationId ? () => chatApi.getConversation(conversationId)
+      : fresh ? chatApi.startConversation : chatApi.getCurrentConversation,
     staleTime: Infinity,
-    gcTime: Infinity,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 }
 
+export function useConversations() {
+  return useQuery({ queryKey: ['conversation', 'list'], queryFn: chatApi.listConversations });
+}
 
 export function useMessages(conversationId: string | undefined) {
   return useQuery({

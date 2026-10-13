@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useAddChatEvidence, useChatEvidence, useEvidencePreview, useMessages, useNewConversation,
-  useSendMessage } from '@/hooks/useChat';
+import { useAddChatEvidence, useChatEvidence, useConversations, useEvidencePreview, useMessages,
+  useOpenConversation, useSendMessage } from '@/hooks/useChat';
+import * as chatApi from '@/api/chat';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/hooks/useData';
 import { ReplyFailed } from '@/api/chat';
 import { parseEvidenceRef } from '@/lib/evidence';
@@ -42,6 +44,31 @@ export function AddToIris({ conversationId, messageCount, busy }:
       {add.isError && <p role="alert" className={styles.failure}>
         Couldn't add it: {add.error instanceof Error ? add.error.message : String(add.error)}</p>}
     </div>
+  );
+}
+
+/** Earlier conversations, to reopen and carry on. */
+export function EarlierConversations({ current, onOpen }: { current: string; onOpen: (id: string) => void }) {
+  const { data } = useConversations();
+  const earlier = (data ?? []).filter(c => c.id !== current);
+  if (earlier.length === 0) return null;
+  return (
+    <details className={styles.earlier}>
+      <summary>Earlier conversations ({earlier.length})</summary>
+      <ul className={styles.earlierList}>
+        {earlier.map(c => (
+          <li key={c.id}>
+            <button type="button" className={styles.earlierItem} onClick={() => onOpen(c.id)}>
+              <span className={styles.earlierWhen}>
+                {new Date(c.lastMessageAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {' · '}{c.messageCount} message{c.messageCount === 1 ? '' : 's'}{c.addedToIris ? ' · in IRIS' : ''}
+              </span>
+              <span className={styles.earlierPreview}>{c.preview || 'IRIS spoke first'}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -212,11 +239,24 @@ function discussionDraftKey(ref: EvidenceRef) {
 export function ChatScreen() {
   const { data: user } = useUser();
   const [visit] = React.useState(() => crypto.randomUUID());
-  const { data: convo, isLoading, isError, refetch } = useNewConversation(visit);
-  const { data: messages } = useMessages(convo?.id);
-  const send = useSendMessage(convo?.id);
   const [params, setParams] = useSearchParams();
   const [initialEvidence] = React.useState(() => params.get('evidence'));
+  const { data: convo, isLoading, isError, refetch } = useOpenConversation(
+    params.get('c'), initialEvidence !== null, visit);
+  const { data: messages } = useMessages(convo?.id);
+  const send = useSendMessage(convo?.id);
+  const qc = useQueryClient();
+  const [starting, setStarting] = React.useState(false);
+  const startNew = async () => {
+    setStarting(true);
+    try {
+      const fresh = await chatApi.startConversation();
+      setParams({ c: fresh.id });
+      void qc.invalidateQueries({ queryKey: ['conversation', 'list'] });
+    } finally {
+      setStarting(false);
+    }
+  };
   const [reference, setReference] = React.useState<EvidenceRef | null>(
     () => parseEvidenceRef(initialEvidence));
   const [invalidReference, setInvalidReference] = React.useState(
@@ -291,7 +331,12 @@ export function ChatScreen() {
           <h1 className={styles.title}>Chat</h1>
           <p className={styles.sub}>{partTitle[0].toUpperCase() + partTitle.slice(1)} check-in{user ? `, day ${user.dayInJourney}` : ''}</p>
         </div>
-        <p className={styles.privacy}>Stored on this laptop. Replies come from OpenAI.</p>
+        <div className={styles.headActions}>
+          <Button size="sm" onClick={() => void startNew()} disabled={starting || send.isPending
+            || (messages ?? []).length === 0}>New conversation</Button>
+          <EarlierConversations current={convo.id} onOpen={id => setParams({ c: id })} />
+          <p className={styles.privacy}>Stored on this laptop. Replies come from OpenAI.</p>
+        </div>
       </header>
 
       <div ref={scrollRef} className={styles.scroll}>

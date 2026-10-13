@@ -45,3 +45,17 @@
   flex-wrap: wrap;
   margin-top: 0.25rem;
 }
+
+.headActions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; }
+.earlier { position: relative; }
+.earlier > summary { cursor: pointer; color: var(--petal); font-size: var(--text-sm); list-style: none; padding: 4px 8px;
+  border: 1px solid var(--mist-2); border-radius: 8px; }
+.earlier > summary::-webkit-details-marker { display: none; }
+.earlierList { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(380px, 86vw);
+  max-height: 60vh; overflow: auto; margin: 0; padding: var(--space-2); list-style: none;
+  background: var(--dusk); border: 1px solid var(--mist-2); border-radius: 12px; }
+.earlierItem { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: var(--space-2);
+  background: none; border: none; border-radius: 8px; color: inherit; cursor: pointer; }
+.earlierItem:hover, .earlierItem:focus-visible { background: var(--night); }
+.earlierWhen { font-size: var(--text-xs, 0.75rem); color: var(--petal); }
+.earlierPreview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

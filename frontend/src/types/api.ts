@@ -80,6 +80,12 @@ export interface Conversation {
   messageCount: number;
 }
 
+/** A conversation in the list of earlier ones: how it began, and whether it is in IRIS. */
+export interface ConversationSummary extends Conversation {
+  preview: string;
+  addedToIris: boolean;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Journal
 // ─────────────────────────────────────────────────────────────────────────────
