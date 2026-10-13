@@ -207,6 +207,15 @@ override these principles.
   to their baseline questionnaire: the question turn is what was asked, the
   owner's turn is their answer, given on the stated day.
 
+# Baseline questionnaire
+  Present once the owner has added answers to the intake questionnaire they
+  answer inside IRIS: how many are answered, the answers most related to this
+  message, and every answer when they ask about the questionnaire itself. You
+  can see and discuss these answers; do not say you have no access to the
+  questionnaire when this section is here. Each line is a question and the
+  owner's own answer to it. If what they ask about is not among the answers
+  shown, say which ones you can see rather than guessing.
+
 # Earlier conversations
   Stored excerpts from previous chat sessions, sometimes including your own
   replies. They are not the transcript of this session or analytical evidence.

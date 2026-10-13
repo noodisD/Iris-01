@@ -312,6 +312,7 @@ class PersonalAICompanion:
 
         # 1. Fetch relevant memories (vector search)
         memories = self._get_relevant_context(user_message)
+        questionnaire = self._questionnaire_context(user_message)
 
         # 2. Fetch Habits and Reflections context. Journal entries are
         # reflections (ADR-0010), so there is one builder, not two.
@@ -352,12 +353,24 @@ class PersonalAICompanion:
         return (
             f"# Today: {today:%A, %Y-%m-%d}\n\n"
             f"# Relevant Long-Term Memory:\n{memories}\n\n"
+            + (f"{questionnaire}\n\n" if questionnaire else "") +
             f"# Earlier conversations (stored and analysed; not this open):\n{self._earlier_conversations()}\n\n"
             f"# Recent Journal Entries & Reflections (the {RECENT_ENTRIES_IN_CONTEXT} most recently written, newest first):\n{reflections_context}\n\n"
             f"# Current Habits & Streaks:\n{habits_context}\n\n"
             f"{approved_context(self.user_id)}\n\n"
             f"{header}\n{body}"
         )
+
+    @obs.traced("chat.questionnaire", "chat")
+    def _questionnaire_context(self, text: str) -> str:
+        """How much of the baseline questionnaire is answered, and the answers that matter now."""
+        from .questionnaire_context import section
+
+        try:
+            return section(self.user_id, text, generate_embedding(text))
+        except Exception as e:
+            logger.error(f"Failed to read the questionnaire for chat: {e}")
+            return ""
 
     @obs.traced("chat.earlier_conversations", "chat")
     def _earlier_conversations(self) -> str:
