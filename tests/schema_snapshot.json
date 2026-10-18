@@ -885,6 +885,43 @@
         "type": "double precision"
       }
     },
+    "health_checks": {
+      "check_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "details": {
+        "default": "'{}'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "run_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "run_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "uuid"
+      },
+      "status": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "value": {
+        "default": null,
+        "nullable": "YES",
+        "type": "double precision"
+      }
+    },
     "idea_citations": {
       "created_at": {
         "default": "now()",
@@ -3700,6 +3737,40 @@
         "type": "n"
       }
     },
+    "health_checks": {
+      "health_checks_check_id_not_null": {
+        "definition": "NOT NULL check_id",
+        "type": "n"
+      },
+      "health_checks_details_not_null": {
+        "definition": "NOT NULL details",
+        "type": "n"
+      },
+      "health_checks_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "health_checks_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "health_checks_run_at_not_null": {
+        "definition": "NOT NULL run_at",
+        "type": "n"
+      },
+      "health_checks_run_id_not_null": {
+        "definition": "NOT NULL run_id",
+        "type": "n"
+      },
+      "health_checks_status_check": {
+        "definition": "CHECK ((status = ANY (ARRAY['ok'::text, 'warn'::text, 'fail'::text, 'waiting'::text, 'unknown'::text])))",
+        "type": "c"
+      },
+      "health_checks_status_not_null": {
+        "definition": "NOT NULL status",
+        "type": "n"
+      }
+    },
     "idea_citations": {
       "idea_citations_created_at_not_null": {
         "definition": "NOT NULL created_at",
@@ -5260,6 +5331,11 @@
       "habits_pkey": "CREATE UNIQUE INDEX habits_pkey ON public.habits USING btree (id)",
       "idx_habits_status_date": "CREATE INDEX idx_habits_status_date ON public.habits USING btree (processing_status, created_at)",
       "idx_habits_user_active": "CREATE INDEX idx_habits_user_active ON public.habits USING btree (user_id, is_active)"
+    },
+    "health_checks": {
+      "health_checks_check": "CREATE INDEX health_checks_check ON public.health_checks USING btree (check_id, run_at DESC)",
+      "health_checks_pkey": "CREATE UNIQUE INDEX health_checks_pkey ON public.health_checks USING btree (id)",
+      "health_checks_run": "CREATE INDEX health_checks_run ON public.health_checks USING btree (run_id)"
     },
     "idea_citations": {
       "idea_citations_idea_status_idx": "CREATE INDEX idea_citations_idea_status_idx ON public.idea_citations USING btree (idea_id, status)",

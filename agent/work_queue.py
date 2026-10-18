@@ -204,8 +204,12 @@ def _run(source_type: str, source_id: int) -> None:
             process_reflection(source_id)
         except ReadUnavailable:
             raise
-        except Exception:
-            raise ReadUnavailable("invalid_read_store") from None
+        except Exception as exc:
+            # Named for what actually failed. One name for every cause hid a
+            # reader returning a duplicate account behind "invalid_read_store"
+            # on every retry. The kind leads, so it can be grouped without the
+            # message, which may quote the source.
+            raise ReadUnavailable(f"invalid_read_store ({type(exc).__name__}: {str(exc)[:160]})") from None
         return
     if source_type == "personal_dynamics":
         from .discovery import process_user

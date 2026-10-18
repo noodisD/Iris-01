@@ -2766,6 +2766,19 @@ def _obs_health():
         return obs_queries.health_memory()
 
 
+@app.get("/api/observatory/doctor")
+def observatory_doctor(only: str | None = None):
+    """The doctor's checks, worst first, and what changed since the last stored run.
+
+    Not stored from here: the stored history is what the daily run and agents
+    keep, so a page refresh does not count as a run. Counts and ids only.
+    """
+    from agent import doctor
+
+    results = doctor.run(set(only.split(",")) if only else None)
+    return {"results": results, "changes": doctor.changes(results)}
+
+
 @app.get("/api/observatory/overview")
 def observatory_overview(window: int = 900):
     window = _window(window, _OBS_WINDOWS)
