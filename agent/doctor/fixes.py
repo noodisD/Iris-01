@@ -32,6 +32,19 @@ ROOT = Path(__file__).resolve().parents[2]
 REQUEUE_KINDS = ("reflection", "message", "habit", "discovery", "transcription")
 #: A job re-queued once is not re-queued again for this long.
 REQUEUE_ONCE_DAYS = 7
+#: A repair that writes data takes a backup first unless one is newer than this.
+#: The owner's choice: fewer files, at most a day old.
+FRESH_BACKUP_HOURS = 24
+
+
+def _fresh_backup() -> bool:
+    """Whether a backup newer than FRESH_BACKUP_HOURS already exists."""
+    import time
+
+    from .checks_resources import BACKUPS
+
+    dumps = list(BACKUPS.glob("*.dump")) if BACKUPS.exists() else []
+    return bool(dumps) and time.time() - max(p.stat().st_mtime for p in dumps) < FRESH_BACKUP_HOURS * 3600
 
 #: check id -> (repair, whether it writes the database)
 FIXERS: dict[str, tuple[Callable[[], tuple[str, dict]], bool]] = {}
@@ -176,8 +189,9 @@ def apply(results: list[dict], run_id: str | None) -> list[dict]:
     by_id = {c.id: c for c in CHECKS}
     wanted = [r for r in results if r["status"] in ("fail", "warn") and r["action_class"] == "safe-auto"
               and r["id"] in FIXERS]
-    if any(FIXERS[r["id"]][1] for r in wanted):
-        # A repair that writes the database is preceded by a backup, once per run.
+    if any(FIXERS[r["id"]][1] for r in wanted) and not _fresh_backup():
+        # A repair that writes the database is preceded by a backup, once per run,
+        # unless a backup less than a day old already exists.
         try:
             take_backup()
         except Exception as exc:

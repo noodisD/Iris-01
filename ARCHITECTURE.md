@@ -244,7 +244,8 @@ latest run in a banner on every screen except chat (`GET /api/health/latest`). E
 names a runbook in `docs/runbooks/`. With `--fix`, as the daily timer runs it, the doctor
 carries out only safe-auto repairs (`doctor/fixes.py`: orphaned vectors, drifted reading
 copies, a missing embedding or passages, a cheap failed job re-queued once, telemetry,
-a backup), after a backup when the repair writes data, and records each in `health_fixes`.
+a backup), after a backup when the repair writes data and none is under a day old, and records
+each in `health_fixes`.
 
 ## 11. Failure behaviour
 

@@ -13,8 +13,8 @@ what waits on the owner. Checks that wait on the owner report `waiting`, not `fa
 
 `--fix` (used by the daily timer) carries out only safe-auto repairs, each re-queried
 rather than trusted from the report, re-checked afterwards, and kept in `health_fixes`.
-A repair that writes the database is preceded by a backup, and nothing is repaired if
-that backup fails.
+A repair that writes the database is preceded by a backup unless one less than a day old
+exists, and nothing is repaired if that backup fails.
 
 | Check | Repair |
 |---|---|

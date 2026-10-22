@@ -301,6 +301,7 @@ def no_real_backup(monkeypatch):
 
     taken = []
     monkeypatch.setattr(fixes, "take_backup", lambda: taken.append(1) or ("Took a backup.", {}))
+    monkeypatch.setattr(fixes, "_fresh_backup", lambda: False)
     return taken
 
 
@@ -369,6 +370,7 @@ def test_nothing_is_repaired_without_a_backup_first(test_user, monkeypatch):
     def broken():
         raise RuntimeError("disk full")
     monkeypatch.setattr(fixes, "take_backup", broken)
+    monkeypatch.setattr(fixes, "_fresh_backup", lambda: False)
     gone = db.create_reflection(test_user["id"], "Another note to delete.")
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM reflections WHERE id = %s", (gone,))
@@ -391,3 +393,19 @@ def test_only_safe_auto_checks_with_a_repair_are_touched(no_real_backup, monkeyp
     results = [{"id": "test.owner_only", "status": "fail", "action_class": "needs-owner", "value": 1},
                {"id": "data.quotes", "status": "fail", "action_class": "needs-owner", "value": 1}]
     assert fixes.apply(results, None) == [] and called == [] and no_real_backup == []
+
+
+def test_a_backup_under_a_day_old_is_enough(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from agent.doctor import checks_resources, fixes
+
+    monkeypatch.setattr(checks_resources, "BACKUPS", tmp_path)
+    assert not fixes._fresh_backup()
+    dump = tmp_path / "iris_db_x.dump"
+    dump.write_bytes(b"0")
+    assert fixes._fresh_backup()
+    old = time.time() - 30 * 3600
+    os.utime(dump, (old, old))
+    assert not fixes._fresh_backup()
