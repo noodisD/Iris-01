@@ -11,22 +11,24 @@ listening, Socratic questioning and other psychotherapy-informed techniques,
 without presenting itself as a therapist or diagnosing you. It can challenge a
 choice respectfully and offer an optional next step tied to your own goals.
 
-The analytical engines still report observations, not causes or prescriptions.
-Chat does not create analytical evidence. The companion currently receives
-context automatically; this does not give it callable tools, continuous
-monitoring, or alerts outside chat.
+IRIS reads what you give it: journal entries (typed, dictated or imported),
+recorded therapy sessions, your answers to a baseline questionnaire, and chat
+conversations you choose to add. From that it finds **patterns**, recurring
+context–response dynamics backed by verbatim quotes and checked against their
+sources; tentative **insights** with supporting and contrary accounts; and your
+**ideas**, positions linked into a graph. Chat draws on all of it, with an exact
+memory search over your writing and sessions. Only what you save, import or
+add is sent to be read; staged imports, sessions and drafts wait for your
+click, and runs over the archive show their cost first. IRIS keeps itself in
+check with a health report (`python -m agent.doctor`).
 
-Patterns now derive context–response dynamics from source-checked, eligible
-writing, with independent-event lower bounds and owner corrections. A
-separate 24-item process-lens library is optional interpretation, **not**
-a classification of the owner. Writing-derived Insights are tentative
-function/tradeoff, contextual-difference or shared-concern claims with
-supporting, contrary and unknown accounts; measured-day comparisons remain
-independent. Selected chat discussions verify a current range/snapshot and
-show source evidence before sending. See [current domain contracts](CONTEXT.md)
-and [reference and deployment gates](docs/reference-evaluation.md). Until
-independent holdout review and a backed-up live archive read finish, these
-surfaces must not be described as validated for the owner's full archive.
+In a session, a questionnaire answer or an added chat, only your own turns are
+evidence: the therapist's, the question's and IRIS's words are context. A
+chat is evidence only if you add it. Patterns and insights are observations,
+not causes or diagnoses. See [ARCHITECTURE.md](ARCHITECTURE.md) for how it is
+built, [CONTEXT.md](CONTEXT.md) for the domain rules, and
+[docs/reference-evaluation.md](docs/reference-evaluation.md) for how pattern
+quality was evaluated.
 
 ---
 
@@ -38,6 +40,7 @@ One Python process and one PostgreSQL database. That's the whole system.
 ┌──────────────────────────────────────────────────────┐
 │  scripts/serve_iris.py                                │
 │    ├── 127.0.0.1:8000   local API and React SPA       │
+│    ├── 127.0.0.1:8001   tailnet door (tailscale serve)│
 │    └── LAN_IP:8765      pinned TLS paired Android API │
 │        (only when LAN_BIND_HOST is explicitly set)    │
 └─────────────────────────┬────────────────────────────┘
@@ -55,9 +58,11 @@ One Python process and one PostgreSQL database. That's the whole system.
 - **One datastore.** pgvector is a PostgreSQL extension, so 1536-dimension
   embeddings live in ordinary rows next to everything else and a similarity
   search is a normal SQL query with a `WHERE user_id = …` on it.
-- **OpenAI** for chat (`gpt-5.5`, set with `OPENAI_MODEL`),
-  source-checked personal-dynamics reading (`OPENAI_WORKER_MODEL`) and embeddings
-  (`text-embedding-3-small`). A change of chat/worker model affects provider
+- **OpenAI** for chat (`OPENAI_MODEL`, default `gpt-5.5`), source-checked
+  reading and pattern synthesis (`OPENAI_WORKER_MODEL`, on the Flex tier),
+  embeddings (`text-embedding-3-small`), voice notes and speaker separation.
+  A session recording's words are written locally by Whisper when
+  `WHISPER_PYTHON` points at an environment with faster-whisper (ADR-0030). A change of chat/worker model affects provider
   output and can invalidate a checked reading; the embedding model also fixes
   the vector column at 1536 dimensions and changing it requires migration and
   re-embedding. Eligible journal passages are sent to the configured worker
@@ -123,30 +128,36 @@ For frontend work, `cd frontend && npm run dev` serves on :5173 and proxies
 
 ## How the analysis works
 
-Every entry is embedded and stored. From there:
+Every entry is queued in the same transaction it is saved in, then embedded. A
+long entry is also cut into passages, so chat finds the part that matters, and a
+dictated one gets a punctuated reading copy with exactly the same words.
 
-1. **Persistence** — entries are matched to existing themes by cosine
-   similarity (≥ 0.70); when nothing matches, clustering looks for a new theme.
-   A cluster needs **5** occurrences before it counts as a theme rather than
-   noise.
-2. **Trajectory** — weighted regression over occurrence frequency: rising,
-   falling, emerging, fading, stable.
-3. **Tension** — themes that co-occur while trending in opposite directions.
-4. **Resolution** — dissipated, stabilised, persisting, reappearing.
-5. **Leverage / Decision impact** — what tends to precede and follow what.
+1. **Reading.** Each entry is read once per version into accounts: events,
+   self-reports, intentions and what-ifs, with the situation, the response and,
+   when you said them, the feeling, reason and outcome. Every field is quoted
+   word for word from your text and kept only if an independent check finds the
+   quote supports it. Long sessions are read 25 turns at a time.
+2. **Patterns.** When every entry is read, one synthesis run finds recurring
+   context–response dynamics across the archive, groups retellings of the same
+   event, and keeps exceptions visible. You can confirm or correct each one.
+   A full rebuild takes an hour or more on the Flex tier.
+3. **Insights.** Tentative claims over a chosen range, each with supporting,
+   contrary and unknown accounts. Twenty-four optional process lenses may
+   annotate a pattern; they never classify you.
+4. **Ideas.** On request, your positions are read out with dated quotes and
+   linked: supports, contradicts, refines, depends on, same meaning, applies.
 
-Findings then pass the **meta-control layer**, in this order: engine enablement
-→ confidence threshold → conflict suppression → prioritisation → budget. Only
-then are they rendered into language, by templates, through a regex firewall
-that rejects causal and prescriptive wording (`caused`, `should`, `because`,
-`means`…). A finding that cannot be phrased neutrally is dropped rather than
-softened.
+The older analytical engines (persistence, trajectory, tension, resolution,
+leverage, decision impact, lifelong) still run over themes for chat's
+"observed patterns" and the weekly letter. Their findings pass one admission
+policy (coverage → enablement → confidence → conflict suppression → ranking)
+and fixed templates behind a firewall that rejects causal and prescriptive
+wording (`caused`, `should`, `because`…).
 
-**Conversation is not evidence.** Chat messages are embedded so IRIS can recall
-them, but they never create or reinforce themes — otherwise mentioning a pattern
-would manufacture proof of it. Skipped habits are not evidence either. Opening
-Chat on the web or phone starts an empty session. Earlier messages stay stored
-and analysed; they are not shown as the current transcript.
+**Conversation is evidence only when you add it.** Chat messages are embedded
+so IRIS can recall them; "Add to IRIS" under the chat box makes a conversation
+evidence, your turns only (ADR-0032). The chat reopens the conversation you
+last wrote in after a reload, and lists earlier ones to continue (ADR-0033).
 
 ## Development
 
@@ -175,8 +186,22 @@ migration — editing one that has already run is refused, because databases tha
 already applied it would keep the old definition.
 
 `tests/test_schema_snapshot.py` compares the live schema against a committed
-snapshot, so any change also lands as a reviewable diff; regenerate it with
-`python -m tests.test_schema_snapshot --update`.
+snapshot, so any change also lands as a reviewable diff; regenerate it against
+the test database with `POSTGRES_DB=<test db> python -m tests.test_schema_snapshot --update`
+(opening the live database applies pending migrations to it).
+
+Back up first: `uv run python scripts/backup_db.py <label>` writes a dump to
+`data/backups/` without the Observatory's telemetry, a few tens of megabytes.
+
+### Keeping it healthy
+
+`uv run python -m agent.doctor` checks what errors never show: whether jobs and
+the pattern update are moving, whether every quote is still found word for word,
+whether memory search finds what an exact search finds, whether chat's context
+is complete, and more. It stores each run and leads with what changed since the
+last; every check names a runbook in `docs/runbooks/`. Before restarting, run
+`uv run python -m agent.doctor --can-restart`: a restart during a pattern update
+throws away its progress.
 
 ### Bringing in what you have already written
 
@@ -188,6 +213,24 @@ the wrong week for good. On Android, Journal can record a voice entry and opens
 Import for transcript and date review before it becomes a journal entry.
 Recordings are transcribed and the audio is kept, so you can listen back and
 so a better model can re-read them later.
+
+### Therapy sessions
+
+Import → Therapy sessions takes a transcript with `**[HH:MM:SS] Name:**` turns,
+or a recording alone. A recording is written down locally by Whisper, its
+speakers told apart from the recording and your stored voice samples, and
+mis-heard words checked against that second hearing; every change is listed.
+You say which speaker is you, check the day and time, and click Import (cost
+shown first). Only your turns are ever quoted as yours (ADR-0028, ADR-0030).
+
+### Baseline questionnaire
+
+The Questionnaire screen holds the intake questionnaire you were given,
+shown in English with the Polish on request. Its text stays in a local file in
+`data/`, never in this repository. Answer by typing or in a short interview with
+IRIS ("Next unanswered question", "Say more with IRIS" for short answers), or
+start from suggestions made only of your own sentences. Answers are drafts
+until you add a section; chat can then see and discuss them (ADR-0029).
 
 ### Write a day
 
@@ -276,8 +319,9 @@ prose or coordinates enter a comparison.
 ### What IRIS is allowed to say
 
 Settings carries the analytical gates: the confidence a finding needs before it
-is raised, how many can reach one conversation, and which of the six engines
-run. They are the same preferences the CLI's `/settings` writes.
+is raised, how many can reach one conversation, and which of the older engines
+run (seven can be switched). They are the same preferences the CLI's
+`/settings` writes.
 
 ## Deliberately not built
 

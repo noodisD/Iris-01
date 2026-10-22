@@ -47,3 +47,10 @@ frontend/node_modules/
 
 # Local benchmark runs stay on the machine that produced them.
 .jev-runs/
+
+# Notes a memory plugin writes beside code; only the root CLAUDE.md is project instructions.
+/agent/**/CLAUDE.md
+/agent/CLAUDE.md
+/prompts/CLAUDE.md
+/tests/CLAUDE.md
+/frontend/**/CLAUDE.md

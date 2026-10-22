@@ -8,7 +8,7 @@ re-litigated by accident, only deliberately.
 |---|---|---|
 | [0001](ADR-0001-single-user-loopback.md) | Single user, bound to loopback, no auth | Every security question; why CORS is absent |
 | [0002](ADR-0002-one-datastore.md) | PostgreSQL + pgvector is the only store | Why user-scoping is enforceable in one query |
-| [0003](ADR-0003-what-counts-as-evidence.md) | Only deliberate logging counts as evidence | Why chat and skips never become occurrences |
+| [0003](ADR-0003-what-counts-as-evidence.md) | Only deliberate logging counts as evidence | Why skips and unadded chat never become occurrences (amended by 0032) |
 | [0004](ADR-0004-deployment.md) | One systemd service, not a container image | Why there is no Dockerfile |
 | [0005](ADR-0005-caching.md) | Cache only where there is a reader, always with expiry | Resolution's TTL; trajectory having none |
 | [0006](ADR-0006-time.md) | UTC instants for analysis, local days for habits | Why `DTZ` findings in the trackers are correct |
@@ -25,7 +25,7 @@ re-litigated by accident, only deliberately.
 | [0017](ADR-0017-sensor-sources.md) | Sensor sources enter through one seam, as evidence | Why sensor data never forms its own themes |
 | [0018](ADR-0018-mobile-lan-api.md) | LAN-only API surface for a paired Android app | Why the LAN bind defaults to OFF and the bearer gates it |
 | [0019](ADR-0019-phone-app-over-lan.md) | Paired phone accesses the full API over pinned TLS | Why web and pairing remain loopback-only |
-| [0020](ADR-0020-chat-opens-a-new-session.md) | Each chat open starts an empty session | Why web and phone chat do not render the stored transcript |
+| [0020](ADR-0020-chat-opens-a-new-session.md) | Each chat open starts an empty session | Superseded for the web app by 0033; still how the phone opens chat |
 | [0021](ADR-0021-ideas-framework.md) | Ideas are confirmed propositions, not measured themes | Why arguments are not occurrences and critiques are not evidence |
 | [0022](ADR-0022-reach-iris-over-tailscale.md) | IRIS is reachable away from home over the owner's Tailscale network | Why only the owner's tailnet login gets in, and why Funnel is never used |
 | [0023](ADR-0023-insights-are-differences-in-outcome.md) | Historical writing-insight decision, superseded by 0027's process-first cutover | Outcome-pair and co-label definitions no longer describe current Insights |
@@ -38,6 +38,7 @@ re-litigated by accident, only deliberately.
 | [0030](ADR-0030-local-whisper-sessions.md) | A session recording's words are written down locally by Whisper, then checked | Why words come from local Whisper and speakers from the diarizer, and how a model may fix mis-hearings without guessing |
 | [0031](ADR-0031-reading-copies-and-entry-passages.md) | Dictated entries are read from a reading copy; long entries are recalled by passage | Why the reader reads punctuated copies with the same words, and why chat recalls long entries by passage rather than one averaged vector |
 | [0032](ADR-0032-chat-as-evidence.md) | A chat conversation is evidence only when the owner adds it | Why chats are read for patterns only at the owner's click, and why only the owner's turns in them count |
+| [0033](ADR-0033-chat-reopens-the-conversation.md) | The web chat reopens the conversation last written in | Why a reload keeps the conversation, how earlier ones are reached, and why empty opens are reused |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

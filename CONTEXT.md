@@ -103,7 +103,10 @@ they are; importing is the click that sends it to be indexed and read. It is
 recalled in chat by **passage** (whole turns, each naming its speaker) and is
 not a theme occurrence (ADR-0028). A session added from its recording alone is
 written down locally by Whisper, its speakers taken from the diarizer, and its
-mis-hearings checked against the diarizer's second hearing (ADR-0030).
+mis-hearings checked against the diarizer's second hearing (ADR-0030). A long session is read 25 turns at a time, and a
+non-English session's passages also carry a vector of their English
+translation, so an English question finds them; chat still shows the words as
+said.
 
 ### Added chat
 A chat conversation the owner chose to add to IRIS, stored as a reflection in
@@ -111,6 +114,9 @@ the session format (`source 'chat'`). IRIS's turns are context and only the
 owner's turns are evidence, as in a session. Adding it again after it went on
 replaces the earlier copy. A chat that was never added is never evidence
 (ADR-0032).
+
+The web chat reopens the conversation last written in and lists earlier ones to
+continue; the phone still opens an empty one (ADR-0033).
 
 ### Questionnaire answer
 The owner's answer to one question of a questionnaire they answer inside IRIS
@@ -401,3 +407,12 @@ kept, and the cost of a turn is shown before anything is sent.
 - **Journal entry**: 0.9
 - **Habit completion with notes**: 0.8
 - **Habit completion (tick only)**: 0.5
+
+### Health check
+What the doctor (`python -m agent.doctor`) verifies: a promise the system makes
+about itself, such as "every stored quote is found word for word in its source"
+or "memory search returns what an exact search returns". Each check reports ok,
+warn, fail, waiting (on the owner) or unknown, with what it expected, likely
+causes, a safe next action and its class (read-only, safe-auto, needs-owner,
+guarded), and a runbook in `docs/runbooks/`. Runs are kept in `health_checks` so
+the next run can say what changed. Reports carry counts and ids, never text.

@@ -1,7 +1,7 @@
 # ADR-0020: Opening chat starts an empty session
 
 ## Status
-Accepted — 2026-09-24
+Accepted — 2026-09-24 · Superseded for the web app by [ADR-0033](ADR-0033-chat-reopens-the-conversation.md) (2026-10-13); the phone app still opens an empty session.
 
 ## Context
 Chat was one rolling transcript. Opening it on the phone or web showed the stored history from the top. The owner wants each open to start empty, on both clients, without discarding what was said or skipping analysis.

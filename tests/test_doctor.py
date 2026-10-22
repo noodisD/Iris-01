@@ -127,3 +127,17 @@ def test_every_check_has_a_runbook():
     doctor._load()
     missing = [c.id for c in doctor.CHECKS if not (Path("docs/runbooks") / f"{c.id}.md").exists()]
     assert missing == []
+
+
+def test_docs_coverage_finds_unnamed_modules_and_missing_paths(tmp_path):
+    from agent.doctor.checks_docs import scan
+
+    (tmp_path / "agent" / "tools").mkdir(parents=True)
+    for name in ("named.py", "forgotten.py", "tools/inner.py"):
+        (tmp_path / "agent" / name).write_text("")
+    (tmp_path / "ARCHITECTURE.md").write_text("Uses `named.py` and `tools/*`; see `agent/gone.py`, `migrations/NNNN_*.sql`.")
+    (tmp_path / "migrations").mkdir()
+    (tmp_path / "migrations" / "0001_start.sql").write_text("")
+    unnamed, broken = scan(tmp_path)
+    assert unnamed == ["forgotten.py"]
+    assert broken == ["ARCHITECTURE.md: agent/gone.py"]

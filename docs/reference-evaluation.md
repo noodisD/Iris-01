@@ -6,6 +6,12 @@ extractor and contextual field checker as the worker. Provider failures are
 unavailable, not empty evidence. The old `data/episodes.json` and old reference
 judgments remain historical; never transfer verdicts by array index.
 
+Every `data/` path below is a local, owner-only output of the command beside it,
+never committed. The specific 1 October runs named in the holdout section were
+working files and are no longer on the machine; rerun the commands to reproduce
+a check. Current health of the live pipeline is reported by
+`python -m agent.doctor` (see `docs/runbooks/`).
+
 ## Owner review of actual writing
 
 Run from the development checkout, with a configured local PostgreSQL instance.

@@ -33,18 +33,24 @@ src/
 
 ## Screens
 
-| Route          | What it shows |
-|----------------|---------------|
-| `/chat`        | the conversation; replies stream as the model writes them |
-| `/today`       | the featured finding, if any, and today's habits |
-| `/journal`     | write an entry; the archive, newest first |
-| `/habits`      | today's ticks, as a list or sized by streak |
-| `/insights`    | what IRIS noticed — the same admitted list chat draws from — and each finding's evidence; snooze or resolve |
-| `/constructs`  | "Noticed": patterns found by reading, with verbatim quotes, waiting to be confirmed |
-| `/review`      | the week |
-| `/import`      | stage an export, fix dates, commit |
-| `/settings`    | what IRIS holds about you, and which engines and confidence it may speak from |
-| `/onboarding`  | first run: one paragraph, one button |
+| Route | What it shows |
+|---|---|
+| `/chat` | the conversation, reopened after a reload; earlier conversations; "Add to IRIS"; Talk mode |
+| `/today` | the featured finding, if any, and today's habits |
+| `/journal` | write an entry with a check-in; the archive, newest first; sessions shown speaker by speaker |
+| `/habits` | today's ticks, as a list or sized by streak |
+| `/decisions` | the decision journal: record a decision while the facts are fresh |
+| `/patterns`, `/patterns/:id` | checked context–response patterns, their sources, groups and your corrections |
+| `/insights`, `/insights/:id` | tentative insights from checked writing, and measured-day differences |
+| `/ideas`, `/ideas/:id` | your ideas as a graph, with dated quotes; read what's new |
+| `/review` | the week, and the weekly letter |
+| `/import` | stage an export, a voice journal or a therapy session; fix dates; commit |
+| `/questionnaire` | the baseline questionnaire, by form or interview |
+| `/constructs` | patterns found by reading, waiting to be confirmed |
+| `/sensors` | phone batches waiting for confirmation, places, measured days |
+| `/observatory` | traces, logs, the queue and system health (laptop only) |
+| `/settings` | what IRIS holds about you, which engines and confidence it may speak from, phone pairing |
+| `/onboarding` | first run: one paragraph, one button |
 
 ## Conventions
 

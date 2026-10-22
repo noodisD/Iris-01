@@ -70,7 +70,7 @@ def check(id: str, area: str):
 
 def _load() -> None:
     # Imported for their registrations.
-    from . import checks_data, checks_moving, checks_quality  # noqa: F401
+    from . import checks_data, checks_docs, checks_moving, checks_quality  # noqa: F401
 
 
 def run(only: set[str] | None = None) -> list[dict]:

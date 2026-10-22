@@ -1,7 +1,7 @@
 # ADR-0003: Only deliberate logging counts as evidence
 
 ## Status
-Accepted — 2026-09-06
+Accepted — 2026-09-06 · Amended by [ADR-0032](ADR-0032-chat-as-evidence.md): a chat the owner chooses to add is evidence, its owner turns only.
 
 ## Context
 Chat messages were embedded and matched against themes, and later clustered into
