@@ -664,9 +664,12 @@ class Database:
 
                     if is_skipped:
                         action = "Skipped"
-                        details = f"Reason: {skip_reason}"
-                    else:
+                        details = f"Reason: {notes or skip_reason}"
+                    elif is_completed:
                         action = "Completed"
+                        details = f"Notes: {notes}"
+                    else:
+                        action = "Noted"
                         details = f"Notes: {notes}"
 
                     text = f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
@@ -1601,7 +1604,7 @@ class Database:
                     UNION ALL
                     SELECT MAX(hc.completion_date) FROM habit_completions hc
                       JOIN habits h ON hc.habit_id = h.id
-                     WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
+                     WHERE h.user_id = %s AND hc.is_completed AND hc.is_skipped IS NOT TRUE
                 ) days;
                 """,
                 (user_id, user_id),
@@ -1646,7 +1649,7 @@ class Database:
                     UNION
                     SELECT hc.completion_date AS d
                       FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
-                     WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE
+                     WHERE h.user_id = %s AND hc.is_completed AND hc.is_skipped IS NOT TRUE
                        AND hc.completion_date > %s::date
                        AND hc.completion_date <= %s::date
                 ) days;
@@ -1700,7 +1703,7 @@ class Database:
                         SELECT id FROM reflections WHERE user_id = %s AND evidence_eligible)) OR
                     (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
-                        WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE))
+                        WHERE h.user_id = %s AND hc.is_completed AND hc.is_skipped IS NOT TRUE))
                 )
                 ORDER BY e.created_at DESC;
                 """,
@@ -1750,7 +1753,7 @@ class Database:
                         SELECT id FROM reflections WHERE user_id = %s AND evidence_eligible))
                    OR (e.source_type = 'habit_completion' AND e.source_id IN (
                         SELECT hc.id FROM habit_completions hc JOIN habits h ON hc.habit_id = h.id
-                        WHERE h.user_id = %s AND hc.is_skipped IS NOT TRUE));
+                        WHERE h.user_id = %s AND hc.is_completed AND hc.is_skipped IS NOT TRUE));
                 """,
                 (user_id, user_id)
             )
@@ -1806,8 +1809,11 @@ class Database:
                                               JOIN reflections r ON r.id = p.reflection_id
                                              WHERE p.id = %s;"""),
             "habit_completion": ("habit", """SELECT CASE WHEN hc.is_skipped
-                                                     THEN 'Skipped ' || h.name || COALESCE(': ' || hc.skip_reason, '')
-                                                     ELSE 'Did ' || h.name || COALESCE(': ' || hc.notes, '') END,
+                                                     THEN 'Skipped ' || h.name
+                                                          || COALESCE(': ' || COALESCE(hc.notes, hc.skip_reason), '')
+                                                     WHEN hc.is_completed
+                                                     THEN 'Did ' || h.name || COALESCE(': ' || hc.notes, '')
+                                                     ELSE 'Note on ' || h.name || COALESCE(': ' || hc.notes, '') END,
                                                 hc.completion_date
                                          FROM habit_completions hc JOIN habits h ON h.id = hc.habit_id
                                          WHERE hc.id = %s;"""),
@@ -1832,6 +1838,13 @@ class Database:
         recurred (ADR-0003). Only reflections carry the flag; anything else is
         eligible by definition of its own table.
         """
+        if source_type == 'habit_completion':
+            # A habit day is evidence only if it was done: a note on a skipped or
+            # an unmarked day is recalled by chat, never counted as the habit.
+            with self.connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT is_completed FROM habit_completions WHERE id = %s;", (source_id,))
+                row = cur.fetchone()
+            return bool(row and row[0])
         if source_type != 'reflection':
             return True
         with self.connection() as conn, conn.cursor() as cur:
@@ -1970,7 +1983,7 @@ class Database:
                   JOIN habit_completions hc ON hc.id = e.source_id
                   JOIN habits h ON h.id = hc.habit_id
                  WHERE e.source_type = 'habit_completion'
-                   AND h.user_id = %s AND hc.is_skipped IS NOT TRUE
+                   AND h.user_id = %s AND hc.is_completed AND hc.is_skipped IS NOT TRUE
 
                  ORDER BY 5;
                 """,
@@ -2032,16 +2045,16 @@ class Database:
             elif source_type == 'habit_completion':
                 # Join to get habit name and description
                 cur.execute("""
-                    SELECT h.name, hc.notes, hc.skip_reason, hc.is_skipped, h.description 
-                    FROM habit_completions hc 
-                    JOIN habits h ON hc.habit_id = h.id 
+                    SELECT h.name, hc.notes, hc.skip_reason, hc.is_skipped, h.description, hc.is_completed
+                    FROM habit_completions hc
+                    JOIN habits h ON hc.habit_id = h.id
                     WHERE hc.id = %s;
                 """, (source_id,))
                 res = cur.fetchone()
                 if not res: return ""
-                name, notes, reason, skipped, description = res
-                action = "Skipped" if skipped else "Completed"
-                details = f"Reason: {reason}" if skipped else f"Notes: {notes}"
+                name, notes, reason, skipped, description, completed = res
+                action = "Skipped" if skipped else "Completed" if completed else "Noted"
+                details = f"Reason: {notes or reason}" if skipped else f"Notes: {notes}"
                 return f"Anchor: {name} | Source: Habit Completion | Intent: {description or 'None'} | Action: {action} | {details}"
             elif source_type == 'message':
                 cur.execute("SELECT content FROM conversation_messages WHERE id = %s;", (source_id,))
@@ -2932,16 +2945,18 @@ class Database:
     def create_habit(self, user_id: int, name: str, description: str = None,
                     frequency_type: str = 'daily', habit_type: str = 'completion',
                     weekly_target: float = 0, tracking_metric: str = 'completion',
-                    category: str = 'general') -> int:
+                    category: str = 'general', frequency_target: int = 1) -> int:
         """Creates a new habit and returns its ID."""
         with self.connection() as conn, conn.cursor() as cur:
             try:
                 cur.execute(
                     """
-                    INSERT INTO habits (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                    INSERT INTO habits (user_id, name, description, frequency_type, habit_type, weekly_target,
+                                        tracking_metric, category, frequency_target)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
                     """,
-                    (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category)
+                    (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category,
+                     frequency_target)
                 )
                 habit_id = cur.fetchone()[0]
                 self._queue(cur, user_id, 'habit', habit_id)
@@ -2961,7 +2976,7 @@ class Database:
                     cur.execute(
                         """
                         SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
-                               current_streak, longest_streak, total_completions, created_at
+                               current_streak, longest_streak, total_completions, created_at, frequency_target
                         FROM habits WHERE user_id = %s AND is_active = TRUE
                         ORDER BY created_at DESC;
                         """,
@@ -2971,7 +2986,7 @@ class Database:
                     cur.execute(
                         """
                         SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
-                               current_streak, longest_streak, total_completions, created_at
+                               current_streak, longest_streak, total_completions, created_at, frequency_target
                         FROM habits WHERE user_id = %s
                         ORDER BY created_at DESC;
                         """,
@@ -2992,7 +3007,8 @@ class Database:
                         "current_streak": row[9],
                         "longest_streak": row[10],
                         "total_completions": row[11],
-                        "created_at": row[12]
+                        "created_at": row[12],
+                        "frequency_target": row[13] or 1,
                     }
                     for row in rows
                 ]
@@ -3008,7 +3024,8 @@ class Database:
                 cur.execute(
                     """
                     SELECT id, user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
-                           current_streak, longest_streak, total_completions, created_at, updated_at
+                           current_streak, longest_streak, total_completions, created_at, updated_at,
+                           frequency_target
                     FROM habits WHERE id = %s;
                     """,
                     (habit_id,)
@@ -3030,7 +3047,8 @@ class Database:
                         "longest_streak": row[11],
                         "total_completions": row[12],
                         "created_at": row[13],
-                        "updated_at": row[14]
+                        "updated_at": row[14],
+                        "frequency_target": row[15] or 1,
                     }
                 return None
             except Exception as e:
@@ -3042,7 +3060,7 @@ class Database:
         """Updates a habit's fields."""
         with self.connection() as conn, conn.cursor() as cur:
             try:
-                allowed_fields = {'name', 'description', 'is_active', 'current_streak', 'longest_streak', 'total_completions', 'habit_type', 'weekly_target', 'tracking_metric'}
+                allowed_fields = {'name', 'description', 'is_active', 'current_streak', 'longest_streak', 'total_completions', 'habit_type', 'weekly_target', 'tracking_metric', 'frequency_type', 'frequency_target', 'category'}
                 update_pairs = [(k, v) for k, v in updates.items() if k in allowed_fields]
 
                 if not update_pairs:
@@ -3075,7 +3093,8 @@ class Database:
                     INSERT INTO habit_completions (habit_id, completion_date, is_completed, value, notes)
                     VALUES (%s, %s, TRUE, %s, %s)
                     ON CONFLICT (habit_id, completion_date) DO UPDATE
-                    SET is_completed = TRUE, is_skipped = FALSE, value = EXCLUDED.value, notes = EXCLUDED.notes
+                    SET is_completed = TRUE, is_skipped = FALSE, value = EXCLUDED.value,
+                        notes = COALESCE(EXCLUDED.notes, habit_completions.notes)
                     RETURNING id;
                     """,
                     (habit_id, completion_date, value, notes)
@@ -3153,6 +3172,68 @@ class Database:
                 logger.error(f"Failed to uncomplete habit {habit_id} on {completion_date}: {e}")
                 raise
 
+    def set_habit_day(self, habit_id: int, day, status: str, note: str | None) -> dict | None:
+        """Set one day of a habit: done, skipped or neither, with the owner's note.
+
+        Whatever the day produced before (embedding, theme occurrences, queued
+        work) is taken back first. A done day is queued as evidence; a skipped
+        or unmarked day with a note is queued for recall only (the pipeline
+        does not count it); a day with nothing left is deleted.
+        """
+        if status not in ("done", "skipped", "none"):
+            raise ValueError("status is done, skipped or none")
+        note = (note or "").strip() or None
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("""SELECT hc.id FROM habit_completions hc
+                                WHERE hc.habit_id = %s AND hc.completion_date = %s FOR UPDATE;""",
+                            (habit_id, day))
+                row = cur.fetchone()
+                if row:
+                    self._retract_source(cur, 'habit_completion', row[0])
+                if status == "none" and not note:
+                    cur.execute("DELETE FROM habit_completions WHERE habit_id = %s AND completion_date = %s;",
+                                (habit_id, day))
+                    conn.commit()
+                    return None
+                cur.execute(
+                    """INSERT INTO habit_completions
+                           (habit_id, completion_date, is_completed, is_skipped, skip_reason, notes,
+                            processing_status)
+                       VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+                       ON CONFLICT (habit_id, completion_date) DO UPDATE
+                       SET is_completed = EXCLUDED.is_completed, is_skipped = EXCLUDED.is_skipped,
+                           skip_reason = EXCLUDED.skip_reason, notes = EXCLUDED.notes,
+                           processing_status = 'pending'
+                       RETURNING id;""",
+                    (habit_id, day, status == "done", status == "skipped",
+                     note if status == "skipped" else None, note))
+                completion_id = cur.fetchone()[0]
+                if status == "done" or note:
+                    cur.execute("SELECT user_id FROM habits WHERE id = %s;", (habit_id,))
+                    self._queue(cur, cur.fetchone()[0], 'habit_completion', completion_id)
+                conn.commit()
+                return {"id": completion_id, "status": status, "note": note}
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to set habit {habit_id} on {day}: {e}")
+                raise
+
+    def delete_habit_permanently(self, habit_id: int) -> None:
+        """Delete a habit and every day of it, with everything derived from them."""
+        with self.connection() as conn, conn.cursor() as cur:
+            try:
+                cur.execute("SELECT id FROM habit_completions WHERE habit_id = %s;", (habit_id,))
+                for (completion_id,) in cur.fetchall():
+                    self._retract_source(cur, 'habit_completion', completion_id)
+                self._retract_source(cur, 'habit', habit_id)
+                cur.execute("DELETE FROM habits WHERE id = %s;", (habit_id,))
+                conn.commit()
+            except psycopg2.Error as e:
+                conn.rollback()
+                logger.error(f"Failed to delete habit {habit_id}: {e}")
+                raise
+
     def log_habit_skip(self, habit_id: int, skip_date, reason: str = None) -> int:
         """Logs a habit skip."""
         with self.connection() as conn, conn.cursor() as cur:
@@ -3186,6 +3267,20 @@ class Database:
                 conn.rollback()
                 logger.error(f"Failed to log habit skip: {e}")
                 raise
+
+    def get_habit_days(self, habit_id: int, start_date=None, end_date=None) -> list[dict]:
+        """Every marked or noted day of a habit (or those in a range), oldest first."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT completion_date, is_completed, is_skipped, notes, skip_reason
+                             FROM habit_completions
+                            WHERE habit_id = %s
+                              AND (%s::date IS NULL OR completion_date >= %s::date)
+                              AND (%s::date IS NULL OR completion_date <= %s::date)
+                            ORDER BY completion_date;""",
+                        (habit_id, start_date, start_date, end_date, end_date))
+            return [{"date": d, "status": "done" if done else "skipped" if skipped else "none",
+                     "note": notes or (reason if skipped else None)}
+                    for d, done, skipped, notes, reason in cur.fetchall()]
 
     def get_habit_completions(self, habit_id: int, start_date = None, end_date = None) -> list:
         """Retrieves completions for a habit in a date range."""

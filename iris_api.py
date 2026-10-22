@@ -940,7 +940,7 @@ async def voice_speech(body: SpeechRequest, user_id: int = Depends(get_current_u
 # ============================================================================
 
 class AppHabitCreate(BaseModel):
-    """Habit create payload from the integrated frontend (Pick<Habit,'name'|'tag'|'intent'>).
+    """Habit create payload from the integrated frontend.
 
     No colour: habits have no colour column, so one sent here appeared once and
     was gone on the next load. A habit's colour follows from its id.
@@ -948,6 +948,26 @@ class AppHabitCreate(BaseModel):
     name: str
     tag: str | None = None
     intent: str | None = None
+    frequency: Literal["daily", "weekly", "monthly"] = "daily"
+    #: Times per week or month; a daily habit's target is always 1.
+    target: int = Field(default=1, ge=1, le=31)
+
+
+class AppHabitUpdate(BaseModel):
+    """What the owner may change about a habit. Streaks are not here: they are
+    counted from the days, so fixing a day fixes the streak."""
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    intent: str | None = None
+    tag: str | None = None
+    frequency: Literal["daily", "weekly", "monthly"] | None = None
+    target: int | None = Field(default=None, ge=1, le=31)
+    archived: bool | None = None
+
+
+class HabitDayUpdate(BaseModel):
+    """One day of a habit: done, skipped (a deliberate rest) or neither, and a note."""
+    status: Literal["done", "skipped", "none"]
+    note: str | None = Field(default=None, max_length=4000)
 
 
 class HabitToggle(BaseModel):
@@ -960,29 +980,121 @@ class HabitToggle(BaseModel):
 HABIT_COLORS = ["sage", "amber", "indigo", "rose"]
 
 
-def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60) -> dict:
-    """Map a habit DB row → the frontend `Habit` shape, incl. recentDays history."""
+def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60, periods: int = 12) -> dict:
+    """Map a habit DB row → the frontend `Habit` shape, with its days, periods and streak."""
+    from agent.trackers.streaks import compute, period_start, previous_period
+
     hid = habit["id"]
     today = date.today()
+    frequency = habit.get("frequency_type") if habit.get("frequency_type") in ("weekly", "monthly") else "daily"
+    target = 1 if frequency == "daily" else max(1, int(habit.get("frequency_target") or 1))
+    days = db.get_habit_days(hid)
+    done = {d["date"] for d in days if d["status"] == "done"}
+    skipped = {d["date"] for d in days if d["status"] == "skipped"}
+    streak = compute(frequency, target, done, skipped, today)
     start = today - timedelta(days=window_days - 1)
-    by_date = {c["completion_date"]: c for c in db.get_habit_completions(hid, start, today)}
-    recent_days = []
-    for i in range(window_days):
-        c = by_date.get(start + timedelta(days=i))
-        recent_days.append(1 if (c and c["is_completed"]) else 0)
-    done_today = bool(by_date.get(today) and by_date[today]["is_completed"])
+    recent_days = [1 if start + timedelta(days=i) in done else 0 for i in range(window_days)]
+    history, period = [], period_start(today, frequency)
+    for _ in range(periods):
+        count = sum(1 for d in done if period_start(d, frequency) == period)
+        history.append({"start": period.isoformat(), "done": count, "met": count >= target})
+        period = previous_period(period, frequency)
+    created = habit.get("created_at")
     return {
         "id": str(hid),
         "userId": str(user_id),
         "name": habit["name"],
-        "tag": habit.get("category") or habit.get("frequency_type") or "daily",
+        "tag": habit.get("category") if habit.get("category") not in (None, "general") else "",
         "intent": habit.get("description"),
         "color": HABIT_COLORS[hid % len(HABIT_COLORS)],
-        "streakDays": habit.get("current_streak") or 0,
-        "bestStreak": habit.get("longest_streak") or 0,
-        "doneToday": done_today,
+        "frequency": frequency,
+        "target": target,
+        "streakDays": streak.current,
+        "bestStreak": streak.longest,
+        "streakUnit": {"daily": "day", "weekly": "week", "monthly": "month"}[frequency],
+        "periodDone": streak.period_done,
+        "periodMet": streak.period_done >= target,
+        "periods": list(reversed(history)),
+        "doneToday": today in done,
         "recentDays": recent_days,
+        "archived": not habit.get("is_active", True),
+        "createdAt": created.date().isoformat() if hasattr(created, "date") else None,
     }
+
+
+def _owned_habit(tracker: HabitTracker, habit_id: int) -> dict:
+    habit = tracker.get_habit(habit_id)
+    if not habit:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    return habit
+
+
+@app.get("/api/habits")
+def list_habits(user_id: int = Depends(get_current_user_id)):
+    """Every habit, archived ones included, for the Habits pages."""
+    tracker = HabitTracker(user_id)
+    return [_habit_to_contract(h, user_id) for h in tracker.get_habits(active_only=False)]
+
+
+@app.patch("/api/habits/{habit_id}")
+def update_habit_app(habit_id: int, update: AppHabitUpdate, user_id: int = Depends(get_current_user_id)):
+    """Rename, re-describe, re-tag, change how often, or archive a habit."""
+    tracker = HabitTracker(user_id)
+    _owned_habit(tracker, habit_id)
+    fields = update.model_dump(exclude_unset=True)
+    changes: dict = {}
+    if "name" in fields:
+        changes["name"] = fields["name"].strip()
+    if "intent" in fields:
+        changes["description"] = (fields["intent"] or "").strip() or None
+    if "tag" in fields:
+        changes["category"] = (fields["tag"] or "").strip() or "general"
+    if "frequency" in fields:
+        changes["frequency_type"] = fields["frequency"]
+    if "target" in fields:
+        changes["frequency_target"] = fields["target"]
+    if "archived" in fields:
+        changes["is_active"] = not fields["archived"]
+    tracker.update_habit(habit_id, **changes)
+    tracker.update_streaks(habit_id)
+    return _habit_to_contract(tracker.get_habit(habit_id), user_id)
+
+
+@app.delete("/api/habits/{habit_id}")
+def delete_habit_app(habit_id: int, user_id: int = Depends(get_current_user_id)):
+    """Delete a habit and its whole history. Archiving keeps the history."""
+    tracker = HabitTracker(user_id)
+    _owned_habit(tracker, habit_id)
+    db.delete_habit_permanently(habit_id)
+    return {"deleted": True}
+
+
+@app.get("/api/habits/{habit_id}/days")
+def get_habit_days_app(habit_id: int, start: str | None = None, end: str | None = None,
+                       user_id: int = Depends(get_current_user_id)):
+    """The marked or noted days of a habit, between two dates if given."""
+    tracker = HabitTracker(user_id)
+    _owned_habit(tracker, habit_id)
+    try:
+        bounds = [date.fromisoformat(v) if v else None for v in (start, end)]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Dates are YYYY-MM-DD.")
+    return [{"date": d["date"].isoformat(), "status": d["status"], "note": d["note"]}
+            for d in db.get_habit_days(habit_id, *bounds)]
+
+
+@app.put("/api/habits/{habit_id}/days/{day}")
+def set_habit_day_app(habit_id: int, day: str, update: HabitDayUpdate,
+                      user_id: int = Depends(get_current_user_id)):
+    """Mark any past day done, skipped or neither, with a note: a forgotten day is fixable."""
+    tracker = HabitTracker(user_id)
+    _owned_habit(tracker, habit_id)
+    try:
+        when = date.fromisoformat(day)
+        result = tracker.set_day(habit_id, when, update.status, update.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc) if "happened" in str(exc) else "Dates are YYYY-MM-DD.")
+    return {"day": result, "habit": _habit_to_contract(tracker.get_habit(habit_id), user_id)}
 
 
 @app.post("/api/habits")
@@ -993,6 +1105,8 @@ def create_habit_app(habit: AppHabitCreate, user_id: int = Depends(get_current_u
         name=habit.name,
         description=habit.intent,
         category=habit.tag or "general",
+        frequency_type=habit.frequency,
+        frequency_target=1 if habit.frequency == "daily" else habit.target,
     )
     return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
@@ -1031,11 +1145,13 @@ def toggle_habit(habit_id: int, toggle: HabitToggle, user_id: int = Depends(get_
             toggle_date = datetime.fromisoformat(toggle.date).date()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format (use ISO format)")
-    if toggle.done:
-        tracker.log_completion(habit_id, toggle_date)
-    else:
-        db.uncomplete_habit(habit_id, toggle_date)
-    tracker.update_streaks(habit_id)
+    when = toggle_date or date.today()
+    # Through set_day, so un-ticking keeps the day's note and ticking keeps it too.
+    note = next((d["note"] for d in db.get_habit_days(habit_id, when, when)), None)
+    try:
+        tracker.set_day(habit_id, when, "done" if toggle.done else "none", note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return _habit_to_contract(tracker.get_habit(habit_id), user_id)
 
 # ============================================================================

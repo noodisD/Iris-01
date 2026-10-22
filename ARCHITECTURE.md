@@ -54,7 +54,7 @@ scripts/serve_iris.py  (one process, three doors — agent/mobile_auth.py)
 | Older engines | Themes and seven measures, behind one admission policy | `persistence.py`, `comparison.py`, `trajectory.py`, `tension.py`, `resolution.py`, `leverage.py`, `decision_impact.py`, `lifelong.py`, `pipeline_orchestrator.py`, `confidence.py`, `conflict.py`, `conflicts.py`, `coverage.py`, `prioritization.py`, `narrative.py`, `narrative_policy.py`, `narrative_templates.py`, `insights_service.py`, `evidence.py`, `explanation.py`, `analysis_cache.py`, `constructs.py`, `observations.py` | 0003, 0005, 0007, 0009, 0014–0016 |
 | Weekly letter | A letter about the week, held to the same rules | `review_letter.py` | 0007 |
 | Decisions | A decision journal, written when a decision is made | `decisions.py` | — |
-| Habits | Habits and completions | `trackers/habits.py` | 0003 |
+| Habits | Daily, weekly and monthly habits; any day fixable, with a note; streaks counted from the days | `trackers/habits.py`, `trackers/streaks.py` | 0003, 0034 |
 | Body and days | Phone readings, places, measured days, day comparisons | `sensors/*`, `days/*`, `day_differences.py` | 0017, 0024 |
 | Access | The three doors and who may use each | `mobile_auth.py`, `scripts/serve_iris.py` | 0001, 0018, 0019, 0022 |
 | Observability | Traces, logs and samples; the Observatory | `observability/*` | — |

@@ -3738,7 +3738,7 @@
     },
     "habits": {
       "habits_frequency_type_check": {
-        "definition": "CHECK (((frequency_type)::text = ANY ((ARRAY['daily'::character varying, 'weekly'::character varying, 'specific_days'::character varying])::text[])))",
+        "definition": "CHECK (((frequency_type)::text = ANY ((ARRAY['daily'::character varying, 'weekly'::character varying, 'monthly'::character varying, 'specific_days'::character varying])::text[])))",
         "type": "c"
       },
       "habits_frequency_type_not_null": {

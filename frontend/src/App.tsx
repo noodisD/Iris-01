@@ -6,6 +6,7 @@ import { ChatScreen } from '@/screens/ChatScreen';
 import { TodayScreen } from '@/screens/TodayScreen';
 import { JournalScreen } from '@/screens/JournalScreen';
 import { HabitsScreen } from '@/screens/HabitsScreen';
+import { HabitDetailScreen } from '@/screens/HabitDetailScreen';
 import { DecisionsScreen } from '@/screens/DecisionsScreen';
 import { PatternsScreen } from '@/screens/PatternsScreen';
 import { InsightsScreen } from '@/screens/InsightsScreen';
@@ -32,7 +33,9 @@ const router = createBrowserRouter([
       { path: 'chat', element: <ChatScreen /> },
       { path: 'today', element: <TodayScreen /> },
       { path: 'journal', element: <JournalScreen /> },
-      { path: 'habits', element: <HabitsScreen /> },
+      { path: 'habits', element: <Navigate to="/habits/daily" replace /> },
+      { path: 'habits/:period', element: <HabitsScreen /> },
+      { path: 'habits/:period/:id', element: <HabitDetailScreen /> },
       { path: 'decisions', element: <DecisionsScreen /> },
       { path: 'insights', element: <InsightsScreen /> },
       // Old-engine insight links had ids; those insights are gone from the app.

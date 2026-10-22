@@ -567,6 +567,28 @@ export interface Habit {
    * Length = days covered (e.g. 60). 1 = done, 0 = skipped.
    */
   recentDays: (0 | 1)[];
+  /** How often it is meant to happen. */
+  frequency?: HabitFrequency;
+  /** Times per week or month (1 for daily). */
+  target?: number;
+  /** What the streak counts: consecutive days, weeks or months that met the target. */
+  streakUnit?: 'day' | 'week' | 'month';
+  /** Times done in the current day, week or month. */
+  periodDone?: number;
+  periodMet?: boolean;
+  /** Recent periods, oldest first: when each began, times done, and whether the target was met. */
+  periods?: { start: ISODate; done: number; met: boolean }[];
+  archived?: boolean;
+  createdAt?: ISODate | null;
+}
+
+export type HabitFrequency = 'daily' | 'weekly' | 'monthly';
+
+/** One day of a habit: done, skipped (a deliberate rest) or neither, with the owner's note. */
+export interface HabitDay {
+  date: ISODate;
+  status: 'done' | 'skipped' | 'none';
+  note: string | null;
 }
 
 export interface HabitsTodayResponse {

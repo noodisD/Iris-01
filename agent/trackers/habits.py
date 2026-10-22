@@ -30,12 +30,13 @@ class HabitTracker:
         habit_type: str = "completion",
         weekly_target: float = 0,
         tracking_metric: str = "completion",
-        category: str = "general"
+        category: str = "general",
+        frequency_target: int = 1,
     ) -> int:
         """Create a new habit. Returns habit ID."""
         habit_id = db.create_habit(
             self.user_id, name, description, frequency_type,
-            habit_type, weekly_target, tracking_metric, category
+            habit_type, weekly_target, tracking_metric, category, frequency_target
         )
         notify()  # queued in the same commit as the habit
         return habit_id
@@ -104,87 +105,36 @@ class HabitTracker:
     # ========== Streak Management ==========
 
     def update_streaks(self, habit_id: int) -> dict:
+        """Recount a habit's streaks from its days (agent/trackers/streaks.py) and store them.
+
+        The counters are written back even when nothing is left, or undoing a
+        habit's only tick would leave its old streak on show.
         """
-        Recalculate and update streak counters for a habit.
-        Returns dict with current_streak, longest_streak, total_completions.
-        """
+        from .streaks import compute
+
         habit = self.get_habit(habit_id)
         if not habit:
             return {"current_streak": 0, "longest_streak": 0, "total_completions": 0}
+        days = db.get_habit_days(habit_id)
+        done = {d["date"] for d in days if d["status"] == "done"}
+        skipped = {d["date"] for d in days if d["status"] == "skipped"}
+        streak = compute(habit.get("frequency_type") or "daily", habit.get("frequency_target") or 1,
+                         done, skipped, date.today())
+        db.update_habit(habit_id, current_streak=streak.current, longest_streak=streak.longest,
+                        total_completions=len(done))
+        return {"current_streak": streak.current, "longest_streak": streak.longest,
+                "total_completions": len(done), "period_done": streak.period_done}
 
-        # No early return when there are none: the counters must still be written
-        # back, or undoing a habit's only tick leaves its old streak on show.
-        completions = db.get_habit_completions(habit_id)
-
-        # Sort completions by date (newest first)
-        sorted_completions = sorted(
-            completions,
-            key=lambda x: x["completion_date"],
-            reverse=True
-        )
-
-        # Count total completions
-        total_completions = sum(1 for c in completions if c["is_completed"])
-
-        # Calculate current streak (consecutive days from today backwards)
-        # Note: For weekly habits, streak calculation could be different,
-        # but for now we keep daily consecutive completion streak.
-        current_streak = 0
-        current_date = date.today()
-
-        # Check if completed today or yesterday (to maintain streak)
-        # If not completed today, streak might still be active if completed yesterday
-        for completion in sorted_completions:
-            if completion["is_completed"]:
-                if completion["completion_date"] == current_date:
-                    current_streak += 1
-                    current_date -= timedelta(days=1)
-                elif completion["completion_date"] == current_date - timedelta(days=1):
-                    # We missed today but yesterday was done
-                    if current_date == date.today():
-                        current_date -= timedelta(days=1)
-                        current_streak += 1
-                        current_date -= timedelta(days=1)
-                    else:
-                        break
-                else:
-                    break
-            else:
-                break
-
-        # Calculate longest streak
-        longest_streak = 0
-        temp_streak = 0
-        prev_date = None
-
-        for completion in sorted(completions, key=lambda x: x["completion_date"]):
-            if completion["is_completed"]:
-                if prev_date is None or (prev_date + timedelta(days=1) == completion["completion_date"]):
-                    temp_streak += 1
-                else:
-                    longest_streak = max(longest_streak, temp_streak)
-                    temp_streak = 1
-                prev_date = completion["completion_date"]
-            else:
-                longest_streak = max(longest_streak, temp_streak)
-                temp_streak = 0
-                prev_date = None
-
-        longest_streak = max(longest_streak, temp_streak)
-
-        # Update habit record
-        db.update_habit(
-            habit_id,
-            current_streak=current_streak,
-            longest_streak=longest_streak,
-            total_completions=total_completions
-        )
-
-        return {
-            "current_streak": current_streak,
-            "longest_streak": longest_streak,
-            "total_completions": total_completions
-        }
+    def set_day(self, habit_id: int, day: date, status: str, note: str | None) -> dict:
+        """Mark one day done, skipped or neither, with a note; then recount the streaks."""
+        if day > date.today():
+            raise ValueError("A day that has not happened yet cannot be marked.")
+        result = db.set_habit_day(habit_id, day, status, note)
+        if result is not None:
+            notify()
+        self.update_streaks(habit_id)
+        return {"date": day.isoformat(), "status": status if result else "none",
+                "note": (result or {}).get("note")}
 
     def get_streak_info(self, habit_id: int) -> dict:
         """Get streak information for a habit."""

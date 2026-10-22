@@ -1,46 +1,89 @@
 import React from 'react';
-import { useCreateHabit, useHabits, useToggleHabit } from '@/hooks/useHabits';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useAllHabits, useCreateHabit, useToggleHabit } from '@/hooks/useHabits';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
-import type { Habit } from '@/types/api';
-import { Button, ChoiceGroup, Page, Stat } from '@/ui';
+import type { Habit, HabitFrequency } from '@/types/api';
+import { Button, ChoiceGroup, Page, Tabs, TabPanel } from '@/ui';
 import styles from './HabitsScreen.module.css';
+
+export const PERIODS: { value: HabitFrequency; label: string; noun: string; adverb: string }[] = [
+  { value: 'daily', label: 'Daily', noun: 'day', adverb: 'today' },
+  { value: 'weekly', label: 'Weekly', noun: 'week', adverb: 'this week' },
+  { value: 'monthly', label: 'Monthly', noun: 'month', adverb: 'this month' },
+];
+
+function frequencyOf(h: Habit): HabitFrequency {
+  return h.frequency ?? 'daily';
+}
+
+function plural(n: number, one: string) {
+  return `${n} ${one}${n === 1 ? '' : 's'}`;
+}
+
+/** Weeks or months as small cells: filled when the target was met, partly when begun. */
+function PeriodStrip({ h, c }: { h: Habit; c: string }) {
+  const periods = h.periods ?? [];
+  const target = h.target ?? 1;
+  const unit = frequencyOf(h) === 'weekly' ? 'week' : 'month';
+  return (
+    <div className={styles.history} aria-label={`Last ${periods.length} ${unit}s: ${periods.filter(p => p.met).length} on target`}>
+      <div className={styles.cells}>
+        {periods.map(p => (
+          <span key={p.start} className={styles.cell} title={`${p.start}: ${p.done} of ${target}`}
+            style={p.met ? { background: c } : p.done > 0 ? { borderColor: c } : undefined} />
+        ))}
+      </div>
+      <div className={styles.axis}><span>{plural(periods.length, unit)} ago</span><span>Now</span></div>
+    </div>
+  );
+}
 
 function HabitRow({ h, onToggle }: { h: Habit; onToggle: (id: string, done: boolean) => void }) {
   const c = color(h.color);
+  const frequency = frequencyOf(h);
+  const period = PERIODS.find(p => p.value === frequency)!;
+  const target = h.target ?? 1;
   return (
     <article className={styles.row} aria-label={h.name}>
       <div className={styles.what}>
-        <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'}`}
+        <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'} today`}
           aria-pressed={h.doneToday} className={styles.tick}
           style={{ borderColor: h.doneToday ? c : undefined, background: h.doneToday ? c : undefined }}>
           {h.doneToday && <span aria-hidden>✓</span>}
         </button>
         <div className={styles.names}>
-          <span className={styles.name}>{h.name}</span>
+          <Link to={`/habits/${frequency}/${h.id}`} className={styles.name}>{h.name}</Link>
           {h.tag && <span className={styles.tag}>{h.tag}</span>}
           {h.intent && <span className={styles.intent}>{h.intent}</span>}
+          {frequency !== 'daily' && (
+            <span className={h.periodMet ? styles.progressMet : styles.progress}>
+              {h.periodDone ?? 0} of {target} {period.adverb}
+            </span>
+          )}
         </div>
       </div>
 
-      <div className={styles.history} aria-label={`Last ${h.recentDays.length} days: ${h.recentDays.filter(Boolean).length} done`}>
-        <div className={styles.dots}>
-          {h.recentDays.map((v, i) => (
-            <span key={i} className={styles.day} style={v ? { background: c } : undefined} />
-          ))}
+      {frequency === 'daily' ? (
+        <div className={styles.history} aria-label={`Last ${h.recentDays.length} days: ${h.recentDays.filter(Boolean).length} done`}>
+          <div className={styles.dots}>
+            {h.recentDays.map((v, i) => (
+              <span key={i} className={styles.day} style={v ? { background: c } : undefined} />
+            ))}
+          </div>
+          <div className={styles.axis}><span>{h.recentDays.length} days ago</span><span>Today</span></div>
         </div>
-        <div className={styles.axis}><span>{h.recentDays.length} days ago</span><span>Today</span></div>
-      </div>
+      ) : <PeriodStrip h={h} c={c} />}
 
       <div className={styles.streak}>
         <span className={styles.streakNumber} style={{ color: h.streakDays === 0 ? undefined : c }}>{h.streakDays}</span>
-        <span className={styles.streakLabel}>day streak, best {h.bestStreak}</span>
+        <span className={styles.streakLabel}>{h.streakUnit ?? 'day'} streak, best {h.bestStreak}</span>
       </div>
     </article>
   );
 }
 
-/** Constellation view — habits as connected circles. */
+/** Constellation view: daily habits as circles sized by streak. */
 function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: string, done: boolean) => void }) {
   const W = 760, H = 420;
   const positions: Record<string, { x: number; y: number; r: number }> = {};
@@ -49,13 +92,11 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
     positions[h.id] = { x: W / 2 + Math.cos(angle) * 200, y: H / 2 + Math.sin(angle) * 150, r: 40 + (h.streakDays / 21) * 28 };
   });
 
-  // Arranged in a ring and sized by streak — nothing more. This drew arrows
-  // under the heading "how habits pull each other", from a `supports` list the
-  // server always sent empty: a causal claim with no data behind it, on a tick
-  // list, in a product whose rule is that it does not claim causes.
+  // Arranged in a ring and sized by streak, nothing more: no arrows between
+  // habits, since nothing measures how one habit pulls on another.
   return (
     <figure className={styles.constellation}>
-      <figcaption className={styles.caption}>Your habits, sized by current streak. Tap one to tick it.</figcaption>
+      <figcaption className={styles.caption}>Your daily habits, sized by current streak. Tap one to tick it.</figcaption>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} className={styles.sky} role="img" aria-label="Habits as circles sized by streak">
         {habits.map(h => {
           const p = positions[h.id], c = color(h.color), done = h.doneToday;
@@ -73,24 +114,34 @@ function Constellation({ habits, onToggle }: { habits: Habit[]; onToggle: (id: s
   );
 }
 
-/** A name, and optionally what it is for. Nothing else is needed to start one. */
-function AddHabit() {
+/** A name, how often, and optionally a tag. Nothing else is needed to start one. */
+function AddHabit({ frequency }: { frequency: HabitFrequency }) {
   const create = useCreateHabit();
   const [name, setName] = React.useState('');
   const [tag, setTag] = React.useState('');
+  const [target, setTarget] = React.useState(1);
+  const period = PERIODS.find(p => p.value === frequency)!;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    create.mutate({ name: trimmed, tag: tag.trim() || undefined }, {
-      onSuccess: () => { setName(''); setTag(''); },
+    create.mutate({ name: trimmed, tag: tag.trim() || undefined, frequency, target }, {
+      onSuccess: () => { setName(''); setTag(''); setTarget(1); },
     });
   };
 
   return (
-    <form onSubmit={submit} className={styles.add} aria-label="Add a habit">
-      <input aria-label="Habit name" placeholder="A new habit" value={name} onChange={e => setName(e.target.value)} className={styles.nameInput} />
+    <form onSubmit={submit} className={styles.add} aria-label={`Add a ${period.label.toLowerCase()} habit`}>
+      <input aria-label="Habit name" placeholder={`A new ${period.label.toLowerCase()} habit`} value={name}
+        onChange={e => setName(e.target.value)} className={styles.nameInput} />
+      {frequency !== 'daily' && (
+        <label className={styles.target}>
+          <input aria-label={`Times a ${period.noun}`} type="number" min={1} max={31} value={target}
+            onChange={e => setTarget(Math.max(1, Math.min(31, Number(e.target.value) || 1)))} />
+          <span>times a {period.noun}</span>
+        </label>
+      )}
       <input aria-label="Tag" placeholder="Tag (optional)" value={tag} onChange={e => setTag(e.target.value)} className={styles.tagInput} />
       <Button variant="primary" type="submit" disabled={!name.trim() || create.isPending}>Add habit</Button>
       {create.isError && <span role="alert" className={styles.error}>It wasn't saved. Try again.</span>}
@@ -100,38 +151,79 @@ function AddHabit() {
 
 const VIEWS = [{ value: 'list', label: 'List' }, { value: 'constellation', label: 'Constellation' }] as const;
 
-export function HabitsScreen() {
-  const { data, isLoading, isError, refetch } = useHabits();
-  const toggle = useToggleHabit();
+function PeriodPanel({ frequency, habits, onToggle }: {
+  frequency: HabitFrequency; habits: Habit[]; onToggle: (id: string, done: boolean) => void;
+}) {
   const [view, setView] = React.useState<'list' | 'constellation'>('list');
+  const period = PERIODS.find(p => p.value === frequency)!;
+  const onTarget = habits.filter(h => (frequency === 'daily' ? h.doneToday : h.periodMet)).length;
+  return (
+    <div className={styles.panel}>
+      <div className={styles.panelHead}>
+        <p className={styles.summary}>
+          {habits.length === 0 ? `No ${period.label.toLowerCase()} habits yet.`
+            : frequency === 'daily' ? `${onTarget} of ${habits.length} done today.`
+            : `${onTarget} of ${habits.length} on target ${period.adverb}.`}
+        </p>
+        {frequency === 'daily' && habits.length > 0 && (
+          <ChoiceGroup label="View" options={[...VIEWS]} value={view} onChange={v => v && setView(v)} />
+        )}
+      </div>
+      <AddHabit frequency={frequency} />
+      {habits.length === 0 ? (
+        <p className={styles.empty}>
+          {frequency === 'daily' ? 'Name one above and tick it off here each day.'
+            : `Name one above, say how many times a ${period.noun}, and tick it off on the days you do it.`}
+        </p>
+      ) : view === 'constellation' && frequency === 'daily' ? (
+        <Constellation habits={habits} onToggle={onToggle} />
+      ) : (
+        <div className={styles.list}>{habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}</div>
+      )}
+    </div>
+  );
+}
 
+export function HabitsScreen() {
+  const { period } = useParams();
+  const navigate = useNavigate();
+  const { data, isLoading, isError, refetch } = useAllHabits();
+  const toggle = useToggleHabit();
+
+  if (!PERIODS.some(p => p.value === period)) return <Navigate to="/habits/daily" replace />;
+  const current = period as HabitFrequency;
   if (isLoading) return <LoadingState label="Iris is counting your streaks…" />;
   if (isError || !data) return <ErrorState onRetry={() => refetch()} />;
 
+  const active = data.filter(h => !h.archived);
+  const archived = data.filter(h => h.archived);
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
   return (
-    <Page title="Habits" description={`${data.doneCount} of ${data.totalCount} done today.`}
-      actions={<ChoiceGroup label="View" options={[...VIEWS]} value={view} onChange={v => v && setView(v)} />}>
-      <div className={styles.stats}>
-        <Stat value={data.longestActiveStreak} label="Longest active streak, days" />
-        <Stat value={`${Math.round(data.consistency30d * 100)}%`} label="Done over the last 30 days" />
-      </div>
-
-      {data.suggestion && <p className={styles.suggestion}>{data.suggestion.text}</p>}
-
-      <AddHabit />
-
+    <Page title="Habits" description="Tick today, or open a habit to fix any day, write that day's note, or change it.">
       {/* A tick that did not reach the server rolls back on screen, which on
           its own looks like a misclick. */}
       {toggle.isError && <p role="alert" className={styles.error}>That tick didn't save. Nothing is lost; try again.</p>}
-
-      {data.habits.length === 0 ? (
-        <p className={styles.empty}>No habits yet. Name one above and tick it off here each day.</p>
-      ) : view === 'list' ? (
-        <div className={styles.list}>{data.habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}</div>
-      ) : (
-        <Constellation habits={data.habits} onToggle={onToggle} />
+      <Tabs label="How often" value={current} onChange={v => navigate(`/habits/${v}`)}
+        tabs={PERIODS.map(p => ({
+          value: p.value,
+          label: `${p.label} (${active.filter(h => frequencyOf(h) === p.value).length})`,
+        }))}>
+        {PERIODS.map(p => (
+          <TabPanel key={p.value} value={p.value}>
+            <PeriodPanel frequency={p.value} habits={active.filter(h => frequencyOf(h) === p.value)} onToggle={onToggle} />
+          </TabPanel>
+        ))}
+      </Tabs>
+      {archived.length > 0 && (
+        <details className={styles.archived}>
+          <summary>Archived ({archived.length})</summary>
+          <ul>
+            {archived.map(h => (
+              <li key={h.id}><Link to={`/habits/${frequencyOf(h)}/${h.id}`}>{h.name}</Link></li>
+            ))}
+          </ul>
+        </details>
       )}
     </Page>
   );

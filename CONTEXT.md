@@ -64,7 +64,7 @@ An instance of a theme in one source.
 
 ### Source
 Evidence comes from owner-authored reflections (including journal entries,
-ADR-0010), completed habits, and sensor readings the owner explicitly links
+ADR-0010), completed habits (a done day only, ADR-0034), and sensor readings the owner explicitly links
 to an existing theme during review (ADR-0017). The old `journal_entries`
 table was dropped; sensors are measurements, not reflections.
 
@@ -416,3 +416,12 @@ warn, fail, waiting (on the owner) or unknown, with what it expected, likely
 causes, a safe next action and its class (read-only, safe-auto, needs-owner,
 guarded), and a runbook in `docs/runbooks/`. Runs are kept in `health_checks` so
 the next run can say what changed. Reports carry counts and ids, never text.
+
+### Habit day
+One day of a habit: **done**, **skipped** (a deliberate rest) or neither, with an
+optional note. Any day up to today can be set, so a forgotten tick is fixed by
+marking the day; the **streak** is always counted from the days and never set.
+Habits are daily, weekly or monthly with a target per period; a weekly or monthly
+streak counts consecutive periods that met the target, a skipped day pauses a daily
+streak, and the period in progress does not break one. Only a done day is evidence;
+a note on any day is recalled by chat as what the day was (ADR-0034).
