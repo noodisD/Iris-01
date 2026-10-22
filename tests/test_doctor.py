@@ -163,15 +163,30 @@ def test_owner_items_are_waiting_not_failures(monkeypatch):
     assert checks_owner.phone_silent().status == "ok"
 
 
-def test_spend_over_the_daily_budget_warns(monkeypatch):
+def test_spend_over_the_weekly_budget_warns(monkeypatch):
     from agent.doctor import checks_resources
 
-    monkeypatch.setattr(checks_resources.settings, "DAILY_BUDGET_USD", 1.0)
-    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "discovery", 1.4), (False, "chat", 0.6)])
+    monkeypatch.setattr(checks_resources.settings, "WEEKLY_BUDGET_USD", 0.5)
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "chat", 0.1), (False, "queue.x", 0.6)])
     over = checks_resources.spend()
-    assert over.status == "warn" and over.details["today_usd"] == 1.4 and over.details["week_usd"] == 2.0
-    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "chat", 0.05)])
+    assert over.status == "warn" and over.value == 0.7 and "budget $0.50 a week" in over.summary
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "chat", 0.05), (False, "chat", 0.3)])
     assert checks_resources.spend().status == "ok"
+
+
+def test_a_model_call_from_a_worker_thread_is_named_for_its_job(monkeypatch):
+    from agent import work_queue
+    from agent.observability import llm
+
+    class DbSpan:
+        name = "db.connection"
+        attributes = {"iris.component": "db"}
+    monkeypatch.setattr(llm.trace, "get_current_span", lambda: DbSpan())
+    monkeypatch.setattr(work_queue, "_current", {"source_type": "personal_dynamics"})
+    assert llm._purpose(None) == "queue.personal_dynamics"
+    monkeypatch.setattr(work_queue, "_current", None)
+    assert llm._purpose(None) == "background"
+    assert llm._purpose("chat.reply") == "chat.reply"
 
 
 def test_hours_thrown_away_by_failed_attempts_warn(monkeypatch):

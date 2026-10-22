@@ -108,7 +108,7 @@ def disk() -> Result:
 
 @check("money.spend", "resources")
 def spend() -> Result:
-    budget = settings.DAILY_BUDGET_USD
+    budget = settings.WEEKLY_BUDGET_USD
     local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
     rows = _rows("""SELECT started_at >= %s AS today, attributes->>'iris.llm.purpose',
                            sum((attributes->>'iris.llm.cost_usd')::float)
@@ -122,15 +122,15 @@ def spend() -> Result:
         by_purpose[purpose or "other"] = round(by_purpose.get(purpose or "other", 0) + cost, 3)
     details = {"today_usd": round(today, 3), "week_usd": round(week, 3), "budget_usd": budget,
                "week_by_purpose": dict(sorted(by_purpose.items(), key=lambda kv: -kv[1])[:6])}
-    summary = f"${today:.2f} on models today, ${week:.2f} in the last 7 days (budget ${budget:.2f} a day)."
-    if today > budget or week / 7 > budget:
-        return Result("money.spend", "warn", summary, value=round(today, 3), details=details,
-                      expected=f"under ${budget:.2f} a day",
+    summary = f"${week:.2f} on models in the last 7 days (budget ${budget:.2f} a week); ${today:.2f} today."
+    if week > budget:
+        return Result("money.spend", "warn", summary, value=round(week, 3), details=details,
+                      expected=f"under ${budget:.2f} a week",
                       causes=["A pattern update retried after long failed attempts (see queue.wasted).",
                               "A large run over the archive."],
                       action="See details for which purpose spent it.", action_class="read-only")
-    return Result("money.spend", "ok", summary, value=round(today, 3), details=details,
-                  expected=f"under ${budget:.2f} a day")
+    return Result("money.spend", "ok", summary, value=round(week, 3), details=details,
+                  expected=f"under ${budget:.2f} a week")
 
 
 @check("queue.wasted", "resources")

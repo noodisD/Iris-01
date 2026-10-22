@@ -27,8 +27,16 @@ def _purpose(explicit: str | None) -> str:
         component = str(attributes.get("iris.component") or "")
     if component == "http":
         return "request"
-    name = getattr(current, "name", None)
-    return str(name) if name else "request"
+    name = str(getattr(current, "name", None) or "")
+    if not name or component == "db" or name.startswith(("db.", "SELECT", "INSERT", "UPDATE", "DELETE")):
+        # A call made from a worker thread inherits whatever database step was
+        # last open there, and was labelled "db.connection": $2 of a week's spend
+        # under the name of a connection. The queue job running is the real purpose.
+        from agent import work_queue
+
+        job = work_queue.current_item()
+        return f"queue.{job['source_type']}" if job else "background"
+    return name
 
 
 def _int_attr(value: object, name: str) -> int | None:

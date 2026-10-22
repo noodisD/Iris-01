@@ -1,6 +1,6 @@
 # money.spend
 
-**What it means:** Model spend passed the daily budget (DAILY_BUDGET_USD), today or on average this week.
+**What it means:** Model spend over the last 7 days passed the weekly budget (WEEKLY_BUDGET_USD, $0.50 by the owner's choice).
 
 **Confirm:** `details.week_by_purpose` shows which purpose spent it; the Observatory's LLM view has the calls.
 

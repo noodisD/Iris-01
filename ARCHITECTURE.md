@@ -236,7 +236,7 @@ current, the docs naming every module); and whether quality holds (search agains
 exact computation, chat's context complete); what waits on the owner (phone batches, a
 silent phone, ideas and constructs to review, drafts, staged sessions), reported as
 `waiting` rather than as faults; and room and money (database growth, telemetry, backups,
-disk, model spend against `DAILY_BUDGET_USD`, work thrown away by failed attempts, kinds of
+disk, model spend against `WEEKLY_BUDGET_USD`, work thrown away by failed attempts, kinds of
 error new this day). Job time limits are learned from last week's runs where that raises
 them. Each run is stored in `health_checks` and the report leads with what changed. A
 systemd timer runs it every morning (`scripts/iris-doctor.*.example`), and IRIS shows the
