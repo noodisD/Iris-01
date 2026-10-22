@@ -18,7 +18,10 @@ from . import Result, check
 SERVER = os.environ.get("IRIS_URL", "http://127.0.0.1:8000")
 #: How long one job of each kind may run before it looks stuck, in minutes.
 #: A full pattern update on the Flex tier has taken over an hour.
-JOB_LIMIT_MIN = {"reflection": 15, "discovery": 45, "personal_dynamics": 360, "session_voices": 90}
+JOB_LIMIT_MIN = {"reflection": 15, "discovery": 45, "personal_dynamics": 360, "session_voices": 90,
+                 # A pattern update by kind of run (work_queue.note_mode).
+                 "personal_dynamics:views": 30, "personal_dynamics:update": 120,
+                 "personal_dynamics:rebuild": 480}
 DEFAULT_LIMIT_MIN = 30
 #: A job due this long ago and not yet taken is waiting behind something.
 OVERDUE_MIN = 60
@@ -31,16 +34,28 @@ LEARNED_FACTOR = 3
 LEARNED_MIN_SAMPLES = 5
 
 
-def _limit(kind: str) -> tuple[float, str]:
-    """How long a job of this kind may run, learned from last week's successful runs if there are enough."""
+def _limit(kind: str, mode: str | None = None) -> tuple[float, str]:
+    """How long a job of this kind may run, learned from last week's successful runs if there are enough.
+
+    A job whose kind of run is known (a pattern update's views, update or
+    rebuild) is compared only with runs of the same kind, and its learned limit
+    may be tighter or looser than the fixed one, within a factor of four. Without
+    a mode, a kind's runs vary too much (an entry against a long session), so the
+    learned limit only ever raises the fixed one.
+    """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("""SELECT count(*), percentile_cont(0.9) WITHIN GROUP (ORDER BY duration_ms) / 60000
                          FROM obs_spans
                         WHERE name = 'queue.job' AND started_at > NOW() - interval '7 days'
                           AND attributes->>'iris.queue.source_type' = %s
-                          AND attributes->>'iris.queue.outcome' = 'retired'""", (kind,))
+                          AND (%s::text IS NULL OR attributes->>'iris.queue.mode' = %s)
+                          AND attributes->>'iris.queue.outcome' = 'retired'""", (kind, mode, mode))
         samples, p90 = cur.fetchone()
-    fixed = float(JOB_LIMIT_MIN.get(kind, DEFAULT_LIMIT_MIN))
+    key = f"{kind}:{mode}" if mode else kind
+    fixed = float(JOB_LIMIT_MIN.get(key, JOB_LIMIT_MIN.get(kind, DEFAULT_LIMIT_MIN)))
+    if mode and samples >= LEARNED_MIN_SAMPLES and p90:
+        learned = min(max(LEARNED_FACTOR * p90, fixed / 4), fixed * 4)
+        return learned, f"{LEARNED_FACTOR}× the usual {p90:.0f} min of a {mode} over {samples} runs"
     # Learned time only ever raises the limit: a kind's usual run can be far
     # shorter than its rare large one (an entry against a long session, an
     # update against a full rebuild), and a warning on every large run is noise.
@@ -104,8 +119,11 @@ def current_job() -> Result:
     if not job:
         return Result("worker.current_job", "ok", "The worker is idle.", value=0)
     kind = str(job.get("source_type"))
+    mode = job.get("mode")
     minutes = _minutes_since(job.get("since")) or 0.0
-    limit, basis = _limit(kind)
+    limit, basis = _limit(kind, mode)
+    if mode:
+        kind = f"{kind} ({mode})"
     details = {"source_type": kind, "source_id": job.get("source_id"), "attempt": job.get("attempts"),
                "limit_min": round(limit), "limit_basis": basis}
     if minutes > limit:

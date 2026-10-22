@@ -240,3 +240,51 @@ def test_the_banner_reads_the_last_stored_run(test_user, monkeypatch):
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM health_checks WHERE run_id = %s", (run_id,))
         conn.commit()
+
+
+def _job_spans(source_type: str, mode: str | None, minutes: list[float]) -> list[str]:
+    import uuid
+
+    from psycopg2.extras import Json
+
+    ids = []
+    with db.connection() as conn, conn.cursor() as cur:
+        for m in minutes:
+            span = uuid.uuid4().hex[:16]
+            attributes = {"iris.queue.source_type": source_type, "iris.queue.outcome": "retired",
+                          **({"iris.queue.mode": mode} if mode else {})}
+            cur.execute("""INSERT INTO obs_spans (trace_id, span_id, name, component, kind, is_entry, started_at,
+                                                  duration_ms, self_ms, status, attributes, module_id)
+                           VALUES (%s, %s, 'queue.job', 'queue', 'consumer', TRUE, NOW() - interval '1 hour',
+                                   %s, %s, 'ok', %s, 'queue.job')""",
+                        (uuid.uuid4().hex, span, m * 60000, m * 60000, Json(attributes)))
+            ids.append(span)
+        conn.commit()
+    return ids
+
+
+def test_a_pattern_update_is_judged_against_runs_of_its_own_kind():
+    from agent.doctor.checks_moving import _limit
+
+    spans = _job_spans("personal_dynamics", "update", [10, 12, 11, 9, 10]) + \
+        _job_spans("personal_dynamics", "rebuild", [200, 220, 210, 190, 205])
+    try:
+        update, why = _limit("personal_dynamics", "update")
+        rebuild, _ = _limit("personal_dynamics", "rebuild")
+        assert 25 <= update <= 40 and "update" in why, "about three times a usual update"
+        assert 550 <= rebuild <= 700
+        assert _limit("personal_dynamics")[0] >= 550, "without a mode, learned time only raises"
+    finally:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM obs_spans WHERE span_id = ANY(%s)", (spans,))
+            conn.commit()
+
+
+def test_a_job_can_say_which_kind_of_run_it_is(monkeypatch):
+    from agent import work_queue
+
+    monkeypatch.setattr(work_queue, "_current", {"source_type": "personal_dynamics"})
+    work_queue.note_mode("rebuild")
+    assert work_queue.current_item()["mode"] == "rebuild"
+    monkeypatch.setattr(work_queue, "_current", None)
+    work_queue.note_mode("update")  # outside a job: nothing to record

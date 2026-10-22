@@ -312,6 +312,8 @@ def process_user(user_id: int) -> None:
                          for e in episodes)
             intelligence = (Intelligence(model=model_name, service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
                             if usable and accounts else None)
+            from .work_queue import note_mode
+            note_mode("views" if cached is not None else "update" if previous else "rebuild")
             # Verdicts already paid for are reused; a failed run forgets its new replies.
             with discovery_memo.remembering(user_id):
                 if cached is None:

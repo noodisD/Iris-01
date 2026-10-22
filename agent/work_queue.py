@@ -175,6 +175,14 @@ def current_item() -> dict[str, Any] | None:
     return _current
 
 
+def note_mode(mode: str) -> None:
+    """Say which kind of run the current job turned out to be (e.g. a pattern update
+    that redoes only views, builds on the last draft, or rebuilds). Recorded on the
+    job's span, so the doctor can learn each kind's usual time separately."""
+    if _current is not None:
+        _current["mode"] = mode
+
+
 def _age_ms(value: object) -> float:
     if not isinstance(value, datetime):
         return 0.0
@@ -269,13 +277,17 @@ def process_due(limit: int = 20) -> tuple[int, int]:
                     _run(str(item.get("source_type")), int(item.get("source_id") or 0))
                     retired = _succeed(int(item_id or 0), int(item.get("generation") or 0))
                     outcome = "retired" if retired else "superseded"
-                    obs.set_attributes({"iris.queue.outcome": outcome})
+                    obs.set_attributes({"iris.queue.outcome": outcome,
+                                        **({"iris.queue.mode": _current["mode"]}
+                                           if _current and _current.get("mode") else {})})
                     obs.capture_output({"outcome": outcome}, span=current)
                     succeeded += 1
                 except Exception as exc:
                     failed += 1
                     delay = _fail(int(item_id or 0), int(item.get("attempts") or 0),
                                   str(exc), int(item.get("generation") or 0))
+                    if _current and _current.get("mode"):
+                        obs.set_attributes({"iris.queue.mode": _current["mode"]})
                     obs.mark_error(current, exc)
                     if delay is None:
                         outcome = "exhausted"
