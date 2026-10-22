@@ -17,7 +17,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from openai import BadRequestError, OpenAI, RateLimitError
+from openai import (APIConnectionError, APITimeoutError, BadRequestError, InternalServerError, OpenAI,
+                    RateLimitError)
 from pydantic import BaseModel
 
 from .observability.content import MAX_TEXT, json_attr
@@ -94,14 +95,24 @@ class _LearnedModels(set[str]):
 #: says so, rather than sending a value that is silently ignored.
 _REJECTS_TEMPERATURE = _LearnedModels("rejects_temperature")
 
-#: Flex replies can take longer than the SDK's ten-minute default.
-FLEX_TIMEOUT_SECONDS = 900
+#: How long one Flex request may wait on its connection. Measured over a week of
+#: 2,427 background calls: half returned within 13 s, 99.9% within 155 s.
+FLEX_TIMEOUT_SECONDS = 300
 #: Pauses before sending a Flex request again after "capacity unavailable".
-FLEX_RETRY_PAUSES = (15, 60, 180)
-#: The longest one background request may take, retries included. A Flex
-#: request once never returned and held the patterns run for ten hours with
-#: no error; past this it fails, and the queue tries again later.
-FLEX_DEADLINE_SECONDS = 1200
+#: About 75 minutes in all: the longest burst seen (21 October) lasted an hour,
+#: and a refused call is not charged. A shorter wait failed the whole pattern
+#: update, which then started again from the top.
+FLEX_RETRY_PAUSES = (15, 60, 180, 300, 600, 900, 1200, 1200)
+#: The longest one Flex request may take before it is abandoned and sent again.
+#: Twice the slowest normal reply. It was 20 minutes, not retried: two hung calls
+#: out of 2,427 each failed a pattern update 10 and 21 hours in.
+FLEX_DEADLINE_SECONDS = 300
+#: Pauses before re-sending a Flex request that hung past its deadline, lost its
+#: connection, or met a server error; after the last, the run fails and the queue
+#: tries again later.
+FLEX_STALL_PAUSES = (15, 60)
+#: What counts as a stalled request rather than a refused or rejected one.
+_STALLED = (TimeoutError, APITimeoutError, APIConnectionError, InternalServerError)
 
 
 def _within_deadline(call, seconds: float):
@@ -319,14 +330,17 @@ class Intelligence:
         """One non-streaming completion, including its prompt, usage and reply.
 
         On Flex, a 429 means OpenAI has no spare capacity just now; it is not
-        charged, and the same request is sent again after a pause. Only after
-        the last pause does it fail, and the work queue tries again later.
-        Flex is also slower, so it gets a longer timeout.
+        charged, and the same request is sent again after lengthening pauses,
+        for up to about 75 minutes. A request that hangs past its deadline,
+        loses its connection or meets a server error is sent again twice. Only
+        then does it fail, and the work queue tries again later. A standard
+        request (chat) is never held back.
         """
         flex = kwargs.get("service_tier") == "flex"
         client = self.openai_client.with_options(timeout=FLEX_TIMEOUT_SECONDS) if flex else self.openai_client
         pauses = FLEX_RETRY_PAUSES if flex else ()
-        for attempt in range(len(pauses) + 1):
+        refused = stalled = 0
+        while True:
             try:
                 with LlmCall(
                     "chat", kwargs["model"], prompt=json_attr(kwargs["messages"], MAX_TEXT),
@@ -340,12 +354,20 @@ class Intelligence:
                     call.output(response.choices[0].message.content)
                     return response
             except RateLimitError:
-                if attempt == len(pauses):
+                if refused == len(pauses):
                     raise
                 logger.info(f"Flex capacity unavailable for {kwargs['model']}; "
-                            f"trying again in {pauses[attempt]}s")
-                time.sleep(pauses[attempt])
-        raise AssertionError("unreachable")
+                            f"trying again in {pauses[refused]}s")
+                time.sleep(pauses[refused])
+                refused += 1
+            except _STALLED as exc:
+                # One stuck request out of thousands used to fail a whole run.
+                if not flex or stalled == len(FLEX_STALL_PAUSES):
+                    raise
+                logger.info(f"Flex request to {kwargs['model']} stalled ({type(exc).__name__}); "
+                            f"sending it again in {FLEX_STALL_PAUSES[stalled]}s")
+                time.sleep(FLEX_STALL_PAUSES[stalled])
+                stalled += 1
 
     def _chat_openai(
         self,

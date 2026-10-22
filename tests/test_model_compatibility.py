@@ -229,11 +229,14 @@ def test_flex_gives_up_after_the_last_pause_so_the_queue_retries_later(flex, mon
         calls.append(kwargs)
         raise _capacity_unavailable()
 
+    from agent.intelligence import FLEX_RETRY_PAUSES
+
     monkeypatch.setattr(flex.openai_client.chat.completions, "create", fake)
     monkeypatch.setattr("agent.intelligence.time.sleep", lambda _: None)
     with pytest.raises(RateLimitError):
         flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
-    assert len(calls) == 4
+    assert len(calls) == len(FLEX_RETRY_PAUSES) + 1
+    assert sum(FLEX_RETRY_PAUSES) >= 3600, "waits out a burst of an hour, as seen on 21 October"
 
 
 def test_a_standard_request_is_not_held_back(iris, monkeypatch):
@@ -270,10 +273,55 @@ def test_a_background_request_that_never_returns_fails_at_its_deadline(flex, mon
         release.wait(5)
         return _Response("too late")
 
-    monkeypatch.setattr(flex.openai_client.chat.completions, "create", never)
+    tries, pauses = [], []
+
+    def counted(**kwargs):
+        tries.append(1)
+        return never(**kwargs)
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", counted)
     monkeypatch.setattr("agent.intelligence.FLEX_DEADLINE_SECONDS", 0.2)
+    monkeypatch.setattr("agent.intelligence.time.sleep", pauses.append)
     try:
         with pytest.raises(TimeoutError, match="deadline"):
             flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
     finally:
         release.set()
+    assert len(tries) == 3 and pauses == [15, 60], "sent again twice before giving up"
+
+
+def test_a_stalled_background_request_is_sent_again_instead_of_failing_the_run(flex, monkeypatch):
+    """Two hung calls out of 2,427 each failed a pattern update 10 and 21 hours in."""
+    import httpx
+    from openai import APIConnectionError
+
+    calls, pauses = [], []
+
+    def flaky(**kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise TimeoutError("model request passed its 300s deadline")
+        if len(calls) == 2:
+            raise APIConnectionError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+        return _Response("hello")
+
+    monkeypatch.setattr(flex.openai_client.chat.completions, "create", flaky)
+    monkeypatch.setattr("agent.intelligence.time.sleep", pauses.append)
+    assert flex.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s") == "hello"
+    assert len(calls) == 3 and pauses == [15, 60]
+
+
+def test_a_stalled_standard_request_is_not_held_back(iris, monkeypatch):
+    import httpx
+    from openai import APIConnectionError
+
+    calls = []
+
+    def dropped(**kwargs):
+        calls.append(1)
+        raise APIConnectionError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+
+    monkeypatch.setattr(iris.openai_client.chat.completions, "create", dropped)
+    monkeypatch.setattr("agent.intelligence.time.sleep", lambda _: pytest.fail("chat does not pause"))
+    with pytest.raises(APIConnectionError):
+        iris.chat(messages=[{"role": "user", "content": "hi"}], system_prompt="s")
+    assert len(calls) == 1
