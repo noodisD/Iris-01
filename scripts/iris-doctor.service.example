@@ -1,0 +1,14 @@
+# The doctor's daily run (agent/doctor). Copy both files to ~/.config/systemd/user/,
+# then: systemctl --user daemon-reload && systemctl --user enable --now iris-doctor.timer
+# Each run is stored in health_checks; IRIS shows the latest one in its health banner.
+[Unit]
+Description=IRIS doctor: daily health check
+After=iris.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Iris-01
+EnvironmentFile=%h/Iris-01/.env
+# Exit 1 means a check failed: recorded in the journal, not a unit failure to retry.
+SuccessExitStatus=0 1
+ExecStart=%h/Iris-01/.venv/bin/python -m agent.doctor

@@ -5,6 +5,10 @@ and prints what changed since the last run, then everything that is not fine. Ea
 check names its runbook here. `--json` gives the whole report; `--can-restart` says
 whether restarting IRIS now would throw away work in progress (exit 0 means yes).
 
+It runs every morning from a systemd timer (`scripts/iris-doctor.{service,timer}.example`),
+and IRIS shows the latest run in a banner on every screen but chat: problems first, then
+what waits on the owner. Checks that wait on the owner report `waiting`, not `fail`.
+
 ## What an agent may do without asking
 
 | Class | Meaning |

@@ -103,7 +103,7 @@ def test_a_new_failure_is_new_then_resolved(test_user, monkeypatch):
 
 def test_no_check_repeats_what_anyone_wrote(test_user):
     db.create_reflection(test_user["id"], SECRET)
-    results = doctor.run({"data", "moving"})
+    results = doctor.run({"data", "moving", "owner", "resources", "docs"})
     text = json.dumps(results, default=str) + doctor.report(results, [])
     words = re.findall(r"[a-z']+", SECRET)
     runs = {" ".join(words[i:i + 5]) for i in range(len(words) - 4)}
@@ -141,3 +141,87 @@ def test_docs_coverage_finds_unnamed_modules_and_missing_paths(tmp_path):
     unnamed, broken = scan(tmp_path)
     assert unnamed == ["forgotten.py"]
     assert broken == ["ARCHITECTURE.md: agent/gone.py"]
+
+
+# --- step 2: what waits on the owner, room and money --------------------------------
+
+def test_owner_items_are_waiting_not_failures(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from agent.doctor import checks_owner
+
+    old = datetime.now(UTC) - timedelta(days=12)
+    answers = iter([(3, old, 4200)])
+    monkeypatch.setattr(checks_owner, "_one", lambda sql, *a: next(answers))
+    batches = checks_owner.sensor_batches()
+    assert batches.status == "waiting" and batches.value == 3 and "oldest 12 days" in batches.summary
+    replies = iter([(1,), (datetime.now(UTC) - timedelta(days=5),)])
+    monkeypatch.setattr(checks_owner, "_one", lambda sql, *a: next(replies))
+    assert checks_owner.phone_silent().status == "waiting"
+    replies = iter([(0,)])
+    monkeypatch.setattr(checks_owner, "_one", lambda sql, *a: next(replies))
+    assert checks_owner.phone_silent().status == "ok"
+
+
+def test_spend_over_the_daily_budget_warns(monkeypatch):
+    from agent.doctor import checks_resources
+
+    monkeypatch.setattr(checks_resources.settings, "DAILY_BUDGET_USD", 1.0)
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "discovery", 1.4), (False, "chat", 0.6)])
+    over = checks_resources.spend()
+    assert over.status == "warn" and over.details["today_usd"] == 1.4 and over.details["week_usd"] == 2.0
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [(True, "chat", 0.05)])
+    assert checks_resources.spend().status == "ok"
+
+
+def test_hours_thrown_away_by_failed_attempts_warn(monkeypatch):
+    from agent.doctor import checks_resources
+
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [("personal_dynamics", 3, 1287.0)])
+    result = checks_resources.wasted()
+    assert result.status == "warn" and "21.4 h" in result.summary and "personal_dynamics" in result.summary
+
+
+def test_a_new_kind_of_error_is_flagged_and_a_known_one_is_not(monkeypatch):
+    from agent.doctor import checks_resources
+
+    monkeypatch.setattr(checks_resources, "_rows", lambda sql, *a: [
+        ("llm.chat", "openai.RateLimitError", True), ("llm.chat", "openai.RateLimitError", False),
+        ("queue.job", "ValueError", True)])
+    result = checks_resources.new_error_kinds()
+    assert result.status == "warn" and list(result.details["new"]) == ["queue.job: ValueError"]
+
+
+def test_backups_old_or_missing_warn(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from agent.doctor import checks_resources
+
+    monkeypatch.setattr(checks_resources, "BACKUPS", tmp_path)
+    assert checks_resources.backups().status == "warn"
+    dump = tmp_path / "iris_db_x.dump"
+    dump.write_bytes(b"0" * 10)
+    assert checks_resources.backups().status == "ok"
+    week_ago = time.time() - 9 * 86400
+    os.utime(dump, (week_ago, week_ago))
+    assert checks_resources.backups().status == "warn"
+
+
+def test_the_banner_reads_the_last_stored_run(test_user, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from agent.doctor import Result
+    from iris_api import app
+
+    monkeypatch.setattr(doctor, "CHECKS", [
+        doctor.Check("test.banner_fail", "test", lambda: Result("test.banner_fail", "fail", "Something broke.")),
+        doctor.Check("test.banner_ok", "test", lambda: Result("test.banner_ok", "ok", "Fine."))])
+    monkeypatch.setattr(doctor, "_load", lambda: None)
+    run_id = doctor.store(doctor.run())
+    latest = TestClient(app).get("/api/health/latest").json()
+    assert latest["runId"] == run_id
+    assert latest["attention"] == [{"id": "test.banner_fail", "status": "fail", "summary": "Something broke."}]
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM health_checks WHERE run_id = %s", (run_id,))
+        conn.commit()

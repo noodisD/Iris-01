@@ -233,8 +233,15 @@ The doctor (`python -m agent.doctor`) checks what errors never show: whether job
 pattern update are moving; whether the data promises hold (everything embedded and read,
 every quote found word for word, no orphaned vectors, passages and reading copies
 current, the docs naming every module); and whether quality holds (search against an
-exact computation, chat's context complete). Each run is stored in `health_checks` and the
-report leads with what changed. Every check names a runbook in `docs/runbooks/`.
+exact computation, chat's context complete); what waits on the owner (phone batches, a
+silent phone, ideas and constructs to review, drafts, staged sessions), reported as
+`waiting` rather than as faults; and room and money (database growth, telemetry, backups,
+disk, model spend against `DAILY_BUDGET_USD`, work thrown away by failed attempts, kinds of
+error new this day). Job time limits are learned from last week's runs where that raises
+them. Each run is stored in `health_checks` and the report leads with what changed. A
+systemd timer runs it every morning (`scripts/iris-doctor.*.example`), and IRIS shows the
+latest run in a banner on every screen except chat (`GET /api/health/latest`). Every check
+names a runbook in `docs/runbooks/`.
 
 ## 11. Failure behaviour
 

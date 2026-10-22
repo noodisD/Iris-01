@@ -26,6 +26,29 @@ OVERDUE_MIN = 60
 PATTERNS_LIMIT_H = 8
 
 
+#: A job is long when it runs past this many times its kind's usual (90th percentile) time.
+LEARNED_FACTOR = 3
+LEARNED_MIN_SAMPLES = 5
+
+
+def _limit(kind: str) -> tuple[float, str]:
+    """How long a job of this kind may run, learned from last week's successful runs if there are enough."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT count(*), percentile_cont(0.9) WITHIN GROUP (ORDER BY duration_ms) / 60000
+                         FROM obs_spans
+                        WHERE name = 'queue.job' AND started_at > NOW() - interval '7 days'
+                          AND attributes->>'iris.queue.source_type' = %s
+                          AND attributes->>'iris.queue.outcome' = 'retired'""", (kind,))
+        samples, p90 = cur.fetchone()
+    fixed = float(JOB_LIMIT_MIN.get(kind, DEFAULT_LIMIT_MIN))
+    # Learned time only ever raises the limit: a kind's usual run can be far
+    # shorter than its rare large one (an entry against a long session, an
+    # update against a full rebuild), and a warning on every large run is noise.
+    if samples >= LEARNED_MIN_SAMPLES and p90 and LEARNED_FACTOR * p90 > fixed:
+        return LEARNED_FACTOR * p90, f"{LEARNED_FACTOR}× its usual {p90:.0f} min over {samples} runs"
+    return fixed, "its fixed limit"
+
+
 def _worker() -> dict | None:
     """The worker's state: from this process if it runs here, else from the server."""
     from .. import work_queue
@@ -82,17 +105,18 @@ def current_job() -> Result:
         return Result("worker.current_job", "ok", "The worker is idle.", value=0)
     kind = str(job.get("source_type"))
     minutes = _minutes_since(job.get("since")) or 0.0
-    limit = JOB_LIMIT_MIN.get(kind, DEFAULT_LIMIT_MIN)
-    details = {"source_type": kind, "source_id": job.get("source_id"), "attempt": job.get("attempts")}
+    limit, basis = _limit(kind)
+    details = {"source_type": kind, "source_id": job.get("source_id"), "attempt": job.get("attempts"),
+               "limit_min": round(limit), "limit_basis": basis}
     if minutes > limit:
         return Result("worker.current_job", "warn",
-                      f"A {kind} job has run {minutes:.0f} min, longer than its usual limit of {limit}.",
-                      value=round(minutes), expected=f"under {limit} min", details=details,
+                      f"A {kind} job has run {minutes:.0f} min, past {limit:.0f} min ({basis}).",
+                      value=round(minutes), expected=f"under {limit:.0f} min", details=details,
                       causes=["A slow provider tier (Flex) on a large job.", "A request that hangs without a timeout."],
                       action="Watch llm.chat spans for progress before doing anything; never restart mid pattern "
                              "update unless its result is already out of date.", action_class="read-only")
     return Result("worker.current_job", "ok", f"Working on a {kind} job for {minutes:.0f} min.",
-                  value=round(minutes), expected=f"under {limit} min", details=details)
+                  value=round(minutes), expected=f"under {limit:.0f} min", details=details)
 
 
 @check("queue.exhausted", "moving")

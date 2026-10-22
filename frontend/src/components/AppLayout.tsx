@@ -4,6 +4,7 @@ import { PhoneNav } from './PhoneNav';
 import styles from './AppLayout.module.css';
 import { LoadingState } from './states';
 import { useOnboarding } from '@/hooks/useData';
+import { HealthBanner } from './HealthBanner';
 
 /**
  * App shell. Also the first-run gate: the backend tracks onboarding state, and
@@ -21,6 +22,7 @@ export function AppLayout() {
       <div className={styles.desktopNav}><Sidebar /></div>
       {/* Focusable, so a keyboard can scroll a page with nothing else to focus. */}
       <main className={styles.main} tabIndex={0}>
+        <HealthBanner />
         <Outlet />
       </main>
       <PhoneNav />

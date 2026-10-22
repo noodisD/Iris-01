@@ -199,7 +199,11 @@ Back up first: `uv run python scripts/backup_db.py <label>` writes a dump to
 the pattern update are moving, whether every quote is still found word for word,
 whether memory search finds what an exact search finds, whether chat's context
 is complete, and more. It stores each run and leads with what changed since the
-last; every check names a runbook in `docs/runbooks/`. Before restarting, run
+last; every check names a runbook in `docs/runbooks/`. It also lists what waits
+on you (phone batches, reviews, drafts) and warns when model spend passes
+`DAILY_BUDGET_USD` (default $1 a day). Install the daily run with the two
+`scripts/iris-doctor.*.example` units; IRIS then shows the latest result in a
+banner. Before restarting, run
 `uv run python -m agent.doctor --can-restart`: a restart during a pattern update
 throws away its progress.
 

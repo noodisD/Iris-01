@@ -2766,6 +2766,18 @@ def _obs_health():
         return obs_queries.health_memory()
 
 
+@app.get("/api/health/latest")
+def health_latest():
+    """The doctor's last stored run, for the health banner. Counts and summaries only.
+
+    Not under /api/observatory, so the banner also shows over the tailnet door;
+    nothing in it is anyone's writing.
+    """
+    from agent import doctor
+
+    return doctor.latest() or {"runId": None, "runAt": None, "counts": {}, "attention": []}
+
+
 @app.get("/api/observatory/doctor")
 def observatory_doctor(only: str | None = None):
     """The doctor's checks, worst first, and what changed since the last stored run.

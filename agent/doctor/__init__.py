@@ -70,7 +70,8 @@ def check(id: str, area: str):
 
 def _load() -> None:
     # Imported for their registrations.
-    from . import checks_data, checks_docs, checks_moving, checks_quality  # noqa: F401
+    from . import (checks_data, checks_docs, checks_moving, checks_owner,  # noqa: F401
+                   checks_quality, checks_resources)
 
 
 def run(only: set[str] | None = None) -> list[dict]:
@@ -179,3 +180,29 @@ def report(results: list[dict], diff: list[dict]) -> str:
                 lines.append(f"      action ({r['action_class']}): {r['action']}")
             lines.append(f"      runbook: {r['runbook']}")
     return "\n".join(lines)
+
+
+def latest() -> dict | None:
+    """The last stored run, for the health banner: what is not fine, and when it was checked."""
+    import psycopg2
+
+    from ..database import db
+
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT run_id, max(run_at) FROM health_checks
+                            GROUP BY run_id ORDER BY max(run_at) DESC LIMIT 1""")
+            row = cur.fetchone()
+            if row is None:
+                return None
+            run_id, run_at = row
+            cur.execute("""SELECT check_id, status, value, details FROM health_checks
+                            WHERE run_id = %s ORDER BY check_id""", (run_id,))
+            rows = cur.fetchall()
+    except psycopg2.errors.UndefinedTable:
+        return None
+    counts = {s: sum(r[1] == s for r in rows) for s in ORDER}
+    attention = sorted(({"id": cid, "status": status, "summary": (details or {}).get("summary", "")}
+                        for cid, status, _, details in rows if status != "ok"),
+                       key=lambda a: (ORDER[a["status"]], a["id"]))
+    return {"runId": str(run_id), "runAt": run_at.isoformat(), "counts": counts, "attention": attention}

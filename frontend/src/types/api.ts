@@ -1000,3 +1000,18 @@ export interface Questionnaire {
 }
 
 export interface InterviewStep { reply: string; done: boolean; draft: string; skipped: boolean }
+
+/** One check from the doctor's last run that was not fine. */
+export interface HealthAttention {
+  id: string;
+  status: 'fail' | 'warn' | 'waiting' | 'unknown';
+  summary: string;
+}
+
+/** The doctor's last stored run (agent/doctor), for the health banner. */
+export interface HealthLatest {
+  runId: string | null;
+  runAt: string | null;
+  counts: Partial<Record<'fail' | 'warn' | 'waiting' | 'unknown' | 'ok', number>>;
+  attention: HealthAttention[];
+}
