@@ -22,7 +22,9 @@ export function HealthBanner() {
   const [hidden, setHidden] = React.useState(hiddenRun);
   // Chat fills the window exactly; a bar above it would push the composer off screen.
   const onChat = useLocation().pathname.startsWith('/chat');
-  if (onChat || !data?.runId || data.attention.length === 0 || hidden === data.runId) return null;
+  const repaired = data?.repaired ?? [];
+  if (onChat || !data?.runId || (data.attention.length === 0 && repaired.length === 0)
+    || hidden === data.runId) return null;
 
   const problems = data.attention.filter(a => a.status === 'fail' || a.status === 'warn' || a.status === 'unknown');
   const waiting = data.attention.filter(a => a.status === 'waiting');
@@ -31,6 +33,7 @@ export function HealthBanner() {
   const headline = [
     problems.length ? `${problems.length} health ${problems.length === 1 ? 'check needs' : 'checks need'} attention` : '',
     waiting.length ? `${waiting.length} ${waiting.length === 1 ? 'thing is' : 'things are'} waiting on you` : '',
+    repaired.length ? `IRIS repaired ${repaired.length} ${repaired.length === 1 ? 'thing' : 'things'} itself` : '',
   ].filter(Boolean).join(' · ');
   const when = data.runAt ? new Date(data.runAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
 
@@ -52,6 +55,10 @@ export function HealthBanner() {
           {[...problems, ...waiting].map(a => (
             <li key={a.id}><span className={styles.status}>{a.status === 'waiting' ? 'waiting' : a.status}</span>
               {a.summary}</li>
+          ))}
+          {repaired.map((r, i) => (
+            <li key={`repaired-${i}`}><span className={styles.status}>{r.outcome === 'fixed' ? 'repaired' : r.outcome}</span>
+              {r.summary}</li>
           ))}
         </ul>
       )}

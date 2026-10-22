@@ -71,10 +71,13 @@ def test_a_job_that_gave_up_is_found_by_kind_without_its_message(test_user):
 
 
 def test_a_search_that_misses_memories_fails(test_user, monkeypatch):
+    import random
+
+    rng = random.Random(11)
+    # Distinct vectors: repeated ones tie, and the exact top ten would depend on tie-breaking.
     for n in range(40):
         rid = db.create_reflection(test_user["id"], f"Invented note {n}.")
-        db.add_embedding("reflection", rid, "text-embedding-3-small",
-                         [((n * 7 + i) % 13) / 13 - 0.5 for i in range(1536)])
+        db.add_embedding("reflection", rid, "text-embedding-3-small", [rng.uniform(-1, 1) for _ in range(1536)])
     monkeypatch.setattr(checks_quality, "_owner", lambda: test_user["id"])
     assert _one("retrieval.complete")["status"] == "ok"
     monkeypatch.setattr(db, "search_similar_embeddings", lambda *a, **k: [])
@@ -288,3 +291,103 @@ def test_a_job_can_say_which_kind_of_run_it_is(monkeypatch):
     assert work_queue.current_item()["mode"] == "rebuild"
     monkeypatch.setattr(work_queue, "_current", None)
     work_queue.note_mode("update")  # outside a job: nothing to record
+
+
+# --- step 3: safe-auto repairs ----------------------------------------------------------
+
+@pytest.fixture
+def no_real_backup(monkeypatch):
+    from agent.doctor import fixes
+
+    taken = []
+    monkeypatch.setattr(fixes, "take_backup", lambda: taken.append(1) or ("Took a backup.", {}))
+    return taken
+
+
+def _failing(check_id: str) -> list[dict]:
+    return [r for r in doctor.run({check_id}) if r["id"] == check_id]
+
+
+def test_orphaned_vectors_are_deleted_after_a_backup_and_rechecked(test_user, no_real_backup):
+    from agent.doctor import fixes
+
+    gone = db.create_reflection(test_user["id"], "A note that will be deleted.")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM reflections WHERE id = %s", (gone,))
+        cur.execute("INSERT INTO embeddings (source_type, source_id, model_name, vector) VALUES "
+                    "('reflection', %s, 'text-embedding-3-small', %s)", (gone, [0.1] * 1536))
+        conn.commit()
+    repaired = fixes.apply(_failing("data.orphan_embeddings"), None)
+    assert [(r["id"], r["outcome"]) for r in repaired] == [("data.orphan_embeddings", "fixed")]
+    assert no_real_backup == [1], "a repair that writes data is preceded by a backup"
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT outcome FROM health_fixes WHERE check_id = 'data.orphan_embeddings' "
+                    "ORDER BY fixed_at DESC LIMIT 1")
+        assert cur.fetchone()[0] == "fixed"
+
+
+def test_a_drifted_reading_copy_is_cleared(test_user, no_real_backup):
+    from agent.doctor import fixes
+
+    rid = db.create_reflection(test_user["id"], "so i went to the market and bought pears")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE reflections SET reading_copy = 'So I went to the market and bought apples.' "
+                    "WHERE id = %s", (rid,))
+        conn.commit()
+    repaired = fixes.apply(_failing("data.reading_copies"), None)
+    assert repaired[0]["outcome"] == "fixed" and rid in repaired[0]["details"]["ids"]
+
+
+def test_a_cheap_failed_job_is_requeued_once_and_a_costly_one_is_left(test_user, no_real_backup):
+    from agent.doctor import fixes
+    from agent.work_queue import MAX_ATTEMPTS
+
+    rid = db.create_reflection(test_user["id"], "An invented entry.")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM health_fixes WHERE check_id = 'queue.exhausted'")
+        for kind, sid in (("discovery", rid), ("personal_dynamics", test_user["id"])):
+            cur.execute("""INSERT INTO processing_queue (user_id, source_type, source_id, attempts, last_error)
+                           VALUES (%s, %s, %s, %s, 'provider_failure')
+                           ON CONFLICT (source_type, source_id) DO UPDATE
+                              SET attempts = EXCLUDED.attempts, last_error = EXCLUDED.last_error""",
+                        (test_user["id"], kind, sid, MAX_ATTEMPTS))
+        conn.commit()
+    first = fixes.apply(_failing("queue.exhausted"), None)[0]
+    assert ["discovery", rid] in first["details"]["requeued"]
+    assert ["personal_dynamics", test_user["id"]] in first["details"]["left"]
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE processing_queue SET attempts = %s WHERE source_type = 'discovery' AND source_id = %s",
+                    (MAX_ATTEMPTS, rid))
+        conn.commit()
+    again = fixes.apply(_failing("queue.exhausted"), None)[0]
+    assert ["discovery", rid] in again["details"]["left"], "re-queued once a week, not every morning"
+
+
+def test_nothing_is_repaired_without_a_backup_first(test_user, monkeypatch):
+    from agent.doctor import fixes
+
+    def broken():
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(fixes, "take_backup", broken)
+    gone = db.create_reflection(test_user["id"], "Another note to delete.")
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM reflections WHERE id = %s", (gone,))
+        cur.execute("INSERT INTO embeddings (source_type, source_id, model_name, vector) VALUES "
+                    "('reflection', %s, 'text-embedding-3-small', %s)", (gone, [0.1] * 1536))
+        conn.commit()
+    repaired = fixes.apply(_failing("data.orphan_embeddings"), None)
+    assert repaired[0]["outcome"] == "failed"
+    assert _failing("data.orphan_embeddings")[0]["status"] == "fail", "left as it was"
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM embeddings WHERE source_type = 'reflection' AND source_id = %s", (gone,))
+        conn.commit()
+
+
+def test_only_safe_auto_checks_with_a_repair_are_touched(no_real_backup, monkeypatch):
+    from agent.doctor import fixes
+
+    called = []
+    monkeypatch.setitem(fixes.FIXERS, "test.owner_only", (lambda: called.append(1) or ("x", {}), True))
+    results = [{"id": "test.owner_only", "status": "fail", "action_class": "needs-owner", "value": 1},
+               {"id": "data.quotes", "status": "fail", "action_class": "needs-owner", "value": 1}]
+    assert fixes.apply(results, None) == [] and called == [] and no_real_backup == []

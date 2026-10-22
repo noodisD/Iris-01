@@ -241,7 +241,10 @@ error new this day). Job time limits are learned from last week's runs: a patter
 compared with runs of its own kind (views, update or rebuild, recorded on each job). Each run is stored in `health_checks` and the report leads with what changed. A
 systemd timer runs it every morning (`scripts/iris-doctor.*.example`), and IRIS shows the
 latest run in a banner on every screen except chat (`GET /api/health/latest`). Every check
-names a runbook in `docs/runbooks/`.
+names a runbook in `docs/runbooks/`. With `--fix`, as the daily timer runs it, the doctor
+carries out only safe-auto repairs (`doctor/fixes.py`: orphaned vectors, drifted reading
+copies, a missing embedding or passages, a cheap failed job re-queued once, telemetry,
+a backup), after a backup when the repair writes data, and records each in `health_fixes`.
 
 ## 11. Failure behaviour
 

@@ -202,8 +202,9 @@ is complete, and more. It stores each run and leads with what changed since the
 last; every check names a runbook in `docs/runbooks/`. It also lists what waits
 on you (phone batches, reviews, drafts) and warns when model spend passes
 `WEEKLY_BUDGET_USD` (default $0.50 a week). Install the daily run with the two
-`scripts/iris-doctor.*.example` units; IRIS then shows the latest result in a
-banner. Before restarting, run
+`scripts/iris-doctor.*.example` units; each morning it also makes the small
+repairs it may make on its own (`--fix`, listed in `docs/runbooks/README.md`),
+and IRIS shows the latest result, repairs included, in a banner. Before restarting, run
 `uv run python -m agent.doctor --can-restart`: a restart during a pattern update
 throws away its progress.
 

@@ -33,19 +33,36 @@ def main() -> int:
     ap.add_argument("--no-store", action="store_true", help="do not keep this run")
     ap.add_argument("--only", nargs="*", help="areas (moving, data, quality) or check ids")
     ap.add_argument("--can-restart", action="store_true", help="say whether a restart is safe now; exit 0 if so")
+    ap.add_argument("--fix", action="store_true",
+                    help="carry out the safe-auto repairs failing checks name, then check again")
     args = ap.parse_args()
     logging.disable(logging.WARNING)
     if args.can_restart:
         ok, why = can_restart()
         print(("yes: " if ok else "no: ") + why)
         return 0 if ok else 1
-    results = run(set(args.only) if args.only else None)
+    only = set(args.only) if args.only else None
+    results = run(only)
     run_id = None if args.no_store else store(results)
     diff = changes(results, run_id)
+    repaired: list[dict] = []
+    if args.fix:
+        from .fixes import apply
+
+        repaired = apply(results, run_id)
+        if repaired:
+            # What is stored and shown last is the state after the repairs.
+            results = run(only)
+            after_id = None if args.no_store else store(results)
+            diff = changes(results, after_id)
     if args.json:
-        print(json.dumps({"results": results, "changes": diff}, default=str, indent=1))
+        print(json.dumps({"results": results, "changes": diff, "repaired": repaired}, default=str, indent=1))
     else:
-        print(report(results, diff))
+        text = report(results, diff)
+        if repaired:
+            text += "\n\nRepaired (safe-auto):\n" + "\n".join(
+                f"  {r['outcome']:<9} {r['id']}: {r['summary']}" for r in repaired)
+        print(text)
     return 1 if any(r["status"] == "fail" for r in results) else 0
 
 

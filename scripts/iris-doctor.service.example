@@ -11,4 +11,5 @@ WorkingDirectory=%h/Iris-01
 EnvironmentFile=%h/Iris-01/.env
 # Exit 1 means a check failed: recorded in the journal, not a unit failure to retry.
 SuccessExitStatus=0 1
-ExecStart=%h/Iris-01/.venv/bin/python -m agent.doctor
+# --fix carries out only safe-auto repairs (agent/doctor/fixes.py), each recorded in health_fixes.
+ExecStart=%h/Iris-01/.venv/bin/python -m agent.doctor --fix

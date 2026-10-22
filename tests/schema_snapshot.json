@@ -922,6 +922,43 @@
         "type": "double precision"
       }
     },
+    "health_fixes": {
+      "check_id": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "details": {
+        "default": "'{}'::jsonb",
+        "nullable": "NO",
+        "type": "jsonb"
+      },
+      "fixed_at": {
+        "default": "now()",
+        "nullable": "NO",
+        "type": "timestamp with time zone"
+      },
+      "id": {
+        "default": "nextval(...)",
+        "nullable": "NO",
+        "type": "integer"
+      },
+      "outcome": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      },
+      "run_id": {
+        "default": null,
+        "nullable": "YES",
+        "type": "uuid"
+      },
+      "summary": {
+        "default": null,
+        "nullable": "NO",
+        "type": "text"
+      }
+    },
     "idea_citations": {
       "created_at": {
         "default": "now()",
@@ -3771,6 +3808,40 @@
         "type": "n"
       }
     },
+    "health_fixes": {
+      "health_fixes_check_id_not_null": {
+        "definition": "NOT NULL check_id",
+        "type": "n"
+      },
+      "health_fixes_details_not_null": {
+        "definition": "NOT NULL details",
+        "type": "n"
+      },
+      "health_fixes_fixed_at_not_null": {
+        "definition": "NOT NULL fixed_at",
+        "type": "n"
+      },
+      "health_fixes_id_not_null": {
+        "definition": "NOT NULL id",
+        "type": "n"
+      },
+      "health_fixes_outcome_check": {
+        "definition": "CHECK ((outcome = ANY (ARRAY['fixed'::text, 'partly'::text, 'unchanged'::text, 'failed'::text])))",
+        "type": "c"
+      },
+      "health_fixes_outcome_not_null": {
+        "definition": "NOT NULL outcome",
+        "type": "n"
+      },
+      "health_fixes_pkey": {
+        "definition": "PRIMARY KEY (id)",
+        "type": "p"
+      },
+      "health_fixes_summary_not_null": {
+        "definition": "NOT NULL summary",
+        "type": "n"
+      }
+    },
     "idea_citations": {
       "idea_citations_created_at_not_null": {
         "definition": "NOT NULL created_at",
@@ -5336,6 +5407,10 @@
       "health_checks_check": "CREATE INDEX health_checks_check ON public.health_checks USING btree (check_id, run_at DESC)",
       "health_checks_pkey": "CREATE UNIQUE INDEX health_checks_pkey ON public.health_checks USING btree (id)",
       "health_checks_run": "CREATE INDEX health_checks_run ON public.health_checks USING btree (run_id)"
+    },
+    "health_fixes": {
+      "health_fixes_check": "CREATE INDEX health_fixes_check ON public.health_fixes USING btree (check_id, fixed_at DESC)",
+      "health_fixes_pkey": "CREATE UNIQUE INDEX health_fixes_pkey ON public.health_fixes USING btree (id)"
     },
     "idea_citations": {
       "idea_citations_idea_status_idx": "CREATE INDEX idea_citations_idea_status_idx ON public.idea_citations USING btree (idea_id, status)",

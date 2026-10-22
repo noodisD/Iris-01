@@ -1014,4 +1014,6 @@ export interface HealthLatest {
   runAt: string | null;
   counts: Partial<Record<'fail' | 'warn' | 'waiting' | 'unknown' | 'ok', number>>;
   attention: HealthAttention[];
+  /** Safe-auto repairs the doctor made in the day before this run. */
+  repaired?: { id: string; outcome: 'fixed' | 'partly' | 'unchanged' | 'failed'; summary: string }[];
 }

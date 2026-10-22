@@ -42,3 +42,12 @@ it('stays quiet when all is well, and off the chat screen', async () => {
   await new Promise(r => setTimeout(r, 20));
   expect(screen.queryByLabelText('IRIS health')).toBeNull();
 });
+
+it('says what IRIS repaired on its own, even when nothing else needs attention', async () => {
+  state.data = { ...run([]), repaired: [{ id: 'data.orphan_embeddings', outcome: 'fixed',
+    summary: 'Deleted 2 embedding(s) that pointed at deleted sources.' }] };
+  renderAt();
+  expect(await screen.findByText('IRIS repaired 1 thing itself')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  expect(screen.getByText('Deleted 2 embedding(s) that pointed at deleted sources.')).toBeTruthy();
+});

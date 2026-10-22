@@ -2775,7 +2775,7 @@ def health_latest():
     """
     from agent import doctor
 
-    return doctor.latest() or {"runId": None, "runAt": None, "counts": {}, "attention": []}
+    return doctor.latest() or {"runId": None, "runAt": None, "counts": {}, "attention": [], "repaired": []}
 
 
 @app.get("/api/observatory/doctor")

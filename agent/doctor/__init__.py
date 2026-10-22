@@ -205,4 +205,13 @@ def latest() -> dict | None:
     attention = sorted(({"id": cid, "status": status, "summary": (details or {}).get("summary", "")}
                         for cid, status, _, details in rows if status != "ok"),
                        key=lambda a: (ORDER[a["status"]], a["id"]))
-    return {"runId": str(run_id), "runAt": run_at.isoformat(), "counts": counts, "attention": attention}
+    try:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT check_id, outcome, summary FROM health_fixes
+                            WHERE fixed_at > %s - interval '1 day' ORDER BY fixed_at""", (run_at,))
+            repaired = [{"id": cid, "outcome": outcome, "summary": summary}
+                        for cid, outcome, summary in cur.fetchall()]
+    except psycopg2.errors.UndefinedTable:
+        repaired = []
+    return {"runId": str(run_id), "runAt": run_at.isoformat(), "counts": counts, "attention": attention,
+            "repaired": repaired}
