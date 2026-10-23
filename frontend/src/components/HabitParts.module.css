@@ -12,10 +12,14 @@
 .legend { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--petal-3); max-width: 60ch; }
 .editor { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--mist); border-radius: var(--radius-panel);
   background: var(--dusk); display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: var(--space-3) var(--space-6); align-items: start; }
-.editorSide { display: flex; flex-direction: column; gap: var(--space-3); }
-.editorNote { min-width: 0; }
-.editorActions { grid-column: 1 / -1; }
+  grid-template-areas: "side note" "actions note"; grid-template-rows: 1fr auto;
+  gap: var(--space-3) var(--space-6); }
+.editorSide { grid-area: side; display: flex; flex-direction: column; gap: var(--space-3); }
+/* The note takes the panel's whole height: the date, status and buttons sit beside it. */
+.editorNote { grid-area: note; min-width: 0; display: flex; flex-direction: column; }
+.editorNote > * { flex: 1; display: flex; flex-direction: column; }
+.editorNote textarea { flex: 1; min-height: 11rem; }
+.editorActions { grid-area: actions; align-self: end; }
 .editorTitle { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); font-weight: 450; color: var(--petal); }
 .note { width: 100%; resize: vertical; }
 .form { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
@@ -24,5 +28,5 @@
 .error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
 
 @media (max-width: 767px) {
-  .editor { grid-template-columns: 1fr; }
+  .editor { grid-template-columns: 1fr; grid-template-areas: "side" "note" "actions"; grid-template-rows: auto; }
 }

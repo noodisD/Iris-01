@@ -45,7 +45,8 @@ export function DayEditor({ habit, date, day, onClose }: { habit: Habit; date: s
       </div>
       <div className={styles.editorNote}>
         <Field label="Note for this day" hint="A line of reflection, if you have one. IRIS can recall it in chat.">
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={4} className={styles.note}
+          <textarea value={note} onChange={e => setNote(e.target.value)} className={styles.note}
+            rows={Math.max(8, note.split('\n').length + 1)}
             placeholder={status === 'skipped' ? 'Why you skipped it, if you like' : 'How it went'} />
         </Field>
       </div>
