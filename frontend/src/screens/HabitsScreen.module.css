@@ -55,3 +55,9 @@ a.name:hover, a.name:focus-visible { text-decoration: underline; }
 button.name { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
 button.name:hover, button.name:focus-visible { text-decoration: underline; }
 .archivedName { background: none; border: none; padding: 0; color: var(--iris-text); cursor: pointer; font-size: var(--text-sm); }
+
+.order { display: flex; flex-direction: column; align-items: center; gap: 0; margin-top: -2px; flex-shrink: 0; }
+.grip { color: var(--petal-3); cursor: grab; padding: 2px; line-height: 0; }
+.grip:active { cursor: grabbing; }
+.moveButton { width: 22px; height: 18px; min-height: 0; padding: 0; color: var(--petal-3); }
+.dropTarget { box-shadow: inset 0 2px 0 var(--iris); }

@@ -849,6 +849,11 @@
         "nullable": "NO",
         "type": "character varying"
       },
+      "position": {
+        "default": null,
+        "nullable": "YES",
+        "type": "integer"
+      },
       "processing_status": {
         "default": "'pending'::character varying",
         "nullable": "YES",

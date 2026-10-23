@@ -1025,6 +1025,7 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60, periods
         "recentStatus": recent_status,
         "recentNotes": [d in noted for d in window],
         "recentStart": start.isoformat(),
+        "position": habit.get("position"),
         "archived": not habit.get("is_active", True),
         "createdAt": created.date().isoformat() if hasattr(created, "date") else None,
     }
@@ -1042,6 +1043,25 @@ def list_habits(user_id: int = Depends(get_current_user_id)):
     """Every habit, archived ones included, for the Habits pages."""
     tracker = HabitTracker(user_id)
     return [_habit_to_contract(h, user_id) for h in tracker.get_habits(active_only=False)]
+
+
+class HabitOrder(BaseModel):
+    """Habits in the order the owner wants them, most important first (one tab's worth)."""
+    ids: list[str] = Field(min_length=1, max_length=500)
+
+
+@app.put("/api/habits/order")
+def order_habits_app(order: HabitOrder, user_id: int = Depends(get_current_user_id)):
+    """Keep the most important habits on top: the same order on the list, Today and the phone."""
+    try:
+        ids = [int(i) for i in order.ids]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Habit ids are numbers.")
+    owned = {h["id"] for h in HabitTracker(user_id).get_habits(active_only=False)}
+    if len(set(ids)) != len(ids) or not set(ids) <= owned:
+        raise HTTPException(status_code=400, detail="Each habit once, and only your own.")
+    db.order_habits(user_id, ids)
+    return {"ordered": len(ids)}
 
 
 @app.patch("/api/habits/{habit_id}")

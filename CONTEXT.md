@@ -424,4 +424,6 @@ marking the day; the **streak** is always counted from the days and never set.
 Habits are daily, weekly or monthly with a target per period; a weekly or monthly
 streak counts consecutive periods that met the target, a skipped day pauses a daily
 streak, and the period in progress does not break one. Only a done day is evidence;
-a note on any day is recalled by chat as what the day was (ADR-0034).
+a note on any day is recalled by chat as what the day was (ADR-0034). The owner
+orders habits (`position`, most important first); the order is the same on the
+Habits list, Today and the phone.

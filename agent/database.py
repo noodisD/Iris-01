@@ -2952,11 +2952,14 @@ class Database:
                 cur.execute(
                     """
                     INSERT INTO habits (user_id, name, description, frequency_type, habit_type, weekly_target,
-                                        tracking_metric, category, frequency_target)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+                                        tracking_metric, category, frequency_target, position)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            -- A new habit joins the end of the owner's order.
+                            (SELECT coalesce(max(position), 0) + 1 FROM habits WHERE user_id = %s))
+                    RETURNING id;
                     """,
                     (user_id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category,
-                     frequency_target)
+                     frequency_target, user_id)
                 )
                 habit_id = cur.fetchone()[0]
                 self._queue(cur, user_id, 'habit', habit_id)
@@ -2976,9 +2979,9 @@ class Database:
                     cur.execute(
                         """
                         SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
-                               current_streak, longest_streak, total_completions, created_at, frequency_target
+                               current_streak, longest_streak, total_completions, created_at, frequency_target, position
                         FROM habits WHERE user_id = %s AND is_active = TRUE
-                        ORDER BY created_at DESC;
+                        ORDER BY position NULLS LAST, created_at DESC;
                         """,
                         (user_id,)
                     )
@@ -2986,9 +2989,9 @@ class Database:
                     cur.execute(
                         """
                         SELECT id, name, description, frequency_type, habit_type, weekly_target, tracking_metric, category, is_active,
-                               current_streak, longest_streak, total_completions, created_at, frequency_target
+                               current_streak, longest_streak, total_completions, created_at, frequency_target, position
                         FROM habits WHERE user_id = %s
-                        ORDER BY created_at DESC;
+                        ORDER BY position NULLS LAST, created_at DESC;
                         """,
                         (user_id,)
                     )
@@ -3009,6 +3012,7 @@ class Database:
                         "total_completions": row[11],
                         "created_at": row[12],
                         "frequency_target": row[13] or 1,
+                        "position": row[14],
                     }
                     for row in rows
                 ]
@@ -3218,6 +3222,23 @@ class Database:
                 conn.rollback()
                 logger.error(f"Failed to set habit {habit_id} on {day}: {e}")
                 raise
+
+    def order_habits(self, user_id: int, habit_ids: list[int]) -> None:
+        """Put these habits in this order, most important first. Others keep their places."""
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT position FROM habits WHERE user_id = %s AND id = ANY(%s) ORDER BY position NULLS LAST",
+                        (user_id, habit_ids))
+            # Reuse the slots these habits already held, so reordering one tab
+            # never moves a habit on another.
+            slots = sorted(p for (p,) in cur.fetchall() if p is not None)
+            cur.execute("SELECT coalesce(max(position), 0) FROM habits WHERE user_id = %s", (user_id,))
+            top = cur.fetchone()[0]
+            # Habits that had no place yet get new ones after every existing place.
+            free = slots + list(range(top + 1, top + 1 + len(habit_ids) - len(slots)))
+            for position, habit_id in zip(free, habit_ids):
+                cur.execute("UPDATE habits SET position = %s WHERE id = %s AND user_id = %s",
+                            (position, habit_id, user_id))
+            conn.commit()
 
     def delete_habit_permanently(self, habit_id: int) -> None:
         """Delete a habit and every day of it, with everything derived from them."""

@@ -53,3 +53,8 @@ export function setHabitDay(id: string, date: string, status: HabitDay['status']
 export async function createHabit(input: HabitCreate): Promise<Habit> {
   return api.post('/habits', input);
 }
+
+/** Habits in the order the owner wants them, most important first. */
+export function orderHabits(ids: string[]): Promise<{ ordered: number }> {
+  return api.put('/habits/order', { ids });
+}

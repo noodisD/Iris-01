@@ -586,6 +586,8 @@ export interface Habit {
   recentNotes?: boolean[];
   /** The date of the first of those days. */
   recentStart?: ISODate;
+  /** The owner's order, most important first. */
+  position?: number | null;
 }
 
 export type HabitFrequency = 'daily' | 'weekly' | 'monthly';

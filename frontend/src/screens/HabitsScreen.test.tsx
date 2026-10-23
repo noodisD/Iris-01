@@ -10,7 +10,7 @@ import type { Habit, HabitDay } from '@/types/api';
 
 const server = vi.hoisted(() => ({
   habits: [] as Habit[], created: [] as unknown[], days: [] as unknown[][], updates: [] as unknown[][],
-  deleted: [] as string[],
+  deleted: [] as string[], orders: [] as string[][],
 }));
 
 const habit = (over: Partial<Habit>): Habit => ({
@@ -41,6 +41,12 @@ vi.mock('@/api/habits', () => ({
     server.habits = server.habits.map(h => (h.id === id ? { ...h, ...update } as Habit : h));
     return server.habits.find(h => h.id === id);
   },
+  orderHabits: async (ids: string[]) => {
+    server.orders.push(ids);
+    const byId = new Map(server.habits.map(h => [h.id, h]));
+    server.habits = ids.map(id => byId.get(id)!);
+    return { ordered: ids.length };
+  },
   deleteHabit: async (id: string) => { server.deleted.push(id); server.habits = server.habits.filter(h => h.id !== id); return { deleted: true }; },
 }));
 
@@ -55,7 +61,7 @@ function show(path: string) {
   </Routes></MemoryRouter></QueryClientProvider>);
 }
 
-beforeEach(() => { server.habits = []; server.created = []; server.days = []; server.updates = []; server.deleted = []; });
+beforeEach(() => { server.habits = []; server.created = []; server.days = []; server.updates = []; server.deleted = []; server.orders = []; });
 
 describe('the habit lists', () => {
   it('says there are none yet, then lists the one just named', async () => {
@@ -148,5 +154,23 @@ describe('editing from the list itself', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Water the beans' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save changes' })); });
     expect(server.updates[0]).toEqual(['1', { name: 'Water the beans', intent: null, tag: null, frequency: 'daily' }]);
+  });
+});
+
+describe('keeping the most important habits on top', () => {
+  it('moves a habit with its buttons, and by dragging it onto another', async () => {
+    server.habits = [habit({ id: '1', name: 'Stretch' }), habit({ id: '2', name: 'Read' }), habit({ id: '3', name: 'Walk' })];
+    show('/habits/daily');
+    await screen.findByText('Walk');
+    expect(screen.getByRole('button', { name: 'Move Stretch up' })).toBeDisabled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Move Walk up' })); });
+    expect(server.orders).toEqual([['1', '3', '2']]);
+    await waitFor(() => expect(screen.getAllByRole('article').map(a => a.getAttribute('aria-label')))
+      .toEqual(['Stretch', 'Walk', 'Read']));
+    const [stretch, , read] = screen.getAllByRole('article');
+    fireEvent.dragStart(read.querySelector('[draggable]')!);
+    fireEvent.dragOver(stretch);
+    await act(async () => { fireEvent.drop(stretch); });
+    expect(server.orders[1]).toEqual(['2', '1', '3']);
   });
 });

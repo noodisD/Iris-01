@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import * as habitsApi from '@/api/habits';
-import type { HabitDay, HabitsTodayResponse } from '@/types/api';
+import type { Habit, HabitDay, HabitsTodayResponse } from '@/types/api';
 
 export function useHabits() {
   return useQuery({ queryKey: qk.habits, queryFn: habitsApi.getHabitsToday });
@@ -91,4 +91,25 @@ export function useUpdateHabit(id: string) {
 export function useDeleteHabit(id: string) {
   const refresh = useHabitsRefresh();
   return useMutation({ mutationFn: () => habitsApi.deleteHabit(id), onSuccess: refresh });
+}
+
+/** Move habits in one tab; the list moves at once and the server keeps the order. */
+export function useOrderHabits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => habitsApi.orderHabits(ids),
+    onMutate: async (ids: string[]) => {
+      await qc.cancelQueries({ queryKey: ['habits', 'all'] });
+      const previous = qc.getQueryData<Habit[]>(['habits', 'all']);
+      if (previous) {
+        const moved = new Set(ids);
+        const byId = new Map(previous.map(h => [h.id, h]));
+        const queue = ids.map(id => byId.get(id)!).filter(Boolean);
+        qc.setQueryData<Habit[]>(['habits', 'all'], previous.map(h => (moved.has(h.id) ? queue.shift()! : h)));
+      }
+      return { previous };
+    },
+    onError: (_e, _ids, ctx) => { if (ctx?.previous) qc.setQueryData(['habits', 'all'], ctx.previous); },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['habits'] }); },
+  });
 }

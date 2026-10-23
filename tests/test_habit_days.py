@@ -131,3 +131,18 @@ def test_the_list_carries_each_recent_day_and_its_note(client):
     assert row["recentStatus"][-2:] == ["skipped", "done"]
     assert row["recentNotes"][-2:] == [True, False]
     assert row["recentStart"] == (TODAY - timedelta(days=59)).isoformat()
+
+
+def test_habits_keep_the_order_the_owner_gives_them(client):
+    a, b, c = (_habit(client, name=n)["id"] for n in ("Stretch", "Read", "Walk"))
+    weekly = _habit(client, name="Call home", frequency="weekly", target=1)["id"]
+    names = lambda rows: [r["name"] for r in rows]
+    assert names(client.get("/api/habits").json())[-1] == "Call home", "a new habit joins the end"
+    assert client.put("/api/habits/order", json={"ids": [c, a, b]}).json() == {"ordered": 3}
+    daily = [r for r in client.get("/api/habits").json() if r["frequency"] == "daily"]
+    assert names(daily) == ["Walk", "Stretch", "Read"]
+    assert names(client.get("/api/habits/today").json()["habits"])[:3] == ["Walk", "Stretch", "Read"]
+    assert names(client.get("/api/habits").json())[-1] == "Call home", "another tab keeps its place"
+    assert client.put("/api/habits/order", json={"ids": [a, a]}).status_code == 400
+    assert client.put("/api/habits/order", json={"ids": [a, "999999"]}).status_code == 400
+    assert weekly

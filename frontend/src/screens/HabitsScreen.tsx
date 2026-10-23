@@ -1,11 +1,12 @@
 import React from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Calendar, DayEditorLoader, EditHabit, PERIODS, isoDate } from '@/components/HabitParts';
-import { useAllHabits, useCreateHabit, useToggleHabit } from '@/hooks/useHabits';
+import { useAllHabits, useCreateHabit, useOrderHabits, useToggleHabit } from '@/hooks/useHabits';
+import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
 import type { Habit, HabitFrequency } from '@/types/api';
-import { Button, ChoiceGroup, Page, Tabs, TabPanel } from '@/ui';
+import { Button, ChoiceGroup, IconButton, Page, Tabs, TabPanel } from '@/ui';
 import styles from './HabitsScreen.module.css';
 
 function frequencyOf(h: Habit): HabitFrequency {
@@ -63,7 +64,13 @@ function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: st
   );
 }
 
-function HabitRow({ h, onToggle }: { h: Habit; onToggle: (id: string, done: boolean) => void }) {
+interface Ordering {
+  index: number; count: number;
+  move: (from: number, to: number) => void;
+  dragged: React.MutableRefObject<number | null>;
+}
+
+function HabitRow({ h, onToggle, order }: { h: Habit; onToggle: (id: string, done: boolean) => void; order?: Ordering }) {
   const c = color(h.color);
   const navigate = useNavigate();
   const frequency = frequencyOf(h);
@@ -71,10 +78,38 @@ function HabitRow({ h, onToggle }: { h: Habit; onToggle: (id: string, done: bool
   const target = h.target ?? 1;
   const [day, setDay] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [over, setOver] = React.useState(false);
+  const article = React.useRef<HTMLElement>(null);
   return (
-    <article className={styles.item} aria-label={h.name}>
+    <article ref={article} className={`${styles.item} ${over ? styles.dropTarget : ''}`} aria-label={h.name}
+      onDragOver={order ? e => { if (order.dragged.current !== null) { e.preventDefault(); setOver(true); } } : undefined}
+      onDragLeave={() => setOver(false)}
+      onDrop={order ? e => {
+        e.preventDefault(); setOver(false);
+        if (order.dragged.current !== null) order.move(order.dragged.current, order.index);
+        order.dragged.current = null;
+      } : undefined}>
       <div className={styles.row}>
         <div className={styles.what}>
+          {order && order.count > 1 && (
+            <div className={styles.order}>
+              <span className={styles.grip} draggable title="Drag to move" aria-hidden
+                onDragStart={e => {
+                  order.dragged.current = order.index;
+                  if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    if (article.current) e.dataTransfer.setDragImage?.(article.current, 24, 24);
+                  }
+                }}
+                onDragEnd={() => { order.dragged.current = null; }}>
+                <GripVertical size={16} />
+              </span>
+              <IconButton label={`Move ${h.name} up`} icon={<ChevronUp size={14} />} disabled={order.index === 0}
+                onClick={() => order.move(order.index, order.index - 1)} className={styles.moveButton} />
+              <IconButton label={`Move ${h.name} down`} icon={<ChevronDown size={14} />} disabled={order.index === order.count - 1}
+                onClick={() => order.move(order.index, order.index + 1)} className={styles.moveButton} />
+            </div>
+          )}
           <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'} today`}
             aria-pressed={h.doneToday} className={styles.tick}
             style={{ borderColor: h.doneToday ? c : undefined, background: h.doneToday ? c : undefined }}>
@@ -191,6 +226,15 @@ function PeriodPanel({ frequency, habits, onToggle }: {
 }) {
   const [view, setView] = React.useState<'list' | 'constellation'>('list');
   const period = PERIODS.find(p => p.value === frequency)!;
+  const order = useOrderHabits();
+  const dragged = React.useRef<number | null>(null);
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= habits.length) return;
+    const ids = habits.map(h => h.id);
+    const [id] = ids.splice(from, 1);
+    ids.splice(to, 0, id);
+    order.mutate(ids);
+  };
   const onTarget = habits.filter(h => (frequency === 'daily' ? h.doneToday : h.periodMet)).length;
   return (
     <div className={styles.panel}>
@@ -213,7 +257,13 @@ function PeriodPanel({ frequency, habits, onToggle }: {
       ) : view === 'constellation' && frequency === 'daily' ? (
         <Constellation habits={habits} onToggle={onToggle} />
       ) : (
-        <div className={styles.list}>{habits.map(h => <HabitRow key={h.id} h={h} onToggle={onToggle} />)}</div>
+        <div className={styles.list}>
+          {order.isError && <p role="alert" className={styles.error}>The new order wasn't saved; it's back as it was.</p>}
+          {habits.map((h, index) => (
+            <HabitRow key={h.id} h={h} onToggle={onToggle}
+              order={{ index, count: habits.length, move, dragged }} />
+          ))}
+        </div>
       )}
     </div>
   );
