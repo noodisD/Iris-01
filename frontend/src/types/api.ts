@@ -580,6 +580,12 @@ export interface Habit {
   periods?: { start: ISODate; done: number; met: boolean }[];
   archived?: boolean;
   createdAt?: ISODate | null;
+  /** The same days as recentDays, with what each was. */
+  recentStatus?: ('done' | 'skipped' | 'none')[];
+  /** Which of those days carry a note. */
+  recentNotes?: boolean[];
+  /** The date of the first of those days. */
+  recentStart?: ISODate;
 }
 
 export type HabitFrequency = 'daily' | 'weekly' | 'monthly';

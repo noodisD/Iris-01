@@ -30,7 +30,8 @@ vi.mock('@/api/habits', () => ({
     server.habits = [...server.habits, made];
     return made;
   },
-  getHabitDays: async (): Promise<HabitDay[]> => [{ date: '2026-10-03', status: 'done', note: 'Before the rain.' }],
+  getHabitDays: async (_id: string, start: string, end: string): Promise<HabitDay[]> =>
+    [{ date: '2026-10-03', status: 'done' as const, note: 'Before the rain.' }].filter(d => d.date >= start && d.date <= end),
   setHabitDay: async (id: string, date: string, status: string, note: string | null) => {
     server.days.push([id, date, status, note]);
     return { day: { date, status, note }, habit: server.habits[0] };
@@ -115,5 +116,37 @@ describe('a habit page', () => {
     expect(server.deleted).toEqual([]);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Delete for good' })); });
     expect(server.deleted).toEqual(['1']);
+  });
+});
+
+describe('editing from the list itself', () => {
+  const recent = (over: Partial<Habit>) => habit({
+    recentStart: '2026-08-24', recentDays: Array(60).fill(0),
+    recentStatus: Array(60).fill('none'), recentNotes: Array(60).fill(false), ...over,
+  });
+
+  it('marks a forgotten day and writes its note from the row, without leaving the page', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T12:00:00'));
+    server.habits = [recent({})];
+    show('/habits/daily');
+    const dot = await screen.findByRole('button', { name: /^(20 Oct|Oct 20): not done/ });
+    fireEvent.click(dot);
+    fireEvent.click(await screen.findByRole('radio', { name: 'Done' }));
+    fireEvent.change(screen.getByLabelText('Note for this day'), { target: { value: 'Did it, forgot to tick.' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save day' })); });
+    expect(server.days).toEqual([['1', '2026-10-20', 'done', 'Did it, forgot to tick.']]);
+    expect(screen.getByRole('tab', { name: /Daily/ })).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('opens the calendar and the edit form under the habit when its name is clicked', async () => {
+    server.habits = [recent({})];
+    show('/habits/daily');
+    fireEvent.click(await screen.findByRole('button', { name: 'Water the allotment' }));
+    expect(await screen.findByRole('grid')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Water the beans' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save changes' })); });
+    expect(server.updates[0]).toEqual(['1', { name: 'Water the beans', intent: null, tag: null, frequency: 'daily' }]);
   });
 });

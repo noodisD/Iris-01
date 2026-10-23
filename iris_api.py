@@ -994,6 +994,9 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60, periods
     streak = compute(frequency, target, done, skipped, today)
     start = today - timedelta(days=window_days - 1)
     recent_days = [1 if start + timedelta(days=i) in done else 0 for i in range(window_days)]
+    noted = {d["date"] for d in days if d["note"]}
+    window = [start + timedelta(days=i) for i in range(window_days)]
+    recent_status = ["done" if d in done else "skipped" if d in skipped else "none" for d in window]
     history, period = [], period_start(today, frequency)
     for _ in range(periods):
         count = sum(1 for d in done if period_start(d, frequency) == period)
@@ -1017,6 +1020,11 @@ def _habit_to_contract(habit: dict, user_id: int, window_days: int = 60, periods
         "periods": list(reversed(history)),
         "doneToday": today in done,
         "recentDays": recent_days,
+        # The same days with what each was, and which carry a note, so the list
+        # can show and edit them in place.
+        "recentStatus": recent_status,
+        "recentNotes": [d in noted for d in window],
+        "recentStart": start.isoformat(),
         "archived": not habit.get("is_active", True),
         "createdAt": created.date().isoformat() if hasattr(created, "date") else None,
     }

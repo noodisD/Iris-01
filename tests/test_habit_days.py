@@ -121,3 +121,13 @@ def test_a_weekly_habit_reports_progress_this_week(client):
     assert weekly["periods"][-1] == {"start": monday.isoformat(), "done": 1, "met": False}
     monthly = _habit(client, frequency="monthly", target=1)
     assert monthly["frequency"] == "monthly" and monthly["streakUnit"] == "month"
+
+
+def test_the_list_carries_each_recent_day_and_its_note(client):
+    h = _habit(client)
+    _set(client, h["id"], TODAY, "done")
+    _set(client, h["id"], TODAY - timedelta(days=1), "skipped", "Rest day.")
+    row = next(x for x in client.get("/api/habits").json() if x["id"] == h["id"])
+    assert row["recentStatus"][-2:] == ["skipped", "done"]
+    assert row["recentNotes"][-2:] == [True, False]
+    assert row["recentStart"] == (TODAY - timedelta(days=59)).isoformat()

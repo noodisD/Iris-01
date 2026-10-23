@@ -6,7 +6,8 @@
 .error { color: var(--danger); font-size: var(--text-sm); margin: 0; }
 .empty { margin: 0; color: var(--petal-3); font-family: var(--font-read); font-size: var(--text-lg); }
 .list { display: flex; flex-direction: column; border-top: 1px solid var(--mist); }
-.row { display: grid; grid-template-columns: minmax(200px, 1.1fr) 2fr auto; gap: var(--space-5); align-items: center; padding: var(--space-5) 0; border-bottom: 1px solid var(--mist); }
+.item { border-bottom: 1px solid var(--mist); }
+.row { display: grid; grid-template-columns: minmax(200px, 1.1fr) 2fr auto; gap: var(--space-5); align-items: center; padding: var(--space-5) 0; }
 .what { display: flex; gap: var(--space-3); align-items: flex-start; min-width: 0; }
 .tick { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--mist-2); background: transparent; color: var(--night);
   display: grid; place-items: center; cursor: pointer; padding: 0; flex-shrink: 0; margin-top: 3px; font-size: 13px; }
@@ -16,7 +17,14 @@
 .intent { font-size: var(--text-sm); color: var(--petal-2); }
 .history { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .dots { display: flex; flex-wrap: wrap; gap: 5px; }
-.day { width: 8px; height: 8px; border-radius: 50%; background: var(--mist); }
+.day { width: 10px; height: 10px; border-radius: 50%; background: var(--mist); border: 1.5px solid transparent;
+  padding: 0; cursor: pointer; position: relative; }
+.day:hover { outline: 1px solid var(--petal-3); outline-offset: 1px; }
+.day:focus-visible { box-shadow: var(--focus-ring); }
+.daySkipped { background: transparent; border-style: dashed; }
+.dayNoted::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 3px; height: 3px; margin-left: -1.5px;
+  border-radius: 50%; background: var(--pollen); }
+.daySelected { outline: 2px solid var(--iris); outline-offset: 1px; }
 .axis { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--petal-3); }
 .streak { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .streakNumber { font-family: var(--font-read); font-size: var(--text-3xl); line-height: 1; color: var(--petal-3); font-variant-numeric: lining-nums tabular-nums; }
@@ -26,7 +34,7 @@
 .sky { max-width: 760px; height: auto; }
 @media (max-width: 767px) {
   .row { grid-template-columns: 1fr auto; gap: var(--space-3); }
-  .history { grid-column: 1 / -1; order: 3; }
+  .middle { grid-column: 1 / -1; order: 3; }
 }
 .panel { display: flex; flex-direction: column; gap: var(--space-4); padding-top: var(--space-4); }
 .panelHead { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
@@ -41,3 +49,9 @@
 .archived ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
 a.name { text-decoration: none; }
 a.name:hover, a.name:focus-visible { text-decoration: underline; }
+
+.middle { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.inline { padding: 0 0 var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+button.name { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
+button.name:hover, button.name:focus-visible { text-decoration: underline; }
+.archivedName { background: none; border: none; padding: 0; color: var(--iris-text); cursor: pointer; font-size: var(--text-sm); }

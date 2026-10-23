@@ -1,17 +1,12 @@
 import React from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Calendar, DayEditorLoader, EditHabit, PERIODS, isoDate } from '@/components/HabitParts';
 import { useAllHabits, useCreateHabit, useToggleHabit } from '@/hooks/useHabits';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
 import type { Habit, HabitFrequency } from '@/types/api';
 import { Button, ChoiceGroup, Page, Tabs, TabPanel } from '@/ui';
 import styles from './HabitsScreen.module.css';
-
-export const PERIODS: { value: HabitFrequency; label: string; noun: string; adverb: string }[] = [
-  { value: 'daily', label: 'Daily', noun: 'day', adverb: 'today' },
-  { value: 'weekly', label: 'Weekly', noun: 'week', adverb: 'this week' },
-  { value: 'monthly', label: 'Monthly', noun: 'month', adverb: 'this month' },
-];
 
 function frequencyOf(h: Habit): HabitFrequency {
   return h.frequency ?? 'daily';
@@ -39,46 +34,86 @@ function PeriodStrip({ h, c }: { h: Habit; c: string }) {
   );
 }
 
+function dayAt(start: string | undefined, index: number, length: number): string {
+  // The server says where the window starts; without it, count back from today.
+  const base = start ? new Date(`${start}T12:00:00`) : new Date(Date.now() - (length - 1) * 86400000);
+  return isoDate(new Date(base.getFullYear(), base.getMonth(), base.getDate() + index));
+}
+
+/** The last 60 days, each a button: click one to mark it and write its note, here. */
+function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: string | null; onPick: (date: string) => void }) {
+  const status = h.recentStatus ?? h.recentDays.map(v => (v ? 'done' : 'none'));
+  const notes = h.recentNotes ?? [];
+  return (
+    <div className={styles.history}>
+      <div className={styles.dots} role="group" aria-label={`Last ${status.length} days: ${status.filter(s => s === 'done').length} done. Choose a day to change it.`}>
+        {status.map((s, i) => {
+          const date = dayAt(h.recentStart, i, status.length);
+          const label = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+          return (
+            <button key={date} type="button" onClick={() => onPick(date)} aria-pressed={selected === date}
+              aria-label={`${label}: ${s === 'done' ? 'done' : s === 'skipped' ? 'skipped' : 'not done'}${notes[i] ? ', with a note' : ''}`}
+              className={`${styles.day} ${s === 'skipped' ? styles.daySkipped : ''} ${notes[i] ? styles.dayNoted : ''} ${selected === date ? styles.daySelected : ''}`}
+              style={s === 'done' ? { background: c } : s === 'skipped' ? { borderColor: c } : undefined} />
+          );
+        })}
+      </div>
+      <div className={styles.axis}><span>{status.length} days ago</span><span>Today</span></div>
+    </div>
+  );
+}
+
 function HabitRow({ h, onToggle }: { h: Habit; onToggle: (id: string, done: boolean) => void }) {
   const c = color(h.color);
+  const navigate = useNavigate();
   const frequency = frequencyOf(h);
   const period = PERIODS.find(p => p.value === frequency)!;
   const target = h.target ?? 1;
+  const [day, setDay] = React.useState<string | null>(null);
+  const [open, setOpen] = React.useState(false);
   return (
-    <article className={styles.row} aria-label={h.name}>
-      <div className={styles.what}>
-        <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'} today`}
-          aria-pressed={h.doneToday} className={styles.tick}
-          style={{ borderColor: h.doneToday ? c : undefined, background: h.doneToday ? c : undefined }}>
-          {h.doneToday && <span aria-hidden>✓</span>}
-        </button>
-        <div className={styles.names}>
-          <Link to={`/habits/${frequency}/${h.id}`} className={styles.name}>{h.name}</Link>
-          {h.tag && <span className={styles.tag}>{h.tag}</span>}
-          {h.intent && <span className={styles.intent}>{h.intent}</span>}
-          {frequency !== 'daily' && (
-            <span className={h.periodMet ? styles.progressMet : styles.progress}>
-              {h.periodDone ?? 0} of {target} {period.adverb}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {frequency === 'daily' ? (
-        <div className={styles.history} aria-label={`Last ${h.recentDays.length} days: ${h.recentDays.filter(Boolean).length} done`}>
-          <div className={styles.dots}>
-            {h.recentDays.map((v, i) => (
-              <span key={i} className={styles.day} style={v ? { background: c } : undefined} />
-            ))}
+    <article className={styles.item} aria-label={h.name}>
+      <div className={styles.row}>
+        <div className={styles.what}>
+          <button onClick={() => onToggle(h.id, !h.doneToday)} aria-label={`Mark ${h.name} ${h.doneToday ? 'not done' : 'done'} today`}
+            aria-pressed={h.doneToday} className={styles.tick}
+            style={{ borderColor: h.doneToday ? c : undefined, background: h.doneToday ? c : undefined }}>
+            {h.doneToday && <span aria-hidden>✓</span>}
+          </button>
+          <div className={styles.names}>
+            <button type="button" className={styles.name} aria-expanded={open} onClick={() => setOpen(o => !o)}
+              title="Show the calendar and edit this habit">{h.name}</button>
+            {h.tag && <span className={styles.tag}>{h.tag}</span>}
+            {h.intent && <span className={styles.intent}>{h.intent}</span>}
+            {frequency !== 'daily' && (
+              <span className={h.periodMet ? styles.progressMet : styles.progress}>
+                {h.periodDone ?? 0} of {target} {period.adverb}
+              </span>
+            )}
           </div>
-          <div className={styles.axis}><span>{h.recentDays.length} days ago</span><span>Today</span></div>
         </div>
-      ) : <PeriodStrip h={h} c={c} />}
 
-      <div className={styles.streak}>
-        <span className={styles.streakNumber} style={{ color: h.streakDays === 0 ? undefined : c }}>{h.streakDays}</span>
-        <span className={styles.streakLabel}>{h.streakUnit ?? 'day'} streak, best {h.bestStreak}</span>
+        <div className={styles.middle}>
+          <DayDots h={h} c={c} selected={day} onPick={d => setDay(cur => (cur === d ? null : d))} />
+          {frequency !== 'daily' && <PeriodStrip h={h} c={c} />}
+        </div>
+
+        <div className={styles.streak}>
+          <span className={styles.streakNumber} style={{ color: h.streakDays === 0 ? undefined : c }}>{h.streakDays}</span>
+          <span className={styles.streakLabel}>{h.streakUnit ?? 'day'} streak, best {h.bestStreak}</span>
+        </div>
       </div>
+
+      {day && <div className={styles.inline}><DayEditorLoader key={day} habit={h} date={day} onClose={() => setDay(null)} /></div>}
+      {open && (
+        <div className={styles.inline}>
+          <Calendar habit={h} />
+          <EditHabit key={h.id + (h.frequency ?? '')} habit={h}
+            onSaved={saved => { if ((saved.frequency ?? 'daily') !== frequency) navigate(`/habits/${saved.frequency ?? 'daily'}`); }}
+            onDeleted={() => setOpen(false)} />
+          <Button variant="quiet" size="sm" onClick={() => setOpen(false)}>Close</Button>
+        </div>
+      )}
     </article>
   );
 }
@@ -184,6 +219,17 @@ function PeriodPanel({ frequency, habits, onToggle }: {
   );
 }
 
+/** An archived habit, restorable in place. */
+function ArchivedHabit({ h }: { h: Habit }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <button type="button" className={styles.archivedName} aria-expanded={open} onClick={() => setOpen(o => !o)}>{h.name}</button>
+      {open && <div className={styles.inline}><EditHabit habit={h} onDeleted={() => setOpen(false)} /></div>}
+    </>
+  );
+}
+
 export function HabitsScreen() {
   const { period } = useParams();
   const navigate = useNavigate();
@@ -200,7 +246,7 @@ export function HabitsScreen() {
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
   return (
-    <Page title="Habits" description="Tick today, or open a habit to fix any day, write that day's note, or change it.">
+    <Page title="Habits" description="Tick today. Click any day's dot to mark it or write its note; click a habit's name for its calendar and to edit it.">
       {/* A tick that did not reach the server rolls back on screen, which on
           its own looks like a misclick. */}
       {toggle.isError && <p role="alert" className={styles.error}>That tick didn't save. Nothing is lost; try again.</p>}
@@ -220,7 +266,7 @@ export function HabitsScreen() {
           <summary>Archived ({archived.length})</summary>
           <ul>
             {archived.map(h => (
-              <li key={h.id}><Link to={`/habits/${frequencyOf(h)}/${h.id}`}>{h.name}</Link></li>
+              <li key={h.id}><ArchivedHabit h={h} /></li>
             ))}
           </ul>
         </details>
