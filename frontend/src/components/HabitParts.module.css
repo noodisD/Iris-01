@@ -10,10 +10,19 @@
 .selected { outline: 2px solid var(--iris); outline-offset: 1px; }
 .noteDot { position: absolute; right: 4px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--pollen); }
 .legend { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--petal-3); max-width: 60ch; }
-.editor { margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--mist); border-radius: var(--radius-panel);
-  background: var(--dusk); display: flex; flex-direction: column; gap: var(--space-3); max-width: 560px; }
+.editor { margin-top: var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--mist); border-radius: var(--radius-panel);
+  background: var(--dusk); display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: var(--space-3) var(--space-6); align-items: start; }
+.editorSide { display: flex; flex-direction: column; gap: var(--space-3); }
+.editorNote { min-width: 0; }
+.editorActions { grid-column: 1 / -1; }
 .editorTitle { margin: 0; font-family: var(--font-read); font-size: var(--text-lg); font-weight: 450; color: var(--petal); }
 .note { width: 100%; resize: vertical; }
-.form { display: flex; flex-direction: column; gap: var(--space-3); max-width: 560px; }
+.form { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
 .warn { margin: 0; color: var(--caution); font-size: var(--text-sm); }
 .error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+
+@media (max-width: 767px) {
+  .editor { grid-template-columns: 1fr; }
+}

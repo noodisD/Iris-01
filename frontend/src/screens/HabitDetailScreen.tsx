@@ -18,7 +18,7 @@ export function HabitDetailScreen() {
   const p = PERIODS.find(x => x.value === frequency)!;
   const streak = `${habit.streakDays} ${habit.streakUnit ?? 'day'}${habit.streakDays === 1 ? '' : 's'} in a row, best ${habit.bestStreak}`;
   return (
-    <Page title={habit.name}
+    <Page title={habit.name} width="wide"
       description={frequency === 'daily' ? streak : `${habit.periodDone ?? 0} of ${habit.target ?? 1} ${p.adverb} · ${streak}`}
       actions={<Link to={`/habits/${frequency}`}>All {p.label.toLowerCase()} habits</Link>}>
       {habit.archived && <p className={styles.warn}>Archived: hidden from your lists, history kept.</p>}

@@ -39,13 +39,17 @@ export function DayEditor({ habit, date, day, onClose }: { habit: Habit; date: s
   const changed = status !== (day?.status ?? 'none') || note.trim() !== (day?.note ?? '');
   return (
     <section className={styles.editor} aria-label={`${habit.name} on ${label}`}>
-      <h3 className={styles.editorTitle}>{label}</h3>
-      <ChoiceGroup label="What happened" options={[...STATUSES]} value={status} onChange={v => v && setStatus(v)} />
-      <Field label="Note for this day" hint="A line of reflection, if you have one. IRIS can recall it in chat.">
-        <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} className={styles.note}
-          placeholder={status === 'skipped' ? 'Why you skipped it, if you like' : 'How it went'} />
-      </Field>
-      <div className={styles.row}>
+      <div className={styles.editorSide}>
+        <h3 className={styles.editorTitle}>{label}</h3>
+        <ChoiceGroup label="What happened" options={[...STATUSES]} value={status} onChange={v => v && setStatus(v)} />
+      </div>
+      <div className={styles.editorNote}>
+        <Field label="Note for this day" hint="A line of reflection, if you have one. IRIS can recall it in chat.">
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={4} className={styles.note}
+            placeholder={status === 'skipped' ? 'Why you skipped it, if you like' : 'How it went'} />
+        </Field>
+      </div>
+      <div className={`${styles.row} ${styles.editorActions}`}>
         <Button variant="primary" disabled={!changed || save.isPending}
           onClick={() => save.mutate({ date, status, note: note.trim() || null }, { onSuccess: onClose })}>
           {save.isPending ? 'Saving…' : 'Save day'}
@@ -134,9 +138,11 @@ export function EditHabit({ habit, onSaved, onDeleted }: {
           ...(frequency !== 'daily' ? { target } : {}) },
         { onSuccess: h => onSaved?.(h) });
       }}>
-        <Field label="Name"><input value={name} onChange={e => setName(e.target.value)} /></Field>
-        <Field label="What it is for"><input value={intent} onChange={e => setIntent(e.target.value)} /></Field>
-        <Field label="Tag"><input value={tag} onChange={e => setTag(e.target.value)} /></Field>
+        <div className={styles.fields}>
+          <Field label="Name"><input value={name} onChange={e => setName(e.target.value)} /></Field>
+          <Field label="What it is for"><input value={intent} onChange={e => setIntent(e.target.value)} /></Field>
+          <Field label="Tag"><input value={tag} onChange={e => setTag(e.target.value)} /></Field>
+        </div>
         <ChoiceGroup label="How often" options={PERIODS.map(p => ({ value: p.value, label: p.label }))}
           value={frequency} onChange={v => v && setFrequency(v)} />
         {frequency !== 'daily' && (
