@@ -250,3 +250,13 @@ def test_an_account_returned_twice_is_kept_once_with_the_rest_of_the_reading(tes
         cur.execute("""SELECT data->>'response' FROM discovery_accounts
                        WHERE user_id = %s AND reflection_id = %s AND is_current ORDER BY 1""", (owner, source))
         assert [r[0] for r in cur.fetchall()] == ["I rang the depot", "I walked to the shop"]
+
+
+def test_the_views_day_begins_in_the_morning_not_at_midnight(monkeypatch):
+    from datetime import datetime as real_datetime
+
+    monkeypatch.setattr("agent.config.settings.VIEWS_DAY_STARTS_HOUR", 6)
+    assert discovery.views_day(real_datetime(2026, 10, 26, 0, 30)) == date(2026, 10, 25), "still yesterday at 00:30"
+    assert discovery.views_day(real_datetime(2026, 10, 26, 5, 59)) == date(2026, 10, 25)
+    assert discovery.views_day(real_datetime(2026, 10, 26, 6, 0)) == date(2026, 10, 26), "rolls over at 06:00"
+    assert discovery.period_bounds("30d", date(2026, 10, 26)) == (date(2026, 9, 27), date(2026, 10, 26))

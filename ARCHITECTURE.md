@@ -142,6 +142,8 @@ flowchart LR
   at most 5 new definitions, of 24 at most. Any edit, deletion or re-read invalidates the
   drafts and the next run rebuilds. A full rebuild is hundreds of sequential Flex calls,
   an hour or more, stored only when it ends: **a restart throws it away**
+  (the views alone are refreshed once a day, when their day begins at 06:00,
+  `VIEWS_DAY_STARTS_HOUR`, or on waking after that)
   (`python -m agent.doctor --can-restart`).
 - **Insights** (`personal_insights.py`, `claim_checks.py`): tentative function,
   difference or shared-concern claims over a selected range, each with supporting,

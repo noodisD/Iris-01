@@ -42,8 +42,19 @@ from .reference_evaluation import account_fingerprint
 RANGES = ("all", "30d", "90d")
 
 
+def views_day(now: datetime | None = None) -> date:
+    """The day the pattern views are for: it begins at VIEWS_DAY_STARTS_HOUR, not midnight.
+
+    The views refresh when this day changes. At midnight that was usually a
+    minute before the laptop suspended, so the refresh ran half asleep; from
+    06:00 it runs in the morning, or on waking after that.
+    """
+    now = now or datetime.now().astimezone()
+    return (now - timedelta(hours=settings.VIEWS_DAY_STARTS_HOUR)).date()
+
+
 def period_bounds(period: str, today: date | None = None) -> tuple[date | None, date]:
-    as_of = today if today is not None else datetime.now().astimezone().date()
+    as_of = today if today is not None else views_day()
     if period == "all":
         return None, as_of
     if period == "30d":
