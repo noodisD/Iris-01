@@ -1,12 +1,15 @@
 """Words that recur in the owner's sessions, and how they read in English.
 
 A therapist has an idiolect: in Polish, "pole" can be a family's unspoken
-climate, not a meadow. Without help, Whisper mishears such terms and the English
-gloss renders them literally, so an English question misses the passage. The
+climate, not a meadow. Without help, the English gloss renders such terms
+literally, so an English question misses the passage. The
 list lives on this machine only (`data/sessions/vocabulary.json`), never in the
-repository, and feeds two places only: Whisper's hotwords and the gloss used for
-search. It never reaches chat or the reader, so no one's interpretations come
-in with it. Without the file, both behave as before.
+repository, and feeds one place only: the English gloss used for search. It
+never reaches chat or the reader, so no one's interpretations come in with it.
+Without the file, the gloss is as before.
+
+It is not given to Whisper as hotwords: on a real session that found no term
+the plain run missed, and dropped two half-minute stretches of speech.
 
     {"terms": [{"pl": "pole", "en": "family field, not a meadow"}, ...]}
 """
@@ -38,14 +41,6 @@ def terms() -> list[tuple[str, str]]:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         logger.warning(f"Session vocabulary unreadable ({type(exc).__name__}); not used")
         return []
-
-
-def hotwords(language: str | None) -> str | None:
-    """The terms for Whisper to listen for, when the recording may be Polish."""
-    if language not in (None, "", "unknown", "pl"):
-        return None
-    found = terms()
-    return " ".join(pl for pl, _ in found) or None
 
 
 def gloss_line() -> str:

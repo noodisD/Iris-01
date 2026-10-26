@@ -17,7 +17,6 @@ def main() -> None:
     parser.add_argument("audio")
     parser.add_argument("--language", default=None)
     parser.add_argument("--model", default="large-v3")
-    parser.add_argument("--hotwords", default=None, help="terms the speakers use, to listen for")
     args = parser.parse_args()
     try:
         model, device = WhisperModel(args.model, device="cuda", compute_type="int8_float16"), "gpu"
@@ -28,7 +27,7 @@ def main() -> None:
     # itself for a minute. The silence filter stops words being invented in pauses.
     segments, info = model.transcribe(args.audio, language=args.language or None, beam_size=5,
                                       vad_filter=True, word_timestamps=True,
-                                      condition_on_previous_text=False, hotwords=args.hotwords or None)
+                                      condition_on_previous_text=False)
     words = [[round(w.start, 2), round(w.end, 2), w.word] for s in segments for w in (s.words or [])]
     json.dump({"device": device, "duration": info.duration, "words": words}, sys.stdout, ensure_ascii=False)
 
