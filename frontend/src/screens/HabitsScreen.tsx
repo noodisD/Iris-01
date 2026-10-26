@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Calendar, DayEditorLoader, EditHabit, PERIODS, isoDate } from '@/components/HabitParts';
-import { useAllHabits, useCreateHabit, useOrderHabits, useToggleHabit } from '@/hooks/useHabits';
+import { useAllHabits, useCreateHabit, useOrderHabits, useToggleHabit, useToggleHabitDay } from '@/hooks/useHabits';
 import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { LoadingState, ErrorState } from '@/components/states';
 import { color } from '@/components/primitives';
@@ -42,9 +42,25 @@ function dayAt(start: string | undefined, index: number, length: number): string
 }
 
 /** The last 60 days, each a button: click one to mark it and write its note, here. */
+/** How long a click waits to see whether it is the first of a double-click. */
+const DOUBLE_CLICK_MS = 250;
+
 function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: string | null; onPick: (date: string) => void }) {
   const status = h.recentStatus ?? h.recentDays.map(v => (v ? 'done' : 'none'));
   const notes = h.recentNotes ?? [];
+  const toggle = useToggleHabitDay();
+  // One click opens the day; a double-click marks it done (or not done) at once.
+  // The single click waits a moment so a double-click never flashes the editor open.
+  const pending = React.useRef<number | null>(null);
+  React.useEffect(() => () => { if (pending.current) window.clearTimeout(pending.current); }, []);
+  const click = (date: string) => {
+    if (pending.current) window.clearTimeout(pending.current);
+    pending.current = window.setTimeout(() => { pending.current = null; onPick(date); }, DOUBLE_CLICK_MS);
+  };
+  const doubleClick = (date: string, done: boolean) => {
+    if (pending.current) { window.clearTimeout(pending.current); pending.current = null; }
+    toggle.mutate({ id: h.id, date, done: !done });
+  };
   return (
     <div className={styles.history}>
       <div className={styles.dots} role="group" aria-label={`Last ${status.length} days: ${status.filter(s => s === 'done').length} done. Choose a day to change it.`}>
@@ -52,7 +68,10 @@ function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: st
           const date = dayAt(h.recentStart, i, status.length);
           const label = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
           return (
-            <button key={date} type="button" onClick={() => onPick(date)} aria-pressed={selected === date}
+            <button key={date} type="button" onClick={() => click(date)} onDoubleClick={() => doubleClick(date, s === 'done')}
+              title={`${label}: click to open, double-click to mark ${s === 'done' ? 'not done' : 'done'}`}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onPick(date); } }}
+              aria-pressed={selected === date}
               aria-label={`${label}: ${s === 'done' ? 'done' : s === 'skipped' ? 'skipped' : 'not done'}${notes[i] ? ', with a note' : ''}`}
               className={`${styles.day} ${s === 'skipped' ? styles.daySkipped : ''} ${notes[i] ? styles.dayNoted : ''} ${selected === date ? styles.daySelected : ''}`}
               style={s === 'done' ? { background: c } : s === 'skipped' ? { borderColor: c } : undefined} />
@@ -60,6 +79,7 @@ function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: st
         })}
       </div>
       <div className={styles.axis}><span>{status.length} days ago</span><span>Today</span></div>
+      {toggle.isError && <p role="alert" className={styles.error}>That day didn't save; it's back as it was.</p>}
     </div>
   );
 }
@@ -296,7 +316,7 @@ export function HabitsScreen() {
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
   return (
-    <Page title="Habits" width="wide" description="Tick today. Click any day's dot to mark it or write its note; click a habit's name for its calendar and to edit it.">
+    <Page title="Habits" width="wide" description="Tick today. Double-click a day's dot to mark it done; click it once to write its note or skip it. Click a habit's name for its calendar and to edit it.">
       {/* A tick that did not reach the server rolls back on screen, which on
           its own looks like a misclick. */}
       {toggle.isError && <p role="alert" className={styles.error}>That tick didn't save. Nothing is lost; try again.</p>}

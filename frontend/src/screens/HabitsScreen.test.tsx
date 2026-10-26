@@ -10,7 +10,7 @@ import type { Habit, HabitDay } from '@/types/api';
 
 const server = vi.hoisted(() => ({
   habits: [] as Habit[], created: [] as unknown[], days: [] as unknown[][], updates: [] as unknown[][],
-  deleted: [] as string[], orders: [] as string[][],
+  deleted: [] as string[], orders: [] as string[][], toggles: [] as unknown[],
 }));
 
 const habit = (over: Partial<Habit>): Habit => ({
@@ -22,7 +22,7 @@ const habit = (over: Partial<Habit>): Habit => ({
 vi.mock('@/api/habits', () => ({
   listHabits: async () => server.habits,
   getHabitsToday: async () => ({ habits: server.habits, doneCount: 0, totalCount: 0, consistency30d: 0, longestActiveStreak: 0 }),
-  toggleHabit: vi.fn(),
+  toggleHabit: vi.fn(async (req: { habitId: string; done: boolean; date?: string }) => { server.toggles.push(req); return server.habits[0]; }),
   createHabit: async (input: Partial<Habit>) => {
     server.created.push(input);
     const made = habit({ id: String(server.habits.length + 1), name: input.name!, tag: input.tag ?? '',
@@ -61,7 +61,7 @@ function show(path: string) {
   </Routes></MemoryRouter></QueryClientProvider>);
 }
 
-beforeEach(() => { server.habits = []; server.created = []; server.days = []; server.updates = []; server.deleted = []; server.orders = []; });
+beforeEach(() => { server.habits = []; server.created = []; server.days = []; server.updates = []; server.deleted = []; server.orders = []; server.toggles = []; });
 
 describe('the habit lists', () => {
   it('says there are none yet, then lists the one just named', async () => {
@@ -172,5 +172,21 @@ describe('keeping the most important habits on top', () => {
     fireEvent.dragOver(stretch);
     await act(async () => { fireEvent.drop(stretch); });
     expect(server.orders[1]).toEqual(['2', '1', '3']);
+  });
+});
+
+describe('a double-click on a day', () => {
+  it('marks that day done at once, without opening its editor', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T12:00:00'));
+    server.habits = [habit({ recentStart: '2026-08-24', recentDays: Array(60).fill(0),
+      recentStatus: Array(60).fill('none'), recentNotes: Array(60).fill(false) })];
+    show('/habits/daily');
+    const dot = await screen.findByRole('button', { name: /^(20 Oct|Oct 20): not done/ });
+    await act(async () => { fireEvent.click(dot); fireEvent.click(dot); fireEvent.doubleClick(dot); });
+    await waitFor(() => expect(server.toggles).toEqual([{ habitId: '1', done: true, date: '2026-10-20' }]));
+    await new Promise(r => setTimeout(r, 400));
+    expect(screen.queryByLabelText('Note for this day')).toBeNull();
+    vi.useRealTimers();
   });
 });

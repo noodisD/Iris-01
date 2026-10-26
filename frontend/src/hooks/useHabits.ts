@@ -113,3 +113,31 @@ export function useOrderHabits() {
     onSettled: () => { void qc.invalidateQueries({ queryKey: ['habits'] }); },
   });
 }
+
+/**
+ * Mark one day done or not done straight from its dot (a double-click). The day's
+ * note is kept; the dot changes at once and the server's streak follows.
+ */
+export function useToggleHabitDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, date, done }: { id: string; date: string; done: boolean }) =>
+      habitsApi.toggleHabit({ habitId: id, done, date }),
+    onMutate: async ({ id, date, done }) => {
+      await qc.cancelQueries({ queryKey: ['habits', 'all'] });
+      const previous = qc.getQueryData<Habit[]>(['habits', 'all']);
+      qc.setQueryData<Habit[]>(['habits', 'all'], old => old?.map(h => {
+        if (h.id !== id || !h.recentStart || !h.recentStatus) return h;
+        const index = Math.round((new Date(`${date}T12:00:00`).getTime()
+          - new Date(`${h.recentStart}T12:00:00`).getTime()) / 86400000);
+        if (index < 0 || index >= h.recentStatus.length) return h;
+        const recentStatus = [...h.recentStatus];
+        recentStatus[index] = done ? 'done' : 'none';
+        return { ...h, recentStatus };
+      }));
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => { if (ctx?.previous) qc.setQueryData(['habits', 'all'], ctx.previous); },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ['habits'] }); },
+  });
+}
