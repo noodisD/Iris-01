@@ -101,7 +101,32 @@ data class Habit(
     val bestStreak: Int,
     val doneToday: Boolean,
     val recentDays: List<Int>,
+    /** daily, weekly or monthly; older servers send none, which means daily. */
+    val frequency: String = "daily",
+    /** Times per week or month (1 for daily). */
+    val target: Int = 1,
+    val streakUnit: String = "day",
+    val periodDone: Int = 0,
+    val periodMet: Boolean = false,
+    val periods: List<HabitPeriod> = emptyList(),
+    val archived: Boolean = false,
+    /** The same days as recentDays: done, skipped or none. */
+    val recentStatus: List<String> = emptyList(),
+    val recentNotes: List<Boolean> = emptyList(),
+    /** The date of the first of those days, YYYY-MM-DD. */
+    val recentStart: String? = null,
+    val position: Int? = null,
 )
+
+@Serializable
+data class HabitPeriod(val start: String, val done: Int, val met: Boolean)
+
+/** One day of a habit: done, skipped (a deliberate rest) or none, with the owner's note. */
+@Serializable
+data class HabitDay(val date: String, val status: String, val note: String? = null)
+
+@Serializable
+data class HabitDayResult(val day: HabitDay, val habit: Habit)
 
 @Serializable
 data class HabitsTodayResponse(
