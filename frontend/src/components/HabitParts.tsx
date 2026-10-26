@@ -30,7 +30,11 @@ function monthDays(year: number, month: number): Date[] {
 }
 
 /** One day: done, skipped or neither, and that day's note. Future days cannot be marked. */
-export function DayEditor({ habit, date, day, onClose }: { habit: Habit; date: string; day?: HabitDay; onClose: () => void }) {
+export function DayEditor({ habit, date, day, onClose, noteOnly = false }: {
+  habit: Habit; date: string; day?: HabitDay; onClose: () => void;
+  /** Just the note: the list marks a day done with a double-click, so the status buttons are not needed there. */
+  noteOnly?: boolean;
+}) {
   const save = useSetHabitDay(habit.id);
   const [status, setStatus] = React.useState<HabitDay['status']>(day?.status ?? 'none');
   const [note, setNote] = React.useState(day?.note ?? '');
@@ -41,7 +45,9 @@ export function DayEditor({ habit, date, day, onClose }: { habit: Habit; date: s
     <section className={styles.editor} aria-label={`${habit.name} on ${label}`}>
       <div className={styles.editorSide}>
         <h3 className={styles.editorTitle}>{label}</h3>
-        <ChoiceGroup label="What happened" options={[...STATUSES]} value={status} onChange={v => v && setStatus(v)} />
+        {noteOnly
+          ? <p className={styles.legend}>{status === 'done' ? 'Done' : status === 'skipped' ? 'Skipped' : 'Not done'}. Double-click the day's dot to change that.</p>
+          : <ChoiceGroup label="What happened" options={[...STATUSES]} value={status} onChange={v => v && setStatus(v)} />}
       </div>
       <div className={styles.editorNote}>
         <Field label="Note for this day" hint="A line of reflection, if you have one. IRIS can recall it in chat.">
@@ -53,7 +59,7 @@ export function DayEditor({ habit, date, day, onClose }: { habit: Habit; date: s
       <div className={`${styles.row} ${styles.editorActions}`}>
         <Button variant="primary" disabled={!changed || save.isPending}
           onClick={() => save.mutate({ date, status, note: note.trim() || null }, { onSuccess: onClose })}>
-          {save.isPending ? 'Saving…' : 'Save day'}
+          {save.isPending ? 'Saving…' : noteOnly ? 'Save note' : 'Save day'}
         </Button>
         <Button variant="quiet" onClick={onClose}>Close</Button>
       </div>
@@ -176,8 +182,10 @@ export function EditHabit({ habit, onSaved, onDeleted }: {
 }
 
 /** One day opened from the list: its saved status and note are read, then edited in place. */
-export function DayEditorLoader({ habit, date, onClose }: { habit: Habit; date: string; onClose: () => void }) {
+export function DayEditorLoader({ habit, date, onClose, noteOnly = false }: {
+  habit: Habit; date: string; onClose: () => void; noteOnly?: boolean;
+}) {
   const { data, isLoading } = useHabitDays(habit.id, date, date);
   if (isLoading) return <p className={styles.legend} role="status">Opening {date}…</p>;
-  return <DayEditor habit={habit} date={date} day={data?.[0]} onClose={onClose} />;
+  return <DayEditor habit={habit} date={date} day={data?.[0]} onClose={onClose} noteOnly={noteOnly} />;
 }

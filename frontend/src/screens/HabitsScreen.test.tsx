@@ -131,17 +131,18 @@ describe('editing from the list itself', () => {
     recentStatus: Array(60).fill('none'), recentNotes: Array(60).fill(false), ...over,
   });
 
-  it('marks a forgotten day and writes its note from the row, without leaving the page', async () => {
+  it('writes a day\'s note from the row with one click, keeping the day as it was', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-22T12:00:00'));
     server.habits = [recent({})];
     show('/habits/daily');
     const dot = await screen.findByRole('button', { name: /^(20 Oct|Oct 20): not done/ });
     fireEvent.click(dot);
-    fireEvent.click(await screen.findByRole('radio', { name: 'Done' }));
-    fireEvent.change(screen.getByLabelText('Note for this day'), { target: { value: 'Did it, forgot to tick.' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save day' })); });
-    expect(server.days).toEqual([['1', '2026-10-20', 'done', 'Did it, forgot to tick.']]);
+    const note = await screen.findByLabelText('Note for this day');
+    expect(screen.queryByRole('radio', { name: 'Done' })).toBeNull();
+    fireEvent.change(note, { target: { value: 'Thought about it, did not get to it.' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save note' })); });
+    expect(server.days).toEqual([['1', '2026-10-20', 'none', 'Thought about it, did not get to it.']]);
     expect(screen.getByRole('tab', { name: /Daily/ })).toBeInTheDocument();
     vi.useRealTimers();
   });

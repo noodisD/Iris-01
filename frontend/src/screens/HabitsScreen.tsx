@@ -69,7 +69,7 @@ function DayDots({ h, c, selected, onPick }: { h: Habit; c: string; selected: st
           const label = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
           return (
             <button key={date} type="button" onClick={() => click(date)} onDoubleClick={() => doubleClick(date, s === 'done')}
-              title={`${label}: click to open, double-click to mark ${s === 'done' ? 'not done' : 'done'}`}
+              title={`${label}: click for the note, double-click to mark ${s === 'done' ? 'not done' : 'done'}`}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onPick(date); } }}
               aria-pressed={selected === date}
               aria-label={`${label}: ${s === 'done' ? 'done' : s === 'skipped' ? 'skipped' : 'not done'}${notes[i] ? ', with a note' : ''}`}
@@ -159,7 +159,7 @@ function HabitRow({ h, onToggle, order }: { h: Habit; onToggle: (id: string, don
         </div>
       </div>
 
-      {day && <div className={styles.inline}><DayEditorLoader key={day} habit={h} date={day} onClose={() => setDay(null)} /></div>}
+      {day && <div className={styles.inline}><DayEditorLoader key={day} habit={h} date={day} onClose={() => setDay(null)} noteOnly /></div>}
       {open && (
         <div className={`${styles.inline} ${styles.expanded}`}>
           <Calendar habit={h} />
@@ -316,7 +316,7 @@ export function HabitsScreen() {
   const onToggle = (id: string, done: boolean) => toggle.mutate({ id, done });
 
   return (
-    <Page title="Habits" width="wide" description="Tick today. Double-click a day's dot to mark it done; click it once to write its note or skip it. Click a habit's name for its calendar and to edit it.">
+    <Page title="Habits" width="wide" description="Tick today. Double-click a day's dot to mark it done; click it once to write that day's note. Click a habit's name for its calendar, where a day can also be marked skipped, and to edit it.">
       {/* A tick that did not reach the server rolls back on screen, which on
           its own looks like a misclick. */}
       {toggle.isError && <p role="alert" className={styles.error}>That tick didn't save. Nothing is lost; try again.</p>}
