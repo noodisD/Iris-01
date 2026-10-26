@@ -47,7 +47,7 @@ def views_day(now: datetime | None = None) -> date:
 
     The views refresh when this day changes. At midnight that was usually a
     minute before the laptop suspended, so the refresh ran half asleep; from
-    06:00 it runs in the morning, or on waking after that.
+    07:00 (the owner's choice) it runs in the morning, or on waking after that.
     """
     now = now or datetime.now().astimezone()
     return (now - timedelta(hours=settings.VIEWS_DAY_STARTS_HOUR)).date()

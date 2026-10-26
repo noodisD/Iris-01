@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # The hour the pattern views' day begins (local time). Views are dated by
     # this day, and the daily refresh runs when it rolls over; at midnight it
     # started as the laptop went to sleep, so it begins in the morning instead.
-    VIEWS_DAY_STARTS_HOUR: int = Field(default=6, ge=0, le=23)
+    VIEWS_DAY_STARTS_HOUR: int = Field(default=7, ge=0, le=23)
     WHISPER_PYTHON: str = Field(default="")
     WHISPER_MODEL: str = Field(default="large-v3")
     # IRIS's voice when talking (ADR-0025). The model takes a tone instruction,
