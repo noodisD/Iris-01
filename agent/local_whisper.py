@@ -17,6 +17,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import session_vocabulary
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,9 @@ def words(audio: Path, language: str | None) -> list[Word]:
     command = [str(python), str(WORKER), str(audio), "--model", settings.WHISPER_MODEL]
     if language and language != "unknown":
         command += ["--language", language]
+    listen_for = session_vocabulary.hotwords(language)
+    if listen_for:
+        command += ["--hotwords", listen_for]
     try:
         done = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
                               env=_env(python), check=False)

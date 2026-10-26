@@ -43,7 +43,7 @@ scripts/serve_iris.py  (one process, three doors — agent/mobile_auth.py)
 |---|---|---|---|
 | Journal | Write, edit, date and delete entries; daily check-ins | `trackers/reflections.py`, `journal_entry.py`, `database.py`, `markdown_text.py`, `prompt_labels.py` | 0006, 0010 |
 | Importing | Stage exports and voice journals for review before anything is stored | `importing/*`, `transcription.py` | 0013 |
-| Therapy sessions | Import a transcript or a recording; only the owner's turns are evidence | `sessions.py`, `session_imports.py`, `session_voices.py`, `local_whisper.py`, `session_cleanup.py`, `scripts/whisper_words.py` | 0028, 0030 |
+| Therapy sessions | Import a transcript or a recording; only the owner's turns are evidence | `sessions.py`, `session_imports.py`, `session_voices.py`, `local_whisper.py`, `session_cleanup.py`, `session_vocabulary.py`, `scripts/whisper_words.py` | 0028, 0030, 0035 |
 | Questionnaire | Answer the baseline questionnaire by form or interview; suggestions from the owner's writing | `questionnaire.py`, `questionnaire_interview.py`, `questionnaire_suggest.py`, `questionnaire_context.py` | 0029 |
 | Ingest queue | Durable jobs, written in the same transaction as their source | `work_queue.py`, `pipeline.py` | 0011 |
 | Recall | Embeddings, passages for long entries and sessions, reading copies | `pipeline.py`, `entry_passages.py`, `readable.py` | 0031 |

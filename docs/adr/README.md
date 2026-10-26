@@ -40,6 +40,7 @@ re-litigated by accident, only deliberately.
 | [0032](ADR-0032-chat-as-evidence.md) | A chat conversation is evidence only when the owner adds it | Why chats are read for patterns only at the owner's click, and why only the owner's turns in them count |
 | [0033](ADR-0033-chat-reopens-the-conversation.md) | The web chat reopens the conversation last written in | Why a reload keeps the conversation, how earlier ones are reached, and why empty opens are reused |
 | [0034](ADR-0034-habit-days-notes-and-periods.md) | Any habit day can be fixed, each day can carry a note, and habits can be weekly or monthly | Why streaks are counted from days, never set; why only done days are evidence; how weekly and monthly targets work |
+| [0035](ADR-0035-session-vocabulary.md) | A local list of session terms helps Whisper and the search gloss | Why the term list stays in `data/`; why it feeds transcription and search but never chat or the reader |
 
 New ADRs use [ADR-0000-TEMPLATE.md](ADR-0000-TEMPLATE.md) and the naming rules
 in [`docs/agents/domain.md`](../agents/domain.md).

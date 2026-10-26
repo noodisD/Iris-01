@@ -172,10 +172,13 @@ def gloss_session_passages(reflection_id: int) -> int:
         cur.execute("SELECT id, text FROM session_passages WHERE reflection_id = %s ORDER BY position;",
                     (reflection_id,))
         rows = cur.fetchall()
+    from .session_vocabulary import gloss_line
+
+    prompt = " ".join(filter(None, (GLOSS_PROMPT, gloss_line())))
     glossed = 0
     for passage_id, text in rows:
         try:
-            english = model.chat(messages=[{"role": "user", "content": text}], system_prompt=GLOSS_PROMPT,
+            english = model.chat(messages=[{"role": "user", "content": text}], system_prompt=prompt,
                                  temperature=None, max_tokens=4000).strip()
             if english:
                 db.add_embedding("session_passage", passage_id, GLOSS_MODEL, generate_embedding(english))
