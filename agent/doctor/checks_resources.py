@@ -41,7 +41,8 @@ def _value_days_ago(check_id: str, days: int) -> tuple[float, float] | None:
     rows = _rows("""SELECT value, EXTRACT(EPOCH FROM (NOW() - run_at)) / 86400 FROM health_checks
                      WHERE check_id = %s AND value IS NOT NULL AND run_at < NOW() - make_interval(days => %s)
                      ORDER BY run_at DESC LIMIT 1""", check_id, max(1, days // 2))
-    return (rows[0][0], rows[0][1]) if rows else None
+    # EXTRACT gives a Decimal; mixed with a float it raised, and the check reported "unknown".
+    return (float(rows[0][0]), float(rows[0][1])) if rows else None
 
 
 @check("resources.db_size", "resources")
@@ -135,7 +136,9 @@ def spend() -> Result:
 
 @check("queue.wasted", "resources")
 def wasted() -> Result:
-    rows = _rows("""SELECT attributes->>'iris.queue.source_type', count(*), sum(duration_ms) / 60000
+    # Awake time where the job recorded it: a run the laptop slept through is not hours of work lost.
+    rows = _rows("""SELECT attributes->>'iris.queue.source_type', count(*),
+                           sum(coalesce((attributes->>'iris.queue.awake_ms')::float, duration_ms)) / 60000
                       FROM obs_spans
                      WHERE name = 'queue.job' AND started_at > NOW() - interval '7 days'
                        AND attributes->>'iris.queue.outcome' IN ('retry_scheduled', 'exhausted')

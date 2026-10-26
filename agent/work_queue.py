@@ -21,6 +21,7 @@ be seen is better than one that has been quietly dropped.
 
 import logging
 import threading
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -172,7 +173,24 @@ def leased_ids() -> list[int]:
 
 
 def current_item() -> dict[str, Any] | None:
-    return _current
+    """The job running now, with `awake_s`: how long it has run while the machine was awake.
+
+    Wall-clock time counts a laptop's sleep: a midnight job suspended at 00:01 and
+    woken at 07:40 looked like a 7-hour job. The monotonic clock stops in suspend.
+    """
+    if _current is None:
+        return None
+    item = {k: v for k, v in _current.items() if k != "awake_since"}
+    if "awake_since" in _current:
+        item["awake_s"] = round(time.monotonic() - _current["awake_since"], 1)
+    return item
+
+
+def _awake_attribute() -> dict[str, float]:
+    """How long the current job ran while awake, for its span (the doctor reads it)."""
+    if _current is None or "awake_since" not in _current:
+        return {}
+    return {"iris.queue.awake_ms": round((time.monotonic() - _current["awake_since"]) * 1000)}
 
 
 def note_mode(mode: str) -> None:
@@ -248,7 +266,8 @@ def process_due(limit: int = 20) -> tuple[int, int]:
             _leased.add(item_id)
     for item in claimed:
         item_id = item.get("id")
-        _current = {**item, "since": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
+        _current = {**item, "since": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "awake_since": time.monotonic()}
         attrs = {
             "iris.queue.item_id": item.get("id"),
             "iris.queue.source_type": item.get("source_type"),
@@ -279,7 +298,8 @@ def process_due(limit: int = 20) -> tuple[int, int]:
                     outcome = "retired" if retired else "superseded"
                     obs.set_attributes({"iris.queue.outcome": outcome,
                                         **({"iris.queue.mode": _current["mode"]}
-                                           if _current and _current.get("mode") else {})})
+                                           if _current and _current.get("mode") else {}),
+                                        **_awake_attribute()})
                     obs.capture_output({"outcome": outcome}, span=current)
                     succeeded += 1
                 except Exception as exc:
@@ -288,6 +308,7 @@ def process_due(limit: int = 20) -> tuple[int, int]:
                                   str(exc), int(item.get("generation") or 0))
                     if _current and _current.get("mode"):
                         obs.set_attributes({"iris.queue.mode": _current["mode"]})
+                    obs.set_attributes(_awake_attribute())
                     obs.mark_error(current, exc)
                     if delay is None:
                         outcome = "exhausted"

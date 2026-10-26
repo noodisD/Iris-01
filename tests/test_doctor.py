@@ -245,17 +245,19 @@ def test_the_banner_reads_the_last_stored_run(test_user, monkeypatch):
         conn.commit()
 
 
-def _job_spans(source_type: str, mode: str | None, minutes: list[float]) -> list[str]:
+def _job_spans(source_type: str, mode: str | None, minutes: list[float], awake: list[float] | None = None,
+               outcome: str = "retired") -> list[str]:
     import uuid
 
     from psycopg2.extras import Json
 
     ids = []
     with db.connection() as conn, conn.cursor() as cur:
-        for m in minutes:
+        for i, m in enumerate(minutes):
             span = uuid.uuid4().hex[:16]
-            attributes = {"iris.queue.source_type": source_type, "iris.queue.outcome": "retired",
-                          **({"iris.queue.mode": mode} if mode else {})}
+            attributes = {"iris.queue.source_type": source_type, "iris.queue.outcome": outcome,
+                          **({"iris.queue.mode": mode} if mode else {}),
+                          **({"iris.queue.awake_ms": awake[i] * 60000} if awake else {})}
             cur.execute("""INSERT INTO obs_spans (trace_id, span_id, name, component, kind, is_entry, started_at,
                                                   duration_ms, self_ms, status, attributes, module_id)
                            VALUES (%s, %s, 'queue.job', 'queue', 'consumer', TRUE, NOW() - interval '1 hour',
@@ -409,3 +411,50 @@ def test_a_backup_under_a_day_old_is_enough(tmp_path, monkeypatch):
     old = time.time() - 30 * 3600
     os.utime(dump, (old, old))
     assert not fixes._fresh_backup()
+
+
+# --- sleep is not work ---------------------------------------------------------------
+
+def test_the_size_check_works_with_history(monkeypatch):
+    from decimal import Decimal
+
+    from agent.doctor import checks_resources
+
+    def rows(sql, *args):
+        if "pg_database_size" in sql:
+            return [(800e6,)]
+        if "pg_statio_user_tables" in sql:
+            return [("obs_spans", 300e6)]
+        return [(Decimal("500"), Decimal("5.0"))]  # the value five days ago, as the database returns it
+    monkeypatch.setattr(checks_resources, "_rows", rows)
+    result = checks_resources.db_size()
+    assert result.status in ("ok", "warn") and result.details["growth_mb_per_day"] == 60.0
+
+
+def test_a_running_job_is_timed_while_awake(monkeypatch):
+    import time
+
+    from agent import work_queue
+    from agent.doctor import checks_moving
+
+    monkeypatch.setattr(work_queue, "_current", {"source_type": "discovery", "awake_since": time.monotonic() - 120})
+    item = work_queue.current_item()
+    assert 119 <= item["awake_s"] <= 125 and "awake_since" not in item
+    # Slept through the night: eight hours by the wall clock, two minutes awake.
+    monkeypatch.setattr(checks_moving, "_worker", lambda: {"alive": True, "current": {
+        "source_type": "discovery", "since": "2026-10-26T00:00:00Z", "awake_s": 120}})
+    result = checks_moving.current_job()
+    assert result.status == "ok" and result.value == 2
+
+
+def test_a_run_the_laptop_slept_through_is_not_wasted_work():
+    from agent.doctor import checks_resources
+
+    spans = _job_spans("personal_dynamics", "update", [460], awake=[5], outcome="retry_scheduled")
+    try:
+        minutes = checks_resources.wasted().details["failed_attempts"]["personal_dynamics"][1]
+        assert minutes < 60, "five awake minutes, not 460 of sleep"
+    finally:
+        with db.connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM obs_spans WHERE span_id = ANY(%s)", (spans,))
+            conn.commit()

@@ -44,7 +44,8 @@ def _limit(kind: str, mode: str | None = None) -> tuple[float, str]:
     learned limit only ever raises the fixed one.
     """
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("""SELECT count(*), percentile_cont(0.9) WITHIN GROUP (ORDER BY duration_ms) / 60000
+        cur.execute("""SELECT count(*), percentile_cont(0.9) WITHIN GROUP (
+                                ORDER BY coalesce((attributes->>'iris.queue.awake_ms')::float, duration_ms)) / 60000
                          FROM obs_spans
                         WHERE name = 'queue.job' AND started_at > NOW() - interval '7 days'
                           AND attributes->>'iris.queue.source_type' = %s
@@ -120,7 +121,8 @@ def current_job() -> Result:
         return Result("worker.current_job", "ok", "The worker is idle.", value=0)
     kind = str(job.get("source_type"))
     mode = job.get("mode")
-    minutes = _minutes_since(job.get("since")) or 0.0
+    # Awake time when the server reports it: a laptop's sleep is not the job running.
+    minutes = job["awake_s"] / 60 if job.get("awake_s") is not None else (_minutes_since(job.get("since")) or 0.0)
     limit, basis = _limit(kind, mode)
     if mode:
         kind = f"{kind} ({mode})"
