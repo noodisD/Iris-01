@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -386,11 +386,12 @@ private fun HabitRow(
             }
         }
         val dots = recentDots(habit)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            dots.forEach { dot ->
+        // Two even rows of 15, so today sits under "TODAY"; each dot's touch area fills its slot.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { dots.chunked((dots.size + 1) / 2).forEach { row -> Row(Modifier.fillMaxWidth()) {
+            row.forEach { dot ->
                 val label = "${dot.date.format(SHORT_LABEL)}: ${when (dot.status) { "done" -> "done"; "skipped" -> "skipped"; else -> "not done" }}" +
                     if (dot.noted) ", with a note" else ""
-                Box(Modifier.size(18.dp)
+                Box(Modifier.weight(1f).height(26.dp)
                     .semantics { contentDescription = label; onClick(label = "open the note") { onTapDay(dot); true } }
                     .pointerInput(dot) { detectTapGestures(onTap = { onTapDay(dot) }, onDoubleTap = { onDoubleTapDay(dot) }) },
                     contentAlignment = Alignment.Center) {
@@ -400,7 +401,7 @@ private fun HabitRow(
                     if (dot.noted) Box(Modifier.align(Alignment.BottomCenter).size(4.dp).background(IrisPalette.amber, CircleShape))
                 }
             }
-        }
+        } } }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("${dots.size} days ago".uppercase(), fontFamily = Mono, fontSize = 9.sp, color = colors.ink4)
             Text("TODAY", fontFamily = Mono, fontSize = 9.sp, color = colors.ink4)
