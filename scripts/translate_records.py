@@ -49,8 +49,9 @@ def main() -> int:
     missing = [r for r in records if not current(r["content"], r["translation"], r["translation_hash"])]
     chars = sum(len(r["content"]) for r in missing)
     worker = settings.OPENAI_WORKER_MODEL
+    listed = ", ".join(f"{r['id']} {r['source']}" for r in missing) or "none"
     print(f"records in another language: {len(records)}  without a current English version: {len(missing)} "
-          f"({', '.join(f'{r['id']} {r['source']}' for r in missing) or 'none'})")
+          f"({listed})")
     print(f"  translating them: {Intelligence.estimate(worker, chars // 3, chars // 3)}")
     if not args.apply:
         return 0
