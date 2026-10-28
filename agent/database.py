@@ -26,6 +26,12 @@ from agent.observability.tracing import current_traceparent
 
 logger = logging.getLogger(__name__)
 
+#: A reflection's text as chat reads it: the English version while it is still
+#: of these words (ADR-0036), otherwise the words themselves. The hash is the
+#: one agent/translation.source_hash computes.
+READ_TEXT = ("CASE WHEN translation IS NOT NULL AND translation_hash = "
+             "encode(sha256(convert_to(content, 'UTF8')), 'hex') THEN translation ELSE content END")
+
 class Database:
     """Manages the PostgreSQL connection pool and all data persistence."""
 
@@ -1769,8 +1775,8 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT id, reflection_date, content, mood, energy_level, clarity_level, metrics,
-                          content_format
+                f"""SELECT id, reflection_date, {READ_TEXT} AS content, mood, energy_level, clarity_level,
+                          metrics, content_format
                    FROM reflections WHERE user_id = %s
                     -- Questionnaire answers are not something the owner wrote
                     -- lately; dozens added in one sitting would crowd the
@@ -1795,7 +1801,7 @@ class Database:
         the model reading the chat context.
         """
         queries = {
-            "reflection": ("journal", "SELECT content, reflection_date FROM reflections WHERE id = %s;"),
+            "reflection": ("journal", f"SELECT {READ_TEXT}, reflection_date FROM reflections WHERE id = %s;"),
             "message": ("said in chat", "SELECT content, created_at::date FROM conversation_messages WHERE id = %s;"),
             # Whole turns with their speakers named (ADR-0028): a recalled
             # moment of a session always says who said it.
@@ -1877,7 +1883,7 @@ class Database:
                 """
                 SELECT id, reflection_date, content, mood, energy_level, clarity_level,
                        tags, created_at, updated_at, audio_path, entry_sequence,
-                       content_format, metrics
+                       content_format, metrics, translation, translation_hash
                   FROM reflections
                  WHERE user_id = %s AND source NOT IN ('questionnaire', 'chat')
                    AND (%s::int IS NULL
@@ -1904,7 +1910,7 @@ class Database:
             )
             keys = ("id", "reflection_date", "content", "mood", "energy_level",
                     "clarity_level", "tags", "created_at", "updated_at", "audio_path",
-                    "entry_sequence", "content_format", "metrics")
+                    "entry_sequence", "content_format", "metrics", "translation", "translation_hash")
             return [dict(zip(keys, row)) for row in cur.fetchall()]
 
     def get_staged_for_reading(self, user_id: int, min_chars: int, batch_id: int = None) -> list:
@@ -3623,7 +3629,8 @@ class Database:
                         (reflection_id,))
                     # The reading copy and the passages were made from the old
                     # words; the re-queued run makes them again from the new.
-                    cur.execute("UPDATE reflections SET reading_copy = NULL WHERE id = %s;", (reflection_id,))
+                    cur.execute("UPDATE reflections SET reading_copy = NULL, translation = NULL, "
+                                "translation_hash = NULL WHERE id = %s;", (reflection_id,))
                     cur.execute(
                         """DELETE FROM embeddings WHERE source_type = 'entry_passage' AND source_id IN (
                                SELECT id FROM entry_passages WHERE reflection_id = %s);""",

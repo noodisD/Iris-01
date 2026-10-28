@@ -12,6 +12,7 @@ from .episodes import EXTRACTION_VERSION, EpisodeReader, ReadUnavailable
 from .intelligence import Intelligence
 from .readable import ensure_copy
 from .reading_version import VERIFIED_READER_VERSION as READER_VERSION
+from .translation import ensure as translation_ensure
 
 
 def _completed(cur, reflection_id: int, revision: int) -> bool:
@@ -66,27 +67,32 @@ def process_reflection(reflection_id: int) -> None:
     """
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute("""SELECT user_id, reflection_date, content, content_format,
-                              discovery_revision, reading_copy
+                              discovery_revision, reading_copy, translation, translation_hash
                          FROM reflections WHERE id = %s AND evidence_eligible
                            AND content IS NOT NULL AND length(btrim(content)) > 0""",
                     (reflection_id,))
         row = cur.fetchone()
         if row is None:
             return
-        user_id, recorded, content, content_format, revision, stored_copy = row
+        user_id, recorded, content, content_format, revision, stored_copy, translation, translated_from = row
         if _completed(cur, reflection_id, revision):
             return
-    entry = {"id": reflection_id, "date": recorded, "content": content,
-             "content_format": content_format, "source_type": "reflection"}
     try:
         model = Intelligence(model=settings.OPENAI_WORKER_MODEL,
                              service_tier=settings.OPENAI_WORKER_SERVICE_TIER or None)
     except Exception:
         raise ReadUnavailable("no_provider") from None
+    # A record in another language is read in its English version (ADR-0036),
+    # so accounts and their quotes are English like the rest of the archive.
+    english = translation_ensure(reflection_id, content, content_format, translation, translated_from, model)
+    content = english or content
+    entry = {"id": reflection_id, "date": recorded, "content": content,
+             "content_format": content_format, "source_type": "reflection"}
     reader = EpisodeReader(user_id, intelligence=model)
     # Dictated in one breath, an entry is read from its reading copy: the same
     # words punctuated, so quotes still resolve to the entry's own text.
-    copy = None if content_format == "session" else ensure_copy(reflection_id, content, stored_copy, model)
+    copy = (None if content_format == "session" or english
+            else ensure_copy(reflection_id, content, stored_copy, model))
     from .sessions import parts
 
     # A long session is read a stretch of turns at a time (sessions.READ_TURNS).

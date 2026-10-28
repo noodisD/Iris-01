@@ -123,6 +123,16 @@ export interface JournalEntry {
   createdAt: ISODateTime | null;
   /** The recording this entry was transcribed from, where one was kept. */
   audioUrl?: string | null;
+  /** The English version the reader and chat use, for writing in another
+   *  language (ADR-0036). `text` stays the original words. */
+  translation?: JournalTranslation | null;
+}
+
+export interface JournalTranslation {
+  text: string;
+  /** The original's language code, e.g. "pl". */
+  from: string;
+  session?: JournalSession | null;
 }
 
 // Therapy sessions (ADR-0028). Only the owner's turns can become evidence; the

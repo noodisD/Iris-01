@@ -1278,7 +1278,25 @@ def _reflection_to_journal(r: dict, user_id: int) -> dict:
         # can offer the audio next to the words it produced.
         "audioUrl": f"/api/audio/{r['id']}" if r.get("audio_path") else None,
         "session": _session_contract(content) if r.get("content_format") == "session" else None,
+        "translation": _translation_contract(r),
     }
+
+
+def _translation_contract(r: dict) -> dict | None:
+    """The English version the reader and chat use, when there is a current one (ADR-0036).
+
+    The entry's own words stay `text`; the journal shows this first and the
+    original one tap away.
+    """
+    from agent.sessions import read as read_session
+    from agent.translation import current, language_of
+
+    content = r.get("content") or ""
+    english = current(content, r.get("translation"), r.get("translation_hash"))
+    if not english:
+        return None
+    return {"text": english, "from": language_of(content, r.get("content_format")),
+            "session": _session_contract(english) if read_session(english) is not None else None}
 
 
 def _session_contract(content: str) -> dict | None:

@@ -67,12 +67,16 @@ def unread() -> Result:
 @check("data.quotes", "data")
 def quotes() -> Result:
     from ..readable import locate
+    from ..translation import for_reading
 
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("""SELECT a.reflection_id, a.data->'citations', r.content
+        cur.execute("""SELECT a.reflection_id, a.data->'citations', r.content, r.translation, r.translation_hash
                          FROM discovery_accounts a JOIN reflections r ON r.id = a.reflection_id
                         WHERE a.is_current""")
-        accounts = cur.fetchall()
+        # A translated record is read in English (ADR-0036): its quotes are in
+        # the current translation, not in the original words.
+        accounts = [(rid, cites, for_reading(content, english, made_from))
+                    for rid, cites, content, english, made_from in cur.fetchall()]
         cur.execute("""SELECT c.id, c.quote, r.content FROM idea_citations c
                          JOIN reflections r ON r.id = c.reflection_id WHERE c.status <> 'rejected'""")
         ideas = cur.fetchall()
@@ -86,7 +90,8 @@ def quotes() -> Result:
                     evidence="locate(source, quote) over current account citations and idea citations",
                     ids=sorted(set(lost))[:20] + lost_ideas[:20],
                     causes=["The source was edited and its accounts were not invalidated.",
-                            "A reading copy's words drifted from the entry."],
+                            "A reading copy's words drifted from the entry.",
+                            "A translation was replaced without the record being read again."],
                     action="Re-read the listed entries (needs-owner: sets off a pattern update).",
                     action_class="needs-owner")
 

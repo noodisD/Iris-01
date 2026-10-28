@@ -124,14 +124,22 @@ def _index_session(user_id: int, reflection_id: int) -> str:
     """
     from .sessions import passages
 
+    from .translation import ensure as translation_ensure
+
     model_name = "text-embedding-3-small"
     stored = db.get_reflection(reflection_id) or {}
     with db.connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT source FROM reflections WHERE id = %s;", (reflection_id,))
+        cur.execute("SELECT source, translation, translation_hash FROM reflections WHERE id = %s;",
+                    (reflection_id,))
         row = cur.fetchone()
+    # A session in another language is recalled in its English version
+    # (ADR-0036); without one, its own words are recalled and glossed.
+    english = None
+    if row and row[0] != "chat":
+        english = translation_ensure(reflection_id, stored.get("content"), "session", row[1], row[2])
     # An added chat is recalled already, message by message (ADR-0032); a
     # second copy as passages would only crowd the memories chat is shown.
-    cut = [] if row and row[0] == "chat" else passages(stored.get("content"))
+    cut = [] if row and row[0] == "chat" else passages(english or stored.get("content"))
     vectors = [generate_embedding(passage.text, model=model_name) for passage in cut]
     if not db.is_still_processing("reflection", reflection_id):
         logger.info(f"Session {reflection_id} changed while being indexed; leaving it to the re-queued run")
@@ -139,7 +147,8 @@ def _index_session(user_id: int, reflection_id: int) -> str:
     db.replace_session_passages(user_id, reflection_id, model_name,
                                 [(p.position, p.at, p.text, v) for p, v in zip(cut, vectors)])
     obs.set_attributes({"iris.pipeline.session_passages": len(cut)})
-    gloss_session_passages(reflection_id)
+    if english is None:
+        gloss_session_passages(reflection_id)
     return "complete"
 
 
@@ -200,7 +209,7 @@ def _reading_model():
 
 
 def _index_entry_passages(user_id: int, reflection_id: int, content: str | None,
-                          content_format: str | None) -> int:
+                          content_format: str | None, english: str | None = None) -> int:
     """Cut a long entry into passages for recall and embed each; a short one has none.
 
     A dictated entry gets its reading copy here if it has none yet, and is cut
@@ -213,11 +222,14 @@ def _index_entry_passages(user_id: int, reflection_id: int, content: str | None,
 
     model_name = "text-embedding-3-small"
     try:
-        with db.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT reading_copy FROM reflections WHERE id = %s;", (reflection_id,))
-            row = cur.fetchone()
-        copy = ensure_copy(reflection_id, content, row[0] if row else None, _reading_model())
-        text = copy or for_model(content, content_format)
+        if english:
+            text = english
+        else:
+            with db.connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT reading_copy FROM reflections WHERE id = %s;", (reflection_id,))
+                row = cur.fetchone()
+            copy = ensure_copy(reflection_id, content, row[0] if row else None, _reading_model())
+            text = copy or for_model(content, content_format)
         pieces = cut(strip_prompt_labels(text).strip() or text)
         vectors = [generate_embedding(piece, model=model_name) for piece in pieces]
         db.replace_entry_passages(user_id, reflection_id, model_name,
@@ -306,7 +318,15 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # entries by format rather than by what they say (ADR-0014). The stored
         # entry keeps them.
         from .markdown_text import for_model
-        text = for_model(content, item_data.get("content_format"))
+        english = None
+        if source_type == "reflection":
+            from .translation import ensure as translation_ensure
+            with db.connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT translation, translation_hash FROM reflections WHERE id = %s;", (source_id,))
+                kept = cur.fetchone() or (None, None)
+            # Writing in another language is embedded in English (ADR-0036).
+            english = translation_ensure(source_id, content, item_data.get("content_format"), *kept)
+        text = english or for_model(content, item_data.get("content_format"))
         embedding = generate_embedding(strip_prompt_labels(text).strip() or text, model=model_name)
 
         # The text may have been edited while it was being embedded. An edit
@@ -324,7 +344,7 @@ def run_processing_pipeline(source_type: str, source_id: int):
         # 4. Store the canonical embedding in PostgreSQL
         db.add_embedding(source_type, source_id, model_name, embedding)
         if source_type == "reflection":
-            _index_entry_passages(user_id, source_id, content, item_data.get("content_format"))
+            _index_entry_passages(user_id, source_id, content, item_data.get("content_format"), english)
 
         # 5. Check for persistence (what keeps coming back)
         # User messages participate in theme matching; assistant responses are excluded

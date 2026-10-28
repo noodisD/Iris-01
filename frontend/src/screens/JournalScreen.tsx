@@ -11,13 +11,12 @@ import type { CheckinValues } from '@/components/journal/CheckinPicker';
 import { EditorToolbar } from '@/components/journal/EditorToolbar';
 // Also in MarkdownEditor, which is loaded lazily; kept here so the fallback needs no editor code.
 const JOURNAL_PLACEHOLDER = 'Write about your day…   **bold**  # heading  - list  - [ ] task  > quote';
-import { MarkdownView } from '@/components/journal/MarkdownView';
-import { SessionView } from '@/components/journal/SessionView';
+import { EntryBody } from '@/components/journal/EntryBody';
 import { Badge, Button, Page, TabPanel, Tabs } from '@/ui';
 import styles from './JournalScreen.module.css';
 import { commandFor } from '@/components/journal/markdownCommands';
 import type { Command } from '@/components/journal/markdownCommands';
-import type { JournalCheckin, JournalEntry } from '@/types/api';
+import type { JournalCheckin } from '@/types/api';
 
 const MarkdownEditor = React.lazy(() =>
   import('@/components/journal/MarkdownEditor').then(module => ({ default: module.MarkdownEditor })),
@@ -34,10 +33,6 @@ class EditorBoundary extends React.Component<
   render() {
     return this.state.failed ? this.props.fallback : this.props.children;
   }
-}
-
-function entryText(entry: JournalEntry): string {
-  return entry.text ?? entry.lines.join('\n');
 }
 
 function checkinLabel(checkin: JournalCheckin | undefined): string {
@@ -187,7 +182,6 @@ export function JournalScreen() {
           <section aria-label="Your entries" className={styles.entries}>
             <p className={styles.count}>{entries.length} shown, newest first{hasNextPage ? '' : ', all of them'}</p>
             {entries.map(entry => {
-              const body = entryText(entry);
               const recorded = checkinLabel(entry.checkin);
               return (
                 <article key={entry.id} id={`entry-${entry.id}`}
@@ -197,11 +191,7 @@ export function JournalScreen() {
                     {(entry.tags ?? []).map(tag => <Badge key={tag}>{tag}</Badge>)}
                   </header>
                   {recorded && <p className={styles.recorded}>{recorded}</p>}
-                  {entry.session
-                    ? <SessionView session={entry.session} />
-                    : entry.format === 'markdown'
-                      ? <div className={styles.text}><MarkdownView text={body} /></div>
-                      : <div className={styles.text}>{body}</div>}
+                  <EntryBody entry={entry} textClass={styles.text} />
                   {entry.audioUrl && (
                     <audio controls preload="none" src={entry.audioUrl} aria-label="the recording this was transcribed from"
                       className={styles.audio} />

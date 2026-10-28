@@ -2281,6 +2281,16 @@
         "nullable": "YES",
         "type": "jsonb"
       },
+      "translation": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
+      "translation_hash": {
+        "default": null,
+        "nullable": "YES",
+        "type": "text"
+      },
       "updated_at": {
         "default": "CURRENT_TIMESTAMP",
         "nullable": "YES",

@@ -217,6 +217,12 @@ def offline_embeddings(monkeypatch):
     # offline there is none, and the entry is cut from its own text.
     monkeypatch.setattr("agent.pipeline._reading_model", lambda: None)
     monkeypatch.setattr("agent.discovery.Intelligence", OfflineDiscoveryModel)
+
+    # A record in another language is translated during processing; offline
+    # there is no translator, and it is read in its own words.
+    def no_translator():
+        raise RuntimeError("no translator offline")
+    monkeypatch.setattr("agent.translation._model", no_translator)
     yield
 
 

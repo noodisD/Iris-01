@@ -36,6 +36,7 @@ from .intelligence import Intelligence
 from .interpretation_version import INTERPRETATION_VERSION
 from .lens_matching import _MAX_ROWS as MAX_LENS_ROWS
 from .library import library_hash, load
+from .translation import for_reading
 from .reading_version import VERIFIED_READER_VERSION as READER_VERSION
 from .reference_evaluation import account_fingerprint
 
@@ -84,13 +85,15 @@ def _source_rows(cur, user_id: int, source_revisions: dict[int, int]) -> dict[in
     sources = {}
     for source_id in sorted(source_revisions):
         cur.execute("""SELECT user_id, reflection_date, content, evidence_eligible,
-                              discovery_revision FROM reflections WHERE id = %s FOR UPDATE""",
+                              discovery_revision, translation, translation_hash
+                         FROM reflections WHERE id = %s FOR UPDATE""",
                     (source_id,))
         row = cur.fetchone()
         if (row is None or row[0] != user_id or not row[3] or
                 not (row[2] or "").strip() or row[4] != source_revisions[source_id]):
             raise ValueError("Reading source is missing, ineligible, or changed")
-        sources[source_id] = {"date": row[1], "content": row[2]}
+        # The text the reader read: a translated record's English (ADR-0036).
+        sources[source_id] = {"date": row[1], "content": for_reading(row[2], row[5], row[6])}
     return sources
 
 

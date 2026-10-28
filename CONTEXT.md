@@ -103,10 +103,17 @@ they are; importing is the click that sends it to be indexed and read. It is
 recalled in chat by **passage** (whole turns, each naming its speaker) and is
 not a theme occurrence (ADR-0028). A session added from its recording alone is
 written down locally by Whisper, its speakers taken from the diarizer, and its
-mis-hearings checked against the diarizer's second hearing (ADR-0030). A long session is read 25 turns at a time, and a
-non-English session's passages also carry a vector of their English
-translation, so an English question finds them; chat still shows the words as
-said.
+mis-hearings checked against the diarizer's second hearing (ADR-0030). A long session is read 25 turns at a time.
+
+### English version
+A record in another language — the Polish sessions, a stray entry — keeps its
+original words and gains one stored **English version**, made by the worker
+model turn by turn with the same speakers and times. The reader, recall and
+chat use the English, so pattern quotes from it are translations found word
+for word in the English of the owner's own turns; the journal shows the English
+first and the original one tap away. A translation that does not come back
+whole is not kept, and an edit to the original throws it away (ADR-0036).
+Ideas still cite the originals.
 
 ### Added chat
 A chat conversation the owner chose to add to IRIS, stored as a reflection in
