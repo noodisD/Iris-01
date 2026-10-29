@@ -38,8 +38,11 @@ owner's.
 - **New records are translated as they are processed.** Records already in
   IRIS are caught up with `scripts/translate_records.py`, which shows the
   cost first and then queues them to be indexed and read again.
-- **Ideas keep the originals.** Idea citations are checked against the
-  stored words by hash in many places; they stay on the originals for now.
+- **Ideas read the English too** (2026-10-29). The ideas reader is given the
+  English and its quotes are checked against it, while a citation's source
+  hash stays the hash of the original words, so an edit still makes it
+  stale. Ideas read before a record was translated keep quoting the
+  original; the doctor accepts a quote found in either.
 
 ## Consequences
 - A quote from a translated record is a translation of what the owner said.

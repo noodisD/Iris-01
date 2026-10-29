@@ -113,7 +113,8 @@ chat use the English, so pattern quotes from it are translations found word
 for word in the English of the owner's own turns; the journal shows the English
 first and the original one tap away. A translation that does not come back
 whole is not kept, and an edit to the original throws it away (ADR-0036).
-Ideas still cite the originals.
+Ideas read the English too; ideas read before a translation keep quoting the
+original.
 
 ### Added chat
 A chat conversation the owner chose to add to IRIS, stored as a reflection in

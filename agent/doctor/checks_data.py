@@ -77,12 +77,16 @@ def quotes() -> Result:
         # the current translation, not in the original words.
         accounts = [(rid, cites, for_reading(content, english, made_from))
                     for rid, cites, content, english, made_from in cur.fetchall()]
-        cur.execute("""SELECT c.id, c.quote, r.content FROM idea_citations c
+        cur.execute("""SELECT c.id, c.quote, r.content, r.translation, r.translation_hash FROM idea_citations c
                          JOIN reflections r ON r.id = c.reflection_id WHERE c.status <> 'rejected'""")
+        # An idea read before a record was translated quotes the original; one
+        # read after quotes the English. Either is the record's own text.
         ideas = cur.fetchall()
     lost = [rid for rid, cites, content in accounts for c in (cites or [])
             if not c.get("text") or locate(content or "", c["text"]) is None]
-    lost_ideas = [cid for cid, quote, content in ideas if locate(content or "", quote or "") is None]
+    lost_ideas = [cid for cid, quote, content, english, made_from in ideas
+                  if locate(content or "", quote or "") is None
+                  and locate(for_reading(content, english, made_from) or "", quote or "") is None]
     total = len(lost) + len(lost_ideas)
     return _promise("data.quotes", total,
                     f"All {sum(len(c or []) for _, c, _ in accounts) + len(ideas)} quotes are found word for word.",

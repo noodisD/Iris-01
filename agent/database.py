@@ -2018,8 +2018,9 @@ class Database:
         """
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                """
-                SELECT id, reflection_date, content, content_format, discovery_revision
+                f"""
+                SELECT id, reflection_date, content, content_format, discovery_revision,
+                       {READ_TEXT}
                   FROM reflections
                  WHERE user_id = %s AND evidence_eligible
                    AND (%s::date IS NULL OR reflection_date >= %s::date)
@@ -2030,9 +2031,11 @@ class Database:
                 """,
                 (user_id, since, since, created_after, created_after, limit),
             )
+            # `reading` is the text a reader may quote: the English version
+            # of a record in another language (ADR-0036), else the content.
             return [{"id": r[0], "date": r[1], "content": r[2],
                      "content_format": r[3], "discovery_revision": r[4],
-                     "source_type": "reflection"}
+                     "source_type": "reflection", "reading": r[5]}
                     for r in cur.fetchall()]
 
     def get_content_for_source(self, source_type: str, source_id: int) -> str:

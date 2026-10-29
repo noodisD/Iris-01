@@ -149,3 +149,13 @@ def test_chat_and_the_journal_get_the_english_and_the_journal_keeps_the_original
         app.dependency_overrides.clear()
     assert entry["text"] == original
     assert entry["translation"] == {"text": english, "from": "pl", "session": None}
+
+
+def test_ideas_quote_the_english_and_keep_the_original_for_staleness(test_user):
+    from agent.ideas.service import IdeaService
+
+    rid = _session_entry(test_user)
+    english = translation.ensure(rid, SESSION, "session", model=Translator())
+    entry = next(e for e in IdeaService(test_user["id"])._entries("all") if e["id"] == rid)
+    assert entry["content"] == english
+    assert entry["original"] == SESSION

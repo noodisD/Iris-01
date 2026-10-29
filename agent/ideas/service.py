@@ -140,10 +140,14 @@ class IdeaService:
             return cur.fetchone()[0]
 
     def _entries(self, scope: str) -> list[dict[str, Any]]:
+        """What the reader reads and quotes: a record in another language as its
+        English version (ADR-0036). `original` keeps the stored words, which a
+        citation's source hash is taken from, so an edit still makes it stale."""
         if scope not in ("all", "new"):
             raise ValueError("scope is all or new")
         after = self._last_read() if scope == "new" else None
-        return db.get_entries_for_reading(self.user_id, limit=None, created_after=after)
+        return [{**entry, "original": entry["content"], "content": entry.get("reading") or entry["content"]}
+                for entry in db.get_entries_for_reading(self.user_id, limit=None, created_after=after)]
 
     def discover_estimate(self, scope: str = "new") -> dict[str, Any]:
         """What reading the archive, or only what is new, sends and costs. No model call."""
@@ -248,7 +252,7 @@ class IdeaService:
                 "reflection_id": citation.entry_id,
                 "quote": citation.text,
                 "quote_hash": quote_hash(citation.text),
-                "source_hash": content_hash(by_id[(citation.source_type, citation.entry_id)]["content"]),
+                "source_hash": content_hash(by_id[(citation.source_type, citation.entry_id)]["original"]),
                 "stance": stance,
             }
             for citation, stance in kept
