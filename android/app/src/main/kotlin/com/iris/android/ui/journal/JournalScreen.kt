@@ -275,7 +275,6 @@ private fun checkinValue(checkin: Checkin, field: String): Int? = when (field) {
 private fun JournalEntryRow(entry: JournalEntry, highlighted: Boolean) {
     val colors = LocalIrisColors.current
     val shape = RoundedCornerShape(8.dp)
-    val body = entry.text ?: entry.lines.joinToString("\n")
     Column(
         modifier = Modifier.fillMaxWidth()
             .then(if (highlighted) Modifier.background(colors.sage.copy(alpha = 0.06f), shape)
@@ -292,10 +291,12 @@ private fun JournalEntryRow(entry: JournalEntry, highlighted: Boolean) {
         checkinLabel(entry.checkin)?.let {
             Text(it, fontFamily = Mono, fontSize = 10.sp, color = colors.ink3)
         }
-        if (entry.format == "markdown") {
-            Text(markdownPreview(body), color = colors.ink2, fontSize = 13.sp, lineHeight = 20.sp)
-        } else {
-            Text(body, color = colors.ink2, fontSize = 13.sp, lineHeight = 20.sp)
+        EntryBody(entry) { text ->
+            if (entry.format == "markdown" && entry.translation == null) {
+                Text(markdownPreview(text), color = colors.ink2, fontSize = 13.sp, lineHeight = 20.sp)
+            } else {
+                Text(text, color = colors.ink2, fontSize = 13.sp, lineHeight = 20.sp)
+            }
         }
         entry.audioUrl?.let { RecordingPlayer(RecordingSource.Remote(it, entry.id)) }
         entry.irisNote?.let { note ->

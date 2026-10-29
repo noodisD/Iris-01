@@ -77,7 +77,27 @@ data class JournalEntry(
     val text: String? = null,
     val format: String? = null,
     val checkin: Checkin? = null,
+    /** A therapy session's turns, read by the server (ADR-0028). */
+    val session: JournalSession? = null,
+    /** The English version IRIS reads, for writing in another language (ADR-0036). */
+    val translation: JournalTranslation? = null,
 )
+
+@Serializable
+data class JournalSession(
+    val kind: String = "therapy",
+    val startedAt: String? = null,
+    val language: String? = null,
+    val durationSeconds: Int? = null,
+    val turns: List<SessionTurn> = emptyList(),
+)
+
+/** One speaker's turn; role is owner, therapist, asker or unclear. */
+@Serializable
+data class SessionTurn(val at: Int, val label: String, val role: String, val text: String)
+
+@Serializable
+data class JournalTranslation(val text: String, val from: String, val session: JournalSession? = null)
 
 @Serializable
 data class JournalListResponse(
