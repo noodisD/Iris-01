@@ -28,8 +28,8 @@ The owner chose each of these in conversation.
   a tab for each (`/habits/daily`, `/habits/weekly`, `/habits/monthly`).
 - **A habit can be edited, archived (history kept) or deleted (history removed, with
   everything derived from it), after a confirmation.**
-- **Web first.** The phone app's Habits screen keeps working on the same API, and does
-  not yet show periods, notes or past days.
+- **Web first, then the phone.** The phone app's Habits screen followed on 2026-10-26
+  with the same tabs, day notes, past days and order, on the same API.
 
 ## Consequences
 - Forgotten days are no longer lost, and streaks always agree with the days.
