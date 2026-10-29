@@ -6,6 +6,10 @@ Every line of every transcript below is invented.
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -103,7 +107,24 @@ def recordings(tmp_path, monkeypatch):
     monkeypatch.setattr("agent.session_imports.recordings_root", lambda: tmp_path / "recordings")
     monkeypatch.setattr(session_voices, "_samples", lambda found, audio, workdir, names: ["a", "b"])
     monkeypatch.setattr(session_voices, "_parts", lambda audio, workdir: [(0.0, audio)])
+    monkeypatch.setattr(session_voices, "enhance", lambda audio, workdir: audio)
     return tmp_path / "recordings"
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is not installed")
+def test_a_quiet_recording_is_made_easier_to_hear_and_the_original_kept(tmp_path):
+    quiet = tmp_path / "quiet.wav"
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=300:duration=4", "-af", "tremolo=f=3:d=0.9,volume=-12dB", str(quiet)], check=True)
+    before = quiet.read_bytes()
+    out = session_voices.enhance(quiet, tmp_path)
+
+    def loudness(path):
+        done = subprocess.run(["ffmpeg", "-nostdin", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                              capture_output=True, text=True)
+        return float(re.search(r"mean_volume: (-?[\d.]+) dB", done.stderr).group(1))
+    assert loudness(out) > loudness(quiet) + 8
+    assert quiet.read_bytes() == before
 
 
 def test_the_pass_relabels_keeps_the_old_labels_and_can_be_undone(test_user, tmp_path, recordings, monkeypatch):
