@@ -1,0 +1,156 @@
+{
+ "P1": {
+  "entries": [
+   "e012",
+   "e024",
+   "e041",
+   "e058",
+   "e072"
+  ],
+  "sentences": {
+   "e012": "Deadline week again, so I skipped my run this morning and stayed at the desk.",
+   "e024": "I skipped the long run because the competition boards were due on Monday.",
+   "e041": "Another deadline, another skipped run. I slept badly afterwards, which is what always happens when I miss one.",
+   "e058": "I skipped the long run again for the hospital drawings.",
+   "e072": "Deadline crunch, no running all week, and my sleep has been rubbish since."
+  }
+ },
+ "P2": {
+  "entries": [
+   "e015",
+   "e033",
+   "e049",
+   "e066"
+  ],
+  "sentences": {
+   "e015": "At half past five on Friday Henrik asked if I could take the facade details over the weekend, and I said yes before I had even looked at my week.",
+   "e033": "Friday, 5:40, Henrik again: could I cover the planning comments by Monday. I said yes straight away and only then remembered the move.",
+   "e049": "Henrik caught me at the lift on Friday evening with one more revision, and I agreed before checking anything.",
+   "e066": "Late Friday Henrik asked for the tender drawings by Tuesday and I said fine, then opened my calendar and saw I had no gap at all."
+  }
+ },
+ "P3": {
+  "entries": [
+   "e037",
+   "e061"
+  ],
+  "sentences": {
+   "e037": "Bad night, maybe three hours. I called Tomek before work and felt steadier afterwards.",
+   "e061": "Slept terribly again. Rang Tomek on the walk to the office; after ten minutes with him I felt more level."
+  }
+ },
+ "P4": {
+  "entries": [
+   "session"
+  ],
+  "sentences": {
+   "session": "I go quiet when someone is angry with me. I just stop talking."
+  }
+ },
+ "T1": {
+  "entries": [
+   "session"
+  ],
+  "sentences": {
+   "session": "It sounds like you avoid conflict at work."
+  },
+  "owner_reply": "I'm not sure that's it."
+ },
+ "T2": {
+  "entries": [
+   "e024",
+   "e058"
+  ],
+  "absent_phrase": "I gave up running"
+ },
+ "T3": {
+  "entries": [
+   "e009",
+   "e044",
+   "e070"
+  ],
+  "sentences": {
+   "e009": "Coffee with Ines after the site visit, which was nice.",
+   "e044": "Too much coffee today, I'm buzzing.",
+   "e070": "No coffee at all this week and I didn't notice the difference."
+  }
+ },
+ "T4": {
+  "absent": [
+   "parents",
+   "money",
+   "travel"
+  ]
+ },
+ "T5": {
+  "entries": [
+   "u001"
+  ],
+  "sentences": {
+   "u001": "The cello recital is coming up and I still can't get through the second page without stopping."
+  }
+ },
+ "T6": {
+  "entries": [
+   "e077"
+  ],
+  "sentences": {
+   "e077": "On the way back from the station in April I turned my ankle on the kerb, and it was swollen for a week."
+  }
+ },
+ "T7": {
+  "entries": [
+   "e028",
+   "e030",
+   "e055"
+  ],
+  "sentences": {
+   "e028": "I always cancel plans when I'm tired.",
+   "e030": "Exhausted, but I still went to Ines's birthday dinner and stayed until eleven.",
+   "e055": "Dead tired after the review, but I kept the cinema plan with Tomek and I'm glad I did."
+  }
+ },
+ "T8": {
+  "entries": [
+   "questionnaire"
+  ],
+  "sentences": {
+   "questionnaire": "Being near water calms me, and long walks with no destination."
+  }
+ },
+ "T9": {
+  "entries": [
+   "e039"
+  ],
+  "sentences": {
+   "e039": "Practised the Bach I keep stumbling over for forty minutes; the shifts in the middle are still a mess."
+  }
+ },
+ "T10": {
+  "entries": [
+   "e040"
+  ]
+ },
+ "T11": {
+  "entries": [
+   "session"
+  ],
+  "sentences": {
+   "session": "I wonder whether you're burning out."
+  }
+ },
+ "T12": {
+  "absent": [
+   "race",
+   "Sunday evening"
+  ]
+ },
+ "move": {
+  "entries": [
+   "e026"
+  ],
+  "sentences": {
+   "e026": "We're moving because the new flat is ten minutes from the studio and has a room for the cello."
+  }
+ }
+}

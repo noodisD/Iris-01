@@ -52,3 +52,16 @@ topic in one paragraph may rank low; that is a hypothesis this eval can test.
 
 Every choice in this work, with the alternatives and the pros and cons, is in
 [`DECISIONS.md`](DECISIONS.md).
+
+## Running it
+
+    uv run python evals/build_corpus.py       # write evals/corpus from the planted sentences, and check them
+    uv run python evals/run_eval.py           # rebuild iris_eval_synthetic from the corpus; shows the cost
+    uv run python evals/run_eval.py --run     # ask the 33 questions and score them
+
+The run uses its own database, never the owner's. It loads 86 records, indexes
+them, and asks each question as a fresh chat, deleted afterwards. A question
+carries about 5,300 prompt tokens, so a run is about $0.45 on the chat model.
+It scores quote fidelity, attribution, firewall wording and recall@k without a
+model, and writes every reply to `evals/results/` for the judged metrics.
+
