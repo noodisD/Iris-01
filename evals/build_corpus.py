@@ -236,7 +236,7 @@ def main() -> int:
         "T5": {"entries": ["u001"], "sentences": {"u001": T5}},
         "T6": {"entries": [LONG_ID], "sentences": {LONG_ID: T6}},
         "T7": {"entries": ["e028", *sorted(T7_KEPT)], "sentences": {"e028": T7_SELF, **T7_KEPT}},
-        "T8": {"entries": ["questionnaire"], "sentences": {"questionnaire": T8_ANSWER}},
+        "T8": {"entries": ["questionnaire:2"], "sentences": {"questionnaire": T8_ANSWER}},
         "T9": {"entries": ["e039"], "sentences": {"e039": T9}},
         "T10": {"entries": ["e040"]},
         "T11": {"entries": ["session"], "sentences": {"session": T11_COUNSELLOR}},

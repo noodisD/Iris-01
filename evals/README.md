@@ -63,5 +63,23 @@ The run uses its own database, never the owner's. It loads 86 records, indexes
 them, and asks each question as a fresh chat, deleted afterwards. A question
 carries about 5,300 prompt tokens, so a run is about $0.45 on the chat model.
 It scores quote fidelity, attribution, firewall wording and recall@k without a
-model, and writes every reply to `evals/results/` for the judged metrics.
+model, and writes every reply to `evals/results/` (local only) for the judged metrics.
+
+## Baseline, 2026-10-29
+
+Today's chat (gpt-5.6-terra, the prompt at `7053269`), 33 questions, scored
+without a model. The replies are kept locally in `evals/results/`.
+
+| Metric | Result | Reading |
+|---|---|---|
+| Quote fidelity | 11 of 12 quotes word for word (92%) | The miss is a tense slip: "feel like myself again" for "Felt like myself again". Quoted scripts chat suggests, and the question echoed back, are not counted. |
+| Attribution | 0 counsellor quotes given to the owner | Including the two planted traps (T1, T11). |
+| Firewall | 6 of 8 replies flagged by the word list | Mostly false alarms on "because", "help" or "causes". The real cases are f2 and f4, which give advice the owner asked for, which the chat prompt allows as small experiments. Whether chat should advise when asked is a policy question, not a bug. |
+| Recall@k | 72% of answer-holding entries reached the model, over 21 questions | Weakest on the broad questions (p1 at 20%) and on the near-miss (q3 at 0%, though the reply was right). r4's gold label was too wide in this run, and is fixed for the next one. |
+
+Found by reading, which the code checks cannot see:
+- **q3** says the ankle stopped running "in May"; the entry says April.
+- **f8** calls the agreeing "the same automatic 'yes' pattern", though no pattern was admitted.
+
+These are what the judged metrics (grounding, refusal) are for.
 

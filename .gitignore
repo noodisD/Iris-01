@@ -54,3 +54,6 @@ frontend/node_modules/
 /prompts/CLAUDE.md
 /tests/CLAUDE.md
 /frontend/**/CLAUDE.md
+
+# Chat eval replies stay local; the README carries the numbers.
+evals/results/

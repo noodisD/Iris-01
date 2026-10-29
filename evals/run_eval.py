@@ -42,8 +42,11 @@ import psycopg2  # noqa: E402
 from agent.config import settings  # noqa: E402
 
 QUOTE = re.compile(r"[\"“‘]([^\"”’\n]{8,400})[\"”’]")
-SAID_BEFORE = re.compile(r"\byou(?:'ve| have)?\s+(?:said|wrote|written|mentioned|told|described|called)\b[^.]{0,60}$",
-                         re.I)
+#: What comes before a quoted script chat offers, rather than a quote of the journal.
+SCRIPT_BEFORE = re.compile(r"\b(?:say|saying|said something like|script|reply could be|could be|try|use|"
+                           r"something like|for example|e\.g\.|rule|ask(?:ing)?)\b[^!?]{0,140}$", re.I)
+SAID_BEFORE = re.compile(r"\b(?:you(?:'ve| have)?\s+(?:said|wrote|written|mentioned|told|described|called|put it)"
+                         r"|in your (?:words|entry|journal)|your words)\b[^.]{0,70}$", re.I)
 
 
 def questions() -> list[dict]:
@@ -110,15 +113,16 @@ def load() -> tuple[int, dict[str, list[int]]]:
     ids["session"] = [db.create_reflection(user, session, reflection_date=date(2026, 5, 12), source="session",
                                            content_format="session")]
     ids["questionnaire"] = []
-    for item in questionnaire:
+    for number, item in enumerate(questionnaire, 1):
         found = [sessions.Segment(0, "(questionnaire)", item["question"]), sessions.Segment(1, "Mara", item["answer"])]
         text = sessions.compose(found, kind="questionnaire", started="2026-03-01T00:00", language="en",
                                 owner="Mara", asker="(questionnaire)")
-        ids["questionnaire"].append(db.create_reflection(user, text, reflection_date=date(2026, 3, 1),
-                                                         source="questionnaire", content_format="session"))
-    for rids in ids.values():
-        for rid in rids:
-            pipeline.run_processing_pipeline("reflection", rid)
+        rid = db.create_reflection(user, text, reflection_date=date(2026, 3, 1), source="questionnaire",
+                                   content_format="session")
+        ids["questionnaire"].append(rid)
+        ids[f"questionnaire:{number}"] = [rid]
+    for rid in sorted({rid for rids in ids.values() for rid in rids}):
+        pipeline.run_processing_pipeline("reflection", rid)
     return user, ids
 
 
@@ -151,7 +155,10 @@ def score(question: dict, reply: str, retrieved: set[int], ids: dict, gold: dict
     from agent.narrative_policy import FORBIDDEN_REGEX
     from agent.readable import locate
 
-    quotes = _quotes(reply)
+    # A quoted script chat suggests ("you could say: ...") or the question
+    # echoed back is not a quote of the journal; every other quote is.
+    quotes = [(q, before) for q, before in _quotes(reply)
+              if not SCRIPT_BEFORE.search(before) and q.lower() not in question["question"].lower()]
     lost = [q for q, _ in quotes if not any(locate(t, q) for t in texts)]
     misattributed = [q for q, before in quotes
                      if locate(session, q) and sessions.owner_turn(session, q) is None and SAID_BEFORE.search(before)]
@@ -190,8 +197,9 @@ def ask(user: int, ids: dict, questions: list[dict]) -> list[dict]:
             with db.connection() as conn, conn.cursor() as cur:
                 cur.execute("DELETE FROM conversation_messages WHERE user_id = %s", (user,))
                 conn.commit()
-        result = {**question, "reply": reply,
-                  **score(question, reply, _sources(seen), ids, gold, texts, session)}
+        retrieved = _sources(seen)
+        result = {**question, "reply": reply, "retrieved": sorted(retrieved),
+                  **score(question, reply, retrieved, ids, gold, texts, session)}
         out.append(result)
         print(f"  {question['id']}: quotes {result['quotes']}, lost {len(result['quotes_lost'])}, "
               f"misattributed {len(result['misattributed'])}, firewall {len(result['firewall'])}, "
@@ -215,10 +223,31 @@ def summary(results: list[dict]) -> dict:
     }
 
 
+def rescore(path: Path) -> dict:
+    """Score saved replies again, as the checks improve, without asking anything."""
+    from agent.database import db
+
+    report = json.loads(path.read_text())
+    _, session, questionnaire, gold = _corpus()
+    texts = [*(json.loads(line)["text"] for line in (ROOT / "corpus" / "entries.jsonl").read_text().splitlines()),
+             session, *(item["answer"] for item in questionnaire)]
+    del db
+    for result in report["results"]:
+        kept = {k: result[k] for k in ("recall",)}
+        result.update(score(result, result["reply"], set(), {}, gold, texts, session), **kept)
+    report["summary"] = summary(report["results"])
+    path.write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str) + "\n")
+    return report["summary"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", action="store_true", help="ask the questions (costs chat calls)")
+    ap.add_argument("--rescore", type=Path, help="score a saved results file again; asks nothing")
     args = ap.parse_args()
+    if args.rescore:
+        print(json.dumps(rescore(args.rescore), indent=1))
+        return 0
     asked = questions()
     user, ids = load()
     from agent.intelligence import Intelligence
