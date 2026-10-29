@@ -41,8 +41,10 @@ LENGTH_RANGE = (0.4, 2.5)
 TURNS_PROMPT = (
     "Translate each numbered turn of this recorded conversation from {language} into natural English, "
     "faithfully and in full: every sentence, hesitation and repetition the speaker said, nothing added, "
-    "nothing summarised, no explanations. Keep first and second person as spoken. Text in square brackets "
-    "such as [unclear] stays as a bracketed note in English. The speakers are given for context only. "
+    "nothing summarised, no explanations. Keep first and second person as spoken. A bracketed note "
+    "marks words the transcriber was unsure of, such as [niezrozumiałe: words heard]: keep the brackets and "
+    "translate both the note and every word inside it, as [unclear: words heard], never dropping them. "
+    "The speakers are given for context only. "
     "Reply with JSON: {{\"turns\": [{{\"n\": <number>, \"text\": \"<English>\"}}, ...]}}, one item for every "
     "numbered turn.")
 TEXT_PROMPT = (
